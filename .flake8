@@ -1,0 +1,13 @@
+[flake8]
+per-file-ignores =
+    */__init__.py:F401
+
+exclude = 
+    .git,
+    __pycache__,
+    docs/source/conf.py,
+    old,
+    build,
+    dist,
+    migrations
+max-line-length=119
