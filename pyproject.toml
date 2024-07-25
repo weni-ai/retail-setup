@@ -3,11 +3,14 @@ name = "retail-setup"
 version = "0.0.1"
 description = ""
 authors = ["Weni"]
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.10"
 django = "^5.0.7"
 django-environ = "^0.11.2"
+weni-eda = "^0.0.1"
+psycopg2 = "^2.9.9"
 
 
 [tool.poetry.group.dev.dependencies]
