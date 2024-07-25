@@ -9,3 +9,11 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-retail}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-retail}
       - POSTGRES_DB=${POSTGRES_DB:-retail}
+  rabbitmq:
+    image: rabbitmq:3.9.7-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
