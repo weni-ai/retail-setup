@@ -34,7 +34,7 @@ class FeatureIntegration(models.Model):
 
 class IntegratedFeature(models.Model):
     feature_version = models.ForeignKey(FeatureVersion, on_delete=models.CASCADE, related_name="integrated_feature")
-    project = models.ForeignKey(Project, on_delete=models.SET_NULL, related_name="project")
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="project")
     # add usuário e integrated_on (data que foi gerado o integrated_feature)
 
     def __str__(self) -> str:

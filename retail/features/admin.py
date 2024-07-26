@@ -1,5 +1,5 @@
 from django.contrib import admin
 
-from retail.features.models import Feature, FeatureVersion, FeatureVersionTemplate, IntegratedFeatureVersion
+from retail.features.models import Feature, FeatureVersion, FeatureIntegration, IntegratedFeature
 
-admin.site.register()
+# admin.site.register()

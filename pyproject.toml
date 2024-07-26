@@ -12,7 +12,6 @@ django-environ = "^0.11.2"
 psycopg2-binary = "^2.9.9"
 psycopg2 = "^2.9.9"
 weni-eda = "^0.0.1"
-psycopg2 = "^2.9.9"
 
 
 [tool.poetry.group.dev.dependencies]

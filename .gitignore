@@ -133,3 +133,5 @@ dmypy.json
 
 # Static files
 media/
+
+.idea
