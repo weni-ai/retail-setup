@@ -1,6 +1,8 @@
 import uuid
+import datetime
 
 from django.db import models
+from django.contrib.auth.models import User
 
 from retail.projects.models import Project
 
@@ -28,14 +30,11 @@ class FeatureVersion(models.Model):
         return f"{self.feature.name} - {self.version} - {self.uuid}"
 
 
-class FeatureIntegration(models.Model):
-    feature_version = models.ForeignKey(FeatureVersion, on_delete=models.CASCADE, related_name="feature_integration")
-
-
 class IntegratedFeature(models.Model):
     feature_version = models.ForeignKey(FeatureVersion, on_delete=models.CASCADE, related_name="integrated_feature")
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="project")
-    # add usuário e integrated_on (data que foi gerado o integrated_feature)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="integrated_feature")
+    integrated_on = models.DateField(auto_now_add=True)
 
     def __str__(self) -> str:
         return self.feature_version.feature.name
