@@ -17,3 +17,16 @@ services:
     environment:
       - RABBITMQ_DEFAULT_USER=guest
       - RABBITMQ_DEFAULT_PASS=guest
+  
+  retail-setup:
+    build: 
+      context: ..
+      dockerfile: ./docker/Dockerfile
+    ports:
+      -"8000-8000"
+    environment:
+      - DEBUG=${DEBUG:-true}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+      - SECRET_KEY=${SECRET_KEY}
+    depends_on:
+      - database
