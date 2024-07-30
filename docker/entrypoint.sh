@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export GUNICORN_APP=${GUNICORN_APP:-"connect.wsgi"}
+export GUNICORN_APP=${GUNICORN_APP:-"retail-setup.wsgi"}
 export GUNICORN_CONF=${GUNICORN_CONF:-"${PROJECT_PATH}/gunicorn.conf.py"}
 export LOG_LEVEL=${LOG_LEVEL:-"INFO"}
 

@@ -23,7 +23,7 @@ services:
       context: ..
       dockerfile: ./docker/Dockerfile
     ports:
-      -"8000-8000"
+      - "8000:8000"
     environment:
       - DEBUG=${DEBUG:-true}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
