@@ -11,6 +11,7 @@ django = "^5.0.7"
 django-environ = "^0.11.2"
 weni-eda = "^0.0.1"
 psycopg2 = "^2.9.9"
+gunicorn = "^22.0.0"
 
 
 [tool.poetry.group.dev.dependencies]

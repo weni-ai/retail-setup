@@ -1,8 +1,11 @@
-import multiprocessing
 import os
+import multiprocessing
 
-bind = '0.0.0.0'
 workers = os.environ.get("GUNICORN_WORKERS", multiprocessing.cpu_count() * 2 + 1)
-worker_class = 'gevent'
-raw_env = ['DJANGO_SETTINGS_MODULE=connect.settings']
-timeout = 999999
+proc_name = "retail"
+default_proc_name = proc_name
+accesslog = "-"
+errorlog = "-"
+capture_output = True
+timeout = 120
+bind = "0.0.0.0"
