@@ -90,9 +90,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   && rm -rf /usr/share/man /usr/share/doc
 
 COPY --from=build /install /usr/local
-COPY --chown=${APP_USER}:${APP_GROUP} ./ ${PROJECT_PATH}
+COPY --chown=${APP_USER}:${APP_GROUP} . ${PROJECT_PATH}
+
+RUN ls
 
 USER "${APP_USER}:${APP_GROUP}"
 EXPOSE 8000
-ENTRYPOINT ["bash", "./entrypoint.sh"]
+ENTRYPOINT ["bash", "./docker/entrypoint.sh"]
 CMD ["start"]

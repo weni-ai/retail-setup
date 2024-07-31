@@ -1,16 +1,16 @@
 #!/bin/bash
 
-export GUNICORN_APP=${GUNICORN_APP:-"retail-setup.wsgi"}
-export GUNICORN_CONF=${GUNICORN_CONF:-"${PROJECT_PATH}/gunicorn.conf.py"}
+# export GUNICORN_APP=${GUNICORN_APP:-"retail-setup.wsgi"}
+# export GUNICORN_CONF=${GUNICORN_CONF:-"${PROJECT_PATH}/docker/gunicorn.conf.py"}
 export LOG_LEVEL=${LOG_LEVEL:-"INFO"}
 
 do_gosu(){
-    user = "$1"
+    user="$1"
     shift 1
 
-    is_exec = "false"
+    is_exec="false"
     if [ "$1" = "exec" ]; then
-        is_exec = "true"
+        is_exec="true"
         shift 1
     fi
 
@@ -34,8 +34,11 @@ do_gosu(){
 if [[ "start" == "$1" ]]; then
     echo "Running collectstatic"
     do_gosu "${APP_USER}:${APP_GROUP}" python manage.py collectstatic --noinput
-    echo "Starting server"
-    do_gosu "${APP_USER}:${APP_GROUP}" exec gunicorn "${GUNICORN_APP}" -c "${GUNICORN_CONF}"   
+    # echo "Starting server"
+    # do_gosu "${APP_USER}:${APP_GROUP}" exec gunicorn "${GUNICORN_APP}" -c "${GUNICORN_CONF}"   
 elif [[ "eda-consumer" == "$1" ]]; then
     echo "Running eda-consumer"
-    do_gosu "${PROJECT_USER}:${PROJECT_GROUP}" python manage.py edaconsume
+    do_gosu "${APP_USER}:${APP_GROUP}" python manage.py edaconsume
+fi
+
+exec "$@"
