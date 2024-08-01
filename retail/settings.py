@@ -52,7 +52,7 @@ INSTALLED_APPS = [
     "weni.eda.django.eda_app",
     "retail.projects",
     "retail.features",
-    "reailt.integrations"
+    "retail.integrations"
 ]
 
 MIDDLEWARE = [

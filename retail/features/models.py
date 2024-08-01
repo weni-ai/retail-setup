@@ -17,6 +17,31 @@ class Feature(models.Model):
     def __str__(self):
         return f"Name: {self.name}"
 
+class Brain(models.Model):
+
+    personalities = [
+        ("Amigável", "Amigável"),
+        ("Cooperativo", "Cooperativo"),
+        ("Extrovertido", "Extrovertido"),
+        ("Generoso", "Generoso"),
+        ("Relaxado", "Relaxado"),
+        ("Organizado", "Organizado"),
+        ("Sistemático", "Sistemático"),
+        ("Inovador", "Inovador"),
+        ("Criativo", "Criativo"),
+        ("Intelectual", "Intelectual")
+    ]
+
+    uuid = models.UUIDField(default=uuid.uuid4)
+    actions = models.JSONField(null=True)
+    name = models.TextField()
+    ocupation = models.TextField()
+    personality = models.TextField(choices=personalities, default="Amigável")
+    instructions = models.JSONField(null=True)
+
+    def __str__(self) -> str:
+        return f"{self.uuid} - {self.name}"
+
 
 class FeatureVersion(models.Model):
     created_at = models.DateField(auto_now_add=True)
@@ -25,7 +50,8 @@ class FeatureVersion(models.Model):
     parameters = models.JSONField(null=True, blank=True)
     version = models.CharField(max_length=10, default="1.0")
     feature = models.ForeignKey(Feature, models.CASCADE, related_name="feature_version", null=True, blank=True)
-    
+    brain = models.ForeignKey(Brain, on_delete=models.CASCADE, related_name="feature_version", null=True)
+
     def __str__(self) -> str:
         return f"{self.feature.name} - {self.version} - {self.uuid}"
 
