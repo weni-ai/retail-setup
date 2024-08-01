@@ -12,6 +12,9 @@ class FeatureVersionInlineForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["brain"].required = False
 
+class BrainInline(admin.StackedInline):
+    model = Brain
+    extra = 0
 
 class FeatureVersionInline(admin.StackedInline):
     model = FeatureVersion
@@ -20,6 +23,7 @@ class FeatureVersionInline(admin.StackedInline):
 
 class FeatureAdmin(admin.ModelAdmin):
     inlines = [FeatureVersionInline]
+
 
 admin.site.register(Feature, FeatureAdmin)
 admin.site.register(Brain)

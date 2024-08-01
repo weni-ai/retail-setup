@@ -8,11 +8,16 @@ from retail.projects.models import Project
 
 class Feature(models.Model):
 
+    categories = [
+        ("ATIVO", "Ativo"),
+        ("PASSIVO", "Passivo")
+    ]
+
     create_on = models.DateField("when are created the new feature", auto_now_add=True)
     description = models.TextField(null=True)
     name = models.CharField(max_length=256)
     uuid = models.UUIDField("UUID", primary_key=True, default=uuid.uuid4, editable=False)
-    category = models.CharField(max_length=256)
+    category = models.CharField(max_length=256, choices=categories, default="Ativo")
 
     def __str__(self):
         return f"Name: {self.name}"
