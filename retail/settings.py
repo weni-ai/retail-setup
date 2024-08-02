@@ -50,6 +50,8 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "weni.eda.django.eda_app",
+
+    "retail.healthcheck"
 ]
 
 MIDDLEWARE = [
