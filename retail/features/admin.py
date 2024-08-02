@@ -22,8 +22,11 @@ class FeatureVersionInline(admin.StackedInline):
     extra = 0
 
 class FeatureAdmin(admin.ModelAdmin):
+    search_fields = ["name", "uuid"]
+    list_filter = ["category"]
     inlines = [FeatureVersionInline]
 
 
 admin.site.register(Feature, FeatureAdmin)
 admin.site.register(Brain)
+admin.site.register(FeatureVersion)
