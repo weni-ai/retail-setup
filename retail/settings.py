@@ -37,7 +37,11 @@ SECRET_KEY = env.str("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env.bool("DEBUG", default=False)
 
+SERVICE_HOST = env.str("SERVICE_HOST", default="localhost")
+
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
+
+CSRF_TRUSTED_ORIGINS = [f"https://*.{SERVICE_HOST}"]
 
 
 # Application definition
