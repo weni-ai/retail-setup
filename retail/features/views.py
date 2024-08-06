@@ -27,6 +27,7 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
             return redirect(redirect_url)
     else:
         form = IntegrateFeatureForm(feature=feature)
+        form.initial["feature_version"] = feature.last_version
 
     context = {"title": f"Integrar {feature}", "feature": feature, "form": form}
 
