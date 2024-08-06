@@ -28,7 +28,7 @@ class Feature(models.Model):
         return self.versions.order_by("created_on").last()
 
 
-class Brain(models.Model):
+class IntelligentAgent(models.Model):
 
     personalities = [
         ("Amigável", "Amigável"),
@@ -46,12 +46,13 @@ class Brain(models.Model):
     uuid = models.UUIDField(default=uuid.uuid4)
     actions = models.JSONField(null=True)
     name = models.TextField()
-    ocupation = models.TextField()
+    role = models.TextField()
     personality = models.TextField(choices=personalities, default="Amigável")
     instructions = models.JSONField(null=True)
+    goal = models.TextField()
 
     def __str__(self) -> str:
-        return f"{self.uuid} - {self.name}"
+        return f"{self.name} - {self.uuid}"
 
 
 class FeatureVersion(models.Model):
@@ -61,7 +62,7 @@ class FeatureVersion(models.Model):
     parameters = models.JSONField(null=True, blank=True)
     version = models.CharField(max_length=10, default="1.0")
     feature = models.ForeignKey(Feature, models.CASCADE, related_name="versions", null=True, blank=True)
-    brain = models.ForeignKey(Brain, on_delete=models.CASCADE, related_name="versions", null=True)
+    IntelligentAgent = models.ForeignKey(IntelligentAgent, on_delete=models.CASCADE, related_name="versions", null=True)
 
     created_on = models.DateTimeField(auto_now_add=True)
 

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django import forms
 
-from retail.features.models import Feature, FeatureVersion, IntegratedFeature, Brain
+from retail.features.models import Feature, FeatureVersion, IntegratedFeature, IntelligentAgent
 
 class FeatureVersionInlineForm(forms.ModelForm):
     class Meta:
@@ -10,10 +10,10 @@ class FeatureVersionInlineForm(forms.ModelForm):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["brain"].required = False
+        self.fields["intelligent_agent"].required = False
 
-class BrainInline(admin.StackedInline):
-    model = Brain
+class IntelligentAgentInline(admin.StackedInline):
+    model = IntelligentAgent
     extra = 0
 
 class FeatureVersionInline(admin.StackedInline):
@@ -28,5 +28,5 @@ class FeatureAdmin(admin.ModelAdmin):
 
 
 admin.site.register(Feature, FeatureAdmin)
-admin.site.register(Brain)
+admin.site.register(IntelligentAgent)
 admin.site.register(FeatureVersion)
