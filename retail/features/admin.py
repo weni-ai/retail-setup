@@ -10,7 +10,7 @@ class FeatureVersionInlineForm(forms.ModelForm):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["intelligent_agent"].required = False
+        self.fields["IntelligentAgent"].required = False
 
 class IntelligentAgentInline(admin.StackedInline):
     model = IntelligentAgent
