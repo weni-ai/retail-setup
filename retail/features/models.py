@@ -62,7 +62,7 @@ class FeatureVersion(models.Model):
     parameters = models.JSONField(null=True, blank=True)
     version = models.CharField(max_length=10, default="1.0")
     feature = models.ForeignKey(Feature, models.CASCADE, related_name="versions", null=True, blank=True)
-    IntelligentAgent = models.ForeignKey(IntelligentAgent, on_delete=models.CASCADE, related_name="versions", null=True)
+    IntelligentAgent = models.ForeignKey(IntelligentAgent, on_delete=models.CASCADE, related_name="versions", null=True, blank=True)
 
     created_on = models.DateTimeField(auto_now_add=True)
 

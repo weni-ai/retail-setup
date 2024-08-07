@@ -27,6 +27,11 @@ class FeatureAdmin(admin.ModelAdmin):
     inlines = [FeatureVersionInline]
 
 
+class IntegratedFeatureAdmin(admin.ModelAdmin):
+    model = IntegratedFeature
+    extra = 0
+
 admin.site.register(Feature, FeatureAdmin)
 admin.site.register(IntelligentAgent)
 admin.site.register(FeatureVersion)
+admin.site.register(IntegratedFeature, IntegratedFeatureAdmin)
