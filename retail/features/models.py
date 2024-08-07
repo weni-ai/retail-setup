@@ -7,17 +7,19 @@ from django.contrib.auth.models import User
 
 from retail.projects.models import Project
 
+
 class Feature(models.Model):
 
-    categories = [
-        ("ATIVO", "Ativo"),
-        ("PASSIVO", "Passivo")
-    ]
+    categories = [("ATIVO", "Ativo"), ("PASSIVO", "Passivo")]
 
-    created_on = models.DateTimeField("when are created the new feature", auto_now_add=True)
+    created_on = models.DateTimeField(
+        "when are created the new feature", auto_now_add=True
+    )
     description = models.TextField(null=True)
     name = models.CharField(max_length=256)
-    uuid = models.UUIDField("UUID", primary_key=True, default=uuid.uuid4, editable=False)
+    uuid = models.UUIDField(
+        "UUID", primary_key=True, default=uuid.uuid4, editable=False
+    )
     category = models.CharField(max_length=256, choices=categories, default="Ativo")
 
     def __str__(self):
@@ -40,7 +42,7 @@ class IntelligentAgent(models.Model):
         ("Sistemático", "Sistemático"),
         ("Inovador", "Inovador"),
         ("Criativo", "Criativo"),
-        ("Intelectual", "Intelectual")
+        ("Intelectual", "Intelectual"),
     ]
 
     uuid = models.UUIDField(default=uuid.uuid4)
@@ -56,13 +58,23 @@ class IntelligentAgent(models.Model):
 
 
 class FeatureVersion(models.Model):
-    uuid = models.UUIDField("UUID", primary_key=True, default=uuid.uuid4, editable=False)
+    uuid = models.UUIDField(
+        "UUID", primary_key=True, default=uuid.uuid4, editable=False
+    )
 
     definition = models.JSONField()
     parameters = models.JSONField(null=True, blank=True)
     version = models.CharField(max_length=10, default="1.0")
-    feature = models.ForeignKey(Feature, models.CASCADE, related_name="versions", null=True, blank=True)
-    IntelligentAgent = models.ForeignKey(IntelligentAgent, on_delete=models.CASCADE, related_name="versions", null=True, blank=True)
+    feature = models.ForeignKey(
+        Feature, models.CASCADE, related_name="versions", null=True, blank=True
+    )
+    IntelligentAgent = models.ForeignKey(
+        IntelligentAgent,
+        on_delete=models.CASCADE,
+        related_name="versions",
+        null=True,
+        blank=True,
+    )
 
     created_on = models.DateTimeField(auto_now_add=True)
 
@@ -71,14 +83,24 @@ class FeatureVersion(models.Model):
 
 
 class IntegratedFeature(models.Model):
-    uuid = models.UUIDField("UUID", primary_key=True, default=uuid.uuid4, editable=False)
+    uuid = models.UUIDField(
+        "UUID", primary_key=True, default=uuid.uuid4, editable=False
+    )
 
-    feature_version = models.ForeignKey(FeatureVersion, on_delete=models.CASCADE, related_name="integrated_features")
-    feature = models.ForeignKey(Feature, on_delete=models.CASCADE, related_name="integrated_features")
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="integrated_features")
+    feature_version = models.ForeignKey(
+        FeatureVersion, on_delete=models.CASCADE, related_name="integrated_features"
+    )
+    feature = models.ForeignKey(
+        Feature, on_delete=models.CASCADE, related_name="integrated_features"
+    )
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="integrated_features"
+    )
     parameters = models.JSONField(null=True, default=dict)
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="integrated_features")
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="integrated_features"
+    )
     integrated_on = models.DateField(auto_now_add=True)
 
     def save(self, *args) -> None:
@@ -94,4 +116,6 @@ class Flow(models.Model):
     flow_uuid = models.CharField(max_length=100, null=True)
     name = models.CharField(max_length=256)
     definition = models.JSONField()
-    integrated_feature = models.ForeignKey(IntegratedFeature, on_delete=models.CASCADE, related_name="flows")
+    integrated_feature = models.ForeignKey(
+        IntegratedFeature, on_delete=models.CASCADE, related_name="flows"
+    )
