@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django import forms
 
-from retail.features.models import Feature, FeatureVersion, IntegratedFeature, IntelligentAgent
+from retail.features.models import Feature, FeatureVersion, IntelligentAgent
 
 class FeatureVersionInlineForm(forms.ModelForm):
     class Meta:
@@ -27,11 +27,6 @@ class FeatureAdmin(admin.ModelAdmin):
     inlines = [FeatureVersionInline]
 
 
-class IntegratedFeatureAdmin(admin.ModelAdmin):
-    model = IntegratedFeature
-    extra = 0
-
 admin.site.register(Feature, FeatureAdmin)
 admin.site.register(IntelligentAgent)
 admin.site.register(FeatureVersion)
-admin.site.register(IntegratedFeature, IntegratedFeatureAdmin)
