@@ -37,21 +37,27 @@ SECRET_KEY = env.str("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env.bool("DEBUG", default=False)
 
+SERVICE_HOST = env.str("SERVICE_HOST", default="localhost")
+
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
+
+CSRF_TRUSTED_ORIGINS = [f"https://*.{SERVICE_HOST}"]
 
 
 # Application definition
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    "retail.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "weni.eda.django.eda_app",
-
-    "retail.healthcheck"
+    "retail.projects",
+    "retail.features",
+    "retail.integrations",
+    "retail.healthcheck",
 ]
 
 MIDDLEWARE = [

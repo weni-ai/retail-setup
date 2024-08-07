@@ -1,0 +1,88 @@
+{% extends "admin/change_form.html" %}
+
+{% block content %}
+<h1>{{ original.name }}</h1>
+<p>UUID: {{ original.uuid }}</p>
+<p>Nome da Org: {{ original.organization_name }}</p>
+{% comment %} <p>Criado por: {{ original.created_by }}</p> {% endcomment %}
+
+<h2>Features Integradas</h2>
+{% comment %} <input type="text" id="search" placeholder="Search"> {% endcomment %}
+
+<table id="feature-list" class="model-list-table table table-striped">
+  <thead>
+    <tr>
+      <th scope="col">Nome</th>
+      <th scope="col">Categoria</th>
+      <th scope="col">Versão Integrada</th>
+      <th scope="col">Ação</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for integrated_feature in integrated_features %}
+    <tr>
+      <td>{{ integrated_feature.feature.name }}</td>
+      <td>{{ integrated_feature.feature.category }}</td>
+      <td>{{ integrated_feature.feature_version }}</td>
+      <td><a href="{% url 'admin:update_feature' original.uuid integrated_feature.uuid %}" class="button">Atualizar</a></td>
+      {% comment %} <td><a class="button">Atualizar</a></td> {% endcomment %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Features disponíveis</h2>
+<input type="text" id="search" placeholder="Search">
+
+<table id="feature-list" class="model-list-table table table-striped">
+  <thead>
+    <tr>
+      <th scope="col">Nome</th>
+      <th scope="col">Categoria</th>
+      <th scope="col">Ultima versão</th>
+      <th scope="col">Ação</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for feature in features %}
+    <tr>
+      <td>{{ feature.name }}</td>
+      <td>{{ feature.category }}</td>
+      <td>{{ feature.last_version }}</td>
+      <td><a href="{% url 'admin:integrate_feature' original.uuid feature.uuid %}" class="button">Integrar</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<script>
+document.getElementById('search').addEventListener('input', function() {
+    const searchTerm = this.value.toLowerCase();
+    document.querySelectorAll('#feature-list tbody tr').forEach(function(row) {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(searchTerm) ? '' : 'none';
+    });
+});
+</script>
+
+<style>
+#feature-list {
+    width: 100%;
+    margin-top: 20px;
+}
+
+#feature-list .button {
+    background-color: #007bff;
+    border: none;
+    color: white;
+    padding: 5px 10px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 14px;
+    margin: 4px 2px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+</style>
+{% endblock %}

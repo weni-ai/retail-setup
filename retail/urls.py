@@ -17,10 +17,20 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path
+from django.views.static import serve
+from django.conf import settings
+from django.urls import re_path
+from django.shortcuts import redirect
 
 from retail.healthcheck import views
 
+
 urlpatterns = [
+    path("", lambda _: redirect("admin/", permanent=True)),
     path("admin/", admin.site.urls),
     path("healthcheck/", views.healthcheck, name="healthcheck"),
 ]
+
+urlpatterns.append(
+    re_path(r"^static/(?P<path>.*)$", serve, {"document_root": settings.STATIC_ROOT})
+)

@@ -1,6 +1,6 @@
 from django.apps import AppConfig
 
 
-class HealthcheckConfig(AppConfig):
+class ProjectsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
-    name = "retail.healthcheck"
+    name = "retail.projects"
