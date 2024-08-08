@@ -60,4 +60,3 @@ class FeatureAdmin(admin.ModelAdmin):
 
 admin.site.register(Feature, FeatureAdmin)
 admin.site.register(IntelligentAgent)
-admin.site.register(FeatureVersion)
