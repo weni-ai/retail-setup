@@ -6,4 +6,36 @@
   {{ form.as_p }}
   <button type="submit" class="btn btn-primary">Concluir integração</button>
 </form>
+
+<script>
+
+  let featureVersions = {{ versions | safe }};
+  let lastVersionParams = {{ last_version_params | safe }};
+
+  function getVersionParamsObject(versionParams) {
+    return JSON.stringify(versionParams.reduce((parameterObject, key) => {
+      parameterObject[key] = "";
+      return parameterObject;
+    }, {}), null, 2);
+  }
+
+  featureVersionElement = document.getElementById('id_feature_version')
+  parametersElement = document.getElementById('id_parameters')
+
+  parametersElement.value = getVersionParamsObject(lastVersionParams)
+
+  featureVersionElement.addEventListener('input', function() {
+    if (featureVersionElement.value) {
+      parametersElement.disabled = false;
+
+      let versionParams = featureVersions[featureVersionElement.value]
+    
+      parametersElement.value = getVersionParamsObject(versionParams)
+    } else {
+      parametersElement.disabled = true;
+      parametersElement.value = ""
+    }
+
+  });
+</script>
 {% endblock %}
