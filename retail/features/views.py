@@ -5,6 +5,7 @@ from django.urls import reverse
 
 
 from retail.projects.models import Project
+from retail.features.integrated_feature_eda import IntegratedFeatureEDA
 from .models import Feature, IntegratedFeature
 from .forms import IntegrateFeatureForm
 
@@ -23,9 +24,17 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
             integrated_feature.project = project
             integrated_feature.user = request.user
             integrated_feature.save()
-
+            print("integrated_feature: ", integrated_feature.__dict__)
+            print(f"form: {form.__dict__}")
+            body = {
+                "definition": integrated_feature.feature_version.definition,
+                "user_email": integrated_feature.user.email,
+                "project_uuid": str(integrated_feature.project.uuid),
+                "parameters": integrated_feature.parameters,
+                "feature_version": str(integrated_feature.feature_version.uuid)
+            }
+            IntegratedFeatureEDA().publisher(body=body)
             redirect_url = reverse("admin:projects_project_change", args=[project.id])
-
             return redirect(redirect_url)
     else:
         form = IntegrateFeatureForm(feature=feature)
