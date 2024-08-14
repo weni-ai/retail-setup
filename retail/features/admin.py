@@ -7,16 +7,41 @@ from retail.features.models import Feature, FeatureVersion, IntelligentAgent
 class FeatureVersionInlineForm(forms.ModelForm):
     class Meta:
         model = FeatureVersion
-        fields = "__all__"
+        fields = ["definition", "parameters", "version", "IntelligentAgent"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["IntelligentAgent"].required = False
-
-
-class IntelligentAgentInline(admin.StackedInline):
-    model = IntelligentAgent
-    extra = 0
+    
+    def save(self, *args, **kwargs):
+        flows = self.instance.definition["flows"]
+        sectors = []
+        for flow in flows:
+            if len(flow["integrations"]["ticketers"]) > 0:
+                for ticketer in flow["integrations"]["ticketers"]:
+                    sectors.append(ticketer)
+        sectors_base = []
+        for sector in sectors:
+            queues = []
+            if "queues" in sector:
+                for queue in sector["queues"]:
+                    queues.append({
+                        "uuid": queue["uuid"],
+                        "name": queue["name"],
+                        "agents": [""]
+                    })
+            sectors_base.append({
+                "manager_email": [""],
+                "working_hours": {"init": "", "close": ""},
+                "service_limit": 0,
+                "tags": [""],
+                "name": sector["name"],
+                "uuid": sector["uuid"],
+                "queues": queues
+            })
+        self.instance.sectors = sectors_base
+        self.instance.save()
+        return super().save(*args, **kwargs)
 
 
 class FeatureVersionInline(admin.StackedInline):
@@ -31,6 +56,9 @@ class FeatureAdmin(admin.ModelAdmin):
     inlines = [FeatureVersionInline]
 
 
+class intelligencAgentAdmin(admin.ModelAdmin):
+    search_fields = ["name", "uuid"]
+
+
 admin.site.register(Feature, FeatureAdmin)
-admin.site.register(IntelligentAgent)
-admin.site.register(FeatureVersion)
+admin.site.register(IntelligentAgent, intelligencAgentAdmin)

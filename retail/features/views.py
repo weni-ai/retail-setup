@@ -24,16 +24,17 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
             integrated_feature.project = project
             integrated_feature.user = request.user
             integrated_feature.save()
-            print("integrated_feature: ", integrated_feature.__dict__)
-            print(f"form: {form.__dict__}")
+
             body = {
                 "definition": integrated_feature.feature_version.definition,
                 "user_email": integrated_feature.user.email,
                 "project_uuid": str(integrated_feature.project.uuid),
                 "parameters": integrated_feature.parameters,
-                "feature_version": str(integrated_feature.feature_version.uuid)
+                "feature_version": str(integrated_feature.feature_version.uuid),
+                "sectors": integrated_feature.feature_version.sectors
             }
             IntegratedFeatureEDA().publisher(body=body)
+
             redirect_url = reverse("admin:projects_project_change", args=[project.id])
             return redirect(redirect_url)
     else:
@@ -46,6 +47,8 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
         "form": form,
         "versions": {},
         "last_version_params": last_version.parameters,
+        "version_sectors": last_version.sectors,
+        "button_title": "Concluir integração"
     }
 
     for version in feature.versions.all():
@@ -61,19 +64,30 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
         IntegratedFeature, uuid=integrated_feature_uuid
     )
     feature = integrated_feature.feature
+    feature_version = integrated_feature.feature_version
 
     if request.method == "POST":
-        pass
+        redirect_url = reverse("admin:projects_project_change", args=[project.id])
+        return redirect(redirect_url)
 
     else:
         form = IntegrateFeatureForm(feature=feature)
         form.initial["parameters"] = integrated_feature.parameters
         form.initial["feature_version"] = integrated_feature.feature_version
+        form.initial["version_sectors"] = integrated_feature.feature_version.sectors
 
     context = {
         "title": f"Atualizar {integrated_feature.feature}",
         "feature": feature,
         "form": form,
+        "versions": {},
+        "last_version_params": feature_version.parameters,
+        "version_sectors": feature_version.sectors,
+        "button_title": "Concluir atualização"
     }
 
-    return TemplateResponse(request, "update_feature.html", context)
+    for version in feature.versions.all():
+        context["versions"][str(version.uuid)] = version.parameters
+    print(f"context: {context}")
+
+    return TemplateResponse(request, "integrate_feature.html", context)
