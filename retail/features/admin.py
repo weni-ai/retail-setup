@@ -19,7 +19,6 @@ class FeatureVersionInlineForm(forms.ModelForm):
         agent = feature_version.IntelligentAgent
 
         if agent is not None:
-
             message_body = dict(
                 uuid=str(agent.uuid),
                 feature_version_uuid=str(feature_version.uuid),

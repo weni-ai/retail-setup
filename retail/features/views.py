@@ -6,7 +6,7 @@ from django.urls import reverse
 
 from retail.projects.models import Project
 from retail.features.integrated_feature_eda import IntegratedFeatureEDA
-from .models import Feature, IntegratedFeature
+from .models import Feature, IntegratedFeature, FeatureVersion
 from .forms import IntegrateFeatureForm
 
 
@@ -24,16 +24,15 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
             integrated_feature.project = project
             integrated_feature.user = request.user
             integrated_feature.save()
-
             body = {
                 "definition": integrated_feature.feature_version.definition,
                 "user_email": integrated_feature.user.email,
                 "project_uuid": str(integrated_feature.project.uuid),
                 "parameters": integrated_feature.parameters,
                 "feature_version": str(integrated_feature.feature_version.uuid),
-                "sectors": integrated_feature.feature_version.sectors
+                "sectors": integrated_feature.sectors
             }
-            IntegratedFeatureEDA().publisher(body=body)
+            IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
 
             redirect_url = reverse("admin:projects_project_change", args=[project.id])
             return redirect(redirect_url)
@@ -46,6 +45,7 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
         "feature": feature,
         "form": form,
         "versions": {},
+        "versions_sectors": {},
         "last_version_params": last_version.parameters,
         "version_sectors": last_version.sectors,
         "button_title": "Concluir integração"
@@ -53,6 +53,7 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
 
     for version in feature.versions.all():
         context["versions"][str(version.uuid)] = version.parameters
+        context["versions_sectors"][str(version.uuid)] = version.sectors
 
     return TemplateResponse(request, "integrate_feature.html", context)
 
@@ -65,8 +66,24 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
     )
     feature = integrated_feature.feature
     feature_version = integrated_feature.feature_version
-
     if request.method == "POST":
+        form = IntegrateFeatureForm(request.POST, feature=feature)
+        if form.is_valid():
+            integrated_feature.user = request.user
+            integrated_feature.sectors = request.POST["sectors"]
+            integrated_feature.parameters = request.POST["parameters"]
+            integrated_feature.project = project
+            integrated_feature.feature_version = FeatureVersion.objects.get(uuid=request.POST["feature_version"])
+            integrated_feature.save()
+            body = {
+                "definition": integrated_feature.feature_version.definition,
+                "user_email": integrated_feature.user.email,
+                "project_uuid": str(integrated_feature.project.uuid),
+                "parameters": integrated_feature.parameters,
+                "feature_version": str(integrated_feature.feature_version.uuid),
+                "sectors": integrated_feature.sectors
+            }
+            IntegratedFeatureEDA().publisher(body=body, exchange="update-integrated-feature.topic")
         redirect_url = reverse("admin:projects_project_change", args=[project.id])
         return redirect(redirect_url)
 
@@ -81,6 +98,7 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
         "feature": feature,
         "form": form,
         "versions": {},
+        "versions_sectors": {},
         "last_version_params": feature_version.parameters,
         "version_sectors": feature_version.sectors,
         "button_title": "Concluir atualização"
@@ -88,6 +106,6 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
 
     for version in feature.versions.all():
         context["versions"][str(version.uuid)] = version.parameters
-    print(f"context: {context}")
+        context["versions_sectors"][str(version.uuid)] = version.sectors
 
     return TemplateResponse(request, "integrate_feature.html", context)

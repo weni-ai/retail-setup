@@ -10,6 +10,7 @@
 <script>
 
   let featureVersions = {{ versions | safe }};
+  let featureSectors = {{ versions_sectors | safe }};
   let lastVersionParams = {{ last_version_params | safe }};
   let lastVersionSectors = {{ version_sectors | safe }};
 
@@ -37,13 +38,10 @@
   featureVersionElement.addEventListener('input', function() {
     if (featureVersionElement.value) {
       parametersElement.disabled = false;
-
       let versionParams = featureVersions[featureVersionElement.value]
-      let sectorParams = featureVersions[featureVersionElement.value]
+      let sectorParams = featureSectors[featureVersionElement.value]
       parametersElement.value = getVersionParamsObject(versionParams)
-      sectorsElement.value = getVersionSectorsObject(sectorParams)
-      console.log(featureVersions)
-      console.log(sectorsElement)
+      sectorsElement.value = JSON.stringify(sectorParams, null, 2)
     } else {
       parametersElement.disabled = true;
       parametersElement.value = ""
