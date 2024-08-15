@@ -33,6 +33,7 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
                 "sectors": integrated_feature.sectors
             }
             IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
+            print(f"message send `integrated feature` - body: {body}")
 
             redirect_url = reverse("admin:projects_project_change", args=[project.id])
             return redirect(redirect_url)
@@ -84,6 +85,7 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
                 "sectors": integrated_feature.sectors
             }
             IntegratedFeatureEDA().publisher(body=body, exchange="update-integrated-feature.topic")
+            print(f"message send `update integrated feature` - body: {body}")
         redirect_url = reverse("admin:projects_project_change", args=[project.id])
         return redirect(redirect_url)
 
