@@ -7,6 +7,7 @@ from retail.features.models import Feature
 
 class ProjectAdmin(admin.ModelAdmin):
     list_display = ("name", "organization_name", "uuid")
+    search_fields = ["name", "uuid", "organization_name"]
 
     def render_change_form(
         self, request, context, add=False, change=False, form_url="", obj=None
