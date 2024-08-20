@@ -14,6 +14,8 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
     project = get_object_or_404(Project, uuid=project_uuid)
     feature = get_object_or_404(Feature, uuid=feature_uuid)
 
+    last_version = feature.last_version
+
     if request.method == "POST":
         form = IntegrateFeatureForm(request.POST, feature=feature)
         if form.is_valid():
@@ -27,9 +29,18 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
             return redirect(redirect_url)
     else:
         form = IntegrateFeatureForm(feature=feature)
-        form.initial["feature_version"] = feature.last_version
+        form.initial["feature_version"] = last_version
 
-    context = {"title": f"Integrar {feature}", "feature": feature, "form": form}
+    context = {
+        "title": f"Integrar {feature}",
+        "feature": feature,
+        "form": form,
+        "versions": {},
+        "last_version_params": last_version.parameters,
+    }
+
+    for version in feature.versions.all():
+        context["versions"][str(version.uuid)] = version.parameters
 
     return TemplateResponse(request, "integrate_feature.html", context)
 
