@@ -4,6 +4,50 @@
 <form method="post" class="form-horizontal">
   {% csrf_token %}
   {{ form.as_p }}
-  <button type="submit" class="btn btn-primary">Concluir integração</button>
+  <button type="submit" class="btn btn-primary">{{ button_title }}</button>
 </form>
+
+<script>
+
+  let featureVersions = {{ versions | safe }};
+  let featureSectors = {{ versions_sectors | safe }};
+  let lastVersionParams = {{ last_version_params | safe }};
+  let lastVersionSectors = {{ version_sectors | safe }};
+
+  function getVersionParamsObject(versionParams) {
+    return JSON.stringify(versionParams.reduce((parameterObject, key) => {
+      parameterObject[key] = "";
+      return parameterObject;
+    }, {}), null, 2);
+  }
+
+  function getVersionSectorsObject(versionSectors) {
+    return JSON.stringify(versionSectors.reduce((parameterObject, key) => {
+      parameterObject[key] = key == "service_limit" ? 0 : (key =="working_hours" ? {} :(key in ["manager_email", "tags", "agents"] ? [] : ""));
+      return parameterObject;
+    }, {}), null, 2);
+  }
+
+  featureVersionElement = document.getElementById('id_feature_version')
+  parametersElement = document.getElementById('id_parameters')
+  sectorsElement = document.getElementById('id_sectors')
+  
+  parametersElement.value = getVersionParamsObject(lastVersionParams)
+  sectorsElement.value = JSON.stringify(lastVersionSectors, null, 2)
+
+  featureVersionElement.addEventListener('input', function() {
+    if (featureVersionElement.value) {
+      parametersElement.disabled = false;
+      let versionParams = featureVersions[featureVersionElement.value]
+      let sectorParams = featureSectors[featureVersionElement.value]
+      parametersElement.value = getVersionParamsObject(versionParams)
+      sectorsElement.value = JSON.stringify(sectorParams, null, 2)
+    } else {
+      parametersElement.disabled = true;
+      parametersElement.value = ""
+      sectorsElement.value = ""
+    }
+
+  });
+</script>
 {% endblock %}

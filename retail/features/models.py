@@ -62,6 +62,7 @@ class FeatureVersion(models.Model):
 
     definition = models.JSONField()
     parameters = models.JSONField(null=True, blank=True)
+    sectors = models.JSONField(null=True, blank=True)
     version = models.CharField(max_length=10, default="1.0")
     feature = models.ForeignKey(
         Feature, models.CASCADE, related_name="versions", null=True, blank=True
@@ -95,6 +96,7 @@ class IntegratedFeature(models.Model):
         Project, on_delete=models.CASCADE, related_name="integrated_features"
     )
     parameters = models.JSONField(null=True, default=dict)
+    sectors = models.JSONField(null=True, default=dict)
 
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="integrated_features"
