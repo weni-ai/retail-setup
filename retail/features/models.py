@@ -9,6 +9,9 @@ from retail.projects.models import Project
 class Feature(models.Model):
 
     categories = [("ATIVO", "Ativo"), ("PASSIVO", "Passivo")]
+    features_types_choices = [
+        ("FEATURE", "Feature"), ("FUNCTION", "Function")
+    ]
 
     created_on = models.DateTimeField(
         "when are created the new feature", auto_now_add=True
@@ -19,6 +22,8 @@ class Feature(models.Model):
         "UUID", primary_key=True, default=uuid.uuid4, editable=False
     )
     category = models.CharField(max_length=256, choices=categories, default="Ativo")
+    feature_type = models.CharField(max_length=100, choices=features_types_choices, default="Feature")
+    dependencies = models.ManyToManyField("self", null=True)
 
     def __str__(self):
         return self.name
@@ -28,51 +33,17 @@ class Feature(models.Model):
         return self.versions.order_by("created_on").last()
 
 
-class IntelligentAgent(models.Model):
-
-    personalities = [
-        ("Amigável", "Amigável"),
-        ("Cooperativo", "Cooperativo"),
-        ("Extrovertido", "Extrovertido"),
-        ("Generoso", "Generoso"),
-        ("Relaxado", "Relaxado"),
-        ("Organizado", "Organizado"),
-        ("Sistemático", "Sistemático"),
-        ("Inovador", "Inovador"),
-        ("Criativo", "Criativo"),
-        ("Intelectual", "Intelectual"),
-    ]
-
-    uuid = models.UUIDField(default=uuid.uuid4)
-    actions = models.JSONField(null=True)
-    name = models.TextField()
-    role = models.TextField()
-    personality = models.TextField(choices=personalities, default="Amigável")
-    instructions = models.JSONField(null=True)
-    goal = models.TextField()
-
-    def __str__(self) -> str:
-        return f"{self.name} - {self.uuid}"
-
-
 class FeatureVersion(models.Model):
     uuid = models.UUIDField(
         "UUID", primary_key=True, default=uuid.uuid4, editable=False
     )
 
     definition = models.JSONField()
-    parameters = models.JSONField(null=True, blank=True)
+    parameters = models.JSONField(null=True, blank=True, default=[])
     sectors = models.JSONField(null=True, blank=True)
     version = models.CharField(max_length=10, default="1.0")
     feature = models.ForeignKey(
         Feature, models.CASCADE, related_name="versions", null=True, blank=True
-    )
-    IntelligentAgent = models.ForeignKey(
-        IntelligentAgent,
-        on_delete=models.CASCADE,
-        related_name="versions",
-        null=True,
-        blank=True,
     )
 
     created_on = models.DateTimeField(auto_now_add=True)
@@ -80,6 +51,15 @@ class FeatureVersion(models.Model):
     def __str__(self) -> str:
         return self.version
 
+    def get_flows_base(self):
+        actions = []
+        flows = self.definition.get("flows", [])
+        for flow in flows:
+            actions.append({
+                "flow_uuid": flow.get("uuid", ""),
+                "flow_name": flow.get("name", "")
+            })
+        return actions
 
 class IntegratedFeature(models.Model):
     uuid = models.UUIDField(
@@ -97,7 +77,9 @@ class IntegratedFeature(models.Model):
     )
     parameters = models.JSONField(null=True, default=dict)
     sectors = models.JSONField(null=True, default=dict)
-
+    action_name = models.CharField(max_length=256, null=True, blank=True)
+    action_prompt = models.TextField(null=True, blank=True)
+    action_base_flow = models.CharField(null=True, blank=True, choices=None)
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="integrated_features"
     )
@@ -109,7 +91,6 @@ class IntegratedFeature(models.Model):
 
     def __str__(self) -> str:
         return self.feature_version.feature.name
-
 
 class Flow(models.Model):
     uuid = models.UUIDField()
