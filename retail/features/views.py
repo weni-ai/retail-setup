@@ -28,14 +28,14 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
             sectors_data = []
             for sector in integrated_feature.sectors:
                 sectors_data.append({
-                    "name": sector.name,
-                    "tags": sector.tags,
+                    "name": sector.get("name", ""),
+                    "tags": sector.get("tags", ""),
                     "service_limit": 4,
                     "working_hours": {
                         "init": "08:00",
                         "close": "18:00"
                     },
-                    "queues": sector.queues
+                    "queues": sector.get("queues", [])
                 })
             body = {
                 "definition": integrated_feature.feature_version.definition,
@@ -99,14 +99,14 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
             sectors_data = []
             for sector in integrated_feature.sectors:
                 sectors_data.append({
-                    "name": sector.name,
-                    "tags": sector.tags,
+                    "name": sector.get("name", ""),
+                    "tags": sector.get("tags", ""),
                     "service_limit": 4,
                     "working_hours": {
                         "init": "08:00",
                         "close": "18:00"
                     },
-                    "queues": sector.queues
+                    "queues": sector.get("queues", [])
                 })
             body = {
                 "definition": integrated_feature.feature_version.definition,
