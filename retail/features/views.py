@@ -25,6 +25,18 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
             integrated_feature.user = request.user
             integrated_feature.action_base_flow = request.POST["base_flows"]
             integrated_feature.save()
+            sectors_data = []
+            for sector in integrated_feature.sectors:
+                sectors_data.append({
+                    "name": sector.name,
+                    "tags": sector.tags,
+                    "service_limit": 4,
+                    "working_hours": {
+                        "init": "08:00",
+                        "close": "18:00"
+                    },
+                    "queues": sector.queues
+                })
             body = {
                 "definition": integrated_feature.feature_version.definition,
                 "user_email": integrated_feature.user.email,
@@ -32,7 +44,7 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
                 "parameters": integrated_feature.parameters,
                 "feature_version": str(integrated_feature.feature_version.uuid),
                 "feature_uuid": str(integrated_feature.feature.uuid),
-                "sectors": integrated_feature.sectors,
+                "sectors": sectors_data,
                 "action_name": integrated_feature.action_name,
                 "action_prompt": integrated_feature.action_prompt,
                 "action_base_flow": integrated_feature.action_base_flow
