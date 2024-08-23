@@ -45,9 +45,11 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
                 "feature_version": str(integrated_feature.feature_version.uuid),
                 "feature_uuid": str(integrated_feature.feature.uuid),
                 "sectors": sectors_data,
-                "action_name": integrated_feature.action_name,
-                "action_prompt": integrated_feature.action_prompt,
-                "action_base_flow": integrated_feature.action_base_flow
+                "action": {
+                    "name": integrated_feature.action_name,
+                    "prompt": integrated_feature.action_prompt,
+                    "root_flow_uuid": integrated_feature.action_base_flow
+                }
             }
             IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
             print(f"message send `integrated feature` - body: {body}")
@@ -106,7 +108,7 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
                         "init": "08:00",
                         "close": "18:00"
                     },
-                    "queues": sector.get("queues", [])
+                    "queues": sector.get("queues", [])  
                 })
             body = {
                 "definition": integrated_feature.feature_version.definition,
@@ -115,7 +117,12 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
                 "parameters": integrated_feature.parameters,
                 "feature_version": str(integrated_feature.feature_version.uuid),
                 "feature_uuid": str(integrated_feature.feature.uuid),
-                "sectors": integrated_feature.sectors
+                "sectors": integrated_feature.sectors,
+                "action": {
+                    "name": integrated_feature.action_name,
+                    "prompt": integrated_feature.action_prompt,
+                    "root_flow_uuid": integrated_feature.action_base_flow
+                }
             }
             IntegratedFeatureEDA().publisher(body=body, exchange="update-integrated-feature.topic")
             print(f"message send `update integrated feature` - body: {body}")
