@@ -16,31 +16,36 @@ class FeatureVersionInlineForm(forms.ModelForm):
 
     def save(self, commit: bool) -> FeatureVersion:
         feature_version: FeatureVersion = super().save(commit)
+        feature = feature_version.feature
         print(f"feature_version: {feature_version}")
-        flows = self.instance.definition["flows"]
+        print(f"feature: {feature}")
+        print(f"functions: ")
+        print(feature.functions)
+        if feature.feature_type == "FEATURE":
+            for feature_function in feature_version.feature.functions:
+                function_version = feature_function.last_version()
+                print(f"function_version: {function_version}")
+                for flow in function_version.definition["flows"]:
+                    self.instance.definition["flows"].append(flow)
+                    print(f"flow: {flow}") 
+                for campaign in function_version.definition["campaigns"]:
+                    self.instance.defintion["campaigns"].append(campaign)
+                    print(f"campaign: {campaign}")
+                for trigger in function_version["triggers"]:
+                    self.instance.defintiion["triggers"].append(trigger)
+                    print(f"trigger: {trigger}")
+                for field in function_version["fields"]:
+                    self.instance.definition["fields"].append(field)
+                    print(f"field: {field}")
+                for group in function_version["groups"]:
+                    self.instance.definition["groups"].append(group)
+                    print("group: {group}")
+                for parameter in function_version.parameters:
+                    print("parameter: {parameter}")
+                    self.instance.parameters.append(parameter)
 
-        for feature_function in feature_version.feature.functions:
-            function_version = feature_function.last_version()
-            print(f"function_version: {function_version}")
-            for flow in function_version.definition["flows"]:
-                self.instance.definition["flows"].append(flow)
-                print(f"flow: {flow}") 
-            for campaign in function_version.definition["campaigns"]:
-                self.instance.defintion["campaigns"].append(campaign)
-                print(f"campaign: {campaign}")
-            for trigger in function_version["triggers"]:
-                self.instance.defintiion["triggers"].append(trigger)
-                print(f"trigger: {trigger}")
-            for field in function_version["fields"]:
-                self.instance.definition["fields"].append(field)
-                print(f"field: {field}")
-            for group in function_version["groups"]:
-                self.instance.definition["groups"].append(group)
-                print("group: {group}")
-            for parameter in function_version.parameters:
-                print("parameter: {parameter}")
-                self.instance.parameters.append(parameter)
-        
+        flows = self.instance.definition["flows"]
+        print(f"flows: {flows}")
         sectors = []
         for flow in flows:
             if len(flow["integrations"]["ticketers"]) > 0:
