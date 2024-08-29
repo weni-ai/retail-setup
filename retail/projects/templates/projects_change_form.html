@@ -15,7 +15,8 @@
       <th scope="col">Nome</th>
       <th scope="col">Categoria</th>
       <th scope="col">Versão Integrada</th>
-      <th scope="col">Ação</th>
+      <th scope="col">Atualizar</th>
+      <th scope="col">Remover</th>
     </tr>
   </thead>
   <tbody>
@@ -25,7 +26,7 @@
       <td>{{ integrated_feature.feature.category }}</td>
       <td>{{ integrated_feature.feature_version }}</td>
       <td><a href="{% url 'admin:update_feature' original.uuid integrated_feature.uuid %}" class="button">Atualizar</a></td>
-      {% comment %} <td><a class="button">Atualizar</a></td> {% endcomment %}
+      <td><a href="{% url 'admin:remove_feature' original.uuid integrated_feature.uuid %}" class="button" style="background-color: #ff0000;">Remover</a></td>
     </tr>
     {% endfor %}
   </tbody>
@@ -40,7 +41,7 @@
       <th scope="col">Nome</th>
       <th scope="col">Categoria</th>
       <th scope="col">Ultima versão</th>
-      <th scope="col">Ação</th>
+      <th scope="col">Integrar</th>
     </tr>
   </thead>
   <tbody>

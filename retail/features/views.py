@@ -5,7 +5,8 @@ from django.urls import reverse
 
 
 from retail.projects.models import Project
-from retail.features.integrated_feature_eda import IntegratedFeatureEDA
+from retail.features.publishers import IntegratedFeaturePublisher, RemovedFeaturePublisher
+
 from .models import Feature, IntegratedFeature
 from .forms import IntegrateFeatureForm
 
@@ -33,7 +34,7 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
                 "feature_version": str(integrated_feature.feature_version.uuid),
                 "sectors": integrated_feature.feature_version.sectors
             }
-            IntegratedFeatureEDA().publisher(body=body)
+            IntegratedFeaturePublisher().publish(body=body)
 
             redirect_url = reverse("admin:projects_project_change", args=[project.id])
             return redirect(redirect_url)
@@ -91,3 +92,19 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
     print(f"context: {context}")
 
     return TemplateResponse(request, "integrate_feature.html", context)
+
+
+@login_required
+def remove_feature_view(request, project_uuid, integrated_feature_uuid):
+    project = get_object_or_404(Project, uuid=project_uuid)
+    integrated_feature = get_object_or_404(
+        IntegratedFeature, uuid=integrated_feature_uuid
+    )
+
+    integrated_feature.delete()
+
+    redirect_url = reverse("admin:projects_project_change", args=[project.id])
+    return redirect(redirect_url)
+
+    # feature = integrated_feature.feature
+    # feature_version = integrated_feature.feature_version
