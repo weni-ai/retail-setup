@@ -18,6 +18,21 @@ class FeatureVersionInlineForm(forms.ModelForm):
         feature_version: FeatureVersion = super().save(commit)
 
         flows = self.instance.definition["flows"]
+
+        for feature_function in feature_version.feature.functions:
+            function_version = feature_function.last_version()
+            for flow in function_version.definition["flows"]:
+                self.instance.definition["flows"].append(flow)
+            for campaign in function_version.definition["campaigns"]:
+                self.instance.defintion["campaigns"].append(campaign)
+            for trigger in function_version["triggers"]:
+                self.instance.defintiion["triggers"].append(trigger)
+            for field in function_version["fields"]:
+                self.instance.definition["fields"].append(field)
+            for group in function_version["groups"]:
+                self.instance.definition["groups"].append(group)
+            for parameter in function_version.parameters:
+                self.instance.parameters.append(parameter)
         
         sectors = []
         for flow in flows:
@@ -38,6 +53,7 @@ class FeatureVersionInlineForm(forms.ModelForm):
                 "tags": [""],
                 "queues": queues
             })
+
         self.instance.sectors = sectors_base
         self.instance.save()
         return feature_version
@@ -51,7 +67,6 @@ class FeatureVersionInline(admin.StackedInline):
 
 class FeatureAdmin(admin.ModelAdmin):
     search_fields = ["name", "uuid"]
-    list_filter = ["category"]
     inlines = [FeatureVersionInline]
     form = FeatureForm
 

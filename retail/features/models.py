@@ -8,7 +8,6 @@ from retail.projects.models import Project
 
 class Feature(models.Model):
 
-    categories = [("ATIVO", "Ativo"), ("PASSIVO", "Passivo")]
     features_types_choices = [
         ("FEATURE", "Feature"), ("FUNCTION", "Function")
     ]
@@ -21,9 +20,8 @@ class Feature(models.Model):
     uuid = models.UUIDField(
         "UUID", primary_key=True, default=uuid.uuid4, editable=False
     )
-    category = models.CharField(max_length=256, choices=categories, default="Ativo")
-    feature_type = models.CharField(max_length=100, choices=features_types_choices, default="Feature")
-    dependencies = models.ManyToManyField("self", null=True)
+    feature_type = models.CharField(max_length=100, choices=features_types_choices, default="FEATURE")
+    functions = models.ManyToManyField("self", null=True)
 
     def __str__(self):
         return self.name

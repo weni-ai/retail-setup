@@ -25,9 +25,9 @@ class FeatureForm(forms.ModelForm):
     
     def __init__(self, *args, **kwargs):
         feature = kwargs.get("instance", None)
-        dependecies = Feature.objects.exclude(feature_type="FEATURE")
+        functions = Feature.objects.exclude(feature_type="FEATURE")
         if feature and feature.feature_type == "FUNCTION":
-            dependecies = dependecies.exclude(uuid=feature.uuid)
+            functions = functions.exclude(uuid=feature.uuid)
         super().__init__(*args, **kwargs)
-        self.fields["dependencies"].queryset = dependecies    
-        self.fields["dependencies"].required = False
+        self.fields["functions"].queryset = functions    
+        self.fields["functions"].required = False
