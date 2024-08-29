@@ -16,7 +16,7 @@ class FeatureVersionInlineForm(forms.ModelForm):
 
     def save(self, commit: bool) -> FeatureVersion:
         feature_version: FeatureVersion = super().save(commit)
-
+        print(f"feature_version: {feature_version}")
         flows = self.instance.definition["flows"]
 
         for feature_function in feature_version.feature.functions:
@@ -24,21 +24,21 @@ class FeatureVersionInlineForm(forms.ModelForm):
             print(f"function_version: {function_version}")
             for flow in function_version.definition["flows"]:
                 self.instance.definition["flows"].append(flow)
-                print(f"flow: ", flow) 
+                print(f"flow: {flow}") 
             for campaign in function_version.definition["campaigns"]:
                 self.instance.defintion["campaigns"].append(campaign)
                 print(f"campaign: {campaign}")
             for trigger in function_version["triggers"]:
                 self.instance.defintiion["triggers"].append(trigger)
-                print(f"trigger: ", trigger)
+                print(f"trigger: {trigger}")
             for field in function_version["fields"]:
                 self.instance.definition["fields"].append(field)
-                print(f"field: ", field)
+                print(f"field: {field}")
             for group in function_version["groups"]:
                 self.instance.definition["groups"].append(group)
-                print("group: ", group)
+                print("group: {group}")
             for parameter in function_version.parameters:
-                print("parameter: ", parameter)
+                print("parameter: {parameter}")
                 self.instance.parameters.append(parameter)
         
         sectors = []
