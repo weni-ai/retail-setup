@@ -1,42 +1,44 @@
 from django.contrib import admin
 from django import forms
 
-from retail.features.models import Feature, FeatureVersion, IntelligentAgent
+from retail.features.models import Feature, FeatureVersion
 from retail.event_driven import eda_publisher
+from retail.features.forms import FeatureForm
 
 
 class FeatureVersionInlineForm(forms.ModelForm):
     class Meta:
         model = FeatureVersion
-        fields = ["definition", "parameters", "version", "IntelligentAgent"]
+        fields = ["definition", "parameters", "version"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["IntelligentAgent"].required = False
 
     def save(self, commit: bool) -> FeatureVersion:
         feature_version: FeatureVersion = super().save(commit)
-        agent = feature_version.IntelligentAgent
+        feature = feature_version.feature
+        if feature.feature_type == "FEATURE":
+            for feature_function in feature.functions.all():
+                function_version = feature_function.versions.order_by("created_on").last()
 
-        if agent is not None:
-            message_body = dict(
-                uuid=str(agent.uuid),
-                feature_version_uuid=str(feature_version.uuid),
-                brain=dict(
-                    agent=dict(
-                        name=agent.name,
-                        role=agent.role,
-                        personality=agent.personality,
-                        instructions=agent.instructions,
-                        goal=agent.goal,
-                    ),
-                    instructions=agent.instructions,
-                    actions=agent.actions,
-                ),
-            )
+                for flow in function_version.definition["flows"]:
+                    self.instance.definition["flows"].append(flow)
 
-            eda_publisher.send_message(message_body, "feature-version.topic")
+                for campaign in function_version.definition["campaigns"]:
+                    self.instance.defintion["campaigns"].append(campaign)
 
+                for trigger in function_version.definition["triggers"]:
+                    self.instance.defintion["triggers"].append(trigger)
+
+                for field in function_version.definition["fields"]:
+                    self.instance.definition["fields"].append(field)
+
+                for group in function_version.definition["groups"]:
+                    self.instance.definition["groups"].append(group)
+
+                for parameter in function_version.parameters:
+                    self.instance.parameters.append(parameter)
+            self.instance.save()
 
         flows = self.instance.definition["flows"]
         sectors = []
@@ -44,25 +46,21 @@ class FeatureVersionInlineForm(forms.ModelForm):
             if len(flow["integrations"]["ticketers"]) > 0:
                 for ticketer in flow["integrations"]["ticketers"]:
                     sectors.append(ticketer)
+
         sectors_base = []
         for sector in sectors:
             queues = []
             if "queues" in sector:
                 for queue in sector["queues"]:
                     queues.append({
-                        "uuid": queue["uuid"],
                         "name": queue["name"],
-                        "agents": [""]
                     })
             sectors_base.append({
-                "manager_email": [""],
-                "working_hours": {"init": "", "close": ""},
-                "service_limit": 0,
-                "tags": [""],
                 "name": sector["name"],
-                "uuid": sector["uuid"],
+                "tags": [""],
                 "queues": queues
             })
+
         self.instance.sectors = sectors_base
         self.instance.save()
         return feature_version
@@ -76,13 +74,7 @@ class FeatureVersionInline(admin.StackedInline):
 
 class FeatureAdmin(admin.ModelAdmin):
     search_fields = ["name", "uuid"]
-    list_filter = ["category"]
     inlines = [FeatureVersionInline]
-
-
-class intelligencAgentAdmin(admin.ModelAdmin):
-    search_fields = ["name", "uuid"]
-
+    form = FeatureForm
 
 admin.site.register(Feature, FeatureAdmin)
-admin.site.register(IntelligentAgent, intelligencAgentAdmin)

@@ -23,14 +23,35 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
             integrated_feature = form.save(commit=False)
             integrated_feature.project = project
             integrated_feature.user = request.user
+            integrated_feature.action_base_flow = request.POST["base_flows"]
             integrated_feature.save()
+            
+            sectors_data = []
+            for sector in integrated_feature.sectors:
+                sectors_data.append({
+                    "name": sector.get("name", ""),
+                    "tags": sector.get("tags", ""),
+                    "service_limit": 4,
+                    "working_hours": {
+                        "init": "08:00",
+                        "close": "18:00"
+                    },
+                    "queues": sector.get("queues", [])
+                })
+            
             body = {
                 "definition": integrated_feature.feature_version.definition,
                 "user_email": integrated_feature.user.email,
                 "project_uuid": str(integrated_feature.project.uuid),
                 "parameters": integrated_feature.parameters,
                 "feature_version": str(integrated_feature.feature_version.uuid),
-                "sectors": integrated_feature.sectors
+                "feature_uuid": str(integrated_feature.feature.uuid),
+                "sectors": sectors_data,
+                "action": {
+                    "name": integrated_feature.action_name,
+                    "prompt": integrated_feature.action_prompt,
+                    "root_flow_uuid": integrated_feature.action_base_flow
+                }
             }
             IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
             print(f"message send `integrated feature` - body: {body}")
@@ -40,21 +61,24 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
     else:
         form = IntegrateFeatureForm(feature=feature)
         form.initial["feature_version"] = last_version
-
+    flow_base = last_version.get_flows_base()
     context = {
         "title": f"Integrar {feature}",
         "feature": feature,
         "form": form,
         "versions": {},
         "versions_sectors": {},
+        "actions": {},
         "last_version_params": last_version.parameters,
         "version_sectors": last_version.sectors,
+        "action_base_flow": flow_base,
         "button_title": "Concluir integração"
     }
 
     for version in feature.versions.all():
         context["versions"][str(version.uuid)] = version.parameters
         context["versions_sectors"][str(version.uuid)] = version.sectors
+        context["actions"][str(version.uuid)] = version.get_flows_base()
 
     return TemplateResponse(request, "integrate_feature.html", context)
 
@@ -76,13 +100,31 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
             integrated_feature.project = project
             integrated_feature.feature_version = FeatureVersion.objects.get(uuid=request.POST["feature_version"])
             integrated_feature.save()
+            sectors_data = []
+            for sector in integrated_feature.sectors:
+                sectors_data.append({
+                    "name": sector.get("name", ""),
+                    "tags": sector.get("tags", ""),
+                    "service_limit": 4,
+                    "working_hours": {
+                        "init": "08:00",
+                        "close": "18:00"
+                    },
+                    "queues": sector.get("queues", [])  
+                })
             body = {
                 "definition": integrated_feature.feature_version.definition,
                 "user_email": integrated_feature.user.email,
                 "project_uuid": str(integrated_feature.project.uuid),
                 "parameters": integrated_feature.parameters,
                 "feature_version": str(integrated_feature.feature_version.uuid),
-                "sectors": integrated_feature.sectors
+                "feature_uuid": str(integrated_feature.feature.uuid),
+                "sectors": integrated_feature.sectors,
+                "action": {
+                    "name": integrated_feature.action_name,
+                    "prompt": integrated_feature.action_prompt,
+                    "root_flow_uuid": integrated_feature.action_base_flow
+                }
             }
             IntegratedFeatureEDA().publisher(body=body, exchange="update-integrated-feature.topic")
             print(f"message send `update integrated feature` - body: {body}")
