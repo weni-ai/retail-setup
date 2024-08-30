@@ -26,11 +26,6 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
             integrated_feature.action_base_flow = request.POST["base_flows"]
             integrated_feature.save()
             
-            final_definition = integrated_feature.feature_version.definition
-            for function_feature in integrated_feature.feature.dependencies:
-                for flow in function_feature["flows"]:
-                    final_definition["flows"].append(flow)   
-
             sectors_data = []
             for sector in integrated_feature.sectors:
                 sectors_data.append({
@@ -45,7 +40,7 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
                 })
             
             body = {
-                "definition": final_definition,
+                "definition": integrated_feature.feature_version.definition,
                 "user_email": integrated_feature.user.email,
                 "project_uuid": str(integrated_feature.project.uuid),
                 "parameters": integrated_feature.parameters,
@@ -59,7 +54,7 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
                 }
             }
             IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
-            # print(f"message send `integrated feature` - body: {body}")
+            print(f"message send `integrated feature` - body: {body}")
 
             redirect_url = reverse("admin:projects_project_change", args=[project.id])
             return redirect(redirect_url)
