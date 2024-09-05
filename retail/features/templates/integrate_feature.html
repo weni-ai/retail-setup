@@ -8,6 +8,7 @@
   <select name="base_flows" id="base-flows">
     <option value="">--------</option>
   </select>
+  <br/>
   <button type="submit" class="btn btn-primary">{{ button_title }}</button>
 </form>
 
@@ -26,18 +27,11 @@
     }, {}), null, 2);
   }
 
-  function getVersionSectorsObject(versionSectors) {
-    return JSON.stringify(versionSectors.reduce((parameterObject, key) => {
-      parameterObject[key] = key == "service_limit" ? 0 : (key =="working_hours" ? {} :(key in ["manager_email", "tags", "agents"] ? [] : ""));
-      return parameterObject;
-    }, {}), null, 2);
-  }
-
   featureVersionElement = document.getElementById('id_feature_version')
   parametersElement = document.getElementById('id_parameters')
   sectorsElement = document.getElementById('id_sectors')
   actionsElement = document.getElementById('base-flows')
-  
+
   parametersElement.value = getVersionParamsObject(lastVersionParams)
   sectorsElement.value = JSON.stringify(lastVersionSectors, null, 2)
   lastVersionActions.forEach((flow) => {
