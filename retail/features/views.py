@@ -161,9 +161,15 @@ def remove_feature_view(request, project_uuid, integrated_feature_uuid):
     integrated_feature = get_object_or_404(
         IntegratedFeature, uuid=integrated_feature_uuid
     )
-
+    body = {
+        "project_uuid": str(project.uuid),
+        "feature_version": str(integrated_feature.feature_version.uuid),
+        "feature_uuid": str(integrated_feature.feature.uuid),
+        "user_email": request.user.email
+    }
+    print(f"body: {body}")
+    IntegratedFeatureEDA().publisher(body=body, exchange="removed-feature.topic")
     integrated_feature.delete()
-
     redirect_url = reverse("admin:projects_project_change", args=[project.id])
     return redirect(redirect_url)
 
