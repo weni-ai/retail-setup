@@ -143,6 +143,8 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
         "form": form,
         "versions": {},
         "versions_sectors": {},
+        "actions": {},
+        "action_base_flow": integrated_feature.feature_version.get_flows_base(),
         "last_version_params": feature_version.parameters,
         "version_sectors": feature_version.sectors,
         "button_title": "Concluir atualização"
@@ -151,5 +153,6 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
     for version in feature.versions.all():
         context["versions"][str(version.uuid)] = version.parameters
         context["versions_sectors"][str(version.uuid)] = version.sectors
+        context["actions"][str(version.uuid)] = version.get_flows_base()
 
     return TemplateResponse(request, "integrate_feature.html", context)
