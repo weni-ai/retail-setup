@@ -2,14 +2,20 @@ from django.contrib import admin
 from django import forms
 
 from retail.features.models import Feature, FeatureVersion
-from retail.event_driven import eda_publisher
 from retail.features.forms import FeatureForm
 
 
 class FeatureVersionInlineForm(forms.ModelForm):
     class Meta:
         model = FeatureVersion
-        fields = ["definition", "parameters", "version", "action_types", "action_name", "action_prompt"]
+        fields = [
+            "definition",
+            "globals_values",
+            "version",
+            "action_types",
+            "action_name",
+            "action_prompt",
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -19,7 +25,9 @@ class FeatureVersionInlineForm(forms.ModelForm):
         feature = feature_version.feature
         if feature.feature_type == "FEATURE":
             for feature_function in feature.functions.all():
-                function_version = feature_function.versions.order_by("created_on").last()
+                function_version = feature_function.versions.order_by(
+                    "created_on"
+                ).last()
 
                 for flow in function_version.definition["flows"]:
                     self.instance.definition["flows"].append(flow)
@@ -36,8 +44,8 @@ class FeatureVersionInlineForm(forms.ModelForm):
                 for group in function_version.definition["groups"]:
                     self.instance.definition["groups"].append(group)
 
-                for parameter in function_version.parameters:
-                    self.instance.parameters.append(parameter)
+                for globals_values in function_version.globals_values:
+                    self.instance.globals_values.append(globals_values)
             self.instance.save()
 
         flows = self.instance.definition["flows"]
@@ -52,14 +60,14 @@ class FeatureVersionInlineForm(forms.ModelForm):
             queues = []
             if "queues" in sector:
                 for queue in sector["queues"]:
-                    queues.append({
-                        "name": queue["name"],
-                    })
-            sectors_base.append({
-                "name": sector["name"],
-                "tags": [""],
-                "queues": queues
-            })
+                    queues.append(
+                        {
+                            "name": queue["name"],
+                        }
+                    )
+            sectors_base.append(
+                {"name": sector["name"], "tags": [""], "queues": queues}
+            )
 
         self.instance.sectors = sectors_base
         self.instance.save()
@@ -76,5 +84,6 @@ class FeatureAdmin(admin.ModelAdmin):
     search_fields = ["name", "uuid"]
     inlines = [FeatureVersionInline]
     form = FeatureForm
+
 
 admin.site.register(Feature, FeatureAdmin)

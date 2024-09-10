@@ -29,32 +29,33 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
 
             sectors_data = []
             for sector in integrated_feature.sectors:
-                sectors_data.append({
-                    "name": sector.get("name", ""),
-                    "tags": sector.get("tags", ""),
-                    "service_limit": 4,
-                    "working_hours": {
-                        "init": "08:00",
-                        "close": "18:00"
-                    },
-                    "queues": sector.get("queues", [])
-                })
+                sectors_data.append(
+                    {
+                        "name": sector.get("name", ""),
+                        "tags": sector.get("tags", ""),
+                        "service_limit": 4,
+                        "working_hours": {"init": "08:00", "close": "18:00"},
+                        "queues": sector.get("queues", []),
+                    }
+                )
 
             body = {
                 "definition": integrated_feature.feature_version.definition,
                 "user_email": integrated_feature.user.email,
                 "project_uuid": str(integrated_feature.project.uuid),
-                "parameters": integrated_feature.parameters,
+                "parameters": integrated_feature.globals_values,
                 "feature_version": str(integrated_feature.feature_version.uuid),
                 "feature_uuid": str(integrated_feature.feature.uuid),
                 "sectors": sectors_data,
                 "action": {
                     "name": integrated_feature.feature_version.action_name,
                     "prompt": integrated_feature.feature_version.action_prompt,
-                    "root_flow_uuid": integrated_feature.action_base_flow
-                }
+                    "root_flow_uuid": integrated_feature.action_base_flow,
+                },
             }
-            IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
+            IntegratedFeatureEDA().publisher(
+                body=body, exchange="integrated-feature.topic"
+            )
             print(f"message send `integrated feature` - body: {body}")
 
             redirect_url = reverse("admin:projects_project_change", args=[project.id])
@@ -70,14 +71,14 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
         "versions": {},
         "versions_sectors": {},
         "actions": {},
-        "last_version_params": last_version.parameters,
+        "last_version_params": last_version.globals_values,
         "version_sectors": last_version.sectors,
         "action_base_flow": flow_base,
-        "button_title": "Concluir integração"
+        "button_title": "Concluir integração",
     }
 
     for version in feature.versions.all():
-        context["versions"][str(version.uuid)] = version.parameters
+        context["versions"][str(version.uuid)] = version.globals_values
         context["versions_sectors"][str(version.uuid)] = version.sectors
         context["actions"][str(version.uuid)] = version.get_flows_base()
 
@@ -99,37 +100,40 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
         if form.is_valid():
             integrated_feature.user = request.user
             integrated_feature.sectors = request.POST["sectors"]
-            integrated_feature.parameters = request.POST["parameters"]
+            integrated_feature.globals_values = request.POST["globals_values"]
             integrated_feature.project = project
-            integrated_feature.feature_version = FeatureVersion.objects.get(uuid=request.POST["feature_version"])
+            integrated_feature.feature_version = FeatureVersion.objects.get(
+                uuid=request.POST["feature_version"]
+            )
             integrated_feature.save()
             sectors_data = []
             for sector in json.loads(integrated_feature.sectors):
-                sectors_data.append({
-                    "name": sector.get("name", ""),
-                    "tags": sector.get("tags", ""),
-                    "service_limit": 4,
-                    "working_hours": {
-                        "init": "08:00",
-                        "close": "18:00"
-                    },
-                    "queues": sector.get("queues", [])
-                })
+                sectors_data.append(
+                    {
+                        "name": sector.get("name", ""),
+                        "tags": sector.get("tags", ""),
+                        "service_limit": 4,
+                        "working_hours": {"init": "08:00", "close": "18:00"},
+                        "queues": sector.get("queues", []),
+                    }
+                )
             body = {
                 "definition": integrated_feature.feature_version.definition,
                 "user_email": integrated_feature.user.email,
                 "project_uuid": str(integrated_feature.project.uuid),
-                "parameters": integrated_feature.parameters,
+                "parameters": integrated_feature.globals_values,
                 "feature_version": str(integrated_feature.feature_version.uuid),
                 "feature_uuid": str(integrated_feature.feature.uuid),
                 "sectors": sectors_data,
                 "action": {
                     "name": integrated_feature.feature_version.action_name,
                     "prompt": integrated_feature.feature_version.action_prompt,
-                    "root_flow_uuid": integrated_feature.action_base_flow
-                }
+                    "root_flow_uuid": integrated_feature.action_base_flow,
+                },
             }
-            IntegratedFeatureEDA().publisher(body=body, exchange="update-integrated-feature.topic")
+            IntegratedFeatureEDA().publisher(
+                body=body, exchange="update-integrated-feature.topic"
+            )
             print(f"message send `update integrated feature` - body: {body}")
         redirect_url = reverse("admin:projects_project_change", args=[project.id])
         return redirect(redirect_url)
@@ -145,13 +149,13 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
         "versions": {},
         "versions_sectors": {},
         "actions": {},
-        "last_version_params": last_version.parameters,
+        "last_version_params": last_version.globals_values,
         "version_sectors": last_version.sectors,
         "action_base_flow": flow_base,
-        "button_title": "Concluir atualização"
+        "button_title": "Concluir atualização",
     }
     for version in feature.versions.all():
-        context["versions"][str(version.uuid)] = version.parameters
+        context["versions"][str(version.uuid)] = version.globals_values
         context["versions_sectors"][str(version.uuid)] = version.sectors
         context["actions"][str(version.uuid)] = version.get_flows_base()
 
@@ -168,7 +172,7 @@ def remove_feature_view(request, project_uuid, integrated_feature_uuid):
         "project_uuid": str(project.uuid),
         "feature_version": str(integrated_feature.feature_version.uuid),
         "feature_uuid": str(integrated_feature.feature.uuid),
-        "user_email": request.user.email
+        "user_email": request.user.email,
     }
     print(f"body: {body}")
     IntegratedFeatureEDA().publisher(body=body, exchange="removed-feature.topic")
