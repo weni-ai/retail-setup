@@ -13,14 +13,17 @@
 </form>
 
 <script>
-  let featureActions = {{actions | safe}};
   let featureVersions = {{ versions | safe }};
   let featureSectors = {{ versions_sectors | safe }};
   let lastVersionParams = {{ last_version_params | safe }};
   let lastVersionSectors = {{ version_sectors | safe }};
   let lastVersionActions = {{ action_base_flow | safe }}
+  let featureActions = {{actions | safe}};
 
   function getVersionParamsObject(versionParams) {
+    if (Object.keys(versionParams).length == 0) {
+      return "{}"
+    }
     return JSON.stringify(versionParams.reduce((parameterObject, key) => {
       parameterObject[key] = "";
       return parameterObject;
@@ -33,7 +36,11 @@
   actionsElement = document.getElementById('base-flows')
 
   parametersElement.value = getVersionParamsObject(lastVersionParams)
-  sectorsElement.value = JSON.stringify(lastVersionSectors, null, 2)
+  if(Object.keys(lastVersionSectors).length == 0) {
+    sectorsElement.value = "{}"
+  } else {
+    sectorsElement.value = JSON.stringify(lastVersionSectors, null, 2)
+  }
   lastVersionActions.forEach((flow) => {
       let optionElement = document.createElement("option")
       optionElement.value = flow.flow_uuid
@@ -47,7 +54,11 @@
       let sectorParams = featureSectors[featureVersionElement.value]
       let flows = featureActions[featureVersionElement.value]
       parametersElement.value = getVersionParamsObject(versionParams)
-      sectorsElement.value = JSON.stringify(sectorParams, null, 2)
+      if(Object.keys(sectorParams).length == 0) {
+        sectorsElement.value = "{}"
+      } else {
+        sectorsElement.value = JSON.stringify(sectorParams, null, 2)
+      }
       actionsElement.innerHTML = "<option value=''>--------</option>"
       flows.forEach((flow) => {
         let optionElement = document.createElement("option")
