@@ -144,6 +144,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 USE_EDA = env.bool("USE_EDA", default=False)
 
+ACTION_TYPES = env.json("ACTION_TYPES", default={})
+
 if USE_EDA:
     EDA_CONSUMERS_HANDLE = "retail.event_driven.handle.handle_consumers"
 

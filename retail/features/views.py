@@ -1,8 +1,9 @@
+import json
+
 from django.template.response import TemplateResponse
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
-
 
 from retail.projects.models import Project
 from retail.features.integrated_feature_eda import IntegratedFeatureEDA
@@ -48,8 +49,8 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
                 "feature_uuid": str(integrated_feature.feature.uuid),
                 "sectors": sectors_data,
                 "action": {
-                    "name": integrated_feature.action_name,
-                    "prompt": integrated_feature.action_prompt,
+                    "name": integrated_feature.feature_version.action_name,
+                    "prompt": integrated_feature.feature_version.action_prompt,
                     "root_flow_uuid": integrated_feature.action_base_flow
                 }
             }
@@ -123,8 +124,8 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
                 "feature_uuid": str(integrated_feature.feature.uuid),
                 "sectors": sectors_data,
                 "action": {
-                    "name": integrated_feature.action_name,
-                    "prompt": integrated_feature.action_prompt,
+                    "name": integrated_feature.feature_version.action_name,
+                    "prompt": integrated_feature.feature_version.action_prompt,
                     "root_flow_uuid": integrated_feature.action_base_flow
                 }
             }
@@ -146,8 +147,6 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
         "actions": {},
         "last_version_params": last_version.parameters,
         "version_sectors": last_version.sectors,
-        "last_actions_name": integrated_feature.action_name,
-        "last_actions_prompt": integrated_feature.action_prompt,
         "action_base_flow": flow_base,
         "button_title": "Concluir atualização"
     }

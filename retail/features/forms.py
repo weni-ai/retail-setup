@@ -6,7 +6,7 @@ class IntegrateFeatureForm(forms.ModelForm):
 
     class Meta:
         model = IntegratedFeature
-        fields = ["feature_version", "parameters", "sectors", "action_name", "action_prompt"]
+        fields = ["feature_version", "parameters", "sectors"]
         labels = {"feature_version": "Versão"}
 
     def __init__(self, *args, **kwargs):
