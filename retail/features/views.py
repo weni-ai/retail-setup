@@ -27,7 +27,7 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
             integrated_feature.user = request.user
             integrated_feature.action_base_flow = request.POST["base_flows"]
             integrated_feature.save()
-            
+
             sectors_data = []
             for sector in integrated_feature.sectors:
                 sectors_data.append({
@@ -40,7 +40,7 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
                     },
                     "queues": sector.get("queues", [])
                 })
-            
+
             body = {
                 "definition": integrated_feature.feature_version.definition,
                 "user_email": integrated_feature.user.email,
@@ -114,7 +114,7 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
                         "init": "08:00",
                         "close": "18:00"
                     },
-                    "queues": sector.get("queues", [])  
+                    "queues": sector.get("queues", [])
                 })
             body = {
                 "definition": integrated_feature.feature_version.definition,
@@ -159,3 +159,25 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
         context["actions"][str(version.uuid)] = version.get_flows_base()
 
     return TemplateResponse(request, "integrate_feature.html", context)
+
+
+@login_required
+def remove_feature_view(request, project_uuid, integrated_feature_uuid):
+    project = get_object_or_404(Project, uuid=project_uuid)
+    integrated_feature = get_object_or_404(
+        IntegratedFeature, uuid=integrated_feature_uuid
+    )
+    body = {
+        "project_uuid": str(project.uuid),
+        "feature_version": str(integrated_feature.feature_version.uuid),
+        "feature_uuid": str(integrated_feature.feature.uuid),
+        "user_email": request.user.email
+    }
+    print(f"body: {body}")
+    IntegratedFeatureEDA().publisher(body=body, exchange="removed-feature.topic")
+    integrated_feature.delete()
+    redirect_url = reverse("admin:projects_project_change", args=[project.id])
+    return redirect(redirect_url)
+
+    # feature = integrated_feature.feature
+    # feature_version = integrated_feature.feature_version

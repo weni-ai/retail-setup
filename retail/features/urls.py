@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import integrate_feature_view, update_feature_view
+from .views import integrate_feature_view, update_feature_view, remove_feature_view
 
 
 urlpatterns = [
@@ -12,5 +12,10 @@ urlpatterns = [
         "projects/<uuid:project_uuid>/update/<uuid:integrated_feature_uuid>/",
         update_feature_view,
         name="update_feature",
+    ),
+    path(
+        "projects/<uuid:project_uuid>/remove/<uuid:integrated_feature_uuid>/",
+        remove_feature_view,
+        name="remove_feature",
     ),
 ]
