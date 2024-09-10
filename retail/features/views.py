@@ -1,3 +1,5 @@
+import json
+
 from django.template.response import TemplateResponse
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect
@@ -90,7 +92,9 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
         IntegratedFeature, uuid=integrated_feature_uuid
     )
     feature = integrated_feature.feature
-    feature_version = integrated_feature.feature_version
+    last_version = feature.last_version
+    flow_base = last_version.get_flows_base()
+
     if request.method == "POST":
         form = IntegrateFeatureForm(request.POST, feature=feature)
         if form.is_valid():
@@ -101,7 +105,7 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
             integrated_feature.feature_version = FeatureVersion.objects.get(uuid=request.POST["feature_version"])
             integrated_feature.save()
             sectors_data = []
-            for sector in integrated_feature.sectors:
+            for sector in json.loads(integrated_feature.sectors):
                 sectors_data.append({
                     "name": sector.get("name", ""),
                     "tags": sector.get("tags", ""),
@@ -119,7 +123,7 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
                 "parameters": integrated_feature.parameters,
                 "feature_version": str(integrated_feature.feature_version.uuid),
                 "feature_uuid": str(integrated_feature.feature.uuid),
-                "sectors": integrated_feature.sectors,
+                "sectors": sectors_data,
                 "action": {
                     "name": integrated_feature.action_name,
                     "prompt": integrated_feature.action_prompt,
@@ -133,9 +137,7 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
 
     else:
         form = IntegrateFeatureForm(feature=feature)
-        form.initial["parameters"] = integrated_feature.parameters
-        form.initial["feature_version"] = integrated_feature.feature_version
-        form.initial["version_sectors"] = integrated_feature.feature_version.sectors
+        form.initial["feature_version"] = last_version
 
     context = {
         "title": f"Atualizar {integrated_feature.feature}",
@@ -143,13 +145,17 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
         "form": form,
         "versions": {},
         "versions_sectors": {},
-        "last_version_params": feature_version.parameters,
-        "version_sectors": feature_version.sectors,
+        "actions": {},
+        "last_version_params": last_version.parameters,
+        "version_sectors": last_version.sectors,
+        "last_actions_name": integrated_feature.action_name,
+        "last_actions_prompt": integrated_feature.action_prompt,
+        "action_base_flow": flow_base,
         "button_title": "Concluir atualização"
     }
-
     for version in feature.versions.all():
         context["versions"][str(version.uuid)] = version.parameters
         context["versions_sectors"][str(version.uuid)] = version.sectors
+        context["actions"][str(version.uuid)] = version.get_flows_base()
 
     return TemplateResponse(request, "integrate_feature.html", context)
