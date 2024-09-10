@@ -9,7 +9,7 @@ from retail.features.forms import FeatureForm
 class FeatureVersionInlineForm(forms.ModelForm):
     class Meta:
         model = FeatureVersion
-        fields = ["definition", "parameters", "version"]
+        fields = ["definition", "parameters", "version", "action_types", "action_name", "action_prompt"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
