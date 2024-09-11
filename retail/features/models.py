@@ -1,5 +1,4 @@
 import uuid
-import json
 
 from django.db import models
 from django.contrib.auth.models import User
@@ -10,9 +9,7 @@ from retail.projects.models import Project
 
 class Feature(models.Model):
 
-    features_types_choices = [
-        ("FEATURE", "Feature"), ("FUNCTION", "Function")
-    ]
+    features_types_choices = [("FEATURE", "Feature"), ("FUNCTION", "Function")]
 
     created_on = models.DateTimeField(
         "when are created the new feature", auto_now_add=True
@@ -22,7 +19,9 @@ class Feature(models.Model):
     uuid = models.UUIDField(
         "UUID", primary_key=True, default=uuid.uuid4, editable=False
     )
-    feature_type = models.CharField(max_length=100, choices=features_types_choices, default="FEATURE")
+    feature_type = models.CharField(
+        max_length=100, choices=features_types_choices, default="FEATURE"
+    )
     functions = models.ManyToManyField("self", null=True)
 
     def __str__(self):
@@ -43,7 +42,7 @@ class FeatureVersion(models.Model):
         ("SAC/FALE CONOSCO", "SAC/Fale conosco"),
         ("INDIQUE E GANHE", "Indique e Ganhe"),
         ("TROCA E DEVOLUÇÃO", "Troca e Devolução"),
-        ("STATUS DO PEDIDO", "Status do Pedido")
+        ("STATUS DO PEDIDO", "Status do Pedido"),
     ]
 
     uuid = models.UUIDField(
@@ -51,7 +50,7 @@ class FeatureVersion(models.Model):
     )
 
     definition = models.JSONField()
-    parameters = models.JSONField(null=True, blank=True, default=[])
+    globals_values = models.JSONField(null=True, blank=True, default=[])
     sectors = models.JSONField(null=True, blank=True)
     version = models.CharField(max_length=10, default="1.0")
     feature = models.ForeignKey(
@@ -59,7 +58,9 @@ class FeatureVersion(models.Model):
     )
     action_name = models.CharField(max_length=256, null=True, blank=True)
     action_prompt = models.TextField(null=True, blank=True)
-    action_types = models.TextField(null=True, blank=True, choices=ACTION_TYPES_CHOICES, default="PERSONALIZADO")
+    action_types = models.TextField(
+        null=True, blank=True, choices=ACTION_TYPES_CHOICES, default="PERSONALIZADO"
+    )
     action_type_brain = models.TextField(null=True, blank=True)
 
     created_on = models.DateTimeField(auto_now_add=True)
@@ -71,10 +72,9 @@ class FeatureVersion(models.Model):
         actions = []
         flows = self.definition.get("flows", [])
         for flow in flows:
-            actions.append({
-                "flow_uuid": flow.get("uuid", ""),
-                "flow_name": flow.get("name", "")
-            })
+            actions.append(
+                {"flow_uuid": flow.get("uuid", ""), "flow_name": flow.get("name", "")}
+            )
         return actions
 
     @property
@@ -106,7 +106,7 @@ class IntegratedFeature(models.Model):
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="integrated_features"
     )
-    parameters = models.JSONField(null=True, default=dict, blank=True)
+    globals_values = models.JSONField(null=True, default=dict, blank=True)
     sectors = models.JSONField(null=True, default=dict, blank=True)
     action_base_flow = models.CharField(null=True, blank=True, choices=None)
     user = models.ForeignKey(
@@ -120,6 +120,7 @@ class IntegratedFeature(models.Model):
 
     def __str__(self) -> str:
         return self.feature_version.feature.name
+
 
 class Flow(models.Model):
     uuid = models.UUIDField()
