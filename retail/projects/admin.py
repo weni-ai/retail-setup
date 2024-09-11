@@ -26,7 +26,8 @@ class ProjectAdmin(admin.ModelAdmin):
         extra_context["integrated_features"] = project.integrated_features.all()
         extra_context["features"] = Feature.objects.exclude(
             integrated_features__project=project
-        )
+        ).exclude(feature_type="FUNCTION")
+
         return super().change_view(request, object_id, form_url, extra_context)
 
 
