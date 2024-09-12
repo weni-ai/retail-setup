@@ -82,7 +82,7 @@ class FeatureVersion(models.Model):
         return settings.ACTION_TYPES
 
     def save(self, *args) -> None:
-        if self.action_types != "PERSONALIZADO":
+        if self.action_types != "PERSONALIZADO" and self.action_types != None:
             for action_type in self.get_action_types:
                 if self.action_types.lower() == action_type.get("name").lower():
                     self.action_name = action_type.get("name")
