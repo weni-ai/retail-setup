@@ -10,7 +10,6 @@ class FeatureVersionInlineForm(forms.ModelForm):
         model = FeatureVersion
         fields = [
             "definition",
-            "globals_values",
             "version",
             "action_types",
             "action_name",
@@ -23,6 +22,21 @@ class FeatureVersionInlineForm(forms.ModelForm):
     def save(self, commit: bool) -> FeatureVersion:
         feature_version: FeatureVersion = super().save(commit)
         feature = feature_version.feature
+
+        for flow in self.instance.definition["flows"]:
+            for node in flow["nodes"]:
+                for action in node.get("actions", []):
+                    if "text" not in action:
+                        continue
+                    else:
+                        words = action.get("text").split(" ")
+                        for word in words:
+                            if "@globals." in word:
+                                globals_names = word.split(".")
+                                if globals_names[1] not in self.instance.globals_values:
+                                    self.instance.globals_values.append(globals_names[1])
+        self.instance.save()
+        
         if feature.feature_type == "FEATURE":
             for feature_function in feature.functions.all():
                 function_version = feature_function.versions.order_by(
