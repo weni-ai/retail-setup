@@ -2,33 +2,84 @@ from django.contrib import admin
 from django import forms
 
 from retail.features.models import Feature, FeatureVersion
-from retail.event_driven import eda_publisher
 from retail.features.forms import FeatureForm
 
 
 class FeatureVersionInlineForm(forms.ModelForm):
     class Meta:
         model = FeatureVersion
-        fields = ["definition", "parameters", "version"]
+        fields = [
+            "definition",
+            "version",
+            "action_types",
+            "action_name",
+            "action_prompt",
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    def clean_definition(self):
+        definition = self.cleaned_data.get("definition")
+
+        flows = definition.get("flows")
+        if not flows:
+            raise forms.ValidationError(
+                "O atributo 'flows' é obrigatório e não foi encontrado no JSON."
+            )
+
+        flows_name = []
+
+        for flow in flows:
+            if flow.get("name") in flows_name:
+                raise forms.ValidationError(
+                    "Não é possivel ter mais de um fluxo com o mesmo nome"
+                )
+            flows_name.append(flow.get("name"))
+
+            nodes = flow.get("nodes", [])
+            for node in nodes:
+                actions = node.get("actions", [])
+                for action in actions:
+                    if action.get("type") == "open_ticket" and action.get("assignee"):
+                        raise forms.ValidationError(
+                            "O campo 'assignee' não pode ser preenchido em actions do tipo 'open_ticket'."
+                        )
+
+        return definition
+
     def save(self, commit: bool) -> FeatureVersion:
         feature_version: FeatureVersion = super().save(commit)
         feature = feature_version.feature
+
+        for flow in self.instance.definition["flows"]:
+            for node in flow["nodes"]:
+                for action in node.get("actions", []):
+                    if "text" not in action:
+                        continue
+                    else:
+                        words = action.get("text").split(" ")
+                        for word in words:
+                            if "@globals." in word:
+                                globals_names = word.split(".")
+                                if globals_names[1] not in self.instance.globals_values:
+                                    self.instance.globals_values.append(globals_names[1])
+        self.instance.save()
+        
         if feature.feature_type == "FEATURE":
             for feature_function in feature.functions.all():
-                function_version = feature_function.versions.order_by("created_on").last()
+                function_version = feature_function.versions.order_by(
+                    "created_on"
+                ).last()
 
                 for flow in function_version.definition["flows"]:
                     self.instance.definition["flows"].append(flow)
 
                 for campaign in function_version.definition["campaigns"]:
-                    self.instance.defintion["campaigns"].append(campaign)
+                    self.instance.definition["campaigns"].append(campaign)
 
                 for trigger in function_version.definition["triggers"]:
-                    self.instance.defintion["triggers"].append(trigger)
+                    self.instance.definition["triggers"].append(trigger)
 
                 for field in function_version.definition["fields"]:
                     self.instance.definition["fields"].append(field)
@@ -36,8 +87,8 @@ class FeatureVersionInlineForm(forms.ModelForm):
                 for group in function_version.definition["groups"]:
                     self.instance.definition["groups"].append(group)
 
-                for parameter in function_version.parameters:
-                    self.instance.parameters.append(parameter)
+                for globals_values in function_version.globals_values:
+                    self.instance.globals_values.append(globals_values)
             self.instance.save()
 
         flows = self.instance.definition["flows"]
@@ -52,14 +103,14 @@ class FeatureVersionInlineForm(forms.ModelForm):
             queues = []
             if "queues" in sector:
                 for queue in sector["queues"]:
-                    queues.append({
-                        "name": queue["name"],
-                    })
-            sectors_base.append({
-                "name": sector["name"],
-                "tags": [""],
-                "queues": queues
-            })
+                    queues.append(
+                        {
+                            "name": queue["name"],
+                        }
+                    )
+            sectors_base.append(
+                {"name": sector["name"], "tags": [""], "queues": queues}
+            )
 
         self.instance.sectors = sectors_base
         self.instance.save()
@@ -76,5 +127,6 @@ class FeatureAdmin(admin.ModelAdmin):
     search_fields = ["name", "uuid"]
     inlines = [FeatureVersionInline]
     form = FeatureForm
+
 
 admin.site.register(Feature, FeatureAdmin)
