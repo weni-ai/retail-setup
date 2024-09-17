@@ -1,3 +1,6 @@
+import json
+import re
+
 from django.contrib import admin
 from django import forms
 
@@ -51,27 +54,20 @@ class FeatureVersionInlineForm(forms.ModelForm):
     def save(self, commit: bool) -> FeatureVersion:
         feature_version: FeatureVersion = super().save(commit)
         feature = feature_version.feature
-
-        for flow in self.instance.definition["flows"]:
-            for node in flow["nodes"]:
-                for action in node.get("actions", []):
-                    if "text" not in action:
-                        continue
-                    else:
-                        words = action.get("text").split(" ")
-                        for word in words:
-                            if "@globals." in word:
-                                globals_names = word.split(".")
-                                if globals_names[1] not in self.instance.globals_values:
-                                    self.instance.globals_values.append(globals_names[1])
+        definition_text = json.dumps(self.instance.definition)
+        for word in definition_text.split(" "):
+            globals_values = []
+            matches = re.findall(r'@globals\.([a-zA-Z_]+)', word)
+            for match in matches:
+                if match not in self.instance.globals_values:
+                    self.instance.globals_values.append(match)
         self.instance.save()
-        
+
         if feature.feature_type == "FEATURE":
             for feature_function in feature.functions.all():
                 function_version = feature_function.versions.order_by(
                     "created_on"
                 ).last()
-
                 for flow in function_version.definition["flows"]:
                     self.instance.definition["flows"].append(flow)
 
@@ -91,7 +87,7 @@ class FeatureVersionInlineForm(forms.ModelForm):
                     self.instance.globals_values.append(globals_values)
             self.instance.save()
 
-        flows = self.instance.definition["flows"]
+        flows = self.instance.definition.get("flows", [])
         sectors = []
         for flow in flows:
             if len(flow["integrations"]["ticketers"]) > 0:
