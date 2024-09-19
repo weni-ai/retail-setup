@@ -120,9 +120,9 @@ class IntegratedFeature(models.Model):
     )
     integrated_on = models.DateField(auto_now_add=True)
 
-    def save(self, *args) -> None:
-        self.feature = self.feature_version.feature
-        return super().save(*args)
+    # def save(self, *args) -> None:
+        # self.feature = self.feature_version.feature
+        # return super().save(*args)
 
     def __str__(self) -> str:
         return self.feature_version.feature.name
