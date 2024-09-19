@@ -1,4 +1,3 @@
-import json
 import uuid
 
 from django.db import models
@@ -11,6 +10,7 @@ from retail.projects.models import Project
 class Feature(models.Model):
 
     features_types_choices = [("FEATURE", "Feature"), ("FUNCTION", "Function")]
+    categories_choices = [("ACTIVE", "Active"), ("PASSIVE", "Passive")]
 
     created_on = models.DateTimeField(
         "when are created the new feature", auto_now_add=True
@@ -24,6 +24,11 @@ class Feature(models.Model):
         max_length=100, choices=features_types_choices, default="FEATURE"
     )
     functions = models.ManyToManyField("self", null=True)
+    category = models.CharField(
+        max_length=100, choices=categories_choices, default="PASSIVE"
+    )
+    documentation_url = models.TextField(null=True)
+    disclaimer = models.TextField(null=True)
 
     def __str__(self):
         return self.name
