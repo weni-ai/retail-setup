@@ -14,7 +14,7 @@ psycopg2 = "^2.9.9"
 weni-eda = "0.1.1"
 gunicorn = "^22.0.0"
 mozilla-django-oidc = "^4.0.1"
-django-rest-framework = "^0.1.0"
+djangorestframework = "^3.15.2"
 
 [tool.poetry.group.dev.dependencies]
 flake8 = "^7.1.0"
