@@ -36,7 +36,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("healthcheck/", views.healthcheck, name="healthcheck"),
     path("api/", include(router.urls)),
-    path("v2/", include(feature_routers))
+    path("v2/", include(feature_routers)),
 ]
 
 urlpatterns.append(
