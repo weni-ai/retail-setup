@@ -22,14 +22,17 @@ class IntegratedFeatureView(views.APIView):
             return Response(status=status.HTTP_404_NOT_FOUND, data={"error": f"Project with uuid equals {request.data['project_uuid' ]} does not exists!"})
         print(request._user.__dict__)
         user, _ = User.objects.get_or_create(email=request.user.email)
-        last_version = feature.last_version
+        feature_version = feature.last_version
         
         integrated_feature = IntegratedFeature.objects.create(
             project=project,
             feature=feature,
-            feature_version=last_version,
+            feature_version=feature_version,
             user=user
         )
+        sectors_data = []
+        if feature_version.sectors != None:
+            ...
 
         body = {
             "definition": integrated_feature.feature_version.definition,
@@ -38,7 +41,7 @@ class IntegratedFeatureView(views.APIView):
             "parameters": integrated_feature.globals_values,
             "feature_version": str(integrated_feature.feature_version.uuid),
             "feature_uuid": str(integrated_feature.feature.uuid),
-            # "sectors": sectors_data,
+            "sectors": sectors_data,
             "action": {
                 "name": integrated_feature.feature_version.action_name,
                 "prompt": integrated_feature.feature_version.action_prompt,
