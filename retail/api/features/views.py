@@ -16,7 +16,7 @@ class FeaturesView(views.APIView):
 
             category = request.query_params.get("category", None)
             integrated_features = IntegratedFeature.objects.filter(
-                project=project_uuid
+                project__uuid=project_uuid
             ).values_list("feature__uuid", flat=True)
 
             features = Feature.objects.exclude(uuid__in=integrated_features)

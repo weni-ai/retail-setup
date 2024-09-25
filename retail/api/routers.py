@@ -12,4 +12,9 @@ urlpatterns = [
         name="integrated_feature",
     ),
     path("feature/<uuid:project_uuid>/", FeaturesView.as_view(), name="features"),
+    path(
+        "integrated_feature/<uuid:project_uuid>/",
+        IntegratedFeatureView.as_view(),
+        name="integrated-features",
+    ),
 ]
