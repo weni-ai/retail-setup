@@ -55,7 +55,7 @@ class FeatureVersionInlineForm(forms.ModelForm):
         feature_version: FeatureVersion = super().save(commit)
         feature = feature_version.feature
         globals_values = []
-        matches = re.findall(r'@globals\.([a-zA-Z_]+)', json.dumps(self.instance.definition))
+        matches = re.findall(r"globals\.([a-zA-Z_]+)", json.dumps(self.instance.definition))
         for match in matches:
             if match not in self.instance.globals_values:
                 self.instance.globals_values.append(match)
