@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "weni.eda.django.eda_app",
+    "corsheaders",
     "retail.projects",
     "retail.features",
     "retail.integrations",
@@ -78,6 +79,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
+    "django.middleware.common.CommonMiddleware",
 ]
 
 ROOT_URLCONF = "retail.urls"
@@ -155,6 +158,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 USE_EDA = env.bool("USE_EDA", default=False)
 
 ACTION_TYPES = env.json("ACTION_TYPES", default={})
+
+CORS_ALLOW_ALL_ORIGINS = env.str("CORS_ALLOW_ALL_ORIGINS", default=True)
 
 if USE_EDA:
     EDA_CONSUMERS_HANDLE = "retail.event_driven.handle.handle_consumers"
