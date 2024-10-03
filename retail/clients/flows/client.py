@@ -3,9 +3,10 @@
 from django.conf import settings
 
 from retail.clients.base import RequestClient, InternalAuthentication
+from retail.interfaces.clients.flows.interface import FlowsClientInterface
 
 
-class FlowsClient(RequestClient):
+class FlowsClient(RequestClient, FlowsClientInterface):
     def __init__(self):
         self.base_url = settings.FLOWS_REST_ENDPOINT
         self.authentication_instance = InternalAuthentication()
