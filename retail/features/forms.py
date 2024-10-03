@@ -22,7 +22,7 @@ class IntegrateFeatureForm(forms.ModelForm):
 class FeatureForm(forms.ModelForm):
     class Meta:
         model = Feature
-        fields = "__all__"
+        fields = ["name", "description", "category", "functions", "documentation_url", "disclaimer"]
 
     def __init__(self, *args, **kwargs):
         feature = kwargs.get("instance", None)
@@ -32,3 +32,15 @@ class FeatureForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["functions"].queryset = functions
         self.fields["functions"].required = False
+
+
+class FunctionForm(forms.ModelForm):
+    class Meta:
+        model = Feature
+        fields = [
+            "name", "description", "category"
+        ]
+
+    def __init__(self, *args, **kwargs):
+        feature = kwargs.get("instance", None)
+        super().__init__(*args, **kwargs)

@@ -20,7 +20,7 @@ class FeaturesView(views.APIView):
             ).values_list("feature__uuid", flat=True)
 
             features = Feature.objects.exclude(uuid__in=integrated_features)
-
+            features = features.exclude(feature_type="FUNCTION")
             if category:
                 features = features.filter(category=category)
 
