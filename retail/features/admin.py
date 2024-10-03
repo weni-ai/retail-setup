@@ -60,7 +60,9 @@ class FeatureVersionInlineForm(forms.ModelForm):
         feature.feature_type = "FEATURE"
         feature.save()
 
-        matches = re.findall(r"globals\.([a-zA-Z_]+)", json.dumps(self.instance.definition))
+        matches = re.findall(
+            r"globals\.([a-zA-Z_]+)", json.dumps(self.instance.definition)
+        )
         for match in matches:
             if match not in self.instance.globals_values:
                 self.instance.globals_values.append(match)
@@ -130,7 +132,7 @@ class FeatureAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         feature_queryset = super().get_queryset(request)
-        return feature_queryset.filter(feature_type='FEATURE')
+        return feature_queryset.filter(feature_type="FEATURE")
 
 
 class Function(Feature):
@@ -187,12 +189,14 @@ class FunctionVersionInlineForm(forms.ModelForm):
         feature = feature_version.feature
         feature.feature_type = "FUNCTION"
         feature.save()
-        
-        matches = re.findall(r"globals\.([a-zA-Z_]+)", json.dumps(self.instance.definition))
+
+        matches = re.findall(
+            r"globals\.([a-zA-Z_]+)", json.dumps(self.instance.definition)
+        )
         for match in matches:
             if match not in self.instance.globals_values:
                 self.instance.globals_values.append(match)
-        
+
         self.instance.save()
 
         flows = self.instance.definition.get("flows", [])
@@ -227,7 +231,6 @@ class FunctionVersionInline(admin.StackedInline):
     extra = 0
 
 
-
 class FunctionAdmin(admin.ModelAdmin):
     search_fields = ["name", "uuid"]
     inlines = [FunctionVersionInline]
@@ -235,6 +238,7 @@ class FunctionAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request: HttpRequest) -> QuerySet:
         return self.model.objects.filter(feature_type="FUNCTION")
+
 
 admin.site.register(Feature, FeatureAdmin)
 admin.site.register(Function, FunctionAdmin)
