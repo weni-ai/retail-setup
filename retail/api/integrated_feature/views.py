@@ -28,12 +28,9 @@ class IntegratedFeatureView(views.APIView):
             )
         user, _ = User.objects.get_or_create(email=request.user.email)
         feature_version = feature.last_version
-        
+
         integrated_feature = IntegratedFeature.objects.create(
-            project=project,
-            feature=feature,
-            feature_version=feature_version,
-            user=user
+            project=project, feature=feature, feature_version=feature_version, user=user
         )
 
         sectors_data = []
@@ -45,14 +42,20 @@ class IntegratedFeatureView(views.APIView):
                         new_sector = {
                             "name": r_sector.get("name"),
                             "tags": r_sector.get("tags"),
-                            "queues": sector.get("queues")
+                            "queues": sector.get("queues"),
                         }
                         integrated_feature.sectors.append(new_sector)
                         break
-            for globals_key, globals_value in request.data.get("globals_values", {}).items():
+            for globals_key, globals_value in request.data.get(
+                "globals_values", {}
+            ).items():
                 integrated_feature.globals_values[globals_key] = globals_value
-            integrated_feature.action_base_flow = request.data.get("action_base_flow", "")
-            integrated_feature.save(update_fields=["sectors", "globals_values", "action_base_flow"])
+            integrated_feature.action_base_flow = request.data.get(
+                "action_base_flow", ""
+            )
+            integrated_feature.save(
+                update_fields=["sectors", "globals_values", "action_base_flow"]
+            )
 
         for sector in integrated_feature.sectors:
             sectors_data.append(
@@ -80,9 +83,7 @@ class IntegratedFeatureView(views.APIView):
             },
         }
 
-        IntegratedFeatureEDA().publisher(
-            body=body, exchange="integrated-feature.topic"
-        )
+        IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
         print(f"message send `integrated feature` - body: {body}")
 
         response = {
@@ -92,8 +93,8 @@ class IntegratedFeatureView(views.APIView):
                 "feature_version": integrated_feature.feature_version.uuid,
                 "project": integrated_feature.project.uuid,
                 "user": integrated_feature.user.email,
-                "integrated_on": integrated_feature.integrated_on
-            }
+                "integrated_on": integrated_feature.integrated_on,
+            },
         }
         return Response(response)
 
@@ -122,9 +123,16 @@ class IntegratedFeatureView(views.APIView):
         try:
             project = Project.objects.get(uuid=request.data["project_uuid"])
         except Project.DoesNotExist:
-            return Response(status=status.HTTP_404_NOT_FOUND, data={"error": f"Project with uuid equals {request.data['project_uuid' ]} does not exists!"})
+            return Response(
+                status=status.HTTP_404_NOT_FOUND,
+                data={
+                    "error": f"Project with uuid equals {request.data['project_uuid' ]} does not exists!"
+                },
+            )
 
-        integrated_feature = IntegratedFeature.objects.get(project__uuid=str(project.uuid), feature__uuid=str(feature.uuid))
+        integrated_feature = IntegratedFeature.objects.get(
+            project__uuid=str(project.uuid), feature__uuid=str(feature.uuid)
+        )
 
         body = {
             "project_uuid": str(project.uuid),
@@ -136,4 +144,38 @@ class IntegratedFeatureView(views.APIView):
         IntegratedFeatureEDA().publisher(body=body, exchange="removed-feature.topic")
         print(f"message send to `removed-feature.topic`: {body}")
         integrated_feature.delete()
-        return Response({"status": 200, "data":"integrated feature removed"})
+        return Response({"status": 200, "data": "integrated feature removed"})
+
+    def put(self, request, *args, **kwargs):
+        feature = Feature.objects.get(uuid=kwargs["feature_uuid"])
+        try:
+            project = Project.objects.get(uuid=request.data["project_uuid"])
+        except Project.DoesNotExist:
+            return Response(
+                status=status.HTTP_404_NOT_FOUND,
+                data={
+                    "error": f"Project with uuid equals {request.data['project_uuid' ]} does not exists!"
+                },
+            )
+        integrated_feature = IntegratedFeature.objects.get(
+            project=project, feature=feature
+        )
+        for key, value in request.data.get("globals_values").items():
+            integrated_feature.globals_values[key] = value
+        integrated_feature.save()
+        for sector in request.data.get("sectors", []):
+            for integrated_sector in integrated_feature.sectors:
+                if integrated_sector["name"] == sector["name"]:
+                    integrated_sector["tags"] = sector["tags"]
+        integrated_feature.save()
+
+        return Response(
+            {
+                "status": 200,
+                "data": {
+                    "message": "Integrated feature updated",
+                    "globals_values": integrated_feature.globals_values,
+                    "sectors": integrated_feature.sectors,
+                },
+            }
+        )
