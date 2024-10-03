@@ -4,6 +4,7 @@ from retail.features.models import Feature
 
 
 class IntegratedFeatureSerializer(serializers.Serializer):
+    feature_uuid = serializers.SerializerMethodField()
     name = serializers.CharField()
     description = serializers.CharField()
     disclaimer = serializers.CharField()
@@ -11,6 +12,9 @@ class IntegratedFeatureSerializer(serializers.Serializer):
     globals = serializers.SerializerMethodField()
     sectors = serializers.SerializerMethodField()
     initial_flow = serializers.SerializerMethodField()
+
+    def get_feature_uuid(self, obj):
+        return obj.uuid
 
     def get_globals(self, obj):
         integrated_features = obj.integrated_features.all()
@@ -75,6 +79,7 @@ class IntegratedFeatureSerializer(serializers.Serializer):
     class Meta:
         model = Feature
         fields = (
+            "uuid",
             "name",
             "description",
             "disclaimer",
