@@ -186,3 +186,7 @@ if USE_OIDC:
     OIDC_RP_SIGN_ALGO = env.str("OIDC_RP_SIGN_ALGO", default="RS256")
     OIDC_DRF_AUTH_BACKEND = "retail.internal.backends.InternalOIDCAuthenticationBackend"
     OIDC_RP_SCOPES = env.str("OIDC_RP_SCOPES", default="openid email")
+
+INTEGRATIONS_REST_ENDPOINT = env.str("INTEGRATIONS_REST_ENDPOINT")
+
+FLOWS_REST_ENDPOINT = env.str("FLOWS_REST_ENDPOINT")
