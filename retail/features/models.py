@@ -114,7 +114,6 @@ class IntegratedFeature(models.Model):
     )
     globals_values = models.JSONField(null=True, default=dict, blank=True)
     sectors = models.JSONField(null=True, default=dict, blank=True)
-    action_base_flow = models.CharField(null=True, blank=True, choices=None)
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="integrated_features"
     )
