@@ -50,11 +50,19 @@ class IntegratedFeatureView(BaseServiceView):
         fill_globals_usecase = PopulateGlobalsValuesUsecase(
             self.integrations_service, self.flows_service
         )
+        globals_values_request = {}
+        for globals_values in feature_version.globals_values:
+            globals_values_request[globals_values] = ""
+
+        for key, value in request.data.get("globals_values", {}).items():
+            globals_values_request[key] = value
+
         treated_globals_values = fill_globals_usecase.execute(
-            request.data.get("globals_values", {}),
+            globals_values_request,
             request.user.email,
             request.data["project_uuid"],
         )
+
         # Add all globals from the request, including treated ones
         for globals_key, globals_value in treated_globals_values.items():
             integrated_feature.globals_values[globals_key] = globals_value
