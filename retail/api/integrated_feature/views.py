@@ -59,11 +59,6 @@ class IntegratedFeatureView(BaseServiceView):
         for globals_key, globals_value in treated_globals_values.items():
             integrated_feature.globals_values[globals_key] = globals_value
 
-        integrated_feature.action_base_flow = request.data.get("action_base_flow", "")
-        integrated_feature.save(
-            update_fields=["sectors", "globals_values", "action_base_flow"]
-        )
-
         for sector in integrated_feature.sectors:
             sectors_data.append(
                 {
@@ -75,6 +70,30 @@ class IntegratedFeatureView(BaseServiceView):
                 }
             )
 
+        actions = []
+        for function in feature.functions.all():
+            function_last_version = function.last_version
+            if function_last_version.action_base_flow_uuid is not None:
+                actions.append(
+                    {
+                        "name": function_last_version.action_name,
+                        "prompt": function_last_version.action_prompt,
+                        "root_flow_uuid": str(
+                            function_last_version.action_base_flow_uuid
+                        ),
+                        "type": "",
+                    }
+                )
+        if feature_version.action_base_flow_uuid:
+            actions.append(
+                {
+                    "name": feature_version.action_name,
+                    "prompt": feature_version.action_prompt,
+                    "root_flow_uuid": str(feature_version.action_base_flow_uuid),
+                    "type": "",
+                }
+            )
+
         body = {
             "definition": integrated_feature.feature_version.definition,
             "user_email": integrated_feature.user.email,
@@ -83,11 +102,7 @@ class IntegratedFeatureView(BaseServiceView):
             "feature_version": str(integrated_feature.feature_version.uuid),
             "feature_uuid": str(integrated_feature.feature.uuid),
             "sectors": sectors_data,
-            "action": {
-                "name": integrated_feature.feature_version.action_name,
-                "prompt": integrated_feature.feature_version.action_prompt,
-                "root_flow_uuid": integrated_feature.action_base_flow,
-            },
+            "action": actions,
         }
 
         IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
@@ -155,3 +170,37 @@ class IntegratedFeatureView(BaseServiceView):
         print(f"message send to `removed-feature.topic`: {body}")
         integrated_feature.delete()
         return Response({"status": 200, "data": "integrated feature removed"})
+
+    def put(self, request, *args, **kwargs):
+        feature = Feature.objects.get(uuid=kwargs["feature_uuid"])
+        try:
+            project = Project.objects.get(uuid=request.data["project_uuid"])
+        except Project.DoesNotExist:
+            return Response(
+                status=status.HTTP_404_NOT_FOUND,
+                data={
+                    "error": f"Project with uuid equals {request.data['project_uuid' ]} does not exists!"
+                },
+            )
+        integrated_feature = IntegratedFeature.objects.get(
+            project=project, feature=feature
+        )
+        for key, value in request.data.get("globals_values").items():
+            integrated_feature.globals_values[key] = value
+        integrated_feature.save()
+        for sector in request.data.get("sectors", []):
+            for integrated_sector in integrated_feature.sectors:
+                if integrated_sector["name"] == sector["name"]:
+                    integrated_sector["tags"] = sector["tags"]
+        integrated_feature.save()
+
+        return Response(
+            {
+                "status": 200,
+                "data": {
+                    "message": "Integrated feature updated",
+                    "globals_values": integrated_feature.globals_values,
+                    "sectors": integrated_feature.sectors,
+                },
+            }
+        )

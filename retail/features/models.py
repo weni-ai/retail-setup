@@ -68,6 +68,8 @@ class FeatureVersion(models.Model):
         null=True, blank=True, choices=ACTION_TYPES_CHOICES, default="PERSONALIZADO"
     )
     action_type_brain = models.TextField(null=True, blank=True)
+    action_base_flow_name = models.CharField(null=True, blank=True, choices=None)
+    action_base_flow_uuid = models.UUIDField(null=True, blank=True)
 
     created_on = models.DateTimeField(auto_now_add=True)
 
@@ -114,7 +116,6 @@ class IntegratedFeature(models.Model):
     )
     globals_values = models.JSONField(null=True, default=dict, blank=True)
     sectors = models.JSONField(null=True, default=dict, blank=True)
-    action_base_flow = models.CharField(null=True, blank=True, choices=None)
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="integrated_features"
     )
