@@ -19,6 +19,7 @@ class FeatureVersionInlineForm(forms.ModelForm):
             "action_types",
             "action_name",
             "action_prompt",
+            "action_base_flow_name",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -52,6 +53,20 @@ class FeatureVersionInlineForm(forms.ModelForm):
                         )
 
         return definition
+    
+    def clean_action_base_flow_name(self):
+        action_base_flow_name = self.cleaned_data.get("action_base_flow_name", None)
+        if action_base_flow_name is None:
+            return action_base_flow_name
+        definition = self.cleaned_data.get("definition")
+        if definition is None:
+            raise forms.ValidationError("Você precisa colocar uma definition")
+        error_message = "você tem de digitar um nome de fluxo existente na sua definition, são eles: "
+        for flow in definition.get("flows"):
+            error_message += "\n" + flow.get("name")
+            if flow.get("name") == action_base_flow_name:
+                return action_base_flow_name
+        raise forms.ValidationError(error_message)
 
     def save(self, commit: bool) -> FeatureVersion:
         feature_version: FeatureVersion = super().save(commit)
@@ -99,6 +114,8 @@ class FeatureVersionInlineForm(forms.ModelForm):
             if len(flow["integrations"]["ticketers"]) > 0:
                 for ticketer in flow["integrations"]["ticketers"]:
                     sectors.append(ticketer)
+            if flow.get("name") == self.instance.action_base_flow_name:
+                self.instance.action_base_flow_uuid = flow.get("uuid")
 
         sectors_base = []
         for sector in sectors:
@@ -149,6 +166,7 @@ class FunctionVersionInlineForm(forms.ModelForm):
             "action_types",
             "action_name",
             "action_prompt",
+            "action_base_flow_name",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -156,7 +174,6 @@ class FunctionVersionInlineForm(forms.ModelForm):
 
     def clean_definition(self):
         definition = self.cleaned_data.get("definition")
-
         flows = definition.get("flows")
         if not flows:
             raise forms.ValidationError(
@@ -182,6 +199,20 @@ class FunctionVersionInlineForm(forms.ModelForm):
                         )
 
         return definition
+    
+    def clean_action_base_flow_name(self):
+        action_base_flow_name = self.cleaned_data.get("action_base_flow_name", None)
+        if action_base_flow_name is None:
+            return action_base_flow_name
+        definition = self.cleaned_data.get("definition")
+        if definition is None:
+            raise forms.ValidationError("Você precisa colocar uma definition")
+        error_message = "você tem de digitar um nome de fluxo existente na sua definition, são eles: "
+        for flow in definition.get("flows"):
+            error_message += "\n" + flow.get("name")
+            if flow.get("name") == action_base_flow_name:
+                return action_base_flow_name
+        raise forms.ValidationError(error_message)
 
     def save(self, commit: bool) -> FeatureVersion:
         feature_version: FeatureVersion = super().save(commit)
@@ -205,6 +236,8 @@ class FunctionVersionInlineForm(forms.ModelForm):
             if len(flow["integrations"]["ticketers"]) > 0:
                 for ticketer in flow["integrations"]["ticketers"]:
                     sectors.append(ticketer)
+            if flow.get("name") == self.instance.action_base_flow_name:
+                self.instance.action_base_flow_uuid = flow.get("uuid")
 
         sectors_base = []
         for sector in sectors:
