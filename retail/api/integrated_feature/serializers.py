@@ -11,7 +11,6 @@ class IntegratedFeatureSerializer(serializers.Serializer):
     documentation_url = serializers.CharField()
     globals = serializers.SerializerMethodField()
     sectors = serializers.SerializerMethodField()
-    initial_flow = serializers.SerializerMethodField()
 
     def get_feature_uuid(self, obj):
         return obj.uuid
@@ -49,32 +48,6 @@ class IntegratedFeatureSerializer(serializers.Serializer):
 
         return sectors_list
 
-    def get_initial_flow(self, obj):
-        last_version = obj.last_version
-        if not last_version:
-            return []
-
-        flows = last_version.get_flows_base()
-        integrated_features = obj.integrated_features.all()
-        initial_flows = []
-
-        for flow in flows:
-            is_base_flow = False
-
-            for integrated_feature in integrated_features:
-                if integrated_feature.action_base_flow == flow["flow_uuid"]:
-                    is_base_flow = True
-                    break
-
-            initial_flows.append(
-                {
-                    "uuid": flow["flow_uuid"],
-                    "name": flow["flow_name"],
-                    "is_base_flow": is_base_flow,
-                }
-            )
-
-        return initial_flows
 
     class Meta:
         model = Feature
@@ -86,5 +59,4 @@ class IntegratedFeatureSerializer(serializers.Serializer):
             "documentation_url",
             "globals",
             "sectors",
-            "initial_flow",
         )
