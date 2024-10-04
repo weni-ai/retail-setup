@@ -93,6 +93,8 @@ class IntegratedFeatureView(BaseServiceView):
         IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
         print(f"message sent `integrated feature` - body: {body}")
 
+        serializer = IntegratedFeatureSerializer(integrated_feature.feature)
+
         response = {
             "status": 200,
             "data": {
@@ -101,6 +103,7 @@ class IntegratedFeatureView(BaseServiceView):
                 "project": integrated_feature.project.uuid,
                 "user": integrated_feature.user.email,
                 "integrated_on": integrated_feature.integrated_on,
+                **serializer.data,
             },
         }
         return Response(response)
