@@ -1,4 +1,3 @@
-import json
 import uuid
 
 from django.db import models
@@ -11,7 +10,12 @@ from retail.projects.models import Project
 class Feature(models.Model):
 
     features_types_choices = [("FEATURE", "Feature"), ("FUNCTION", "Function")]
-
+    categories_choices = [("ACTIVE", "Active"), ("PASSIVE", "Passive")]
+    STATUS_CHOICES = [
+            ('development', 'Development'),
+            ('testing', 'Testing'),
+            ('ready', 'Ready'),
+        ]
     created_on = models.DateTimeField(
         "when are created the new feature", auto_now_add=True
     )
@@ -24,6 +28,20 @@ class Feature(models.Model):
         max_length=100, choices=features_types_choices, default="FEATURE"
     )
     functions = models.ManyToManyField("self", null=True)
+    category = models.CharField(
+        max_length=100, choices=categories_choices, default="PASSIVE"
+    )
+    documentation_url = models.TextField(null=True)
+    disclaimer = models.TextField(null=True)
+    
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='development',
+        verbose_name='Status of feature',
+        null=True,
+        blank=True
+    )
 
     def __str__(self):
         return self.name
@@ -37,13 +55,19 @@ class FeatureVersion(models.Model):
     ACTION_TYPES_CHOICES = [
         ("PERSONALIZADO", "Personalizado"),
         ("VOLTAR AO MENU", "Voltar ao Menu"),
-        ("INTEGRAÇÕES GERAIS", "Interações gerais"),
+        ("INTERAÇÕES GERAIS", "Interações gerais"),
         ("CONFIGURAR COMUNICAÇÕES", "Configurar comunicações"),
         ("DESPEDIDA", "Despedida"),
         ("SAC/FALE CONOSCO", "SAC/Fale conosco"),
         ("INDIQUE E GANHE", "Indique e Ganhe"),
         ("TROCA E DEVOLUÇÃO", "Troca e Devolução"),
         ("STATUS DO PEDIDO", "Status do Pedido"),
+        ("CUMPRIMENTOS", "Cumprimentos"),
+        ("COMPRAS DE PRODUTOS", "Compras de Produtos"),
+        ("TÓPICOS SENSÍVEIS", "Tópicos sensíveis"),
+        ("MÍDIAS E LOCALIZAÇÃO", "Mídias e Localização"),
+        ("ENVIO DE CARRINHO DO WHATSAPP", "Envio de Carrinho do Whatsapp"),
+        ("CONTROLE DO AGENTE", "Controle do agente"),
     ]
 
     uuid = models.UUIDField(
@@ -63,6 +87,8 @@ class FeatureVersion(models.Model):
         null=True, blank=True, choices=ACTION_TYPES_CHOICES, default="PERSONALIZADO"
     )
     action_type_brain = models.TextField(null=True, blank=True)
+    action_base_flow_name = models.CharField(null=True, blank=True, choices=None)
+    action_base_flow_uuid = models.UUIDField(null=True, blank=True)
 
     created_on = models.DateTimeField(auto_now_add=True)
 
@@ -109,15 +135,14 @@ class IntegratedFeature(models.Model):
     )
     globals_values = models.JSONField(null=True, default=dict, blank=True)
     sectors = models.JSONField(null=True, default=dict, blank=True)
-    action_base_flow = models.CharField(null=True, blank=True, choices=None)
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="integrated_features"
     )
     integrated_on = models.DateField(auto_now_add=True)
 
-    def save(self, *args) -> None:
-        self.feature = self.feature_version.feature
-        return super().save(*args)
+    # def save(self, *args) -> None:
+        # self.feature = self.feature_version.feature
+        # return super().save(*args)
 
     def __str__(self) -> str:
         return self.feature_version.feature.name

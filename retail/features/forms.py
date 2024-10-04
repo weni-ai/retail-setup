@@ -4,7 +4,6 @@ from .models import IntegratedFeature, FeatureVersion, Feature
 
 
 class IntegrateFeatureForm(forms.ModelForm):
-
     class Meta:
         model = IntegratedFeature
         fields = ["feature_version", "globals_values", "sectors"]
@@ -22,7 +21,15 @@ class IntegrateFeatureForm(forms.ModelForm):
 class FeatureForm(forms.ModelForm):
     class Meta:
         model = Feature
-        fields = "__all__"
+        fields = [
+            "name",
+            "description",
+            "category",
+            "functions",
+            "documentation_url",
+            "disclaimer",
+            "status"
+        ]
 
     def __init__(self, *args, **kwargs):
         feature = kwargs.get("instance", None)
@@ -32,3 +39,15 @@ class FeatureForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["functions"].queryset = functions
         self.fields["functions"].required = False
+
+
+class FunctionForm(forms.ModelForm):
+    class Meta:
+        model = Feature
+        fields = ["name", "description", "category", "status"]
+
+    def __init__(self, *args, **kwargs):
+        feature = kwargs.get("instance", None)
+        if feature and feature.feature_type == "FUNCTION":
+            functions = functions.exclude(uuid=feature.uuid)
+        super().__init__(*args, **kwargs)

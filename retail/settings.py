@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "weni.eda.django.eda_app",
+    "corsheaders",
     "retail.projects",
     "retail.features",
     "retail.integrations",
@@ -78,6 +79,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
+    "django.middleware.common.CommonMiddleware",
 ]
 
 ROOT_URLCONF = "retail.urls"
@@ -156,6 +159,8 @@ USE_EDA = env.bool("USE_EDA", default=False)
 
 ACTION_TYPES = env.json("ACTION_TYPES", default={})
 
+CORS_ALLOW_ALL_ORIGINS = env.str("CORS_ALLOW_ALL_ORIGINS", default=True)
+
 if USE_EDA:
     EDA_CONSUMERS_HANDLE = "retail.event_driven.handle.handle_consumers"
 
@@ -181,3 +186,7 @@ if USE_OIDC:
     OIDC_RP_SIGN_ALGO = env.str("OIDC_RP_SIGN_ALGO", default="RS256")
     OIDC_DRF_AUTH_BACKEND = "retail.internal.backends.InternalOIDCAuthenticationBackend"
     OIDC_RP_SCOPES = env.str("OIDC_RP_SCOPES", default="openid email")
+
+INTEGRATIONS_REST_ENDPOINT = env.str("INTEGRATIONS_REST_ENDPOINT")
+
+FLOWS_REST_ENDPOINT = env.str("FLOWS_REST_ENDPOINT")

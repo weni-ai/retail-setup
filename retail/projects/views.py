@@ -16,7 +16,6 @@ class ProjectViewSet(viewsets.ViewSet, InternalGenericViewSet):
             projects_data = {
                 "name": project.name,
                 "uuid": project.uuid,
-                "organization_name": project.organization_name,
             }
 
             projects.append(projects_data)
