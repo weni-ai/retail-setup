@@ -24,7 +24,6 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
             integrated_feature = form.save(commit=False)
             integrated_feature.project = project
             integrated_feature.user = request.user
-            integrated_feature.action_base_flow = request.POST["base_flows"]
             integrated_feature.save()
 
             sectors_data = []
@@ -50,7 +49,7 @@ def integrate_feature_view(request, project_uuid, feature_uuid):
                 "action": {
                     "name": integrated_feature.feature_version.action_name,
                     "prompt": integrated_feature.feature_version.action_prompt,
-                    "root_flow_uuid": integrated_feature.action_base_flow,
+                    "root_flow_uuid": integrated_feature.feature_version.action_base_flow_uuid,
                 },
             }
             IntegratedFeatureEDA().publisher(
@@ -128,7 +127,7 @@ def update_feature_view(request, project_uuid, integrated_feature_uuid):
                 "action": {
                     "name": integrated_feature.feature_version.action_name,
                     "prompt": integrated_feature.feature_version.action_prompt,
-                    "root_flow_uuid": integrated_feature.action_base_flow,
+                    "root_flow_uuid": integrated_feature.feature_version.action_base_flow_uuid,
                 },
             }
             IntegratedFeatureEDA().publisher(

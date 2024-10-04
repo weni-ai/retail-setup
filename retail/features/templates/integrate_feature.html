@@ -4,21 +4,12 @@
 <form method="post" class="form-horizontal">
   {% csrf_token %}
   {{ form.as_p }}
-  <p>Fluxo inicial</p> 
-  <select name="base_flows" id="base-flows">
-    <option value="">--------</option>
-  </select>
-  <br/>
-  <button type="submit" class="btn btn-primary">{{ button_title }}</button>
-</form>
 
 <script>
   let featureVersions = {{ versions | safe }};
   let featureSectors = {{ versions_sectors | safe }};
   let lastVersionParams = {{ last_version_params | safe }};
   let lastVersionSectors = {{ version_sectors | safe }};
-  let lastVersionActions = {{ action_base_flow | safe }}
-  let featureActions = {{actions | safe}};
 
   function getVersionParamsObject(versionParams) {
     if (Object.keys(versionParams).length == 0) {
@@ -33,7 +24,6 @@
   featureVersionElement = document.getElementById('id_feature_version')
   parametersElement = document.getElementById('id_globals_values')
   sectorsElement = document.getElementById('id_sectors')
-  actionsElement = document.getElementById('base-flows')
 
   parametersElement.value = getVersionParamsObject(lastVersionParams)
   if(Object.keys(lastVersionSectors).length == 0) {
@@ -41,31 +31,17 @@
   } else {
     sectorsElement.value = JSON.stringify(lastVersionSectors, null, 2)
   }
-  lastVersionActions.forEach((flow) => {
-      let optionElement = document.createElement("option")
-      optionElement.value = flow.flow_uuid
-      optionElement.textContent = flow.flow_name
-      actionsElement.appendChild(optionElement)
-    })
   featureVersionElement.addEventListener('input', function() {
     if (featureVersionElement.value) {
       parametersElement.disabled = false;
       let versionParams = featureVersions[featureVersionElement.value]
       let sectorParams = featureSectors[featureVersionElement.value]
-      let flows = featureActions[featureVersionElement.value]
       parametersElement.value = getVersionParamsObject(versionParams)
       if(Object.keys(sectorParams).length == 0) {
         sectorsElement.value = "{}"
       } else {
         sectorsElement.value = JSON.stringify(sectorParams, null, 2)
       }
-      actionsElement.innerHTML = "<option value=''>--------</option>"
-      flows.forEach((flow) => {
-        let optionElement = document.createElement("option")
-        optionElement.value = flow.flow_uuid
-        optionElement.textContent = flow.flow_name
-        actionsElement.appendChild(optionElement)
-      })
     } else {
       parametersElement.disabled = true;
       parametersElement.value = ""

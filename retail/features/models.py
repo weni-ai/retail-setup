@@ -68,6 +68,8 @@ class FeatureVersion(models.Model):
         null=True, blank=True, choices=ACTION_TYPES_CHOICES, default="PERSONALIZADO"
     )
     action_type_brain = models.TextField(null=True, blank=True)
+    action_base_flow_name = models.CharField(null=True, blank=True, choices=None)
+    action_base_flow_uuid = models.UUIDField(null=True, blank=True)
 
     created_on = models.DateTimeField(auto_now_add=True)
 

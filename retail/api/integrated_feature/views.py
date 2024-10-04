@@ -50,11 +50,8 @@ class IntegratedFeatureView(views.APIView):
                 "globals_values", {}
             ).items():
                 integrated_feature.globals_values[globals_key] = globals_value
-            integrated_feature.action_base_flow = request.data.get(
-                "action_base_flow", ""
-            )
             integrated_feature.save(
-                update_fields=["sectors", "globals_values", "action_base_flow"]
+                update_fields=["sectors", "globals_values"]
             )
 
         for sector in integrated_feature.sectors:
@@ -68,6 +65,28 @@ class IntegratedFeatureView(views.APIView):
                 }
             )
 
+        actions = []
+        for function in feature.functions.all():
+            function_last_version = function.last_version
+            if function_last_version.action_base_flow_uuid != None:
+                actions.append(
+                    {
+                        "name": function_last_version.action_name,
+                        "prompt": function_last_version.action_prompt,
+                        "root_flow_uuid": str(function_last_version.action_base_flow_uuid),
+                        "type": ""
+                    }
+                )
+        if feature_version.action_base_flow_uuid:
+            actions.append(
+                    {
+                        "name": feature_version.action_name,
+                        "prompt": feature_version.action_prompt,
+                        "root_flow_uuid": str(feature_version.action_base_flow_uuid),
+                        "type": ""
+                    }
+                )
+
         body = {
             "definition": integrated_feature.feature_version.definition,
             "user_email": integrated_feature.user.email,
@@ -76,11 +95,7 @@ class IntegratedFeatureView(views.APIView):
             "feature_version": str(integrated_feature.feature_version.uuid),
             "feature_uuid": str(integrated_feature.feature.uuid),
             "sectors": sectors_data,
-            "action": {
-                "name": integrated_feature.feature_version.action_name,
-                "prompt": integrated_feature.feature_version.action_prompt,
-                "root_flow_uuid": integrated_feature.action_base_flow,
-            },
+            "action": actions
         }
 
         IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
