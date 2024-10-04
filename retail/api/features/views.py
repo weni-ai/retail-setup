@@ -18,6 +18,8 @@ class FeaturesView(BaseServiceView):
 
             features = Feature.objects.exclude(uuid__in=integrated_features)
             features = features.exclude(feature_type="FUNCTION")
+            features = features.exclude(status="development")
+            features = features.exclude(status="testing")
             if category:
                 features = features.filter(category=category)
 
