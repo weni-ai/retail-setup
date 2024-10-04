@@ -11,7 +11,11 @@ class Feature(models.Model):
 
     features_types_choices = [("FEATURE", "Feature"), ("FUNCTION", "Function")]
     categories_choices = [("ACTIVE", "Active"), ("PASSIVE", "Passive")]
-
+    STATUS_CHOICES = [
+            ('development', 'Development'),
+            ('testing', 'Testing'),
+            ('ready', 'Ready'),
+        ]
     created_on = models.DateTimeField(
         "when are created the new feature", auto_now_add=True
     )
@@ -29,6 +33,15 @@ class Feature(models.Model):
     )
     documentation_url = models.TextField(null=True)
     disclaimer = models.TextField(null=True)
+    
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='development',
+        verbose_name='Status of feature',
+        null=True,
+        blank=True
+    )
 
     def __str__(self):
         return self.name
@@ -42,13 +55,19 @@ class FeatureVersion(models.Model):
     ACTION_TYPES_CHOICES = [
         ("PERSONALIZADO", "Personalizado"),
         ("VOLTAR AO MENU", "Voltar ao Menu"),
-        ("INTEGRAÇÕES GERAIS", "Interações gerais"),
+        ("INTERAÇÕES GERAIS", "Interações gerais"),
         ("CONFIGURAR COMUNICAÇÕES", "Configurar comunicações"),
         ("DESPEDIDA", "Despedida"),
         ("SAC/FALE CONOSCO", "SAC/Fale conosco"),
         ("INDIQUE E GANHE", "Indique e Ganhe"),
         ("TROCA E DEVOLUÇÃO", "Troca e Devolução"),
         ("STATUS DO PEDIDO", "Status do Pedido"),
+        ("CUMPRIMENTOS", "Cumprimentos"),
+        ("COMPRAS DE PRODUTOS", "Compras de Produtos"),
+        ("TÓPICOS SENSÍVEIS", "Tópicos sensíveis"),
+        ("MÍDIAS E LOCALIZAÇÃO", "Mídias e Localização"),
+        ("ENVIO DE CARRINHO DO WHATSAPP", "Envio de Carrinho do Whatsapp"),
+        ("CONTROLE DO AGENTE", "Controle do agente"),
     ]
 
     uuid = models.UUIDField(
