@@ -1,3 +1,8 @@
+# 1.0.1
+
+## *Change*
+  - setting the disclaimer and documentation url fields as not required to create a feature
+
 # 1.0.0
 
 ## *Add*
