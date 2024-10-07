@@ -39,6 +39,8 @@ class FeatureForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["functions"].queryset = functions
         self.fields["functions"].required = False
+        self.fields["disclaimer"].required = False
+        self.fields["documentation_url"].required = False
 
 
 class FunctionForm(forms.ModelForm):
