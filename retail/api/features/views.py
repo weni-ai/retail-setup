@@ -1,4 +1,6 @@
-from rest_framework import views, status
+from django.conf import settings
+
+from rest_framework import status
 from rest_framework.response import Response
 
 from retail.api.base_service_view import BaseServiceView
@@ -19,7 +21,13 @@ class FeaturesView(BaseServiceView):
             features = Feature.objects.exclude(uuid__in=integrated_features)
             features = features.exclude(feature_type="FUNCTION")
             features = features.exclude(status="development")
-            features = features.exclude(status="testing")
+
+            can_testing = False
+            for email in settings.EMAILS_CAN_TESTING:
+                if email in request.user.email:
+                    can_testing = True
+            if not can_testing:
+                features = features.exclude(status="testing")
             if category:
                 features = features.filter(category=category)
 
