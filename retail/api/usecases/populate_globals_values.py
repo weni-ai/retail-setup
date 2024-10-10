@@ -47,7 +47,7 @@ class PopulateGlobalsValuesUsecase:
         if flow_data:
             if "api_token" in globals_values:
                 filled_globals_values["api_token"] = flow_data.get(
-                    "token", globals_values["api_token"]
+                    "api_token", globals_values["api_token"]
                 )
 
         return filled_globals_values
