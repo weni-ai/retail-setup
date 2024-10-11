@@ -4,7 +4,7 @@ from rest_framework import status
 from rest_framework.response import Response
 
 from retail.api.base_service_view import BaseServiceView
-from retail.api.integrated_feature.serializers import IntegratedFeatureSerializer
+from retail.api.integrated_feature.serializers import IntegratedFeatureSerializer, ListIntegratedFeatureSerializer
 from retail.api.usecases.populate_globals_values import PopulateGlobalsValuesUsecase
 
 from retail.features.models import Feature, IntegratedFeature
@@ -135,16 +135,13 @@ class IntegratedFeatureView(BaseServiceView):
         try:
 
             category = request.query_params.get("category", None)
-            integrated_features = IntegratedFeature.objects.filter(
-                project__uuid=project_uuid
-            ).values_list("feature__uuid", flat=True)
 
-            features = Feature.objects.filter(uuid__in=integrated_features)
+            integrated_features = IntegratedFeature.objects.filter(project__uuid=project_uuid)
 
             if category:
-                features = features.filter(category=category)
+                integrated_features = integrated_features.filter(feature__category=category)
 
-            serializer = IntegratedFeatureSerializer(features, many=True)
+            serializer = ListIntegratedFeatureSerializer(integrated_features, many=True)
 
             return Response({"results": serializer.data}, status=status.HTTP_200_OK)
 
