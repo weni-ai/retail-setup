@@ -18,17 +18,29 @@ class FeaturesSerializer(serializers.Serializer):
 
     def get_globals(self, obj):
         last_version = obj.last_version
-        return last_version.globals_values if last_version else None
+        globals_values = last_version.globals_values if last_version else []
+        for function in obj.functions.all():
+            function_last_version = function.last_version
+            for function_global in function_last_version.globals_values:
+                if function_global not in globals_values:
+                    globals_values.append(function_global)
+        return globals_values
 
     def get_sectors(self, obj):
         last_version = obj.last_version
+        sectors = []
         if last_version and last_version.sectors:
-            return [
+            sectors = [
                 sector.get("name")
                 for sector in last_version.sectors
                 if sector.get("name")
             ]
-        return []
+        for function in obj.functions.all():
+            function_last_version = function.last_version
+            for sector in function_last_version.sectors:
+                if sector.get("name") not in sectors:
+                    sectors.append(sector.get("name"))
+        return sectors
 
     def get_initial_flow(self, obj):
         last_version = obj.last_version
