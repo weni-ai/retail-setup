@@ -41,7 +41,7 @@ class FeaturesView(BaseServiceView):
             # Execute usecase to modify globals
             user_email = request.user.email
             features_data = usecase.execute(serializer.data, user_email, project_uuid)
-
+            features_data.append({"versions": []})
             return Response({"results": features_data}, status=status.HTTP_200_OK)
 
         except Exception as e:
