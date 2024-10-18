@@ -50,6 +50,4 @@ class FunctionForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         feature = kwargs.get("instance", None)
-        if feature and feature.feature_type == "FUNCTION":
-            functions = functions.exclude(uuid=feature.uuid)
         super().__init__(*args, **kwargs)

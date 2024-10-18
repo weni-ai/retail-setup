@@ -4,7 +4,7 @@ from rest_framework import status
 from rest_framework.response import Response
 
 from retail.api.base_service_view import BaseServiceView
-from retail.api.integrated_feature.serializers import IntegratedFeatureSerializer
+from retail.api.integrated_feature.serializers import FeatureSerializer, ListIntegratedFeatureSerializer
 from retail.api.usecases.populate_globals_values import PopulateGlobalsValuesUsecase
 
 from retail.features.models import Feature, IntegratedFeature
@@ -53,6 +53,67 @@ class IntegratedFeatureView(BaseServiceView):
         globals_values_request = {}
         for globals_values in feature_version.globals_values:
             globals_values_request[globals_values] = ""
+        
+        actions = []
+        definition_data = integrated_feature.definition
+        for function in feature.functions.all():
+            function_last_version = function.last_version
+
+            for globals_values in function_last_version.globals_values:
+                globals_values_request[globals_values] = ""
+
+            for sector in function_last_version.sectors:
+                can = True
+                for sec in integrated_feature.sectors:
+                    if sec.get("name") == sector.get("name"):
+                        can = False
+                if can:
+                    for r_sector in request.data.get("sectors", []):
+                        if r_sector.get("name") == sector.get("name"):
+                            new_sector = {
+                                "name": r_sector.get("name"),
+                                "tags": r_sector.get("tags"),
+                                "queues": sector.get("queues"),
+                            }
+                            integrated_feature.sectors.append(new_sector)
+                            break
+
+            if function_last_version.action_base_flow_uuid is not None:
+                actions.append(
+                    {
+                        "name": function_last_version.action_name,
+                        "prompt": function_last_version.action_prompt,
+                        "root_flow_uuid": str(
+                            function_last_version.action_base_flow_uuid
+                        ),
+                        "type": "",
+                    }
+                )
+
+            for flow in function_last_version.definition["flows"]:
+                definition_data["flows"].append(flow)
+
+            for campaign in function_last_version.definition["campaigns"]:
+                definition_data["campaigns"].append(campaign)
+
+            for trigger in function_last_version.definition["triggers"]:
+                definition_data["triggers"].append(trigger)
+
+            for field in function_last_version.definition["fields"]:
+                definition_data["fields"].append(field)
+
+            for group in function_last_version.definition["groups"]:
+                definition_data["groups"].append(group)
+
+        if feature_version.action_base_flow_uuid:
+            actions.append(
+                {
+                    "name": feature_version.action_name,
+                    "prompt": feature_version.action_prompt,
+                    "root_flow_uuid": str(feature_version.action_base_flow_uuid),
+                    "type": "",
+                }
+            )
 
         for key, value in request.data.get("globals_values", {}).items():
             globals_values_request[key] = value
@@ -78,32 +139,12 @@ class IntegratedFeatureView(BaseServiceView):
                 }
             )
 
-        actions = []
-        for function in feature.functions.all():
-            function_last_version = function.last_version
-            if function_last_version.action_base_flow_uuid is not None:
-                actions.append(
-                    {
-                        "name": function_last_version.action_name,
-                        "prompt": function_last_version.action_prompt,
-                        "root_flow_uuid": str(
-                            function_last_version.action_base_flow_uuid
-                        ),
-                        "type": "",
-                    }
-                )
-        if feature_version.action_base_flow_uuid:
-            actions.append(
-                {
-                    "name": feature_version.action_name,
-                    "prompt": feature_version.action_prompt,
-                    "root_flow_uuid": str(feature_version.action_base_flow_uuid),
-                    "type": "",
-                }
-            )
-
+        integrated_feature.save()
+        globals_data = []
+        for key, value in integrated_feature.globals_values.items():
+            globals_data.append({"name": key, "value": value})
         body = {
-            "definition": integrated_feature.feature_version.definition,
+            "definition": definition_data,
             "user_email": integrated_feature.user.email,
             "project_uuid": str(integrated_feature.project.uuid),
             "parameters": integrated_feature.globals_values,
@@ -116,17 +157,18 @@ class IntegratedFeatureView(BaseServiceView):
         IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
         print(f"message sent `integrated feature` - body: {body}")
 
-        serializer = IntegratedFeatureSerializer(integrated_feature.feature)
+        serializer = FeatureSerializer(integrated_feature.feature)
 
         response = {
             "status": 200,
             "data": {
-                "feature": integrated_feature.feature.uuid,
+                **serializer.data,
                 "feature_version": integrated_feature.feature_version.uuid,
                 "project": integrated_feature.project.uuid,
                 "user": integrated_feature.user.email,
                 "integrated_on": integrated_feature.integrated_on,
-                **serializer.data,
+                "globals": globals_data,
+                "sectors": integrated_feature.sectors,
             },
         }
         return Response(response)
@@ -135,16 +177,13 @@ class IntegratedFeatureView(BaseServiceView):
         try:
 
             category = request.query_params.get("category", None)
-            integrated_features = IntegratedFeature.objects.filter(
-                project__uuid=project_uuid
-            ).values_list("feature__uuid", flat=True)
 
-            features = Feature.objects.filter(uuid__in=integrated_features)
+            integrated_features = IntegratedFeature.objects.filter(project__uuid=project_uuid)
 
             if category:
-                features = features.filter(category=category)
+                integrated_features = integrated_features.filter(feature__category=category)
 
-            serializer = IntegratedFeatureSerializer(features, many=True)
+            serializer = ListIntegratedFeatureSerializer(integrated_features, many=True)
 
             return Response({"results": serializer.data}, status=status.HTTP_200_OK)
 
