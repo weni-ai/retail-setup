@@ -42,10 +42,10 @@ class RemoveGlobalsKeysUsecase:
 
             # Check and mark globals for removal based on flows data if available
             if flows_data:
-                if "user_api_token" in feature["globals"] and flows_data.get(
+                if "api_token" in feature["globals"] and flows_data.get(
                     "api_token"
                 ):
-                    globals_to_remove.append("user_api_token")
+                    globals_to_remove.append("api_token")
 
             # Remove the marked globals
             feature["globals"] = [
