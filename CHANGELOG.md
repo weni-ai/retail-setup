@@ -1,3 +1,8 @@
+# 1.2.5
+
+## *Change*
+  - fix: adjust the value of the global api_token key
+
 # 1.0.1
 
 ## *Change*
