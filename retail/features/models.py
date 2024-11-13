@@ -43,6 +43,9 @@ class Feature(models.Model):
         blank=True
     )
 
+    can_vtex_integrate = models.BooleanField(default=False)
+    config = models.JSONField(default=dict)
+
     def __str__(self):
         return self.name
 
@@ -139,6 +142,7 @@ class IntegratedFeature(models.Model):
         User, on_delete=models.CASCADE, related_name="integrated_features"
     )
     integrated_on = models.DateField(auto_now_add=True)
+    created_by_vtex = models.BooleanField(default=False)
 
     # def save(self, *args) -> None:
         # self.feature = self.feature_version.feature
