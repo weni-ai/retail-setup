@@ -83,31 +83,6 @@ class FeatureVersionInlineForm(forms.ModelForm):
                 self.instance.globals_values.append(match)
         self.instance.save()
 
-        if feature.feature_type == "FEATURE":
-            for feature_function in feature.functions.all():
-                function_version = feature_function.versions.order_by(
-                    "created_on"
-                ).last()
-                for flow in function_version.definition["flows"]:
-                    self.instance.definition["flows"].append(flow)
-
-                for campaign in function_version.definition["campaigns"]:
-                    self.instance.definition["campaigns"].append(campaign)
-
-                for trigger in function_version.definition["triggers"]:
-                    self.instance.definition["triggers"].append(trigger)
-
-                for field in function_version.definition["fields"]:
-                    self.instance.definition["fields"].append(field)
-
-                for group in function_version.definition["groups"]:
-                    self.instance.definition["groups"].append(group)
-
-                for globals_values in function_version.globals_values:
-                    if globals_values not in self.instance.globals_values:
-                        self.instance.globals_values.append(globals_values)
-            self.instance.save()
-
         flows = self.instance.definition.get("flows", [])
         sectors = []
         for flow in flows:
