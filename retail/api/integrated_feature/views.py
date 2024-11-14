@@ -7,6 +7,7 @@ from retail.api.base_service_view import BaseServiceView
 from retail.api.integrated_feature.serializers import IntegratedFeatureSerializer
 from retail.api.usecases.populate_globals_values import PopulateGlobalsValuesUsecase
 
+from retail.api.usecases.populate_globals_with_defaults import PopulateDefaultsUseCase
 from retail.features.models import Feature, IntegratedFeature
 from retail.features.integrated_feature_eda import IntegratedFeatureEDA
 from retail.projects.models import Project
@@ -15,6 +16,9 @@ from retail.projects.models import Project
 class IntegratedFeatureView(BaseServiceView):
     def post(self, request, *args, **kwargs):
         feature = Feature.objects.get(uuid=kwargs["feature_uuid"])
+        # Checks if the integration came from vtex
+        created_by_vtex = request.data.get("created_by_vtex", False)
+
         try:
             project = Project.objects.get(uuid=request.data["project_uuid"])
         except Project.DoesNotExist:
@@ -66,6 +70,20 @@ class IntegratedFeatureView(BaseServiceView):
         # Add all globals from the request, including treated ones
         for globals_key, globals_value in treated_globals_values.items():
             integrated_feature.globals_values[globals_key] = globals_value
+
+        if created_by_vtex:
+            integrated_feature.created_by_vtex = created_by_vtex
+
+            populate_defaults_use_case = PopulateDefaultsUseCase()
+            default_globals_values = populate_defaults_use_case.execute(
+                feature, globals_values_request
+            )
+
+            # Add default globals
+            for df_globals_key, df_globals_value in default_globals_values.items():
+                integrated_feature.globals_values[df_globals_key] = df_globals_value
+
+            integrated_feature.save()
 
         for sector in integrated_feature.sectors:
             sectors_data.append(
