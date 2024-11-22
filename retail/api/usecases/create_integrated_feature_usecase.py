@@ -1,5 +1,7 @@
 from rest_framework.exceptions import ValidationError, NotFound
+from django.conf import settings
 
+from retail.api.integrated_feature.serializers import IntegratedFeatureSerializer
 from retail.api.usecases.populate_globals_values import PopulateGlobalsValuesUsecase
 from retail.api.usecases.populate_globals_with_defaults import PopulateDefaultsUseCase
 
@@ -27,7 +29,7 @@ class CreateIntegratedFeatureUseCase:
             user (User): The user performing the action.
 
         Returns:
-            IntegratedFeature: The created and configured IntegratedFeature instance.
+            dict: Response data including integration details.
 
         Raises:
             ValidationError: If the feature is already integrated with the project.
@@ -59,7 +61,10 @@ class CreateIntegratedFeatureUseCase:
         # Publish integration event
         self._publish_integration_event(integrated_feature)
 
-        return integrated_feature
+        # Prepare and return the response data
+        response_data = self._prepare_response_data(integrated_feature)
+
+        return response_data
 
     def _get_feature(self, feature_uuid):
         try:
@@ -100,6 +105,14 @@ class CreateIntegratedFeatureUseCase:
         return integrated_feature
 
     def _process_sectors(self, integrated_feature, feature, sectors_request):
+        """
+        Process and set the sectors for the integrated feature.
+
+        Args:
+            integrated_feature (IntegratedFeature): The integrated feature instance.
+            feature (Feature): The feature being integrated.
+            sectors_request (list): List of sectors provided in the request.
+        """
         integrated_feature.sectors = []
         if feature.last_version.sectors:
             for sector in feature.last_version.sectors:
@@ -150,7 +163,7 @@ class CreateIntegratedFeatureUseCase:
             default_globals_values = populate_defaults_use_case.execute(
                 feature, full_globals_values
             )
-            # Merge default_globals_values into treated_globals_values
+            # Merge default globals into treated_globals_values
             treated_globals_values.update(default_globals_values)
 
         # Ensure all globals are included
@@ -158,6 +171,12 @@ class CreateIntegratedFeatureUseCase:
         integrated_feature.save()
 
     def _publish_integration_event(self, integrated_feature):
+        """
+        Publish the integration event to the message broker.
+
+        Args:
+            integrated_feature (IntegratedFeature): The integrated feature instance.
+        """
         # Prepare data for publishing
         sectors_data = [
             {
@@ -209,3 +228,29 @@ class CreateIntegratedFeatureUseCase:
 
         IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
         print(f"message sent `integrated feature` - body: {body}")
+
+    def _prepare_response_data(self, integrated_feature):
+        """
+        Prepare the response data to be sent back to the client.
+
+        Args:
+            integrated_feature (IntegratedFeature): The integrated feature instance.
+
+        Returns:
+            dict: Response data including additional info if necessary.
+        """
+        serializer = IntegratedFeatureSerializer(integrated_feature.feature)
+        response_data = {
+            "status": 200,
+            "data": {
+                "feature": str(integrated_feature.feature.uuid),
+                "integrated_feature": str(integrated_feature.uuid),
+                "feature_version": str(integrated_feature.feature_version.uuid),
+                "project": str(integrated_feature.project.uuid),
+                "user": integrated_feature.user.email,
+                "integrated_on": integrated_feature.integrated_on.isoformat(),
+                **serializer.data,
+            },
+        }
+
+        return response_data

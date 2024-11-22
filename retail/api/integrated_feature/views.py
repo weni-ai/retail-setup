@@ -23,22 +23,11 @@ class IntegratedFeatureView(BaseServiceView):
         request_data["feature_uuid"] = kwargs.get("feature_uuid")
 
         use_case = CreateIntegratedFeatureUseCase(
-            self.integrations_service, self.flows_service
+            integrations_service=self.integrations_service,
+            flows_service=self.flows_service,
         )
-        integrated_feature = use_case.execute(request_data, user)
-        serializer = IntegratedFeatureSerializer(integrated_feature.feature)
 
-        response_data = {
-            "status": 200,
-            "data": {
-                "feature": integrated_feature.feature.uuid,
-                "feature_version": integrated_feature.feature_version.uuid,
-                "project": integrated_feature.project.uuid,
-                "user": integrated_feature.user.email,
-                "integrated_on": integrated_feature.integrated_on,
-                **serializer.data,
-            },
-        }
+        response_data = use_case.execute(request_data, user)
         return Response(response_data, status=status.HTTP_200_OK)
 
     def get(self, request, project_uuid):
