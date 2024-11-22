@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     "retail.healthcheck",
     "retail.internal",
     "rest_framework",
+    "retail.vtex"
 ]
 
 MIDDLEWARE = [
@@ -192,3 +193,5 @@ INTEGRATIONS_REST_ENDPOINT = env.str("INTEGRATIONS_REST_ENDPOINT")
 FLOWS_REST_ENDPOINT = env.str("FLOWS_REST_ENDPOINT")
 
 EMAILS_CAN_TESTING = env.str("EMAILS_CAN_TESTING", "").split(",")
+
+ABANDONED_CART_FEATURE_UUID = env.str("ABANDONED_CART_FEATURE_UUID", "")
