@@ -195,3 +195,26 @@ FLOWS_REST_ENDPOINT = env.str("FLOWS_REST_ENDPOINT")
 EMAILS_CAN_TESTING = env.str("EMAILS_CAN_TESTING", "").split(",")
 
 ABANDONED_CART_FEATURE_UUID = env.str("ABANDONED_CART_FEATURE_UUID", "")
+
+
+# Redis
+REDIS_URL = env.str("REDIS_URL", default="redis://localhost:6379")
+
+
+# Celery
+CELERY_BROKER_URL = env.str("CELERY_BROKER_URL", default=REDIS_URL)
+CELERY_RESULT_BACKEND = None
+CELERY_ACCEPT_CONTENT = ["application/json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+
+
+# Cache
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": REDIS_URL,
+        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+    }
+}
