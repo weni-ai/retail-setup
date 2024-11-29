@@ -9,4 +9,4 @@ class CartSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=["create", "update", "purchased", "empty"])
     account = serializers.CharField()
     homePhone = serializers.CharField()
-    data = serializers.JSONField()
+    cart_url = serializers.CharField()

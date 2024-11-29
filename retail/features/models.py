@@ -143,6 +143,7 @@ class IntegratedFeature(models.Model):
     )
     integrated_on = models.DateField(auto_now_add=True)
     created_by_vtex = models.BooleanField(default=False)
+    config = models.JSONField(default=dict)
 
     # def save(self, *args) -> None:
         # self.feature = self.feature_version.feature

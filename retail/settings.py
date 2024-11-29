@@ -196,6 +196,7 @@ EMAILS_CAN_TESTING = env.str("EMAILS_CAN_TESTING", "").split(",")
 
 ABANDONED_CART_FEATURE_UUID = env.str("ABANDONED_CART_FEATURE_UUID", "")
 
+FLOWS_USER_CRM_EMAIL = env.str("FLOWS_USER_CRM_EMAIL", "")
 
 # Redis
 REDIS_URL = env.str("REDIS_URL", default="redis://localhost:6379")
@@ -204,6 +205,7 @@ REDIS_URL = env.str("REDIS_URL", default="redis://localhost:6379")
 # Celery
 CELERY_BROKER_URL = env.str("CELERY_BROKER_URL", default=REDIS_URL)
 CELERY_RESULT_BACKEND = None
+CELERY_TASK_IGNORE_RESULT = True
 CELERY_ACCEPT_CONTENT = ["application/json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"

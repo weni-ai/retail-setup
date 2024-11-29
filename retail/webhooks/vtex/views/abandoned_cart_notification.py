@@ -28,7 +28,7 @@ class AbandonedCartNotification(APIView):
             action=validated_data["action"],
             account=validated_data["account"],
             home_phone=validated_data["homePhone"],
-            data=validated_data["data"],
+            data=request.data,
         )
 
         cart_use_case = CartUseCase(account=cart_dto.account)
