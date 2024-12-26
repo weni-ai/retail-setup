@@ -13,6 +13,7 @@ class FeaturesView(BaseServiceView):
     def get(self, request, project_uuid: str):
         try:
             category = request.query_params.get("category", None)
+            can_vtex_integrate = request.query_params.get("can_vtex_integrate", None)
 
             integrated_features = IntegratedFeature.objects.filter(
                 project__uuid=project_uuid
@@ -26,10 +27,17 @@ class FeaturesView(BaseServiceView):
             for email in settings.EMAILS_CAN_TESTING:
                 if email in request.user.email:
                     can_testing = True
+
             if not can_testing:
                 features = features.exclude(status="testing")
+
             if category:
                 features = features.filter(category=category)
+
+            if can_vtex_integrate:
+                # Convert "true"/"false" to boolean
+                can_vtex_integrate = can_vtex_integrate == 'true'
+                features = features.filter(can_vtex_integrate=can_vtex_integrate)
 
             serializer = FeaturesSerializer(features, many=True)
 
