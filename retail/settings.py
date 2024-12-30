@@ -185,7 +185,7 @@ if USE_OIDC:
     OIDC_OP_USER_ENDPOINT = env.str("OIDC_OP_USER_ENDPOINT")
     OIDC_OP_JWKS_ENDPOINT = env.str("OIDC_OP_JWKS_ENDPOINT")
     OIDC_RP_SIGN_ALGO = env.str("OIDC_RP_SIGN_ALGO", default="RS256")
-    OIDC_DRF_AUTH_BACKEND = "retail.internal.backends.InternalOIDCAuthenticationBackend"
+    OIDC_DRF_AUTH_BACKEND = "retail.internal.backends.WeniOIDCAuthenticationBackend"
     OIDC_RP_SCOPES = env.str("OIDC_RP_SCOPES", default="openid email")
 
 INTEGRATIONS_REST_ENDPOINT = env.str("INTEGRATIONS_REST_ENDPOINT")
@@ -220,3 +220,10 @@ CACHES = {
         "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
     }
 }
+
+OIDC_CACHE_TOKEN = env.bool(
+    "OIDC_CACHE_TOKEN", default=False
+)  # Enable/disable user token caching (default: False).
+OIDC_CACHE_TTL = env.int(
+    "OIDC_CACHE_TTL", default=600
+)  # Time-to-live for cached user tokens (default: 600 seconds).
