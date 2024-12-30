@@ -17,6 +17,8 @@ mozilla-django-oidc = "^4.0.1"
 djangorestframework = "^3.15.2"
 drf-yasg = "^1.21.7"
 django-cors-headers = "^4.4.0"
+redis = "^3.5.3"
+django-redis = "^5.2.0"
 
 [tool.poetry.group.dev.dependencies]
 flake8 = "^7.1.0"
