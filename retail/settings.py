@@ -69,7 +69,7 @@ INSTALLED_APPS = [
     "retail.healthcheck",
     "retail.internal",
     "rest_framework",
-    "retail.vtex"
+    "retail.vtex",
 ]
 
 MIDDLEWARE = [
@@ -227,3 +227,6 @@ OIDC_CACHE_TOKEN = env.bool(
 OIDC_CACHE_TTL = env.int(
     "OIDC_CACHE_TTL", default=600
 )  # Time-to-live for cached user tokens (default: 600 seconds).
+
+VTEX_IO_OIDC_RP_CLIENT_SECRET = env.str("VTEX_IO_OIDC_RP_CLIENT_SECRET", "")
+VTEX_IO_OIDC_RP_CLIENT_ID = env.str("VTEX_IO_OIDC_RP_CLIENT_ID", "")

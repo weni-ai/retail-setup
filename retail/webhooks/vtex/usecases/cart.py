@@ -84,51 +84,48 @@ class CartUseCase:
             logger.error(error_message, exc_info=True)  # Captura o traceback completo
             raise ValidationError(error_message)
 
-    def handle_action(self, action: str, cart_dto: CartDTO) -> Cart:
+    def process_cart_notification(self, cart_id: str) -> Cart:
         """
-        Handle the specified cart action.
+        Process incoming cart notification, renewing task or creating new cart.
 
         Args:
-            action (str): The action to handle (create, update, purchased, empty).
-            cart_dto (CartDTO): The validated cart data.
+            cart_id (str): The unique identifier for the cart.
 
         Returns:
-            Cart: The updated or created cart instance.
+            Cart: The created or updated cart instance.
         """
-        action_methods = {
-            "create": self._create_cart,
-            "update": self._update_cart,
-            "purchased": self._mark_cart_purchased,
-            "empty": self._mark_cart_empty,
-        }
+        try:
+            # Check if the cart already exists
+            cart = Cart.objects.get(
+                cart_id=cart_id, project=self.project, status="created"
+            )
+            # Renew abandonment task
+            self._schedule_abandonment_task(str(cart.uuid))
+            return cart
+        except Cart.DoesNotExist:
+            # Create new cart if it doesn't exist
+            return self._create_cart(cart_id)
 
-        if action not in action_methods:
-            raise ValidationError({"action": f"Invalid action: {action}"})
-
-        # Call the appropriate method dynamically
-        return action_methods[action](cart_dto)
-
-    def _ensure_single_cart(self, home_phone: str):
+    def _create_cart(self, cart_id: str) -> Cart:
         """
-        Ensure that a user has only one cart with the status "created" and not abandoned.
+        Create a new cart entry and schedule an abandonment task.
 
         Args:
-            home_phone (str): The user's phone number.
+            cart_id (str): The UUID of the cart.
 
-        Raises:
-            ValidationError: If a cart with the "created" status already exists.
+        Returns:
+            Cart: The created cart instance.
         """
-        cart_exists = Cart.objects.filter(
-            phone_number=home_phone,
-            project=self.project,
+        cart = Cart.objects.create(
+            cart_id=cart_id,
             status="created",
-            abandoned=False,
-        ).exists()
+            project=self.project,
+            integrated_feature=self._get_feature(),
+        )
 
-        if cart_exists:
-            raise ValidationError(
-                {"cart": f"User with phone '{home_phone}' already has an active cart."}
-            )
+        # Schedule abandonment task
+        self._schedule_abandonment_task(str(cart.uuid))
+        return cart
 
     def _schedule_abandonment_task(self, cart_uuid: str):
         """
@@ -136,130 +133,9 @@ class CartUseCase:
 
         Args:
             cart_uuid (str): The UUID of the cart.
-
-        Returns:
-            AsyncResult: The result object for the scheduled task.
         """
         task_key = generate_task_key(cart_uuid)
 
-        # Schedule the task and capture the AsyncResult
         mark_cart_as_abandoned.apply_async(
             (cart_uuid,), countdown=25 * 60, task_id=task_key
         )
-
-        # Log task details for debugging
-        print(f"Scheduled task with ID: {task_key}")
-
-    def _cancel_abandonment_task(self, cart_uuid: str):
-        """
-        Cancel a previously scheduled abandonment task.
-
-        Args:
-            cart_uuid (str): The UUID of the cart.
-        """
-        task_key = generate_task_key(cart_uuid)
-        celery_app.control.revoke(task_key, terminate=True)
-
-    def _create_cart(self, dto: CartDTO) -> Cart:
-        """
-        Create a new cart entry.
-
-        Args:
-            dto (CartDTO): The cart DTO.
-
-        Returns:
-            Cart: The created cart instance.
-        """
-        self._ensure_single_cart(dto.home_phone)
-
-        try:
-            normalized_phone = PhoneNumberNormalizer.normalize(dto.home_phone)
-        except ValueError as e:
-            raise ValidationError({"phone_number": str(e)})
-
-        integrated_feature = self._get_feature()
-        cart = Cart.objects.create(
-            phone_number=normalized_phone,
-            config=dto.data,
-            status="created",
-            project=self.project,
-            integrated_feature=integrated_feature,
-        )
-
-        # Schedule abandonment task
-        self._schedule_abandonment_task(str(cart.uuid))
-        return cart
-
-    def _update_cart(self, dto: CartDTO) -> Cart:
-        """
-        Update an existing cart.
-
-        Args:
-            dto (CartDTO): The cart DTO.
-
-        Returns:
-            Cart: The updated cart instance.
-        """
-        try:
-            cart = Cart.objects.filter(
-                phone_number=dto.home_phone, project=self.project
-            ).latest("created_on")
-
-            cart.config.update(dto.data)
-            cart.save()
-
-            # Reschedule abandonment task
-            self._schedule_abandonment_task(str(cart.uuid))
-            return cart
-        except Cart.DoesNotExist:
-            raise NotFound(f"Cart for phone '{dto.home_phone}' does not exist.")
-
-    def _mark_cart_purchased(self, dto: CartDTO) -> Cart:
-        """
-        Mark a cart as purchased.
-
-        Args:
-            dto (CartDTO): The cart DTO.
-
-        Returns:
-            Cart: The updated cart instance.
-        """
-        try:
-            cart = Cart.objects.filter(
-                phone_number=dto.home_phone, project=self.project
-            ).latest("created_on")
-
-            cart.status = "purchased"
-            cart.abandoned = False
-            cart.save()
-
-            # Cancel abandonment task
-            self._cancel_abandonment_task(str(cart.uuid))
-            return cart
-        except Cart.DoesNotExist:
-            raise NotFound(f"Cart for phone '{dto.home_phone}' does not exist.")
-
-    def _mark_cart_empty(self, dto: CartDTO) -> Cart:
-        """
-        Mark a cart as empty.
-
-        Args:
-            dto (CartDTO): The cart DTO.
-
-        Returns:
-            Cart: The updated cart instance.
-        """
-        try:
-            cart = Cart.objects.filter(
-                phone_number=dto.home_phone, project=self.project
-            ).latest("created_on")
-
-            cart.status = "empty"
-            cart.abandoned = False
-            cart.save()
-
-            # Cancel abandonment task
-            self._cancel_abandonment_task(str(cart.uuid))
-            return cart
-        except Cart.DoesNotExist:
-            raise NotFound(f"Cart for phone '{dto.home_phone}' does not exist.")

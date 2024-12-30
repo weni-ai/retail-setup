@@ -1,43 +1,37 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import AllowAny
 
+from retail.internal.permissions import CanCommunicateInternally
 from retail.webhooks.vtex.serializers import CartSerializer
-from retail.webhooks.vtex.dtos.cart_dto import CartDTO
 from retail.webhooks.vtex.usecases.cart import CartUseCase
 
 
 class AbandonedCartNotification(APIView):
     """
-    View to handle abandoned cart notifications.
-
-    This view receives data from the VTEX IO middleware,
-    processes it, and performs necessary actions.
+    Handle abandoned cart notifications.
     """
-
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    permission_classes = [CanCommunicateInternally]
 
     def post(self, request):
+        # Validação dos dados recebidos
         serializer = CartSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        # Extrai dados validados
         validated_data = serializer.validated_data
-        cart_dto = CartDTO(
-            action=validated_data["action"],
-            account=validated_data["account"],
-            home_phone=validated_data["homePhone"],
-            data=request.data,
-        )
+        account = validated_data["account"]
+        cart_id = validated_data["cart_id"]
 
-        cart_use_case = CartUseCase(account=cart_dto.account)
-        result = cart_use_case.handle_action(cart_dto.action, cart_dto)
+        # Processa a notificação
+        cart_use_case = CartUseCase(account=account)
+        result = cart_use_case.process_cart_notification(cart_id)
 
         return Response(
             {
-                "message": f"Cart action '{cart_dto.action}' processed successfully.",
-                "cart_id": str(result.uuid),
+                "message": "Cart processed successfully.",
+                "cart_uuid": str(result.uuid),
+                "cart_id": str(result.cart_id),
                 "status": result.status,
             },
             status=status.HTTP_200_OK,

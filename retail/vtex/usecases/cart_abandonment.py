@@ -2,10 +2,13 @@ import logging
 
 from django.conf import settings
 
+from retail.clients.vtex_io.client import VtexIOClient
+from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.models import Cart
 from retail.services.flows.service import FlowsService
 from retail.clients.flows.client import FlowsClient
 from retail.clients.exceptions import CustomAPIException
+from retail.vtex.usecases.phone_number_normalizer import PhoneNumberNormalizer
 
 
 logger = logging.getLogger(__name__)
@@ -16,9 +19,23 @@ class CartAbandonmentUseCase:
     Use case for handling cart abandonment and notifications.
     """
 
-    def __init__(self):
-        self.flows_service = FlowsService(FlowsClient())
-        self.message_builder = MessageBuilder()
+    def __init__(
+        self,
+        flows_service: FlowsService = None,
+        vtex_client: VtexIOService = None,
+        message_builder=None,
+    ):
+        """
+        Initialize dependencies for the CartAbandonmentUseCase.
+
+        Args:
+            flows_service (FlowsService): Service to handle notification flows.
+            vtex_client (VtexIOService): Client for interacting with VTEX API.
+            message_builder (MessageBuilder): Builder for constructing notification messages.
+        """
+        self.flows_service = flows_service or FlowsService(FlowsClient())
+        self.vtex_client = vtex_client or VtexIOService(VtexIOClient())
+        self.message_builder = message_builder or MessageBuilder()
 
     def process_abandoned_cart(self, cart_uuid: str):
         """
@@ -29,18 +46,23 @@ class CartAbandonmentUseCase:
         """
         try:
             # Fetch the cart
-            cart = Cart.objects.get(uuid=cart_uuid, status="created")
-            self._mark_cart_as_abandoned(cart)
+            cart = self._get_cart(cart_uuid)
 
-            # Prepare and send the notification
-            payload = self.message_builder.build_abandonment_message(cart)
-            response = self.flows_service.send_whatsapp_broadcast(
-                payload=payload,
-                project_uuid=cart.project.uuid,
-                user_email=settings.FLOWS_USER_CRM_EMAIL,
-            )
-            # Update cart status based on the response
-            self._update_cart_status(cart, "delivered_success", response)
+            # Fetch order form details from VTEX IO
+            order_form = self._fetch_order_form(cart)
+
+            # Process and update cart information
+            client_profile = self._extract_client_profile(cart, order_form)
+
+            if not order_form.get("items", []):
+                # Mark cart as empty if no items are found
+                self._update_cart_status(cart, "empty")
+                return
+
+            # Check orders by email
+            orders = self._fetch_orders_by_email(cart, client_profile["email"])
+            self._evaluate_orders(cart, orders)
+
         except Cart.DoesNotExist:
             logger.warning(
                 f"Cart with UUID {cart_uuid} does not exist or is already processed."
@@ -51,35 +73,123 @@ class CartAbandonmentUseCase:
             )
             self._handle_error(cart_uuid, str(e))
 
-    def _mark_cart_as_abandoned(self, cart: Cart):
+    def _get_cart(self, cart_uuid: str) -> Cart:
         """
-        Mark a cart as abandoned.
+        Retrieve the cart instance by UUID.
 
         Args:
-            cart (Cart): The cart to mark as abandoned.
-        """
-        cart.abandoned = True
-        cart.save()
-
-    def _send_broadcast(self, cart: Cart, msg_payload: dict, token: str) -> dict:
-        """
-        Send a broadcast notification for the abandoned cart.
-
-        Args:
-            cart (Cart): The cart for which to send the notification.
-            msg_payload (dict): The message payload.
-            token (str): The API token for authentication.
+            cart_uuid (str): The UUID of the cart.
 
         Returns:
-            dict: The response from the broadcast service.
+            Cart: The cart instance.
+
+        Raises:
+            Cart.DoesNotExist: If no cart is found with the given UUID.
         """
-        phone_number = f"tel:{cart.phone_number}"
-        return self.flows_service.send_whatsapp_broadcast(
-            urns=[phone_number],
-            text="Cart abandoned notification",
-            msg=msg_payload,
-            token=token,
+        return Cart.objects.get(uuid=cart_uuid, status="created")
+
+    def _fetch_order_form(self, cart: Cart) -> dict:
+        """
+        Retrieve order form details from VTEX API.
+
+        Args:
+            cart (Cart): The cart instance.
+
+        Returns:
+            dict: The order form details.
+
+        Raises:
+            CustomAPIException: If the API request fails.
+        """
+
+        order_form = self.vtex_client.get_order_form_details(
+            account_domain=self._get_account_domain(cart), order_form_id=cart.cart_id
         )
+        if not order_form:
+            logger.warning(
+                f"Order form for {cart.project.vtex_account}-{cart.uuid} is empty."
+            )
+            raise CustomAPIException("Empty order form.")
+
+        return order_form
+
+    def _extract_client_profile(self, cart: Cart, order_form: dict) -> dict:
+        """
+        Extract and normalize client profile data from order form.
+
+        Args:
+            cart (Cart): The cart instance.
+            order_form (dict): Order form details.
+
+        Returns:
+            dict: Normalized client profile data.
+        """
+        client_profile = order_form.get("clientProfileData", {})
+        phone = client_profile.get("phone")
+
+        if phone:
+            normalized_phone = PhoneNumberNormalizer.normalize(phone)
+            cart.phone_number = normalized_phone
+
+        # Update cart configuration and phone number
+        cart.config["client_profile"] = client_profile
+        cart.save()
+
+        return client_profile
+
+    def _fetch_orders_by_email(self, cart: Cart, email: str) -> dict:
+        """
+        Fetch orders associated with a given email.
+
+        Args:
+            cart (Cart): The cart instance.
+            email (str): The client email address.
+
+        Returns:
+            dict: List of orders associated with the email.
+        """
+        orders = self.vtex_client.get_order_details(
+            account_domain=self._get_account_domain(cart), user_email=email
+        )
+        return orders or {"list": []}
+
+    def _evaluate_orders(self, cart: Cart, orders: dict):
+        """
+        Evaluate orders and determine the status of the cart.
+
+        Args:
+            cart (Cart): The cart instance.
+            orders (dict): List of orders retrieved.
+        """
+        if not orders.get("list"):
+            self._mark_cart_as_abandoned(cart)
+            return
+
+        recent_orders = orders.get("list", [])[:3]
+        for order in recent_orders:
+            if order.get("orderFormId") == cart.cart_id:
+                self._update_cart_status(cart, "purchased")
+                return
+
+        self._mark_cart_as_abandoned(cart)
+
+    def _mark_cart_as_abandoned(self, cart: Cart):
+        """
+        Mark a cart as abandoned and send notification.
+
+        Args:
+            cart (Cart): The cart to process.
+        """
+        self._update_cart_status(cart, "abandoned")
+
+        # Prepare and send the notification
+        payload = self.message_builder.build_abandonment_message(cart)
+        response = self.flows_service.send_whatsapp_broadcast(
+            payload=payload,
+            project_uuid=cart.project.uuid,
+            user_email=settings.FLOWS_USER_CRM_EMAIL,
+        )
+        self._update_cart_status(cart, "delivered_success", response)
 
     def _update_cart_status(self, cart: Cart, status: str, response=None):
         """
@@ -88,7 +198,7 @@ class CartAbandonmentUseCase:
         Args:
             cart (Cart): The cart to update.
             status (str): The new status to set.
-            response (dict, optional): The response from the broadcast service. Defaults to None.
+            response (dict, optional): The response from the broadcast service.
         """
         cart.status = status
         if status == "delivered_error" and response:
@@ -97,17 +207,20 @@ class CartAbandonmentUseCase:
 
     def _handle_error(self, cart_uuid: str, error_message: str):
         """
-        Handle unexpected errors by logging them to the cart.
+        Handle errors by logging and updating the cart status.
 
         Args:
             cart_uuid (str): The UUID of the cart.
-            error_message (str): The error message to log.
+            error_message (str): Error message to log.
         """
         try:
             cart = Cart.objects.get(uuid=cart_uuid)
             self._update_cart_status(cart, "delivered_error", error_message)
         except Cart.DoesNotExist:
             logger.error(f"Cart not found during error handling: {error_message}")
+
+    def _get_account_domain(self, cart: Cart) -> str:
+        return f"dev5--{cart.project.vtex_account}.myvtex.com"
 
 
 class MessageBuilder:
