@@ -26,6 +26,8 @@ from rest_framework import routers
 from retail.healthcheck import views
 from retail.projects import views as project_views
 from retail.api import routers as feature_routers
+from retail.webhooks import urls as webhooks_urls
+
 
 router = routers.SimpleRouter()
 router.register("projects", project_views.ProjectViewSet, basename="project")
@@ -37,6 +39,7 @@ urlpatterns = [
     path("healthcheck/", views.healthcheck, name="healthcheck"),
     path("api/", include(router.urls)),
     path("v2/", include(feature_routers)),
+    path("", include(webhooks_urls)),
 ]
 
 urlpatterns.append(
