@@ -1,4 +1,5 @@
 import re
+from rest_framework.exceptions import ValidationError
 
 
 class PhoneNumberNormalizer:
@@ -18,23 +19,24 @@ class PhoneNumberNormalizer:
             str: The normalized phone number.
 
         Raises:
-            ValueError: If the phone number cannot be normalized.
+            ValidationError: If the phone number cannot be normalized.
         """
-        if not phone_number:
-            raise ValueError("Phone number cannot be empty.")
+        # Check if the number is empty or censored (contains '*')
+        if not phone_number or "*" in phone_number:
+            raise ValidationError(f"Invalid or censored phone number: {phone_number}")
 
-        # Remove non-numeric characters except the leading "+"
+        # Remove all non-numeric characters except the leading "+"
         phone_number = re.sub(r"[^\d+]", "", phone_number)
 
-        # Ensure there is only one "+" at the beginning (if any)
+        # Remove multiple "+" and keep only one at the beginning (if present)
         if phone_number.startswith("++"):
             phone_number = phone_number.lstrip("+")
 
-        # Remove "+" and ensure only digits are left
+        # Remove any remaining "+" and keep only digits
         phone_number = phone_number.lstrip("+")
 
-        # Validate the resulting number length (minimum CC + DDD + NUMBER)
+        # Validate if the number has at least 10 digits (CC + DDD + Number)
         if len(phone_number) < 10:
-            raise ValueError(f"Invalid phone number: {phone_number}")
+            raise ValidationError(f"Invalid phone number length: {phone_number}")
 
         return phone_number

@@ -7,8 +7,6 @@ from retail.features.models import Feature, IntegratedFeature
 from retail.projects.models import Project
 from retail.vtex.models import Cart
 from retail.vtex.tasks import mark_cart_as_abandoned
-from retail.vtex.usecases.phone_number_normalizer import PhoneNumberNormalizer
-from retail.webhooks.vtex.dtos.cart_dto import CartDTO
 
 from retail.celery import app as celery_app
 
