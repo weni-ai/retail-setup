@@ -2,6 +2,7 @@ from rest_framework.exceptions import ValidationError, NotFound
 from django.conf import settings
 
 from retail.api.integrated_feature.serializers import IntegratedFeatureSerializer
+from retail.api.usecases.install_actions_usecase import InstallActions
 from retail.api.usecases.populate_globals_values import PopulateGlobalsValuesUsecase
 from retail.api.usecases.populate_globals_with_defaults import PopulateDefaultsUseCase
 
@@ -16,9 +17,11 @@ class CreateIntegratedFeatureUseCase:
     Use case to handle the creation and configuration of an IntegratedFeature.
     """
 
-    def __init__(self, integrations_service, flows_service):
+    def __init__(self, integrations_service, flows_service, install_actions=None):
         self.integrations_service = integrations_service
         self.flows_service = flows_service
+
+        self.install_actions = install_actions or InstallActions()
 
     def execute(self, request_data, user):
         """
@@ -48,6 +51,16 @@ class CreateIntegratedFeatureUseCase:
         # Create IntegratedFeature
         integrated_feature = self._create_integrated_feature(
             feature, project, user, request_data.get("created_by_vtex", False)
+        )
+
+        # Execute install actions based on feature config
+        self.install_actions.execute(
+            integrated_feature=integrated_feature,
+            feature=feature,
+            project_uuid=request_data["project_uuid"],
+            store=request_data["store"],
+            flows_channel_uuid=request_data["flows_channel_uuid"],
+            wpp_cloud_app_uuid=request_data["wpp_cloud_app_uuid"]
         )
 
         # Process sectors and globals
