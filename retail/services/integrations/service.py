@@ -21,7 +21,7 @@ class IntegrationsService:
 
     def create_abandoned_cart_template(
         self, app_uuid: str, project_uuid: str, store: str
-    ) -> dict:
+    ) -> str:
         """
         Creates an abandoned cart template and translations for multiple languages.
         """
@@ -123,7 +123,7 @@ class IntegrationsService:
                 )
                 print(f"Translation created for language {translation['language']}.")
 
-            return {"template_uuid": template_uuid}
+            return template_uuid
 
         except CustomAPIException as e:
             print(

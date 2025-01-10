@@ -2,6 +2,7 @@ from rest_framework.exceptions import ValidationError, NotFound
 from django.conf import settings
 
 from retail.api.integrated_feature.serializers import IntegratedFeatureSerializer
+from retail.api.integrated_feature.tasks import execute_install_actions_task
 from retail.api.usecases.populate_globals_values import PopulateGlobalsValuesUsecase
 from retail.api.usecases.populate_globals_with_defaults import PopulateDefaultsUseCase
 
@@ -39,6 +40,8 @@ class CreateIntegratedFeatureUseCase:
         feature = self._get_feature(request_data["feature_uuid"])
         project = self._get_project(request_data["project_uuid"])
 
+        created_by_vtex = request_data.get("created_by_vtex", False)
+
         # Check if the feature is already integrated with the project
         if self._is_feature_already_integrated(feature, project):
             raise ValidationError(
@@ -47,8 +50,23 @@ class CreateIntegratedFeatureUseCase:
 
         # Create IntegratedFeature
         integrated_feature = self._create_integrated_feature(
-            feature, project, user, request_data.get("created_by_vtex", False)
+            feature, project, user, created_by_vtex
         )
+
+        if created_by_vtex:
+            # Validate required fields for VTEX integration
+            self._validate_vtex_fields(request_data)
+            # Schedule install actions as an async task
+            execute_install_actions_task.apply_async(
+                args=[
+                    integrated_feature.uuid,
+                    feature.uuid,
+                    request_data["project_uuid"],
+                    request_data["store"],
+                    request_data["flows_channel_uuid"],
+                    request_data["wpp_cloud_app_uuid"],
+                ]
+            )
 
         # Process sectors and globals
         self._process_sectors(
@@ -254,3 +272,23 @@ class CreateIntegratedFeatureUseCase:
         }
 
         return response_data
+
+    def _validate_vtex_fields(self, request_data):
+        """
+        Validate that all required fields for VTEX integration are present.
+
+        Args:
+            request_data (dict): Data from the request.
+
+        Raises:
+            ValidationError: If any required field is missing.
+        """
+        required_fields = ["store", "flows_channel_uuid", "wpp_cloud_app_uuid"]
+        missing_fields = [
+            field for field in required_fields if field not in request_data
+        ]
+
+        if missing_fields:
+            raise ValidationError(
+                f"Missing required fields for VTEX integration: {', '.join(missing_fields)}"
+            )
