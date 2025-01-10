@@ -9,4 +9,5 @@ class ProjectCreationUseCase:
             name=project_dto.name,
             uuid=project_dto.uuid,
             organization_uuid=project_dto.organization_uuid,
+            vtex_account=project_dto.vtex_account
         )
