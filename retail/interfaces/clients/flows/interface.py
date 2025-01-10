@@ -11,13 +11,12 @@ class FlowsClientInterface(ABC):
         pass
 
     @abstractmethod
-    def send_whatsapp_broadcast(self, payload: Dict, token: str) -> Dict:
+    def send_whatsapp_broadcast(self, payload: Dict) -> Dict:
         """
         Sends a WhatsApp broadcast message.
 
         Args:
             payload (dict): The pre-built payload containing all necessary data for the broadcast.
-            token (str): Authorization token for the API.
 
         Returns:
             dict: API response containing the broadcast information.

@@ -32,30 +32,23 @@ class FlowsClient(RequestClient, FlowsClientInterface):
         )
         return response.json()
 
-    def send_whatsapp_broadcast(self, payload: dict, token: str) -> dict:
+    def send_whatsapp_broadcast(self, payload: dict) -> dict:
         """
         Sends a WhatsApp broadcast message using the Flows API.
 
         Args:
             payload (dict): The full body of the request as a pre-built payload.
-            token (str): Authorization token for the API.
 
         Returns:
             dict: Response from the API.
         """
-        if not token:
-            raise ValueError("Authorization token is required to send a broadcast.")
 
-        url = f"{self.base_url}/api/v2/whatsapp_broadcasts.json"
-        headers = {
-            "Authorization": f"Token {token}",
-            "Content-Type": "application/json",
-        }
+        url = f"{self.base_url}/api/v2/internals/whatsapp_broadcasts"
 
         response = self.make_request(
             url,
             method="POST",
             json=payload,
-            headers=headers,
+            headers=self.authentication_instance.headers,
         )
         return response.json()

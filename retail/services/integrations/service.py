@@ -27,14 +27,17 @@ class IntegrationsService:
         """
         try:
             # Create Template
+            template_name = "weni_abandoned_cart_notification"
             template_uuid = self.client.create_template_message(
                 app_uuid=app_uuid,
                 project_uuid=project_uuid,
-                name="weni_abandoned_cart_notification",
+                name=template_name,
                 category="MARKETING",
             )
 
             # Prepare translations for multiple languages
+            button_url = f"https://{store}/checkout/cart/add?sc=1" + "{{1}}"
+            button_url_example = f"https://{store}/checkout/cart/add?sc=1&sku=17&qty=1&seller=1&sku=21&qty=1&seller=1"
             translations = [
                 {
                     "language": "pt_BR",
@@ -52,8 +55,8 @@ class IntegrationsService:
                         {
                             "button_type": "URL",
                             "text": "Finalizar Pedido",
-                            "url": f"https://{store}/checkout/cart/add?sc=1{{1}}",
-                            "example": ["&sku=1&qty=1"],
+                            "url": button_url,
+                            "example": [button_url_example],
                         },
                         {
                             "button_type": "QUICK_REPLY",
@@ -77,8 +80,8 @@ class IntegrationsService:
                         {
                             "button_type": "URL",
                             "text": "Finalizar Pedido",
-                            "url": f"https://{store}/checkout/cart/add?sc=1{{1}}",
-                            "example": ["&sku=1&qty=1"],
+                            "url": button_url,
+                            "example": [button_url_example],
                         },
                         {
                             "button_type": "QUICK_REPLY",
@@ -102,8 +105,8 @@ class IntegrationsService:
                         {
                             "button_type": "URL",
                             "text": "Finish Order",
-                            "url": f"https://{store}/checkout/cart/add?sc=1{{1}}",
-                            "example": ["&sku=1&qty=1"],
+                            "url": button_url,
+                            "example": [button_url_example],
                         },
                         {
                             "button_type": "QUICK_REPLY",
@@ -123,7 +126,7 @@ class IntegrationsService:
                 )
                 print(f"Translation created for language {translation['language']}.")
 
-            return template_uuid
+            return {"template_uuid": template_uuid, "template_name": template_name}
 
         except CustomAPIException as e:
             print(
