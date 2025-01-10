@@ -82,7 +82,7 @@ class CartUseCase:
             logger.error(error_message, exc_info=True)  # Captura o traceback completo
             raise ValidationError(error_message)
 
-    def process_cart_notification(self, cart_id: str, phone: str, store: str) -> Cart:
+    def process_cart_notification(self, cart_id: str, phone: str) -> Cart:
         """
         Process incoming cart notification, renewing task or creating new cart.
 
@@ -95,16 +95,19 @@ class CartUseCase:
         try:
             # Check if the cart already exists
             cart = Cart.objects.get(
-                cart_id=cart_id, project=self.project, phone_number=phone ,status="created"
+                cart_id=cart_id,
+                project=self.project,
+                phone_number=phone,
+                status="created",
             )
             # Renew abandonment task
-            self._schedule_abandonment_task(str(cart.uuid), store)
+            self._schedule_abandonment_task(str(cart.uuid))
             return cart
         except Cart.DoesNotExist:
             # Create new cart if it doesn't exist
-            return self._create_cart(cart_id, phone, store)
+            return self._create_cart(cart_id, phone)
 
-    def _create_cart(self, cart_id: str, phone: str, store: str) -> Cart:
+    def _create_cart(self, cart_id: str, phone: str) -> Cart:
         """
         Create a new cart entry and schedule an abandonment task.
 
@@ -119,14 +122,14 @@ class CartUseCase:
             status="created",
             project=self.project,
             integrated_feature=self._get_feature(),
-            phone_number=phone
+            phone_number=phone,
         )
 
         # Schedule abandonment task
-        self._schedule_abandonment_task(str(cart.uuid), store)
+        self._schedule_abandonment_task(str(cart.uuid))
         return cart
 
-    def _schedule_abandonment_task(self, cart_uuid: str, store: str):
+    def _schedule_abandonment_task(self, cart_uuid: str):
         """
         Schedule a task to mark a cart as abandoned after 25 minutes.
 
@@ -136,5 +139,5 @@ class CartUseCase:
         task_key = generate_task_key(cart_uuid)
 
         mark_cart_as_abandoned.apply_async(
-            (cart_uuid, store), countdown=25 * 60, task_id=task_key
+            (cart_uuid,), countdown=25 * 60, task_id=task_key
         )

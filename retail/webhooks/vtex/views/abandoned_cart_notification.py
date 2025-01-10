@@ -12,23 +12,20 @@ class AbandonedCartNotification(APIView):
     """
     Handle abandoned cart notifications.
     """
+
     permission_classes = [CanCommunicateInternally]
 
     def post(self, request):
-        # Validação dos dados recebidos
         serializer = CartSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # Extrai dados validados
         validated_data = serializer.validated_data
         account = validated_data["account"]
         cart_id = validated_data["cart_id"]
-        store = validated_data["store"]
         phone = PhoneNumberNormalizer.normalize(validated_data["phone"])
 
-        # Processa a notificação
         cart_use_case = CartUseCase(account=account)
-        result = cart_use_case.process_cart_notification(cart_id, phone, store)
+        result = cart_use_case.process_cart_notification(cart_id, phone)
 
         return Response(
             {

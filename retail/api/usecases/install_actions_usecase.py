@@ -42,12 +42,16 @@ class InstallActions:
         Creates an abandoned cart template and stores the template UUID in the config.
         """
         try:
-            template_uuid = self.integrations_service.create_abandoned_cart_template(
+            template = self.integrations_service.create_abandoned_cart_template(
                 app_uuid=wpp_cloud_app_uuid, project_uuid=project_uuid, store=store
             )
 
-            # Store the template UUID in the integrated feature config
-            integrated_feature.config["template_message_uuid"] = template_uuid
+            # Store the template details in the integrated feature config
+            template_details = {
+                "name": template["template_name"],
+                "uuid": template["template_uuid"],
+            }
+            integrated_feature.config["template"] = template_details
             integrated_feature.save()
         except CustomAPIException as e:
             print(f"Error creating template: {str(e)}")

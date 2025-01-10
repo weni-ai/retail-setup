@@ -18,9 +18,7 @@ class FlowsService:
             )
             return None
 
-    def send_whatsapp_broadcast(
-        self, payload: dict, project_uuid: str, user_email: str
-    ) -> dict:
+    def send_whatsapp_broadcast(self, payload: dict) -> dict:
         """
         Send a WhatsApp broadcast message.
 
@@ -32,10 +30,6 @@ class FlowsService:
         Returns:
             dict: API response from the Flows service.
         """
-        # Retrieve the API token
-        token = self.client.get_user_api_token(user_email, project_uuid)
-        if not token:
-            raise CustomAPIException("Failed to retrieve API token.")
 
         # Send the broadcast using the token
-        return self.client.send_whatsapp_broadcast(payload=payload, token=token)
+        return self.client.send_whatsapp_broadcast(payload=payload)
