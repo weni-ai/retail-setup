@@ -210,6 +210,7 @@ class CartAbandonmentUseCase:
             logger.error(f"Cart not found during error handling: {error_message}")
 
     def _get_account_domain(self, cart: Cart) -> str:
+        # TODO: remove dev5-- before deploy
         return f"dev5--{cart.project.vtex_account}.myvtex.com"
 
 
