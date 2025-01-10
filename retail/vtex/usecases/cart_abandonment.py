@@ -37,7 +37,7 @@ class CartAbandonmentUseCase:
         self.vtex_client = vtex_client or VtexIOService(VtexIOClient())
         self.message_builder = message_builder or MessageBuilder()
 
-    def process_abandoned_cart(self, cart_uuid: str):
+    def process_abandoned_cart(self, cart_uuid: str, store: str):
         """
         Process a cart marked as abandoned.
 
@@ -61,7 +61,7 @@ class CartAbandonmentUseCase:
 
             # Check orders by email
             orders = self._fetch_orders_by_email(cart, client_profile["email"])
-            self._evaluate_orders(cart, orders)
+            self._evaluate_orders(cart, orders, store, order_form)
 
         except Cart.DoesNotExist:
             logger.warning(
@@ -125,11 +125,6 @@ class CartAbandonmentUseCase:
             dict: Normalized client profile data.
         """
         client_profile = order_form.get("clientProfileData", {})
-        phone = client_profile.get("phone")
-
-        if phone:
-            normalized_phone = PhoneNumberNormalizer.normalize(phone)
-            cart.phone_number = normalized_phone
 
         # Update cart configuration and phone number
         cart.config["client_profile"] = client_profile
@@ -153,7 +148,7 @@ class CartAbandonmentUseCase:
         )
         return orders or {"list": []}
 
-    def _evaluate_orders(self, cart: Cart, orders: dict):
+    def _evaluate_orders(self, cart: Cart, orders: dict, store: str, order_form: dict):
         """
         Evaluate orders and determine the status of the cart.
 
@@ -162,7 +157,7 @@ class CartAbandonmentUseCase:
             orders (dict): List of orders retrieved.
         """
         if not orders.get("list"):
-            self._mark_cart_as_abandoned(cart)
+            self._mark_cart_as_abandoned(cart, store, {"list": []})
             return
 
         recent_orders = orders.get("list", [])[:3]
@@ -171,9 +166,9 @@ class CartAbandonmentUseCase:
                 self._update_cart_status(cart, "purchased")
                 return
 
-        self._mark_cart_as_abandoned(cart)
+        self._mark_cart_as_abandoned(cart, store, order_form)
 
-    def _mark_cart_as_abandoned(self, cart: Cart):
+    def _mark_cart_as_abandoned(self, cart: Cart, store, order_form):
         """
         Mark a cart as abandoned and send notification.
 
@@ -183,7 +178,7 @@ class CartAbandonmentUseCase:
         self._update_cart_status(cart, "abandoned")
 
         # Prepare and send the notification
-        payload = self.message_builder.build_abandonment_message(cart)
+        payload = self.message_builder.build_abandonment_message(cart, store, order_form)
         response = self.flows_service.send_whatsapp_broadcast(
             payload=payload,
             project_uuid=cart.project.uuid,
@@ -228,7 +223,7 @@ class MessageBuilder:
     Helper to build broadcast message payloads for abandoned cart notifications.
     """
 
-    def build_abandonment_message(self, cart: Cart) -> dict:
+    def build_abandonment_message(self, cart: Cart, store: str, order_form) -> dict:
         """
         Build the message payload for an abandoned cart notification.
 
@@ -246,7 +241,7 @@ class MessageBuilder:
         channel_uuid = self._get_feature_config_value(cart, "flow_channel_uuid")
 
         # Fetch cart-specific data
-        cart_link = self._get_cart_config_value(cart, "cart_url")
+        cart_link = self._get_cart_link(order_form, store)
 
         # Build the payload
         return {
@@ -305,3 +300,9 @@ class MessageBuilder:
         if not value:
             raise ValueError(f"Failed to retrieve '{key}' from the cart configuration.")
         return value
+    
+    def _get_cart_link(self, order_form: dict, store: str):
+        cart_link = store + "/checkout/cart/add?sc=1"
+        for item in order_form.get("items"):
+            cart_link += f"&sku={item.get('productId')}&qty={item.get('quantity')}&seller={item.get('seller')}"
+        return cart_link

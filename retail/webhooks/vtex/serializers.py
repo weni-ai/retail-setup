@@ -8,3 +8,5 @@ class CartSerializer(serializers.Serializer):
 
     account = serializers.CharField()
     cart_id = serializers.CharField()
+    phone = serializers.CharField()
+    store = serializers.CharField()

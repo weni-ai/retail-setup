@@ -5,6 +5,7 @@ from rest_framework import status
 from retail.internal.permissions import CanCommunicateInternally
 from retail.webhooks.vtex.serializers import CartSerializer
 from retail.webhooks.vtex.usecases.cart import CartUseCase
+from retail.vtex.usecases.phone_number_normalizer import PhoneNumberNormalizer
 
 
 class AbandonedCartNotification(APIView):
@@ -22,10 +23,12 @@ class AbandonedCartNotification(APIView):
         validated_data = serializer.validated_data
         account = validated_data["account"]
         cart_id = validated_data["cart_id"]
+        store = validated_data["store"]
+        phone = PhoneNumberNormalizer.normalize(validated_data["phone"])
 
         # Processa a notificação
         cart_use_case = CartUseCase(account=account)
-        result = cart_use_case.process_cart_notification(cart_id)
+        result = cart_use_case.process_cart_notification(cart_id, phone, store)
 
         return Response(
             {
