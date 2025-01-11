@@ -7,4 +7,4 @@ class ProjectCreationDTO:
     name: str
     organization_uuid: str
     authorizations: list = None
-    vtex_account: str
+    vtex_account: str = None
