@@ -1,3 +1,8 @@
+# 1.3.1
+
+## *Hotfix*
+  - fix vtex_account field on Project model
+
 # 1.3.0
 
 ## *Add*
