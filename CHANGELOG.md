@@ -1,3 +1,8 @@
+# 1.3.2
+
+## *Hotfix*
+  - add default value to vtex_account
+
 # 1.3.1
 
 ## *Hotfix*
