@@ -1,3 +1,9 @@
+# 1.3.0
+
+## *Add*
+  - adding the methods and objects to make the request to vtex app
+  - adding abandoned cart create template and send for user
+
 # 1.2.5
 
 ## *Change*
