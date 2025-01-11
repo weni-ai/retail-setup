@@ -1,4 +1,4 @@
-# 1.2.6
+# 1.3.0
 
 ## *Add*
   - adding the methods and objects to make the request to vtex app
