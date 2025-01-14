@@ -46,12 +46,13 @@ class CartAbandonmentUseCase:
         try:
             # Fetch the cart
             cart = self._get_cart(cart_uuid)
-
+            print(f"cart: {cart.__dict__}")
             # Fetch order form details from VTEX IO
             order_form = self._fetch_order_form(cart)
-
+            print(f"order_form: {order_form}")
             # Process and update cart information
             client_profile = self._extract_client_profile(cart, order_form)
+            print(f"client_profile: ", client_profile)
 
             if not order_form.get("items", []):
                 # Mark cart as empty if no items are found
@@ -60,6 +61,7 @@ class CartAbandonmentUseCase:
 
             # Check orders by email
             orders = self._fetch_orders_by_email(cart, client_profile["email"])
+            print(f"orders: {orders}")
             self._evaluate_orders(cart, orders, order_form)
 
         except Cart.DoesNotExist:
@@ -156,6 +158,7 @@ class CartAbandonmentUseCase:
             orders (dict): List of orders retrieved.
         """
         if not orders.get("list"):
+            print("cart abandoned")
             self._mark_cart_as_abandoned(cart, order_form)
             return
 
@@ -164,7 +167,7 @@ class CartAbandonmentUseCase:
             if order.get("orderFormId") == cart.cart_id:
                 self._update_cart_status(cart, "purchased")
                 return
-
+        print("not find any recent_order, mark abandoned")
         self._mark_cart_as_abandoned(cart, order_form)
 
     def _mark_cart_as_abandoned(self, cart: Cart, order_form: dict):
@@ -175,10 +178,13 @@ class CartAbandonmentUseCase:
             cart (Cart): The cart to process.
         """
         self._update_cart_status(cart, "abandoned")
+        print(f"update cart: {cart.__dict__}")
 
         # Prepare and send the notification
         payload = self.message_builder.build_abandonment_message(cart, order_form)
+        print(f"payload: {payload}")
         response = self.flows_service.send_whatsapp_broadcast(payload=payload)
+        print(f"response: {response}")
         self._update_cart_status(cart, "delivered_success", response)
 
     def _update_cart_status(self, cart: Cart, status: str, response=None):

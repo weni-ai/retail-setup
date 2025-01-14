@@ -11,4 +11,5 @@ def mark_cart_as_abandoned(cart_uuid: str):
         cart_uuid (str): The UUID of the cart to process.
     """
     use_case = CartAbandonmentUseCase()
+    print("process abandoned cart")
     use_case.process_abandoned_cart(cart_uuid)

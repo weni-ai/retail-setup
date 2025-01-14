@@ -100,8 +100,10 @@ class CartUseCase:
                 phone_number=phone,
                 status="created",
             )
+            print(f"get cart: {cart}")
             # Renew abandonment task
             self._schedule_abandonment_task(str(cart.uuid))
+            print("call schedule_abandonment_task")
             return cart
         except Cart.DoesNotExist:
             # Create new cart if it doesn't exist
@@ -124,9 +126,10 @@ class CartUseCase:
             integrated_feature=self._get_feature(),
             phone_number=phone,
         )
-
+        print(f"not exist cart, created: {cart.__dict__}")
         # Schedule abandonment task
         self._schedule_abandonment_task(str(cart.uuid))
+        print("call schedule_abandonment_task")
         return cart
 
     def _schedule_abandonment_task(self, cart_uuid: str):
@@ -137,7 +140,7 @@ class CartUseCase:
             cart_uuid (str): The UUID of the cart.
         """
         task_key = generate_task_key(cart_uuid)
-
+        print(f"task_key: {task_key}")
         mark_cart_as_abandoned.apply_async(
             (cart_uuid,), countdown=25 * 60, task_id=task_key
         )
