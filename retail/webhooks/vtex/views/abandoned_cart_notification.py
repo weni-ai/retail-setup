@@ -26,7 +26,7 @@ class AbandonedCartNotification(APIView):
         phone = PhoneNumberNormalizer.normalize(validated_data["phone"])
         print(f"account: {account}\ncart_id: {cart_id}\nphone: {phone}")
         cart_use_case = CartUseCase(account=account)
-        print(f"cart_use_case: {cart_use_case}")
+        print("cart usecase created!")
         result = cart_use_case.process_cart_notification(cart_id, phone)
         print(f"result: {result}")
         return Response(
