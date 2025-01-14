@@ -3,6 +3,7 @@
 export GUNICORN_APP=${GUNICORN_APP:-"retail.wsgi"}
 export GUNICORN_CONF=${GUNICORN_CONF:-"${PROJECT_PATH}/docker/gunicorn.conf.py"}
 export LOG_LEVEL=${LOG_LEVEL:-"INFO"}
+export CELERY_APP=${CELERY_APP:-"retail"}
 export CELERY_MAX_WORKERS=${CELERY_MAX_WORKERS:-'4'}
 export HEALTHCHECK_TIMEOUT=${HEALTHCHECK_TIMEOUT:-"10"}
 
