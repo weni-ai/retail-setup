@@ -28,8 +28,11 @@ class CartUseCase:
 
     def __init__(self, account: str):
         self.account = account
+        print(f"searching find project with account: {self.account}")
         self.project = self._get_project_by_account()
+        print(f"project: {self.project.__dict__}")
         self.feature = self._get_feature()
+        print(f"feature: {self.feature.__dict__}")
 
     def _get_project_by_account(self) -> Project:
         """
