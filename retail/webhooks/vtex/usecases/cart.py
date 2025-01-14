@@ -70,16 +70,19 @@ class CartUseCase:
                 f"Feature with UUID {abandoned_cart_feature_uuid} not found."
             )
             logger.error(error_message, exc_info=True)
+            print(f"Feature with UUID {abandoned_cart_feature_uuid} not found.")
             raise NotFound(error_message)
         except IntegratedFeature.DoesNotExist:
             error_message = f"IntegratedFeature for project '{self.project}' and feature '{feature}' not found."
             logger.error(error_message, exc_info=True)
+            print(f"IntegratedFeature for project '{self.project}' and feature '{feature}' not found.")
             raise NotFound(error_message)
         except Exception as e:
             error_message = (
                 f"An unexpected error occurred while retrieving the feature: {str(e)}"
             )
             logger.error(error_message, exc_info=True)  # Captura o traceback completo
+            print(f"An unexpected error occurred while retrieving the feature: {str(e)}")
             raise ValidationError(error_message)
 
     def process_cart_notification(self, cart_id: str, phone: str) -> Cart:
