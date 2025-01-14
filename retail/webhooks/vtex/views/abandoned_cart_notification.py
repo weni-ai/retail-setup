@@ -16,7 +16,9 @@ class AbandonedCartNotification(APIView):
     permission_classes = [CanCommunicateInternally]
 
     def post(self, request):
+        print(f"request: {request.data}")
         serializer = CartSerializer(data=request.data)
+        print(f"serializer: {serializer}")
         serializer.is_valid(raise_exception=True)
         print(f"serializer is valid: {serializer.validated_data}")
 
