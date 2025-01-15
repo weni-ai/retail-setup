@@ -24,6 +24,8 @@ class RemoveGlobalsKeysUsecase:
 
         for feature in features:
             globals_to_remove = []
+            if not feature["globals"]:
+                continue
 
             # Check and mark globals for removal based on integrations data if available
             if integrations_data:

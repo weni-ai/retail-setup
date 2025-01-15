@@ -18,7 +18,14 @@ class FeaturesSerializer(serializers.Serializer):
 
     def get_globals(self, obj):
         last_version = obj.last_version
-        return last_version.globals_values if last_version else None
+
+        if not last_version:
+            return []
+
+        if not last_version.globals_values:
+            return []
+
+        return last_version.globals_values
 
     def get_sectors(self, obj):
         last_version = obj.last_version
