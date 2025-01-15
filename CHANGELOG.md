@@ -1,3 +1,10 @@
+# 1.3.3
+
+## *HotFix*
+  - add celery configuration
+  - add fix to none globals in feature version
+  - add sentry
+
 # 1.3.2
 
 ## *Hotfix*
