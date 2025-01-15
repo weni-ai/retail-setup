@@ -47,8 +47,10 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 
 CSRF_TRUSTED_ORIGINS = [f"https://*.{SERVICE_HOST}"]
 
+SENTRY_DSN = env.str("SENTRY_DSN", default="")
+
 sentry_sdk.init(
-    dsn=env.str("SENTRY_DSN", default=""),
+    dsn=SENTRY_DSN,
     integrations=[DjangoIntegration()],
 )
 
