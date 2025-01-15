@@ -14,6 +14,10 @@ import os
 from pathlib import Path
 
 import environ
+import sentry_sdk
+
+from sentry_sdk.integrations.django import DjangoIntegration
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -43,6 +47,10 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 
 CSRF_TRUSTED_ORIGINS = [f"https://*.{SERVICE_HOST}"]
 
+sentry_sdk.init(
+    dsn=env.str("SENTRY_DSN", default=""),
+    integrations=[DjangoIntegration()],
+)
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [],
