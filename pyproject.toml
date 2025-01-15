@@ -18,6 +18,7 @@ drf-yasg = "^1.21.7"
 django-cors-headers = "^4.4.0"
 celery = "^5.1.2"
 django-redis = "^5.2.0"
+sentry-sdk = "^2.20.0"
 
 [tool.poetry.group.dev.dependencies]
 flake8 = "^7.1.0"
