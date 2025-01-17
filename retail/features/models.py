@@ -128,7 +128,7 @@ class IntegratedFeature(models.Model):
     )
 
     feature_version = models.ForeignKey(
-        FeatureVersion, on_delete=models.CASCADE, related_name="integrated_features"
+        FeatureVersion, on_delete=models.CASCADE, related_name="integrated_features", null=True
     )
     feature = models.ForeignKey(
         Feature, on_delete=models.CASCADE, related_name="integrated_features"
