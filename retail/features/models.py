@@ -51,7 +51,8 @@ class Feature(models.Model):
 
     @property
     def last_version(self):
-        return self.versions.order_by("created_on").last()
+        versions = self.versions.order_by("created_on")
+        return versions.last() if versions.count() > 0 else None
 
 
 class FeatureVersion(models.Model):

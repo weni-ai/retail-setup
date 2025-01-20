@@ -67,14 +67,16 @@ class CreateIntegratedFeatureUseCase:
                     request_data["wpp_cloud_app_uuid"],
                 ]
             )
-
-        # Process sectors and globals
-        self._process_sectors(
-            integrated_feature, feature, request_data.get("sectors", [])
-        )
-        self._process_globals(
-            integrated_feature, feature, request_data.get("globals_values", {})
-        )
+        
+        # check if have feature version to get sectors and globals
+        if feature.last_version:
+            # Process sectors and globals
+            self._process_sectors(
+                integrated_feature, feature, request_data.get("sectors", [])
+            )
+            self._process_globals(
+                integrated_feature, feature, request_data.get("globals_values", {})
+            )
 
         # Publish integration event
         self._publish_integration_event(integrated_feature)
