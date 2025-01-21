@@ -151,7 +151,7 @@ class IntegratedFeature(models.Model):
         # return super().save(*args)
 
     def __str__(self) -> str:
-        return self.feature_version.feature.name
+        return self.feature.name
 
 
 class Flow(models.Model):
