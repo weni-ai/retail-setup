@@ -67,11 +67,13 @@ class CreateIntegratedFeatureUseCase:
                     request_data["wpp_cloud_app_uuid"],
                 ]
             )
-
-        # Process sectors and globals
-        self._process_sectors(
-            integrated_feature, feature, request_data.get("sectors", [])
-        )
+        
+        # check if have feature version to get sectors and globals
+        if feature.last_version:
+            # Process sectors and globals
+            self._process_sectors(
+                integrated_feature, feature, request_data.get("sectors", [])
+            )
         self._process_globals(
             integrated_feature, feature, request_data.get("globals_values", {})
         )
@@ -158,9 +160,11 @@ class CreateIntegratedFeatureUseCase:
         """
         # Initialize full_globals_values with all globals from feature_version, setting them to empty strings
         feature_version = feature.last_version
-        full_globals_values = {
-            global_var: "" for global_var in feature_version.globals_values
-        }
+        full_globals_values = {}
+        if feature_version:
+            full_globals_values = {
+                global_var: "" for global_var in feature_version.globals_values
+            }
 
         # Update with any provided values from the request
         full_globals_values.update(globals_values_request)
@@ -223,7 +227,7 @@ class CreateIntegratedFeatureUseCase:
                     }
                 )
 
-        if feature_version.action_base_flow_uuid:
+        if feature_version and feature_version.action_base_flow_uuid:
             actions.append(
                 {
                     "name": feature_version.action_name,
@@ -234,15 +238,18 @@ class CreateIntegratedFeatureUseCase:
             )
 
         body = {
-            "definition": feature_version.definition,
             "user_email": integrated_feature.user.email,
             "project_uuid": str(integrated_feature.project.uuid),
             "parameters": integrated_feature.globals_values,
-            "feature_version": str(feature_version.uuid),
-            "feature_uuid": str(feature_version.feature.uuid),
+            "feature_uuid": str(integrated_feature.feature.uuid),
             "sectors": sectors_data,
             "action": actions,
         }
+
+        if feature_version:
+            body["definition"] = feature_version.definition,
+            body["feature_version"] = str(feature_version.uuid)
+
 
         IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
         print(f"message sent `integrated feature` - body: {body}")
@@ -263,13 +270,15 @@ class CreateIntegratedFeatureUseCase:
             "data": {
                 "feature": str(integrated_feature.feature.uuid),
                 "integrated_feature": str(integrated_feature.uuid),
-                "feature_version": str(integrated_feature.feature_version.uuid),
                 "project": str(integrated_feature.project.uuid),
                 "user": integrated_feature.user.email,
                 "integrated_on": integrated_feature.integrated_on.isoformat(),
                 **serializer.data,
             },
         }
+
+        if integrated_feature.feature_version:
+            response_data["data"]["feature_version"] = str(integrated_feature.feature_version.uuid)
 
         return response_data
 
