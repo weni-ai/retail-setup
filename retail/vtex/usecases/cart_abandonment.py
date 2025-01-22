@@ -219,7 +219,7 @@ class MessageBuilder:
     Helper to build broadcast message payloads for abandoned cart notifications.
     """
 
-    def build_abandonment_message(self, cart: Cart, order_form) -> dict:
+    def build_abandonment_message(self, cart: Cart) -> dict:
         """
         Build the message payload for an abandoned cart notification.
 
@@ -236,9 +236,6 @@ class MessageBuilder:
         template = self._get_feature_config_value(cart, "template")
         channel_uuid = self._get_feature_config_value(cart, "flow_channel_uuid")
 
-        # Fetch cart-specific data
-        cart_link = self._get_cart_link(order_form)
-
         # Build the payload
         return {
             "project": str(cart.project.uuid),
@@ -252,7 +249,7 @@ class MessageBuilder:
                 "buttons": [
                     {
                         "sub_type": "url",
-                        "parameters": [{"type": "text", "text": cart_link}],
+                        "parameters": [{"type": "text", "text": cart.cart_id}],
                     }
                 ],
             },
