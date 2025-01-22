@@ -156,7 +156,7 @@ class CartAbandonmentUseCase:
             orders (dict): List of orders retrieved.
         """
         if not orders.get("list"):
-            self._mark_cart_as_abandoned(cart, order_form)
+            self._mark_cart_as_abandoned(cart)
             return
 
         recent_orders = orders.get("list", [])[:3]
@@ -165,9 +165,9 @@ class CartAbandonmentUseCase:
                 self._update_cart_status(cart, "purchased")
                 return
 
-        self._mark_cart_as_abandoned(cart, order_form)
+        self._mark_cart_as_abandoned(cart)
 
-    def _mark_cart_as_abandoned(self, cart: Cart, order_form: dict):
+    def _mark_cart_as_abandoned(self, cart: Cart):
         """
         Mark a cart as abandoned and send notification.
 
@@ -177,7 +177,7 @@ class CartAbandonmentUseCase:
         self._update_cart_status(cart, "abandoned")
 
         # Prepare and send the notification
-        payload = self.message_builder.build_abandonment_message(cart, order_form)
+        payload = self.message_builder.build_abandonment_message(cart)
         response = self.flows_service.send_whatsapp_broadcast(payload=payload)
         self._update_cart_status(cart, "delivered_success", response)
 

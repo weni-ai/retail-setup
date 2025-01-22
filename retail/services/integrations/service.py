@@ -27,7 +27,7 @@ class IntegrationsService:
         """
         try:
             # Create Template
-            template_name = "weni_abandoned_cart_notification"
+            template_name = "weni_abandoned_cart"
             template_uuid = self.client.create_template_message(
                 app_uuid=app_uuid,
                 project_uuid=project_uuid,
