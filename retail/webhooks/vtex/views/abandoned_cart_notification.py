@@ -21,17 +21,17 @@ class AbandonedCartNotification(APIView):
 
         validated_data = serializer.validated_data
         account = validated_data["account"]
-        cart_id = validated_data["cart_id"]
+        order_form_id = validated_data["cart_id"]
         phone = PhoneNumberNormalizer.normalize(validated_data["phone"])
 
         cart_use_case = CartUseCase(account=account)
-        result = cart_use_case.process_cart_notification(cart_id, phone)
+        result = cart_use_case.process_cart_notification(order_form_id, phone)
 
         return Response(
             {
                 "message": "Cart processed successfully.",
                 "cart_uuid": str(result.uuid),
-                "cart_id": str(result.cart_id),
+                "cart_id": str(result.order_former_id),
                 "status": result.status,
             },
             status=status.HTTP_200_OK,
