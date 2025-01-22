@@ -15,7 +15,7 @@ class Cart(models.Model):
     ]
 
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-    cart_id = models.CharField(null=True, blank=True)
+    order_former_id = models.CharField(null=True, blank=True)
     created_on = models.DateTimeField(auto_now_add=True)
     modified_on = models.DateTimeField(auto_now=True)
     status = models.CharField(

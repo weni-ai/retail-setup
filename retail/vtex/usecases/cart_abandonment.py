@@ -102,7 +102,7 @@ class CartAbandonmentUseCase:
         """
 
         order_form = self.vtex_client.get_order_form_details(
-            account_domain=self._get_account_domain(cart), order_form_id=cart.cart_id
+            account_domain=self._get_account_domain(cart), order_form_id=cart.order_former_id
         )
         if not order_form:
             logger.warning(
@@ -161,7 +161,7 @@ class CartAbandonmentUseCase:
 
         recent_orders = orders.get("list", [])[:3]
         for order in recent_orders:
-            if order.get("orderFormId") == cart.cart_id:
+            if order.get("orderFormId") == cart.order_former_id:
                 self._update_cart_status(cart, "purchased")
                 return
 
@@ -249,7 +249,7 @@ class MessageBuilder:
                 "buttons": [
                     {
                         "sub_type": "url",
-                        "parameters": [{"type": "text", "text": cart.cart_id}],
+                        "parameters": [{"type": "text", "text": cart.order_former_id}],
                     }
                 ],
             },
