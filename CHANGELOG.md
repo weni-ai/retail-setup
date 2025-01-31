@@ -1,3 +1,8 @@
+# 1.3.4
+
+## *HotFix*
+  - add username when user are created
+
 # 1.3.3
 
 ## *HotFix*
