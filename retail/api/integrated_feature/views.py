@@ -1,10 +1,15 @@
 from django.contrib.auth.models import User
 
-from rest_framework import status
+from django.shortcuts import get_object_or_404
+from rest_framework import status, views
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from retail.api.base_service_view import BaseServiceView
-from retail.api.integrated_feature.serializers import IntegratedFeatureSerializer
+from retail.api.integrated_feature.serializers import (
+    IntegratedFeatureConfigSerializer,
+    IntegratedFeatureSerializer,
+)
 from retail.api.usecases.create_integrated_feature_usecase import (
     CreateIntegratedFeatureUseCase,
 )
@@ -101,10 +106,6 @@ class IntegratedFeatureView(BaseServiceView):
             for integrated_sector in integrated_feature.sectors:
                 if integrated_sector["name"] == sector["name"]:
                     integrated_sector["tags"] = sector["tags"]
-
-        if config := request.data.get("config"):
-            integrated_feature.config = config
-
         integrated_feature.save()
 
         return Response(
@@ -118,3 +119,24 @@ class IntegratedFeatureView(BaseServiceView):
                 },
             }
         )
+
+
+class IntegratedFeatureConfigView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, *args, **kwargs):
+        serializer = IntegratedFeatureConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        feature_uuid = kwargs["feature_uuid"]
+        project_uuid = request.data["project_uuid"]
+        config = request.data["config"]
+
+        integrated_feature: IntegratedFeature = get_object_or_404(
+            IntegratedFeature, feature__uuid=feature_uuid, project__uuid=project_uuid
+        )
+
+        integrated_feature.config = request.data["config"]
+        integrated_feature.save()
+
+        return Response(config, status=status.HTTP_200_OK)
