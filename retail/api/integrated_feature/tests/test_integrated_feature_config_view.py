@@ -44,7 +44,6 @@ class TestIntegratedFeatureConfigView(BaseTestIntegratedFeatureConfigView):
         self.client.force_authenticate(user=self.user)
 
     def test_update_config(self):
-
         response = self.update_config(
             self.feature.uuid, project_uuid=self.project.uuid, config=self.new_config
         )
