@@ -19,10 +19,7 @@ from retail.projects.models import Project
 class IntegratedFeatureView(BaseServiceView):
     def post(self, request, *args, **kwargs):
         user, _ = User.objects.get_or_create(
-            email=request.user.email,
-            defaults={
-                "username": request.user.email
-            }
+            email=request.user.email, defaults={"username": request.user.email}
         )
         request_data = request.data.copy()
         request_data["feature_uuid"] = kwargs.get("feature_uuid")
@@ -99,11 +96,15 @@ class IntegratedFeatureView(BaseServiceView):
         )
         for key, value in request.data.get("globals_values").items():
             integrated_feature.globals_values[key] = value
-        integrated_feature.save()
+
         for sector in request.data.get("sectors", []):
             for integrated_sector in integrated_feature.sectors:
                 if integrated_sector["name"] == sector["name"]:
                     integrated_sector["tags"] = sector["tags"]
+
+        if config := request.data.get("config"):
+            integrated_feature.config = config
+
         integrated_feature.save()
 
         return Response(
@@ -113,6 +114,7 @@ class IntegratedFeatureView(BaseServiceView):
                     "message": "Integrated feature updated",
                     "globals_values": integrated_feature.globals_values,
                     "sectors": integrated_feature.sectors,
+                    "config": integrated_feature.config,
                 },
             }
         )
