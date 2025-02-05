@@ -52,7 +52,8 @@ class Feature(models.Model):
 
     @property
     def last_version(self):
-        return self.versions.order_by("created_on").last()
+        versions = self.versions.order_by("created_on")
+        return versions.last() if versions.count() > 0 else None
 
 
 class FeatureVersion(models.Model):
@@ -129,7 +130,7 @@ class IntegratedFeature(models.Model):
     )
 
     feature_version = models.ForeignKey(
-        FeatureVersion, on_delete=models.CASCADE, related_name="integrated_features"
+        FeatureVersion, on_delete=models.CASCADE, related_name="integrated_features", null=True
     )
     feature = models.ForeignKey(
         Feature, on_delete=models.CASCADE, related_name="integrated_features"
@@ -151,7 +152,7 @@ class IntegratedFeature(models.Model):
         # return super().save(*args)
 
     def __str__(self) -> str:
-        return self.feature_version.feature.name
+        return self.feature.name
 
 
 class Flow(models.Model):
