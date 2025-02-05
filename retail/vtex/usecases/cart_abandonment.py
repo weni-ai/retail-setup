@@ -102,7 +102,7 @@ class CartAbandonmentUseCase:
         """
 
         order_form = self.vtex_client.get_order_form_details(
-            account_domain=self._get_account_domain(cart), order_form_id=cart.cart_id
+            account_domain=self._get_account_domain(cart), order_form_id=cart.order_former_id
         )
         if not order_form:
             logger.warning(
@@ -156,18 +156,18 @@ class CartAbandonmentUseCase:
             orders (dict): List of orders retrieved.
         """
         if not orders.get("list"):
-            self._mark_cart_as_abandoned(cart, order_form)
+            self._mark_cart_as_abandoned(cart)
             return
 
         recent_orders = orders.get("list", [])[:3]
         for order in recent_orders:
-            if order.get("orderFormId") == cart.cart_id:
+            if order.get("orderFormId") == cart.order_former_id:
                 self._update_cart_status(cart, "purchased")
                 return
 
-        self._mark_cart_as_abandoned(cart, order_form)
+        self._mark_cart_as_abandoned(cart)
 
-    def _mark_cart_as_abandoned(self, cart: Cart, order_form: dict):
+    def _mark_cart_as_abandoned(self, cart: Cart):
         """
         Mark a cart as abandoned and send notification.
 
@@ -177,7 +177,7 @@ class CartAbandonmentUseCase:
         self._update_cart_status(cart, "abandoned")
 
         # Prepare and send the notification
-        payload = self.message_builder.build_abandonment_message(cart, order_form)
+        payload = self.message_builder.build_abandonment_message(cart)
         response = self.flows_service.send_whatsapp_broadcast(payload=payload)
         self._update_cart_status(cart, "delivered_success", response)
 
@@ -219,7 +219,7 @@ class MessageBuilder:
     Helper to build broadcast message payloads for abandoned cart notifications.
     """
 
-    def build_abandonment_message(self, cart: Cart, order_form) -> dict:
+    def build_abandonment_message(self, cart: Cart) -> dict:
         """
         Build the message payload for an abandoned cart notification.
 
@@ -236,9 +236,6 @@ class MessageBuilder:
         template = self._get_feature_config_value(cart, "template")
         channel_uuid = self._get_feature_config_value(cart, "flow_channel_uuid")
 
-        # Fetch cart-specific data
-        cart_link = self._get_cart_link(order_form)
-
         # Build the payload
         return {
             "project": str(cart.project.uuid),
@@ -252,7 +249,7 @@ class MessageBuilder:
                 "buttons": [
                     {
                         "sub_type": "url",
-                        "parameters": [{"type": "text", "text": cart_link}],
+                        "parameters": [{"type": "text", "text": cart.order_former_id}],
                     }
                 ],
             },

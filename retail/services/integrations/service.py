@@ -27,21 +27,19 @@ class IntegrationsService:
         """
         try:
             # Create Template
-            template_name = "weni_abandoned_cart_notification"
+            template_name = "weni_abandoned_cart"
             template_uuid = self.client.create_template_message(
                 app_uuid=app_uuid,
                 project_uuid=project_uuid,
                 name=template_name,
                 category="MARKETING",
             )
-            utm_source = "weni_abandoned_cart_notification"
 
             # Prepare translations for multiple languages
-            button_url = (
-                f"https://{store}/checkout/cart/add?sc=1&utm_source={utm_source}"
-                + "{{1}}"
+            button_url = f"https://{store}/checkout?orderFormId=" + "{{1}}"
+            button_url_example = (
+                f"https://{store}/checkout?orderFormId=92421d4a70224658acaab0c172f6b6d7"
             )
-            button_url_example = f"https://{store}/checkout/cart/add?sc=1&utm_source={utm_source}&sku=17&qty=1&seller=1&sku=21&qty=1&seller=1"
             translations = [
                 {
                     "language": "pt_BR",
