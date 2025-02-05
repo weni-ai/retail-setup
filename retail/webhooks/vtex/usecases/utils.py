@@ -1,4 +1,5 @@
-import time
+from calendar import FRIDAY, MONDAY, SATURDAY
+from datetime import time
 from django.utils import timezone
 from django.utils.timezone import timedelta
 
@@ -10,11 +11,11 @@ DEFAULT_ABANDONED_CART_COUNTDOWN = 25 * 60
 
 
 def is_weekday(day: int) -> bool:
-    return 0 <= day <= 4
+    return MONDAY <= day <= FRIDAY
 
 
 def is_saturday(day: int) -> bool:
-    return day == 5
+    return day == SATURDAY
 
 
 def convert_str_time_to_time(time_str: str) -> time:
@@ -42,7 +43,14 @@ def get_next_available_time(
         from_time = convert_str_time_to_time(from_time_str)
         to_time = convert_str_time_to_time(to_time_str)
 
-        if combine_date_and_time_with_shift(0, to_time) < default_current_day_time:
+        combined_time = combine_date_and_time_with_shift(0, to_time)
+
+        if timezone.is_naive(combined_time):
+            combined_time = timezone.make_aware(
+                combined_time, timezone.get_current_timezone()
+            )
+
+        if combined_time < default_current_day_time:
             return default_current_day_time
 
         if is_saturday(current_weekday + 1):
