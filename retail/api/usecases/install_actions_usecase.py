@@ -17,14 +17,25 @@ class InstallActions:
         self,
         integrated_feature,
         feature,
-        project_uuid,
-        store,
-        flows_channel_uuid,
-        wpp_cloud_app_uuid,
+        data,
     ):
         actions = feature.config.get("vtex_config", {}).get("install_actions", [])
 
+        wpp_cloud_app_uuid = data["wpp_cloud_app_uuid"]
+        flows_channel_uuid = data["flows_channel_uuid"]
+        project_uuid = data["project_uuid"]
+
         if "create_abandoned_cart_template" in actions:
+            store = data["store"]
+            # TODO: validate store fields
+            self._create_abandoned_cart_template(
+                integrated_feature=integrated_feature,
+                project_uuid=project_uuid,
+                store=store,
+                wpp_cloud_app_uuid=wpp_cloud_app_uuid,
+            )
+        
+        if "create_order_status_templates" in actions:
             self._create_abandoned_cart_template(
                 integrated_feature=integrated_feature,
                 project_uuid=project_uuid,
@@ -64,3 +75,19 @@ class InstallActions:
         # Example UUID for simulation (Replace with actual implementation)
         integrated_feature.config["flow_channel_uuid"] = flows_channel_uuid
         integrated_feature.save()
+
+    def _create_order_status_templates(
+        self, integrated_feature, project_uuid, wpp_cloud_app_uuid
+    ):
+        """
+        Creates an order status templates and stores the template UUID in the config.
+        """
+        try:
+            templates = self.integrations_service.create_order_status_templates(
+                app_uuid=wpp_cloud_app_uuid, project_uuid=project_uuid
+            )
+            integrated_feature.config["order_status_templates"] = templates
+            integrated_feature.save()
+        except CustomAPIException as e:
+            print(f"Error creating template: {str(e)}")
+            raise

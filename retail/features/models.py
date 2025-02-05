@@ -45,6 +45,7 @@ class Feature(models.Model):
 
     can_vtex_integrate = models.BooleanField(default=False)
     config = models.JSONField(default=dict)
+    code = models.CharField(max_length=25, null=True, blank=True)
 
     def __str__(self):
         return self.name

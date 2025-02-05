@@ -61,10 +61,7 @@ class CreateIntegratedFeatureUseCase:
                 args=[
                     integrated_feature.uuid,
                     feature.uuid,
-                    request_data["project_uuid"],
-                    request_data["store"],
-                    request_data["flows_channel_uuid"],
-                    request_data["wpp_cloud_app_uuid"],
+                    request_data,
                 ]
             )
 
@@ -283,7 +280,7 @@ class CreateIntegratedFeatureUseCase:
         Raises:
             ValidationError: If any required field is missing.
         """
-        required_fields = ["store", "flows_channel_uuid", "wpp_cloud_app_uuid"]
+        required_fields = ["flows_channel_uuid", "wpp_cloud_app_uuid"]
         missing_fields = [
             field for field in required_fields if field not in request_data
         ]
