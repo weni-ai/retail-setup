@@ -17,3 +17,9 @@ class IntegrationsClientInterface(ABC):
         self, app_uuid: str, project_uuid: str, template_uuid: str, payload: dict
     ) -> dict:
         pass
+
+    @abstractmethod
+    def create_library_template_message(
+        self, app_uuid: str, project_uuid: str, template_data: str
+    ) -> str:
+        pass
