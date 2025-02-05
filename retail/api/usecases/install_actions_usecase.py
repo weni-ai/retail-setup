@@ -34,14 +34,6 @@ class InstallActions:
                 store=store,
                 wpp_cloud_app_uuid=wpp_cloud_app_uuid,
             )
-        
-        if "create_order_status_templates" in actions:
-            self._create_abandoned_cart_template(
-                integrated_feature=integrated_feature,
-                project_uuid=project_uuid,
-                store=store,
-                wpp_cloud_app_uuid=wpp_cloud_app_uuid,
-            )
 
         if "store_flows_channel" in actions:
             self._store_flow_channel_uuid(integrated_feature, flows_channel_uuid)
@@ -75,19 +67,3 @@ class InstallActions:
         # Example UUID for simulation (Replace with actual implementation)
         integrated_feature.config["flow_channel_uuid"] = flows_channel_uuid
         integrated_feature.save()
-
-    def _create_order_status_templates(
-        self, integrated_feature, project_uuid, wpp_cloud_app_uuid
-    ):
-        """
-        Creates an order status templates and stores the template UUID in the config.
-        """
-        try:
-            templates = self.integrations_service.create_order_status_templates(
-                app_uuid=wpp_cloud_app_uuid, project_uuid=project_uuid
-            )
-            integrated_feature.config["order_status_templates"] = templates
-            integrated_feature.save()
-        except CustomAPIException as e:
-            print(f"Error creating template: {str(e)}")
-            raise
