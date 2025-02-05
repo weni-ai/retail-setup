@@ -61,6 +61,6 @@ class IntegratedFeatureSerializer(serializers.Serializer):
         )
 
 
-class IntegratedFeatureConfigSerializer(serializers.Serializer):
+class IntegratedFeatureSettingsSerializer(serializers.Serializer):
     project_uuid = serializers.UUIDField(required=True)
-    config = serializers.JSONField(required=True)
+    integration_settings = serializers.JSONField(required=True)

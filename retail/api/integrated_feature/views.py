@@ -7,7 +7,7 @@ from rest_framework.response import Response
 
 from retail.api.base_service_view import BaseServiceView
 from retail.api.integrated_feature.serializers import (
-    IntegratedFeatureConfigSerializer,
+    IntegratedFeatureSettingsSerializer,
     IntegratedFeatureSerializer,
 )
 from retail.api.usecases.create_integrated_feature_usecase import (
@@ -121,22 +121,25 @@ class IntegratedFeatureView(BaseServiceView):
         )
 
 
-class IntegratedFeatureConfigView(views.APIView):
+class IntegratedFeatureSettingsView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def put(self, request, *args, **kwargs):
-        serializer = IntegratedFeatureConfigSerializer(data=request.data)
+        serializer = IntegratedFeatureSettingsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         feature_uuid = kwargs["feature_uuid"]
         project_uuid = request.data["project_uuid"]
-        config = request.data["config"]
+        integration_settings = request.data["integration_settings"]
 
         integrated_feature: IntegratedFeature = get_object_or_404(
             IntegratedFeature, feature__uuid=feature_uuid, project__uuid=project_uuid
         )
 
-        integrated_feature.config = request.data["config"]
+        config = integrated_feature.config
+        config["integration_settings"] = integration_settings
+
+        integrated_feature.config = config
         integrated_feature.save()
 
         return Response(config, status=status.HTTP_200_OK)
