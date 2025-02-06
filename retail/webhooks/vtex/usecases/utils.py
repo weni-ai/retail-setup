@@ -1,10 +1,13 @@
 from calendar import FRIDAY, MONDAY, SATURDAY
 from datetime import date, time
+import logging
 from django.utils import timezone
 from django.utils.timezone import timedelta
 
 from retail.features.models import IntegratedFeature
 from sentry_sdk import capture_exception, capture_message
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_ABANDONED_CART_COUNTDOWN = 25 * 60
@@ -129,9 +132,9 @@ def calculate_abandoned_cart_countdown(integrated_feature: IntegratedFeature) ->
     saturdays_period = periods.get("saturdays", {})
 
     if not weekdays_period or not saturdays_period:
-        capture_message(
-            f"Invalid message time restriction settings for abandoned cart feature (Integrated feature UUID: {integrated_feature.uuid})"
-        )
+        error_message = f"Invalid message time restriction settings for abandoned cart feature (Integrated feature UUID: {integrated_feature.uuid})"
+        logger.error(error_message, exc_info=True)
+        capture_message(error_message)
         return DEFAULT_ABANDONED_CART_COUNTDOWN
 
     now = timezone.now()
@@ -143,6 +146,8 @@ def calculate_abandoned_cart_countdown(integrated_feature: IntegratedFeature) ->
             saturdays_period=saturdays_period,
         )
     except Exception as e:
+        error_message = f"Could not calculate the next available time for the integrated feature with UUID {integrated_feature.uuid}. Error: {str(e)}"
+        logger.error(error_message, exc_info=True)
         capture_exception(e)
         return DEFAULT_ABANDONED_CART_COUNTDOWN
 
