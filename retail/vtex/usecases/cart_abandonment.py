@@ -1,8 +1,11 @@
 import logging
 
 from django.conf import settings
+import requests
 
 from retail.clients.vtex_io.client import VtexIOClient
+from retail.clients.vtex.client import VtexClient
+from retail.services.vtex.service import VtexService
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.models import Cart
 from retail.services.flows.service import FlowsService
@@ -18,10 +21,13 @@ class CartAbandonmentUseCase:
     Use case for handling cart abandonment and notifications.
     """
 
+    utm_source = "weniabandonedcart"
+
     def __init__(
         self,
         flows_service: FlowsService = None,
-        vtex_client: VtexIOService = None,
+        vtex_io_service: VtexIOService = None,
+        vtex_service: VtexService = None,
         message_builder=None,
     ):
         """
@@ -29,11 +35,13 @@ class CartAbandonmentUseCase:
 
         Args:
             flows_service (FlowsService): Service to handle notification flows.
-            vtex_client (VtexIOService): Client for interacting with VTEX API.
+            vtex_io_service (VtexIOService): Client for interacting with VTEX API.
             message_builder (MessageBuilder): Builder for constructing notification messages.
         """
         self.flows_service = flows_service or FlowsService(FlowsClient())
-        self.vtex_client = vtex_client or VtexIOService(VtexIOClient())
+        self.vtex_io_service = vtex_io_service or VtexIOService(VtexIOClient())
+        self.vtex_service = vtex_service or VtexService(VtexClient())
+
         self.message_builder = message_builder or MessageBuilder()
 
     def process_abandoned_cart(self, cart_uuid: str):
@@ -101,8 +109,9 @@ class CartAbandonmentUseCase:
             CustomAPIException: If the API request fails.
         """
 
-        order_form = self.vtex_client.get_order_form_details(
-            account_domain=self._get_account_domain(cart), order_form_id=cart.order_form_id
+        order_form = self.vtex_io_service.get_order_form_details(
+            account_domain=self._get_account_domain(cart),
+            order_form_id=cart.order_form_id,
         )
         if not order_form:
             logger.warning(
@@ -142,7 +151,7 @@ class CartAbandonmentUseCase:
         Returns:
             dict: List of orders associated with the email.
         """
-        orders = self.vtex_client.get_order_details(
+        orders = self.vtex_io_service.get_order_details(
             account_domain=self._get_account_domain(cart), user_email=email
         )
         return orders or {"list": []}
@@ -167,6 +176,12 @@ class CartAbandonmentUseCase:
 
         self._mark_cart_as_abandoned(cart)
 
+    def _set_utm_source(self, cart: Cart):
+        domain = self._get_account_domain(cart)
+        self.vtex_service.set_order_form_marketing_data(
+            domain, cart.order_form_id, self.utm_source
+        )
+
     def _mark_cart_as_abandoned(self, cart: Cart):
         """
         Mark a cart as abandoned and send notification.
@@ -175,6 +190,9 @@ class CartAbandonmentUseCase:
             cart (Cart): The cart to process.
         """
         self._update_cart_status(cart, "abandoned")
+
+        # Set marketing data
+        self._set_utm_source(cart)
 
         # Prepare and send the notification
         payload = self.message_builder.build_abandonment_message(cart)
