@@ -192,13 +192,13 @@ class CartAbandonmentUseCase:
         """
         self._update_cart_status(cart, "abandoned")
 
-        # Set marketing data
-        self._set_utm_source(cart)
-
         # Prepare and send the notification
         payload = self.message_builder.build_abandonment_message(cart)
         response = self.flows_service.send_whatsapp_broadcast(payload=payload)
         self._update_cart_status(cart, "delivered_success", response)
+
+        # Set marketing data
+        self._set_utm_source(cart)
 
     def _update_cart_status(self, cart: Cart, status: str, response=None):
         """
