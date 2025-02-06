@@ -1,4 +1,4 @@
-from calendar import FRIDAY, SATURDAY, THURSDAY
+from calendar import FRIDAY, MONDAY, SATURDAY, SUNDAY, THURSDAY
 from datetime import time as datetime_time
 from unittest import mock
 import uuid
@@ -23,18 +23,17 @@ from retail.webhooks.vtex.usecases.utils import (
 
 class TestDateUtils(TestCase):
     def test_is_weekday(self):
-        for i in range(0, 5):
+        for i in range(MONDAY, FRIDAY + 1):
             self.assertTrue(is_weekday(i))
 
-        for i in range(5, 7):
+        for i in range(SATURDAY, SUNDAY + 1):
             self.assertFalse(is_weekday(i))
 
     def test_is_saturday(self):
-        for i in range(0, 5):
+        for i in list(range(MONDAY, FRIDAY + 1)) + [SUNDAY]:
             self.assertFalse(is_saturday(i))
 
-        for i in range(5, 6):
-            self.assertTrue(is_saturday(i))
+        self.assertTrue(is_saturday(SATURDAY))
 
     def test_convert_str_time_to_time(self):
         """Test conversion of string time to time object."""
