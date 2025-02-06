@@ -35,7 +35,8 @@ class CartAbandonmentUseCase:
 
         Args:
             flows_service (FlowsService): Service to handle notification flows.
-            vtex_io_service (VtexIOService): Client for interacting with VTEX API.
+            vtex_io_service (VtexIOService): Service for interacting with VtexIO.
+            vtex_service (VtexService): Service for interacting with VTEX.
             message_builder (MessageBuilder): Builder for constructing notification messages.
         """
         self.flows_service = flows_service or FlowsService(FlowsClient())
