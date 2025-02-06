@@ -1,11 +1,18 @@
 from calendar import FRIDAY, SATURDAY, THURSDAY
 from datetime import time as datetime_time
+from unittest import mock
+import uuid
+
+from django.contrib.auth.models import User
 from django.test import TestCase
 from django.utils import timezone
 from django.utils.timezone import timedelta
 
+from retail.features.models import Feature, IntegratedFeature
+from retail.projects.models import Project
 from retail.webhooks.vtex.usecases.utils import (
     DEFAULT_ABANDONED_CART_COUNTDOWN,
+    calculate_abandoned_cart_countdown,
     convert_str_time_to_time,
     is_saturday,
     is_weekday,
@@ -130,3 +137,58 @@ class TestDateUtils(TestCase):
                 dt.date(), expected_next_available_time, 2
             ),
         )
+
+    def test_calculate_abandoned_cart_countdown_for_inactive_time_restriction(self):
+        feature = Feature.objects.create()
+        project = Project.objects.create(uuid=uuid.uuid4())
+        user = User.objects.create()
+        config = {
+            "integration_settings": {
+                "message_time_restriction": {
+                    "is_active": False,
+                }
+            }
+        }
+
+        integrated_feature = IntegratedFeature.objects.create(
+            feature=feature, project=project, config=config, user=user
+        )
+        countdown = calculate_abandoned_cart_countdown(integrated_feature)
+
+        self.assertEqual(countdown, DEFAULT_ABANDONED_CART_COUNTDOWN)
+
+    @mock.patch("retail.webhooks.vtex.usecases.utils.get_next_available_time")
+    def test_calculate_abandoned_cart_countdown_for_active_time_restriction(
+        self, mock_get_next_available_time
+    ):
+        feature = Feature.objects.create()
+        project = Project.objects.create(uuid=uuid.uuid4())
+        user = User.objects.create()
+        config = {
+            "integration_settings": {
+                "message_time_restriction": {
+                    "is_active": True,
+                    "periods": {
+                        "weekdays": {
+                            "from": "08:00",
+                            "to": "20:00",
+                        },
+                        "saturdays": {
+                            "from": "10:00",
+                            "to": "12:00",
+                        },
+                    },
+                }
+            }
+        }
+
+        mock_get_next_available_time.return_value = timezone.now() + timedelta(
+            seconds=3600
+        )
+
+        integrated_feature = IntegratedFeature.objects.create(
+            feature=feature, project=project, config=config, user=user
+        )
+        countdown = calculate_abandoned_cart_countdown(integrated_feature)
+
+        self.assertAlmostEqual(countdown, 3600, delta=45)
