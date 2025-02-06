@@ -63,7 +63,7 @@ def get_next_available_time(
                 last_time_allowed_for_day, timezone.get_current_timezone()
             )
 
-        if now < first_time_allowed_for_day:
+        if default_current_day_time < first_time_allowed_for_day:
             return first_time_allowed_for_day
 
         if default_current_day_time < last_time_allowed_for_day:
@@ -105,7 +105,7 @@ def get_next_available_time(
                 last_time_allowed_for_day, timezone.get_current_timezone()
             )
 
-        if now < first_time_allowed_for_day:
+        if default_current_day_time < first_time_allowed_for_day:
             return first_time_allowed_for_day
 
         if default_current_day_time < last_time_allowed_for_day:
