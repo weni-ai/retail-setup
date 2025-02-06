@@ -75,7 +75,11 @@ class IntegratedFeatureView(BaseServiceView):
 
         body = {
             "project_uuid": str(project.uuid),
-            "feature_version": str(integrated_feature.feature_version.uuid),
+            "feature_version": (
+                str(integrated_feature.feature_version.uuid)
+                if integrated_feature.feature_version
+                else ""
+            ),
             "feature_uuid": str(integrated_feature.feature.uuid),
             "user_email": request.user.email,
         }
