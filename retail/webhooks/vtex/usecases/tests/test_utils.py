@@ -137,6 +137,25 @@ class TestDateUtils(TestCase):
             ),
         )
 
+    def test_get_next_available_time_in_a_saturday_inside_period(self):
+        dt = timezone.datetime(
+            2025, 2, 1, 12, 00, tzinfo=timezone.get_current_timezone()
+        ) - timedelta(seconds=DEFAULT_ABANDONED_CART_COUNTDOWN + 60)
+
+        self.assertEqual(dt.weekday(), SATURDAY)
+
+        weekdays_period = {"from": "08:00", "to": "20:00"}
+        saturdays_period = {"from": "10:00", "to": "12:00"}
+
+        next_available_time = get_next_available_time(
+            dt, weekdays_period, saturdays_period
+        )
+
+        self.assertEqual(
+            next_available_time.date(),
+            dt.date(),
+        )
+
     def test_calculate_abandoned_cart_countdown_for_inactive_time_restriction(self):
         feature = Feature.objects.create()
         project = Project.objects.create(uuid=uuid.uuid4())

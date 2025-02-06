@@ -69,8 +69,8 @@ def get_next_available_time(
             return combine_date_and_time_with_shift(now.date(), next_from_time, 1)
 
     else:
-        saturdays_from_time_str = saturdays_period.get("from")
-        to_time = convert_str_time_to_time(saturdays_from_time_str)
+        saturdays_to_time_str = saturdays_period.get("to")
+        to_time = convert_str_time_to_time(saturdays_to_time_str)
 
         last_time_allowed_for_day = combine_date_and_time_with_shift(
             now.date(), to_time, 0
