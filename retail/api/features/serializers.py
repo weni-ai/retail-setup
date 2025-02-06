@@ -12,6 +12,8 @@ class FeaturesSerializer(serializers.Serializer):
     globals = serializers.SerializerMethodField()
     sectors = serializers.SerializerMethodField()
     initial_flow = serializers.SerializerMethodField()
+    code = serializers.SerializerMethodField()
+    config = serializers.SerializerMethodField()
 
     def get_feature_uuid(self, obj):
         return obj.uuid
@@ -46,6 +48,12 @@ class FeaturesSerializer(serializers.Serializer):
             ]
         return []
 
+    def get_code(self, obj):
+        return obj.code
+
+    def get_config(self, obj):
+        return obj.config
+
     class Meta:
         model = Feature
         fields = (
@@ -57,4 +65,5 @@ class FeaturesSerializer(serializers.Serializer):
             "globals",
             "sectors",
             "initial_flow",
+            "code",
         )
