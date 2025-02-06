@@ -47,6 +47,27 @@ class TestDateUtils(TestCase):
             timezone.datetime.combine(now.date() + timedelta(days=1), t),
         )
 
+    def test_get_next_available_time_in_a_weekday_before_period(self):
+        dt = timezone.datetime(
+            2025, 1, 30, 5, 00, tzinfo=timezone.get_current_timezone()
+        )
+
+        self.assertEqual(dt.weekday(), THURSDAY)
+
+        weekdays_period = {"from": "08:00", "to": "20:00"}
+        saturdays_period = {"from": "10:00", "to": "12:00"}
+
+        next_available_time = get_next_available_time(
+            dt, weekdays_period, saturdays_period
+        )
+
+        self.assertEqual(
+            next_available_time,
+            timezone.datetime(
+                2025, 1, 30, 8, 00, tzinfo=timezone.get_current_timezone()
+            ),
+        )
+
     def test_get_next_available_time_in_a_weekday_inside_period(self):
         dt = timezone.datetime(
             2025, 1, 30, 20, 00, tzinfo=timezone.get_current_timezone()
@@ -134,6 +155,27 @@ class TestDateUtils(TestCase):
             next_available_time,
             combine_date_and_time_with_shift(
                 dt.date(), expected_next_available_time, 2
+            ),
+        )
+
+    def test_get_next_available_time_in_a_saturday_before_period(self):
+        dt = timezone.datetime(
+            2025, 2, 1, 7, 00, tzinfo=timezone.get_current_timezone()
+        )
+
+        self.assertEqual(dt.weekday(), SATURDAY)
+
+        weekdays_period = {"from": "08:00", "to": "20:00"}
+        saturdays_period = {"from": "10:00", "to": "12:00"}
+
+        next_available_time = get_next_available_time(
+            dt, weekdays_period, saturdays_period
+        )
+
+        self.assertEqual(
+            next_available_time,
+            timezone.datetime(
+                2025, 2, 1, 10, 00, tzinfo=timezone.get_current_timezone()
             ),
         )
 

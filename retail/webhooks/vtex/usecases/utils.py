@@ -43,14 +43,25 @@ def get_next_available_time(
         from_time = convert_str_time_to_time(from_time_str)
         to_time = convert_str_time_to_time(to_time_str)
 
+        first_time_allowed_for_day = combine_date_and_time_with_shift(
+            now.date(), from_time, 0
+        )
         last_time_allowed_for_day = combine_date_and_time_with_shift(
             now.date(), to_time, 0
         )
+
+        if timezone.is_naive(first_time_allowed_for_day):
+            first_time_allowed_for_day = timezone.make_aware(
+                first_time_allowed_for_day, timezone.get_current_timezone()
+            )
 
         if timezone.is_naive(last_time_allowed_for_day):
             last_time_allowed_for_day = timezone.make_aware(
                 last_time_allowed_for_day, timezone.get_current_timezone()
             )
+
+        if now < first_time_allowed_for_day:
+            return first_time_allowed_for_day
 
         if default_current_day_time < last_time_allowed_for_day:
             return default_current_day_time
@@ -69,16 +80,30 @@ def get_next_available_time(
             return combine_date_and_time_with_shift(now.date(), next_from_time, 1)
 
     else:
+        saturdays_from_time_str = saturdays_period.get("from")
+        from_time = convert_str_time_to_time(saturdays_from_time_str)
+
         saturdays_to_time_str = saturdays_period.get("to")
         to_time = convert_str_time_to_time(saturdays_to_time_str)
 
+        first_time_allowed_for_day = combine_date_and_time_with_shift(
+            now.date(), from_time, 0
+        )
         last_time_allowed_for_day = combine_date_and_time_with_shift(
             now.date(), to_time, 0
         )
+
+        if timezone.is_naive(first_time_allowed_for_day):
+            first_time_allowed_for_day = timezone.make_aware(
+                first_time_allowed_for_day, timezone.get_current_timezone()
+            )
         if timezone.is_naive(last_time_allowed_for_day):
             last_time_allowed_for_day = timezone.make_aware(
                 last_time_allowed_for_day, timezone.get_current_timezone()
             )
+
+        if now < first_time_allowed_for_day:
+            return first_time_allowed_for_day
 
         if default_current_day_time < last_time_allowed_for_day:
             return default_current_day_time
