@@ -19,10 +19,7 @@ from retail.projects.models import Project
 class IntegratedFeatureView(BaseServiceView):
     def post(self, request, *args, **kwargs):
         user, _ = User.objects.get_or_create(
-            email=request.user.email,
-            defaults={
-                "username": request.user.email
-            }
+            email=request.user.email, defaults={"username": request.user.email}
         )
         request_data = request.data.copy()
         request_data["feature_uuid"] = kwargs.get("feature_uuid")
@@ -73,7 +70,11 @@ class IntegratedFeatureView(BaseServiceView):
 
         body = {
             "project_uuid": str(project.uuid),
-            "feature_version": str(integrated_feature.feature_version.uuid),
+            "feature_version": (
+                str(integrated_feature.feature_version.uuid)
+                if integrated_feature.feature_version
+                else ""
+            ),
             "feature_uuid": str(integrated_feature.feature.uuid),
             "user_email": request.user.email,
         }
