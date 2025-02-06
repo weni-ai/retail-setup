@@ -43,14 +43,16 @@ def get_next_available_time(
         from_time = convert_str_time_to_time(from_time_str)
         to_time = convert_str_time_to_time(to_time_str)
 
-        combined_time = combine_date_and_time_with_shift(now.date(), to_time, 0)
+        last_time_allowed_for_day = combine_date_and_time_with_shift(
+            now.date(), to_time, 0
+        )
 
-        if timezone.is_naive(combined_time):
-            combined_time = timezone.make_aware(
-                combined_time, timezone.get_current_timezone()
+        if timezone.is_naive(last_time_allowed_for_day):
+            last_time_allowed_for_day = timezone.make_aware(
+                last_time_allowed_for_day, timezone.get_current_timezone()
             )
 
-        if combined_time < default_current_day_time:
+        if default_current_day_time < last_time_allowed_for_day:
             return default_current_day_time
 
         if is_saturday(current_weekday + 1):
@@ -70,13 +72,15 @@ def get_next_available_time(
         saturdays_from_time_str = saturdays_period.get("from")
         to_time = convert_str_time_to_time(saturdays_from_time_str)
 
-        combined_time = combine_date_and_time_with_shift(now.date(), to_time, 0)
-        if timezone.is_naive(combined_time):
-            combined_time = timezone.make_aware(
-                combined_time, timezone.get_current_timezone()
+        last_time_allowed_for_day = combine_date_and_time_with_shift(
+            now.date(), to_time, 0
+        )
+        if timezone.is_naive(last_time_allowed_for_day):
+            last_time_allowed_for_day = timezone.make_aware(
+                last_time_allowed_for_day, timezone.get_current_timezone()
             )
 
-        if combined_time < default_current_day_time:
+        if default_current_day_time < last_time_allowed_for_day:
             return default_current_day_time
 
         shift = 2 if is_saturday(current_weekday) else 1

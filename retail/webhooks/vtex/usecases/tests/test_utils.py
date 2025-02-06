@@ -3,7 +3,6 @@ from datetime import time as datetime_time
 from django.test import TestCase
 from django.utils import timezone
 from django.utils.timezone import timedelta
-import pytz
 
 from retail.webhooks.vtex.usecases.utils import (
     DEFAULT_ABANDONED_CART_COUNTDOWN,
@@ -43,9 +42,9 @@ class TestDateUtils(TestCase):
         )
 
     def test_get_next_available_time_in_a_weekday_inside_period(self):
-        dt = timezone.datetime(2025, 1, 30, 20, 00, tzinfo=pytz.UTC) - timedelta(
-            seconds=DEFAULT_ABANDONED_CART_COUNTDOWN + 60
-        )
+        dt = timezone.datetime(
+            2025, 1, 30, 20, 00, tzinfo=timezone.get_current_timezone()
+        ) - timedelta(seconds=DEFAULT_ABANDONED_CART_COUNTDOWN + 60)
 
         self.assertEqual(dt.weekday(), THURSDAY)
 
@@ -62,9 +61,9 @@ class TestDateUtils(TestCase):
         )
 
     def test_get_next_available_time_in_a_weekday(self):
-        dt = timezone.datetime(2025, 1, 30, 20, 00, tzinfo=pytz.UTC) - timedelta(
-            seconds=DEFAULT_ABANDONED_CART_COUNTDOWN - 60
-        )
+        dt = timezone.datetime(
+            2025, 1, 30, 20, 00, tzinfo=timezone.get_current_timezone()
+        ) - timedelta(seconds=DEFAULT_ABANDONED_CART_COUNTDOWN - 60)
 
         self.assertEqual(dt.weekday(), THURSDAY)
 
@@ -85,9 +84,9 @@ class TestDateUtils(TestCase):
         )
 
     def test_get_next_available_time_in_a_friday(self):
-        dt = timezone.datetime(2025, 1, 31, 20, 00, tzinfo=pytz.UTC) - timedelta(
-            seconds=DEFAULT_ABANDONED_CART_COUNTDOWN - 60
-        )
+        dt = timezone.datetime(
+            2025, 1, 31, 20, 00, tzinfo=timezone.get_current_timezone()
+        ) - timedelta(seconds=DEFAULT_ABANDONED_CART_COUNTDOWN - 60)
 
         self.assertEqual(dt.weekday(), FRIDAY)
 
@@ -104,13 +103,15 @@ class TestDateUtils(TestCase):
 
         self.assertEqual(
             next_available_time,
-            combine_date_and_time_with_shift(1, expected_next_available_time),
+            combine_date_and_time_with_shift(
+                dt.date(), expected_next_available_time, 1
+            ),
         )
 
     def test_get_next_available_time_in_a_saturday(self):
-        dt = timezone.datetime(2025, 2, 1, 19, 45, tzinfo=pytz.UTC) - timedelta(
-            seconds=DEFAULT_ABANDONED_CART_COUNTDOWN - 60
-        )
+        dt = timezone.datetime(
+            2025, 2, 1, 12, 00, tzinfo=timezone.get_current_timezone()
+        ) - timedelta(seconds=DEFAULT_ABANDONED_CART_COUNTDOWN - 60)
 
         self.assertEqual(dt.weekday(), SATURDAY)
 
@@ -125,5 +126,7 @@ class TestDateUtils(TestCase):
 
         self.assertEqual(
             next_available_time,
-            combine_date_and_time_with_shift(2, expected_next_available_time),
+            combine_date_and_time_with_shift(
+                dt.date(), expected_next_available_time, 2
+            ),
         )
