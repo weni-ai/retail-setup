@@ -61,6 +61,7 @@ class TestDateUtils(TestCase):
             dt, weekdays_period, saturdays_period
         )
 
+        self.assertEqual(next_available_time.weekday(), THURSDAY)
         self.assertEqual(
             next_available_time,
             timezone.datetime(
@@ -82,6 +83,7 @@ class TestDateUtils(TestCase):
             dt, weekdays_period, saturdays_period
         )
 
+        self.assertEqual(next_available_time.weekday(), THURSDAY)
         self.assertEqual(
             next_available_time.date(),
             dt.date(),
@@ -103,6 +105,7 @@ class TestDateUtils(TestCase):
             dt, weekdays_period, saturdays_period
         )
 
+        self.assertEqual(next_available_time.weekday(), FRIDAY)
         self.assertEqual(
             next_available_time,
             combine_date_and_time_with_shift(
@@ -128,6 +131,7 @@ class TestDateUtils(TestCase):
             dt, weekdays_period, saturdays_period
         )
 
+        self.assertEqual(next_available_time.weekday(), SATURDAY)
         self.assertEqual(
             next_available_time,
             combine_date_and_time_with_shift(
@@ -151,6 +155,7 @@ class TestDateUtils(TestCase):
             dt, weekdays_period, saturdays_period
         )
 
+        self.assertEqual(next_available_time.weekday(), MONDAY)
         self.assertEqual(
             next_available_time,
             combine_date_and_time_with_shift(
@@ -172,6 +177,7 @@ class TestDateUtils(TestCase):
             dt, weekdays_period, saturdays_period
         )
 
+        self.assertEqual(next_available_time.weekday(), SATURDAY)
         self.assertEqual(
             next_available_time,
             timezone.datetime(
@@ -193,9 +199,34 @@ class TestDateUtils(TestCase):
             dt, weekdays_period, saturdays_period
         )
 
+        self.assertEqual(dt.weekday(), SATURDAY)
         self.assertEqual(
             next_available_time.date(),
             dt.date(),
+        )
+
+    def test_get_next_available_time_in_a_sunday(self):
+        dt = timezone.datetime(
+            2025, 2, 2, 12, 00, tzinfo=timezone.get_current_timezone()
+        ) - timedelta(seconds=DEFAULT_ABANDONED_CART_COUNTDOWN - 60)
+
+        self.assertEqual(dt.weekday(), SUNDAY)
+
+        weekdays_period = {"from": "08:00", "to": "20:00"}
+        saturdays_period = {"from": "10:00", "to": "12:00"}
+
+        expected_next_available_time = convert_str_time_to_time(weekdays_period["from"])
+
+        next_available_time = get_next_available_time(
+            dt, weekdays_period, saturdays_period
+        )
+
+        self.assertEqual(next_available_time.weekday(), MONDAY)
+        self.assertEqual(
+            next_available_time,
+            combine_date_and_time_with_shift(
+                dt.date(), expected_next_available_time, 1
+            ),
         )
 
     def test_calculate_abandoned_cart_countdown_for_inactive_time_restriction(self):
