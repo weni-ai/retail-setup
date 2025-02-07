@@ -37,7 +37,9 @@ class IntegrationsService:
 
             # Prepare translations for multiple languages
             button_url = f"https://{store}/checkout?orderFormId=" + "{{1}}"
-            button_url_example = f"https://{store}/checkout?orderFormId=92421d4a70224658acaab0c172f6b6d7"
+            button_url_example = (
+                f"https://{store}/checkout?orderFormId=92421d4a70224658acaab0c172f6b6d7"
+            )
             translations = [
                 {
                     "language": "pt_BR",
