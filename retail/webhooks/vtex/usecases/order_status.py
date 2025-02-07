@@ -1,8 +1,11 @@
 from rest_framework.exceptions import ValidationError
 from sentry_sdk import capture_message
 
+from retail.clients.vtex_io.client import VtexIOClient
 from retail.features.models import IntegratedFeature
 from retail.projects.models import Project
+from retail.services.vtex_io.service import VtexIOService
+from retail.vtex.usecases.phone_number_normalizer import PhoneNumberNormalizer
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
 
@@ -11,7 +14,11 @@ class OrderStatusUseCase:
     Use case for handling order status updates.
     """
 
-    def __init__(self, data: OrderStatusDTO):
+    def __init__(
+        self,
+        data: OrderStatusDTO,
+    ):
+        self.vtex_io_service = VtexIOService(VtexIOClient())
         self.recorder = data.get("recorder")
         self.domain = data.get("domain")
         self.order_id = data.get("orderId")
@@ -26,7 +33,7 @@ class OrderStatusUseCase:
         """
         Get the domain for a given account.
         """
-        return f"https://{account}.vtexcommercestable.com.br"
+        return f"{account}.vtexcommercestable.com.br"
 
     def _get_project_by_vtex_account(self, vtex_account: str) -> Project:
         """
@@ -86,17 +93,30 @@ class OrderStatusUseCase:
 
         return order_status_templates.get(order_status)
 
+    def _get_phone_number_from_order(self, account_domain: str, order_id: str) -> str:
+        """
+        Get the phone number from the order.
+        """
+        order_data = self.vtex_io_service.get_order_details_by_id(
+            account_domain=account_domain, order_id=order_id
+        )
+        raw_phone_number = order_data.get("clientProfileData", {}).get("phone")
+        normalized_phone_number = PhoneNumberNormalizer.normalize(raw_phone_number)
+
+        return normalized_phone_number
+
     def process_notification(self):
         """
         Process the order status notification.
         """
         project = self._get_project_by_vtex_account(self.vtex_account)
-        domain = OrderStatusUseCase._get_domain_by_account(self.vtex_account)
+        account_domain = OrderStatusUseCase._get_domain_by_account(self.vtex_account)
 
         integrated_feature = self._get_integrated_feature_by_project(project)
 
         template_name = self._get_template_by_order_status(
             integrated_feature, self.current_state
         )
+        phone_number = self._get_phone_number_from_order(account_domain, self.order_id)
 
         # TODO: Send notification to the user
