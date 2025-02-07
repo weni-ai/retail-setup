@@ -44,3 +44,9 @@ class VtexIOService:
         """
 
         return self.client.get_order_details(account_domain, user_email)
+
+    def get_order_details_by_id(self, account_domain: str, order_id: str) -> dict:
+        """
+        Retrieve order details by order ID from VTEX IO.
+        """
+        return self.client.get_order_details_by_id(account_domain, order_id)
