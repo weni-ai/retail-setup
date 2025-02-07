@@ -100,7 +100,7 @@ class OrderStatusUseCase:
         )
 
         if not template_name:
-            error_message = f"Template not found for order status {data.get('currentState')}. Order id: {self.order_id}"
+            error_message = f"Template not found for order status {self.current_state}. Order id: {self.order_id}"
             capture_message(error_message)
 
             raise ValidationError(
