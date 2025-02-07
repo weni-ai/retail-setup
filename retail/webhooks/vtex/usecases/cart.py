@@ -9,6 +9,7 @@ from retail.vtex.models import Cart
 from retail.vtex.tasks import mark_cart_as_abandoned
 
 from retail.celery import app as celery_app
+from retail.webhooks.vtex.services import CartTimeRestrictionService
 
 
 logger = logging.getLogger(__name__)
@@ -138,6 +139,9 @@ class CartUseCase:
         """
         task_key = generate_task_key(cart_uuid)
 
+        time_restriction_service = CartTimeRestrictionService(self.feature)
+        countdown = time_restriction_service.get_countdown()
+
         mark_cart_as_abandoned.apply_async(
-            (cart_uuid,), countdown=25 * 60, task_id=task_key
+            (cart_uuid,), countdown=countdown, task_id=task_key
         )

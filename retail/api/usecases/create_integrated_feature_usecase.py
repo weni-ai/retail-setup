@@ -64,7 +64,7 @@ class CreateIntegratedFeatureUseCase:
                     request_data,
                 ]
             )
-        
+
         # check if have feature version to get sectors and globals
         if feature.last_version:
             # Process sectors and globals
@@ -246,7 +246,6 @@ class CreateIntegratedFeatureUseCase:
         if feature_version:
             body["definition"] = feature_version.definition,
             body["feature_version"] = str(feature_version.uuid)
-
 
         IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
         print(f"message sent `integrated feature` - body: {body}")
