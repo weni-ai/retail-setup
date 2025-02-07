@@ -50,6 +50,16 @@ class CartTimeRestrictionService:
         """
         return timezone.datetime.combine(dt + timezone.timedelta(days=shift), t)
 
+    @staticmethod
+    def make_aware_if_naive(dt: timezone.datetime) -> timezone.datetime:
+        """
+        Makes a datetime object timezone-aware if naive
+        """
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, timezone.get_current_timezone())
+
+        return dt
+
     @classmethod
     def get_next_available_time(
         cls,
@@ -85,28 +95,16 @@ class CartTimeRestrictionService:
             # The first time allowed for the day is the "from" time configured for
             # the weekdays period.
             # Example: 08:00 AM
-            first_time_allowed_for_day = cls.combine_date_and_time_with_shift(
-                now.date(), from_time, 0
+            first_time_allowed_for_day = cls.make_aware_if_naive(
+                cls.combine_date_and_time_with_shift(now.date(), from_time, 0)
             )
 
             # The last time allowed for the day is the "to" time configured for
             # the weekdays period.
             # Example: 18:00 PM
-            last_time_allowed_for_day = cls.combine_date_and_time_with_shift(
-                now.date(), to_time, 0
+            last_time_allowed_for_day = cls.make_aware_if_naive(
+                cls.combine_date_and_time_with_shift(now.date(), to_time, 0)
             )
-
-            # If the first time allowed for the day is naive, we need to make it aware
-            if timezone.is_naive(first_time_allowed_for_day):
-                first_time_allowed_for_day = timezone.make_aware(
-                    first_time_allowed_for_day, timezone.get_current_timezone()
-                )
-
-            # If the last time allowed for the day is naive, we need to make it aware
-            if timezone.is_naive(last_time_allowed_for_day):
-                last_time_allowed_for_day = timezone.make_aware(
-                    last_time_allowed_for_day, timezone.get_current_timezone()
-                )
 
             # If the current time is before the first time allowed for the day,
             # we need to return the first time allowed for the day.
@@ -156,27 +154,15 @@ class CartTimeRestrictionService:
 
             # The first time allowed for the day is the "from" time configured for
             # the saturdays period.
-            first_time_allowed_for_day = cls.combine_date_and_time_with_shift(
-                now.date(), from_time, 0
+            first_time_allowed_for_day = cls.make_aware_if_naive(
+                cls.combine_date_and_time_with_shift(now.date(), from_time, 0)
             )
 
             # The last time allowed for the day is the "to" time configured for
             # the saturdays period.
-            last_time_allowed_for_day = cls.combine_date_and_time_with_shift(
-                now.date(), to_time, 0
+            last_time_allowed_for_day = cls.make_aware_if_naive(
+                cls.combine_date_and_time_with_shift(now.date(), to_time, 0)
             )
-
-            # If the first time allowed for the day is naive, we need to make it aware
-            if timezone.is_naive(first_time_allowed_for_day):
-                first_time_allowed_for_day = timezone.make_aware(
-                    first_time_allowed_for_day, timezone.get_current_timezone()
-                )
-
-            # If the last time allowed for the day is naive, we need to make it aware
-            if timezone.is_naive(last_time_allowed_for_day):
-                last_time_allowed_for_day = timezone.make_aware(
-                    last_time_allowed_for_day, timezone.get_current_timezone()
-                )
 
             # If the current time is before the first time allowed for the day,
             # we need to return the first time allowed for the day.
