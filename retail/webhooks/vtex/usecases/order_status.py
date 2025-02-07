@@ -99,15 +99,4 @@ class OrderStatusUseCase:
             integrated_feature, self.current_state
         )
 
-        if not template_name:
-            error_message = f"Template not found for order status {self.current_state}. Order id: {self.order_id}"
-            capture_message(error_message)
-
-            raise ValidationError(
-                {
-                    "error": "Template not found for this order status",
-                },
-                code="template_not_found",
-            )
-
         # TODO: Send notification to the user
