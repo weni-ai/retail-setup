@@ -48,7 +48,6 @@ class IntegratedFeatureSerializer(serializers.Serializer):
 
         return sectors_list
 
-
     class Meta:
         model = Feature
         fields = (
@@ -60,3 +59,8 @@ class IntegratedFeatureSerializer(serializers.Serializer):
             "globals",
             "sectors",
         )
+
+
+class IntegratedFeatureSettingsSerializer(serializers.Serializer):
+    project_uuid = serializers.UUIDField(required=True)
+    integration_settings = serializers.JSONField(required=True)

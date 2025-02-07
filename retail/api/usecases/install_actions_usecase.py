@@ -17,14 +17,17 @@ class InstallActions:
         self,
         integrated_feature,
         feature,
-        project_uuid,
-        store,
-        flows_channel_uuid,
-        wpp_cloud_app_uuid,
+        data,
     ):
         actions = feature.config.get("vtex_config", {}).get("install_actions", [])
 
+        wpp_cloud_app_uuid = data["wpp_cloud_app_uuid"]
+        flows_channel_uuid = data["flows_channel_uuid"]
+        project_uuid = data["project_uuid"]
+
         if "create_abandoned_cart_template" in actions:
+            store = data["store"]
+            # TODO: validate store fields
             self._create_abandoned_cart_template(
                 integrated_feature=integrated_feature,
                 project_uuid=project_uuid,
