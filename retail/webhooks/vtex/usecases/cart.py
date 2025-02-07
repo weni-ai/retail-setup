@@ -10,7 +10,6 @@ from retail.vtex.tasks import mark_cart_as_abandoned
 
 from retail.celery import app as celery_app
 from retail.webhooks.vtex.services import CartTimeRestrictionService
-from retail.webhooks.vtex.usecases.utils import calculate_abandoned_cart_countdown
 
 
 logger = logging.getLogger(__name__)
