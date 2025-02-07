@@ -84,7 +84,7 @@ class OrderStatusUseCase:
                 code="order_status_templates_not_found",
             )
 
-        return order_status_templates.get(order_status, "")
+        return order_status_templates.get(order_status)
 
     def process_notification(self):
         """
