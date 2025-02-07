@@ -1,5 +1,6 @@
 from calendar import FRIDAY, MONDAY, SATURDAY, SUNDAY, THURSDAY
 from datetime import time as datetime_time
+import datetime
 from unittest import mock
 import uuid
 
@@ -42,6 +43,14 @@ class TestCartTimeRestrictionService(TestCase):
         self.assertEqual(
             self.service.combine_date_and_time_with_shift(now.date(), t, 1),
             timezone.datetime.combine(now.date() + timedelta(days=1), t),
+        )
+
+    def test_make_aware_if_naive(self):
+        """Test if a naive datetime is made aware."""
+        now = datetime.datetime.now()
+        self.assertEqual(
+            self.service.make_aware_if_naive(now),
+            timezone.make_aware(now),
         )
 
     def test_get_next_available_time_in_a_weekday_before_period(self):
