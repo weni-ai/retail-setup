@@ -3,8 +3,11 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
 
+from retail.features.models import IntegratedFeature
 from retail.internal.permissions import CanCommunicateInternally
+from retail.projects.models import Project
 from retail.webhooks.vtex.serializers import OrderStatusSerializer
+from retail.webhooks.vtex.usecases.order_status import OrderStatusUseCase
 
 
 class OrderStatusWebhook(APIView):
@@ -16,7 +19,16 @@ class OrderStatusWebhook(APIView):
 
         validated_data = serializer.validated_data
 
-        # TODO: Add use case
+        vtex_account = validated_data.get("vtexAccount")
+
+        domain = OrderStatusUseCase.get_domain_by_account(vtex_account)
+        project = Project.objects.get(vtex_account=vtex_account)
+        integrated_feature = IntegratedFeature.objects.get(
+            project=project,
+            feature__code="order_status",
+        )
+
+        # TODO: process data
 
         return Response(
             {

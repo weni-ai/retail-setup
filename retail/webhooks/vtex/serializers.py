@@ -19,3 +19,4 @@ class OrderStatusSerializer(serializers.Serializer):
     lastState = serializers.CharField()
     currentChangeDate = serializers.DateTimeField()
     lastChangeDate = serializers.DateTimeField()
+    vtexAccount = serializers.CharField()
