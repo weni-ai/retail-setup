@@ -150,9 +150,9 @@ class IntegrationsService:
         Returns:
             dict: A dictionary containing the template names and their respective UUIDs.
         """
+        button_url = f"https://{store}/account#/orders/"
+        button_url_example = f"https://{store}/account#/orders/1234567891230-01"
         # Define the templates and their base payloads
-        # TODO: use store value to dynamic urls like `https://{store}/account#/orders/{ORDER-ID}`
-
         templates = [
             {
                 "status": "order_completed",
@@ -174,7 +174,8 @@ class IntegrationsService:
                         {
                             "type": "URL",
                             "url": {
-                                "base_url": "https://www.google.com",
+                                "base_url": button_url,
+                                "url_suffix_example": button_url_example,
                             },
                         }
                     ],
@@ -191,7 +192,8 @@ class IntegrationsService:
                         {
                             "type": "URL",
                             "url": {
-                                "base_url": "https://www.google.com",
+                                "base_url": button_url,
+                                "url_suffix_example": button_url_example,
                             },
                         }
                     ],
@@ -208,7 +210,8 @@ class IntegrationsService:
                         {
                             "type": "URL",
                             "url": {
-                                "base_url": "https://www.google.com",
+                                "base_url": button_url,
+                                "url_suffix_example": button_url_example,
                             },
                         }
                     ],
