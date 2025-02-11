@@ -74,7 +74,7 @@ class AppIntegratedFeatureSerializer(serializers.Serializer):
     globals = serializers.SerializerMethodField()
     sectors = serializers.SerializerMethodField()
     config = serializers.JSONField()
-    code = serializers.CharField()
+    code = serializers.SerializerMethodField()
 
     def get_feature_uuid(self, obj):
         return obj.feature.uuid
