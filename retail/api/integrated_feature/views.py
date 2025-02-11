@@ -158,7 +158,7 @@ class AppIntegratedFeatureView(BaseServiceView):
             ).values_list("feature__uuid", flat=True)
 
             if category:
-                integrated_features = integrated_features.filter(category=category)
+                integrated_features = integrated_features.filter(feature__category=category)
 
             serializer = AppIntegratedFeatureSerializer(integrated_features, many=True)
 
