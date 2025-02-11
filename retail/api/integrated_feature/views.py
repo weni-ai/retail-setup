@@ -155,7 +155,7 @@ class AppIntegratedFeatureView(BaseServiceView):
             category = request.query_params.get("category", None)
             integrated_features = IntegratedFeature.objects.filter(
                 project__uuid=project_uuid
-            ).values_list("feature__uuid", flat=True)
+            )
 
             if category:
                 integrated_features = integrated_features.filter(feature__category=category)
