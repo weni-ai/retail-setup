@@ -155,7 +155,7 @@ class IntegrationsService:
         # Define the templates and their base payloads
         templates = [
             {
-                "status": "order_completed",
+                "status": "invoiced",
                 "base_payload": {
                     "library_template_name": "purchase_receipt_1",
                     "name": "weni_purchase_receipt_1",
@@ -164,7 +164,7 @@ class IntegrationsService:
                 },
             },
             {
-                "status": "payment_approved",
+                "status": "payment-approved",
                 "base_payload": {
                     "library_template_name": "payment_confirmation_2",
                     "name": "weni_payment_confirmation_2",
@@ -182,7 +182,7 @@ class IntegrationsService:
                 },
             },
             {
-                "status": "order_created",
+                "status": "order-created",
                 "base_payload": {
                     "library_template_name": "order_management_2",
                     "name": "weni_order_management_2",
@@ -200,7 +200,7 @@ class IntegrationsService:
                 },
             },
             {
-                "status": "order_canceled",
+                "status": "canceled",
                 "base_payload": {
                     "library_template_name": "order_canceled_3",
                     "name": "weni_order_canceled_3",
@@ -218,7 +218,7 @@ class IntegrationsService:
                 },
             },
             {
-                "status": "purchase_transaction_alert",
+                "status": "invoice-no-file",
                 "base_payload": {
                     "library_template_name": "purchase_transaction_alert",
                     "name": "weni_purchase_transaction_alert",

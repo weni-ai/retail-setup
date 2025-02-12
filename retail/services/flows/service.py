@@ -18,18 +18,17 @@ class FlowsService:
             )
             return None
 
-    def send_whatsapp_broadcast(self, payload: dict) -> dict:
+    def send_whatsapp_broadcast(self, payload: dict, project_uuid: str) -> dict:
         """
         Send a WhatsApp broadcast message.
 
         Args:
             payload (dict): The full body of the request as a pre-built payload.
             project_uuid (str): The UUID of the project.
-            user_email (str): Email of the user for authentication.
 
         Returns:
             dict: API response from the Flows service.
         """
-
-        # Send the broadcast using the token
-        return self.client.send_whatsapp_broadcast(payload=payload)
+        return self.client.send_whatsapp_broadcast(
+            payload=payload, project_uuid=project_uuid
+        )
