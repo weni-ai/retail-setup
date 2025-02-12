@@ -105,12 +105,20 @@ class OrderStatusUseCase:
 
     def _get_phone_number_from_order(self, order_data: dict) -> str:
         """
-        Get the phone number from the order.
+        Get the phone number from the order. Raises an error if the phone number is missing.
         """
-        raw_phone_number = order_data.get("clientProfileData", {}).get("phone")
-        normalized_phone_number = PhoneNumberNormalizer.normalize(raw_phone_number)
+        phone_data = order_data.get("clientProfileData", {})
+        raw_phone_number = phone_data.get("phone")
 
-        return normalized_phone_number
+        if not raw_phone_number:
+            error_message = f"Phone number not found in order {self.data.orderId} - {self.data.vtexAccount}. Cannot proceed."
+            logger.error(error_message)
+            raise ValidationError(
+                {"error": "Phone number is required for message dispatch."},
+                code="phone_number_missing",
+            )
+
+        return PhoneNumberNormalizer.normalize(raw_phone_number)
 
     def _get_flow_channel_uuid(self, integrated_feature: str) -> str:
         """
@@ -406,10 +414,14 @@ class MessageBuilder:
 
         return invoice_url
 
-    def _parse_datetime(self, date_str: str) -> datetime:
+    def _parse_datetime(self, date_str: str) -> Optional[datetime]:
         """
         Parses an ISO 8601 datetime string, ensuring compatibility with Python's datetime module.
         """
+        if not date_str:
+            logger.warning("Received empty date_str in _parse_datetime.")
+            return None
+
         try:
             if "." in date_str:
                 date_part, time_part = date_str.split("T")
@@ -420,10 +432,10 @@ class MessageBuilder:
                 truncated_microseconds = microseconds[:6]
                 date_str = f"{date_part}T{time_main}.{truncated_microseconds}+{tz_part}"
 
-            # Convert to datetime
             return datetime.fromisoformat(date_str)
 
-        except ValueError:
+        except ValueError as e:
+            logger.error(f"Error parsing datetime: {date_str} - {str(e)}")
             return None
 
     def _get_order_date(self) -> str:
@@ -454,6 +466,7 @@ class MessageBuilder:
                     locale.LC_TIME, locale_mapping.get(locale_str, "pt_BR.utf8")
                 )
             except locale.Error:
+                logger.warning(f"Locale '{locale_str}' not available, using default.")
                 pass
 
             if locale_str == "en-US":
