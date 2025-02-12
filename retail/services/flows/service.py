@@ -29,6 +29,7 @@ class FlowsService:
         Returns:
             dict: API response from the Flows service.
         """
-        return self.client.send_whatsapp_broadcast(
+        response = self.client.send_whatsapp_broadcast(
             payload=payload, project_uuid=project_uuid
         )
+        return response.status_code==200

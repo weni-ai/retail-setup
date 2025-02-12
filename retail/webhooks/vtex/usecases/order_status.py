@@ -182,10 +182,10 @@ class OrderStatusUseCase:
         Send the built message to the flows broadcasts.
         """
         project_uuid = self._get_project_uuid_by_integrated_feature(integrated_feature)
-        response = self.flows_service.send_whatsapp_broadcast(
+        success = self.flows_service.send_whatsapp_broadcast(
             payload=message_payload, project_uuid=str(project_uuid)
         )
-        if response.get("success", False):
+        if success:
             logger.info(
                 f"Successfully sent message to the broadcast module for project {project_uuid}."
             )

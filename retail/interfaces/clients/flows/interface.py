@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict
+from typing import Dict
 
 
 class FlowsClientInterface(ABC):
@@ -20,6 +20,6 @@ class FlowsClientInterface(ABC):
             project_uuid (str): The project_uuid
 
         Returns:
-            dict: API response containing the broadcast information.
+            Response: API response containing the broadcast information.
         """
         pass
