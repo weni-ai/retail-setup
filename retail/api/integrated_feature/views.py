@@ -9,6 +9,7 @@ from retail.api.base_service_view import BaseServiceView
 from retail.api.integrated_feature.serializers import (
     IntegratedFeatureSettingsSerializer,
     IntegratedFeatureSerializer,
+    AppIntegratedFeatureSerializer,
 )
 from retail.api.usecases.create_integrated_feature_usecase import (
     CreateIntegratedFeatureUseCase,
@@ -147,3 +148,21 @@ class IntegratedFeatureSettingsView(views.APIView):
         integrated_feature.save()
 
         return Response(config, status=status.HTTP_200_OK)
+
+class AppIntegratedFeatureView(BaseServiceView):
+    def get(self, request, project_uuid, *args, **kwargs):
+        try:
+            category = request.query_params.get("category", None)
+            integrated_features = IntegratedFeature.objects.filter(
+                project__uuid=project_uuid
+            )
+
+            if category:
+                integrated_features = integrated_features.filter(feature__category=category)
+
+            serializer = AppIntegratedFeatureSerializer(integrated_features, many=True)
+
+            return Response({"results": serializer.data}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+

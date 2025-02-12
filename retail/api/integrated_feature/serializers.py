@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from retail.features.models import Feature
+from retail.features.models import Feature, IntegratedFeature
 
 
 class IntegratedFeatureSerializer(serializers.Serializer):
@@ -64,3 +64,62 @@ class IntegratedFeatureSerializer(serializers.Serializer):
 class IntegratedFeatureSettingsSerializer(serializers.Serializer):
     project_uuid = serializers.UUIDField(required=True)
     integration_settings = serializers.JSONField(required=True)
+
+class AppIntegratedFeatureSerializer(serializers.Serializer):
+    feature_uuid = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField()
+    disclaimer = serializers.SerializerMethodField()
+    documentation_url = serializers.SerializerMethodField()
+    globals = serializers.SerializerMethodField()
+    sectors = serializers.SerializerMethodField()
+    config = serializers.JSONField()
+    code = serializers.SerializerMethodField()
+
+    def get_feature_uuid(self, obj):
+        return obj.feature.uuid
+
+    def get_name(self, obj):
+        return obj.feature.name
+
+    def get_description(self, obj):
+        return obj.feature.description
+
+    def get_disclaimer(self, obj):
+        return obj.feature.disclaimer
+
+    def get_documentation_url(self, obj):
+        return obj.feature.documentation_url
+
+    def get_code(self, obj):
+        return obj.feature.code
+
+    def get_globals(self, obj):
+        globals_values = []
+        globals_values.extend(
+            [
+                {"name": key, "value": value}
+                for key, value in obj.globals_values.items()
+            ]
+        )
+        return globals_values
+
+    def get_sectors(self, obj):
+        sector_list = []
+        for sector in obj.sectors:
+            if isinstance(sector, dict) and "name" in sector and "tags" in sector:
+                sector_list.append(
+                    {
+                        "name": sector.get("name", ""),
+                        "tags": sector.get("tags", [])
+                    }
+                )
+        return sector_list
+
+    class Meta:
+        model = IntegratedFeature
+        fields = (
+            "config",
+            "globals",
+            "sectors",
+        )

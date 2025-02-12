@@ -5,6 +5,7 @@ from retail.api.features.views import FeaturesView
 from .integrated_feature.views import (
     IntegratedFeatureSettingsView,
     IntegratedFeatureView,
+    AppIntegratedFeatureView,
 )
 
 
@@ -25,4 +26,9 @@ urlpatterns = [
         IntegratedFeatureView.as_view(),
         name="integrated-features",
     ),
+    path(
+        "app_integrated_feature/<uuid:project_uuid>/",
+        AppIntegratedFeatureView.as_view(),
+        name="app-integrated-features"
+    )
 ]
