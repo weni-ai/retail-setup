@@ -1,8 +1,10 @@
-from typing import TypedDict
+from dataclasses import dataclass
+from typing import Dict
 
 
-class OrderStatusDTO(TypedDict):
-    recorder: dict
+@dataclass
+class OrderStatusDTO:
+    recorder: Dict
     domain: str
     orderId: str
     currentState: str
