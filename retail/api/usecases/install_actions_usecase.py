@@ -26,12 +26,13 @@ class InstallActions:
         project_uuid = data["project_uuid"]
 
         if "create_abandoned_cart_template" in actions:
-            store = data["store"]
+            domain = integrated_feature.project.vtex_account
+            domain += ".vtexcommercestable.com.br"
             self._create_abandoned_cart_template(
                 integrated_feature=integrated_feature,
                 project_uuid=project_uuid,
-                store=store,
                 wpp_cloud_app_uuid=wpp_cloud_app_uuid,
+                domain=domain,
             )
 
         if "create_order_status_templates" in actions:
@@ -51,14 +52,14 @@ class InstallActions:
         integrated_feature: IntegratedFeature,
         project_uuid: str,
         wpp_cloud_app_uuid: str,
-        store: str,
+        domain: str,
     ):
         """
         Creates an abandoned cart template and stores the template UUID in the config.
         """
         try:
             template = self.integrations_service.create_abandoned_cart_template(
-                app_uuid=wpp_cloud_app_uuid, project_uuid=project_uuid, store=store
+                app_uuid=wpp_cloud_app_uuid, project_uuid=project_uuid, domain=domain
             )
 
             # Store the template details in the integrated feature config

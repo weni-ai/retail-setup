@@ -20,7 +20,7 @@ class IntegrationsService:
             return None
 
     def create_abandoned_cart_template(
-        self, app_uuid: str, project_uuid: str, store: str
+        self, app_uuid: str, project_uuid: str, domain: str
     ) -> str:
         """
         Creates an abandoned cart template and translations for multiple languages.
@@ -34,12 +34,9 @@ class IntegrationsService:
                 name=template_name,
                 category="MARKETING",
             )
-
             # Prepare translations for multiple languages
-            button_url = f"https://{store}/checkout?orderFormId=" + "{{1}}"
-            button_url_example = (
-                f"https://{store}/checkout?orderFormId=92421d4a70224658acaab0c172f6b6d7"
-            )
+            button_url = f"https://{domain}/checkout?orderFormId=" + "{{1}}"
+            button_url_example = f"https://{domain}/checkout?orderFormId=92421d4a70224658acaab0c172f6b6d7"
             translations = [
                 {
                     "language": "pt_BR",
