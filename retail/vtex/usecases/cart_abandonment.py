@@ -194,7 +194,9 @@ class CartAbandonmentUseCase:
 
         # Prepare and send the notification
         payload = self.message_builder.build_abandonment_message(cart)
-        response = self.flows_service.send_whatsapp_broadcast(payload=payload)
+        response = self.flows_service.send_whatsapp_broadcast(
+            payload=payload, project_uuid=str(cart.project.uuid)
+        )
         self._update_cart_status(cart, "delivered_success", response)
 
         # Set marketing data
@@ -254,7 +256,6 @@ class MessageBuilder:
         # Fetch required data from the cart's integrated feature
         template = self._get_feature_config_value(cart, "template")
         channel_uuid = self._get_feature_config_value(cart, "flow_channel_uuid")
-
         # Build the payload
         return {
             "project": str(cart.project.uuid),
