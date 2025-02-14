@@ -161,6 +161,12 @@ class OrderStatusUseCase:
 
         flow_channel_uuid = self._get_flow_channel_uuid(integrated_feature)
 
+        if not self._validate_restrictions(integrated_feature, order_data):
+            logger.info(
+                f"Skipping notification for order {self.data.orderId} due to active restrictions."
+            )
+            return  # Interrupts the flow
+
         message_builder = MessageBuilder(
             phone_number=phone_number,
             template_name=template_name,
@@ -191,8 +197,55 @@ class OrderStatusUseCase:
             )
         else:
             logger.warning(
-                f"Failed to send message to the broadcast module for project {project_uuid}. Response: {response}"
+                f"Failed to send message to the broadcast module for project {project_uuid}."
             )
+
+    def _validate_restrictions(
+        self, integrated_feature: IntegratedFeature, order_data
+    ) -> bool:
+        """
+        Checks if the order meets the restrictions set in the integrated feature.
+        If restrictions are active, only allowed phone numbers and sellers can proceed.
+        Returns False if the notification should be blocked, otherwise True.
+        """
+        order_status_restriction = integrated_feature.config.get(
+            "order_status_restriction", {}
+        )
+
+        if order_status_restriction.get("is_active", False):
+            # Phone restriction
+            phone_list_restriction = order_status_restriction.get("phone_numbers", [])
+            if phone_list_restriction:
+                order_phone = self._get_phone_number_from_order(order_data)
+
+                # Normalize all numbers in the restriction list
+                normalized_phones = {
+                    PhoneNumberNormalizer.normalize(number)
+                    for number in phone_list_restriction
+                }
+
+                if order_phone not in normalized_phones:
+                    logger.info(
+                        f"Order {self.data.orderId} blocked due to phone restriction: {order_phone}"
+                    )
+                    return False
+
+            # Seller restriction
+            seller_list_restriction = order_status_restriction.get("sellers", [])
+            if seller_list_restriction:
+                sellers = order_data.get("sellers", [])
+                order_seller_ids = {seller.get("id") for seller in sellers}
+
+                # Allows tracking only if at least one seller of the order is in the list
+                if not any(
+                    seller in seller_list_restriction for seller in order_seller_ids
+                ):
+                    logger.info(
+                        f"Order {self.data.orderId} blocked due to seller restriction: {order_seller_ids}"
+                    )
+                    return False
+
+        return True
 
 
 class MessageBuilder:
@@ -372,12 +425,13 @@ class MessageBuilder:
             "selectedAddresses", [{}]
         )[0]
 
-        street = address.get("street", "").strip()
-        number = address.get("number", "").strip()
-        neighborhood = address.get("neighborhood", "").strip()
-        city = address.get("city", "").strip()
-        state = address.get("state", "").strip()
-        country = address.get("country", "").strip()
+        # Using "or ''" to replace None with empty string
+        street = (address.get("street") or "").strip()
+        number = (address.get("number") or "").strip()
+        neighborhood = (address.get("neighborhood") or "").strip()
+        city = (address.get("city") or "").strip()
+        state = (address.get("state") or "").strip()
+        country = (address.get("country") or "").strip()
 
         locale_str = self.order_data.get("clientPreferencesData", {}).get(
             "locale", "pt-BR"
