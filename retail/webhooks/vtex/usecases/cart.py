@@ -9,6 +9,7 @@ from retail.vtex.models import Cart
 from retail.vtex.tasks import mark_cart_as_abandoned
 
 from retail.celery import app as celery_app
+from retail.webhooks.vtex.services import CartTimeRestrictionService
 
 
 logger = logging.getLogger(__name__)
@@ -82,12 +83,12 @@ class CartUseCase:
             logger.error(error_message, exc_info=True)  # Captura o traceback completo
             raise ValidationError(error_message)
 
-    def process_cart_notification(self, order_former_id: str, phone: str) -> Cart:
+    def process_cart_notification(self, order_form_id: str, phone: str) -> Cart:
         """
         Process incoming cart notification, renewing task or creating new cart.
 
         Args:
-            order_former_id (str): The unique identifier for the cart.
+            order_form_id (str): The unique identifier for the cart.
 
         Returns:
             Cart: The created or updated cart instance.
@@ -95,7 +96,7 @@ class CartUseCase:
         try:
             # Check if the cart already exists
             cart = Cart.objects.get(
-                order_former_id=order_former_id,
+                order_form_id=order_form_id,
                 project=self.project,
                 phone_number=phone,
                 status="created",
@@ -105,20 +106,20 @@ class CartUseCase:
             return cart
         except Cart.DoesNotExist:
             # Create new cart if it doesn't exist
-            return self._create_cart(order_former_id, phone)
+            return self._create_cart(order_form_id, phone)
 
-    def _create_cart(self, order_former_id: str, phone: str) -> Cart:
+    def _create_cart(self, order_form_id: str, phone: str) -> Cart:
         """
         Create a new cart entry and schedule an abandonment task.
 
         Args:
-            order_former_id (str): The UUID of the cart.
+            order_form_id (str): The UUID of the cart.
 
         Returns:
             Cart: The created cart instance.
         """
         cart = Cart.objects.create(
-            order_former_id=order_former_id,
+            order_form_id=order_form_id,
             status="created",
             project=self.project,
             integrated_feature=self._get_feature(),
@@ -138,6 +139,9 @@ class CartUseCase:
         """
         task_key = generate_task_key(cart_uuid)
 
+        time_restriction_service = CartTimeRestrictionService(self.feature)
+        countdown = time_restriction_service.get_countdown()
+
         mark_cart_as_abandoned.apply_async(
-            (cart_uuid,), countdown=25 * 60, task_id=task_key
+            (cart_uuid,), countdown=countdown, task_id=task_key
         )

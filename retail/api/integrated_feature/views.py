@@ -1,10 +1,16 @@
 from django.contrib.auth.models import User
 
-from rest_framework import status
+from django.shortcuts import get_object_or_404
+from rest_framework import status, views
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from retail.api.base_service_view import BaseServiceView
-from retail.api.integrated_feature.serializers import IntegratedFeatureSerializer
+from retail.api.integrated_feature.serializers import (
+    IntegratedFeatureSettingsSerializer,
+    IntegratedFeatureSerializer,
+    AppIntegratedFeatureSerializer,
+)
 from retail.api.usecases.create_integrated_feature_usecase import (
     CreateIntegratedFeatureUseCase,
 )
@@ -100,7 +106,7 @@ class IntegratedFeatureView(BaseServiceView):
         )
         for key, value in request.data.get("globals_values").items():
             integrated_feature.globals_values[key] = value
-        integrated_feature.save()
+
         for sector in request.data.get("sectors", []):
             for integrated_sector in integrated_feature.sectors:
                 if integrated_sector["name"] == sector["name"]:
@@ -114,6 +120,49 @@ class IntegratedFeatureView(BaseServiceView):
                     "message": "Integrated feature updated",
                     "globals_values": integrated_feature.globals_values,
                     "sectors": integrated_feature.sectors,
+                    "config": integrated_feature.config,
                 },
             }
         )
+
+
+class IntegratedFeatureSettingsView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, *args, **kwargs):
+        serializer = IntegratedFeatureSettingsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        feature_uuid = kwargs["feature_uuid"]
+        project_uuid = request.data["project_uuid"]
+        integration_settings = request.data["integration_settings"]
+
+        integrated_feature: IntegratedFeature = get_object_or_404(
+            IntegratedFeature, feature__uuid=feature_uuid, project__uuid=project_uuid
+        )
+
+        config = integrated_feature.config
+        config["integration_settings"] = integration_settings
+
+        integrated_feature.config = config
+        integrated_feature.save()
+
+        return Response(config, status=status.HTTP_200_OK)
+
+class AppIntegratedFeatureView(BaseServiceView):
+    def get(self, request, project_uuid, *args, **kwargs):
+        try:
+            category = request.query_params.get("category", None)
+            integrated_features = IntegratedFeature.objects.filter(
+                project__uuid=project_uuid
+            )
+
+            if category:
+                integrated_features = integrated_features.filter(feature__category=category)
+
+            serializer = AppIntegratedFeatureSerializer(integrated_features, many=True)
+
+            return Response({"results": serializer.data}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
