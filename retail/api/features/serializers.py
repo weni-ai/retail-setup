@@ -12,6 +12,7 @@ class FeaturesSerializer(serializers.Serializer):
     globals = serializers.SerializerMethodField()
     sectors = serializers.SerializerMethodField()
     initial_flow = serializers.SerializerMethodField()
+    category = serializers.CharField()
     code = serializers.SerializerMethodField()
     config = serializers.SerializerMethodField()
 
@@ -65,5 +66,6 @@ class FeaturesSerializer(serializers.Serializer):
             "globals",
             "sectors",
             "initial_flow",
+            "category",
             "code",
         )

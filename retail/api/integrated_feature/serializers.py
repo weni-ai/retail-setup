@@ -11,6 +11,7 @@ class IntegratedFeatureSerializer(serializers.Serializer):
     documentation_url = serializers.CharField()
     globals = serializers.SerializerMethodField()
     sectors = serializers.SerializerMethodField()
+    category = serializers.CharField()
 
     def get_feature_uuid(self, obj):
         return obj.uuid
@@ -58,6 +59,7 @@ class IntegratedFeatureSerializer(serializers.Serializer):
             "documentation_url",
             "globals",
             "sectors",
+            "category",
         )
 
 
