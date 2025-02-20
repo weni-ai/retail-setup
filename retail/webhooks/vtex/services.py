@@ -3,6 +3,7 @@ from datetime import date, time
 import logging
 from django.utils import timezone
 from django.utils.timezone import timedelta
+from django.conf import settings
 
 from retail.features.models import IntegratedFeature
 from sentry_sdk import capture_exception, capture_message
@@ -15,7 +16,7 @@ class CartTimeRestrictionService:
     This class is responsible for calculating the countdown time for the abandoned cart feature.
     """
 
-    default_abandoned_countdown = 25 * 60  # 25 minutes
+    default_abandoned_countdown = settings.ABANDONED_CART_COUNTDOWN * 60
 
     def __init__(self, integrated_feature: IntegratedFeature):
         self.integrated_feature = integrated_feature
