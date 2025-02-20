@@ -240,3 +240,8 @@ OIDC_CACHE_TTL = env.int(
 
 VTEX_IO_OIDC_RP_CLIENT_SECRET = env.str("VTEX_IO_OIDC_RP_CLIENT_SECRET", "")
 VTEX_IO_OIDC_RP_CLIENT_ID = env.str("VTEX_IO_OIDC_RP_CLIENT_ID", "")
+
+# Abandoned Cart timeout in minutes
+ABANDONED_CART_COUNTDOWN = env.int(
+    "ABANDONED_CART_COUNTDOWN", default=25
+)
