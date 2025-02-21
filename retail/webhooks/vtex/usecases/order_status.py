@@ -66,12 +66,16 @@ class OrderStatusUseCase:
         """
         Get the integrated feature by project.
         """
+        print("11111")
+        print("project", project.uuid)
         integrated_feature = IntegratedFeature.objects.filter(
             project=project,
             feature__code="order_status",
         ).first()
-
+        print("22222")
+        print("integrated_feature", integrated_feature)
         if not integrated_feature:
+            print("33333")
             error_message = f"Order status integration not found for project {project.name}. Order id: {self.data.orderId}"
             capture_message(error_message)
 
@@ -79,7 +83,7 @@ class OrderStatusUseCase:
                 {"error": "Order status integration not found"},
                 code="order_status_integration_not_found",
             )
-
+        print("44444")
         return integrated_feature
 
     def _get_phone_number_from_order(self, order_data: dict) -> str:
