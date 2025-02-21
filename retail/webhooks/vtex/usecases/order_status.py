@@ -82,27 +82,6 @@ class OrderStatusUseCase:
 
         return integrated_feature
 
-    def _get_template_by_order_status(
-        self, integrated_feature: IntegratedFeature
-    ) -> str:
-        """
-        Get the template for a given order status.
-        """
-        order_status_templates = integrated_feature.config.get(
-            "order_status_templates", {}
-        )
-
-        if not order_status_templates:
-            error_message = f"Order status templates not found for project {integrated_feature.feature.project.uuid}. Order id: {self.data.orderId}"
-            capture_message(error_message)
-
-            raise ValidationError(
-                {"error": "Order status templates not found"},
-                code="order_status_templates_not_found",
-            )
-
-        return order_status_templates.get(self.data.currentState)
-
     def _get_phone_number_from_order(self, order_data: dict) -> str:
         """
         Get the phone number from the order. Raises an error if the phone number is missing.
@@ -151,7 +130,6 @@ class OrderStatusUseCase:
         )
 
         integrated_feature = self._get_integrated_feature_by_project(project)
-        template_name = self._get_template_by_order_status(integrated_feature)
 
         order_data = self.vtex_io_service.get_order_details_by_id(
             account_domain=account_domain, order_id=self.data.orderId
@@ -169,9 +147,10 @@ class OrderStatusUseCase:
 
         message_builder = MessageBuilder(
             phone_number=phone_number,
-            template_name=template_name,
+            order_status=self.data.currentState,
             flows_channel_uuid=flow_channel_uuid,
             order_data=order_data,
+            integrated_feature=integrated_feature,
         )
 
         message_payload = message_builder.build_message()
@@ -256,15 +235,17 @@ class MessageBuilder:
     def __init__(
         self,
         phone_number: str,
-        template_name: str,
+        order_status: str,
         flows_channel_uuid: str,
         order_data: Dict,
+        integrated_feature: IntegratedFeature,
     ):
         self.phone_number = phone_number
         self.flows_channel_uuid = flows_channel_uuid
-        self.template_name = template_name
+        self.order_status = order_status
         self.order_data = order_data
         self.order_id = self.order_data.get("orderId", "")
+        self.integrated_feature = integrated_feature
 
     def build_message(self) -> Optional[Dict]:
         """
@@ -273,15 +254,15 @@ class MessageBuilder:
         Returns:
             dict: The formatted message payload.
         """
-        if self.template_name == "weni_purchase_receipt_1":
+        if self.order_status == "invoiced":
             return self._build_purchase_receipt_message()
-        elif self.template_name == "weni_purchase_transaction_alert":
+        elif self.order_status == "weni_purchase_transaction_alert":
             return self._build_purchase_transaction_alert_message()
-        elif self.template_name == "weni_order_canceled_3":
+        elif self.order_status == "canceled":
             return self._build_order_canceled_message()
-        elif self.template_name == "weni_order_management_2":
+        elif self.order_status == "order-created":
             return self._build_order_management_message()
-        elif self.template_name == "weni_payment_confirmation_2":
+        elif self.order_status == "payment-approved":
             return self._build_payment_confirmation_message()
         return None
 
@@ -293,7 +274,7 @@ class MessageBuilder:
         """
         invoice_url = self._get_invoice_url()
         if not invoice_url:
-            self.template_name = "weni_purchase_transaction_alert"
+            self.order_status = "invoice-no-file"
             return self._build_purchase_transaction_alert_message()  # Fallback
 
         return {
@@ -301,7 +282,7 @@ class MessageBuilder:
             "channel": self.flows_channel_uuid,
             "msg": {
                 "template": {
-                    "name": self.template_name,
+                    "name": self._get_template_by_order_status(),
                     "variables": [
                         f"{self._get_total_price()}",
                         self._get_shipping_address(),
@@ -321,7 +302,7 @@ class MessageBuilder:
             "channel": self.flows_channel_uuid,
             "msg": {
                 "template": {
-                    "name": self.template_name,
+                    "name": self._get_template_by_order_status(),
                     "variables": [
                         "Compra",
                         f"{self._get_total_price()}",
@@ -341,7 +322,7 @@ class MessageBuilder:
             "channel": self.flows_channel_uuid,
             "msg": {
                 "template": {
-                    "name": self.template_name,
+                    "name": self._get_template_by_order_status(),
                     "variables": [f"Nº {self.order_id}"],
                 },
                 "buttons": [
@@ -362,7 +343,7 @@ class MessageBuilder:
             "channel": self.flows_channel_uuid,
             "msg": {
                 "template": {
-                    "name": self.template_name,
+                    "name": self._get_template_by_order_status(),
                     "variables": [
                         self._get_client_name(),
                         f"Nº {self.order_id}",
@@ -387,7 +368,7 @@ class MessageBuilder:
             "channel": self.flows_channel_uuid,
             "msg": {
                 "template": {
-                    "name": self.template_name,
+                    "name": self._get_template_by_order_status(),
                     "variables": [
                         f"{self._get_total_price()}",
                         self._get_payment_method(),
@@ -584,3 +565,22 @@ class MessageBuilder:
             if payments:
                 return payments[0].get("paymentSystemName", "-")
         return "-"
+
+    def _get_template_by_order_status(self) -> str:
+        """
+        Get the template for a given order status.
+        """
+        order_status_templates = self.integrated_feature.config.get(
+            "order_status_templates", {}
+        )
+
+        if not order_status_templates:
+            error_message = f"Order status templates not found for project {self.integrated_feature.feature.project.uuid}."
+            capture_message(error_message)
+
+            raise ValidationError(
+                {"error": "Order status templates not found"},
+                code="order_status_templates_not_found",
+            )
+
+        return order_status_templates.get(self.order_status)

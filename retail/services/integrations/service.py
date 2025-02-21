@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from retail.clients.exceptions import CustomAPIException
 from retail.interfaces.clients.integrations.interface import IntegrationsClientInterface
 
@@ -26,8 +28,14 @@ class IntegrationsService:
         Creates an abandoned cart template and translations for multiple languages.
         """
         try:
+
+            # Format the current datetime
+            current_datetime = datetime.now()
+            formatted_datetime = current_datetime.strftime("%Y%m%d%H%M%S")
+
+            template_name = f"weni_abandoned_cart_{formatted_datetime}"
+
             # Create Template
-            template_name = "weni_abandoned_cart"
             template_uuid = self.client.create_template_message(
                 app_uuid=app_uuid,
                 project_uuid=project_uuid,
@@ -149,13 +157,16 @@ class IntegrationsService:
         """
         button_url = f"https://{store}/account#/orders/"
         button_url_example = f"https://{store}/account#/orders/1234567891230-01"
+        # Format the current datetime
+        current_datetime = datetime.now()
+        formatted_datetime = current_datetime.strftime("%Y%m%d%H%M%S")
         # Define the templates and their base payloads
         templates = [
             {
                 "status": "invoiced",
                 "base_payload": {
                     "library_template_name": "purchase_receipt_1",
-                    "name": "weni_purchase_receipt_1",
+                    "name": f"weni_purchase_receipt_1_{formatted_datetime}",
                     "language": "pt_BR",
                     "category": "UTILITY",
                 },
@@ -164,7 +175,7 @@ class IntegrationsService:
                 "status": "payment-approved",
                 "base_payload": {
                     "library_template_name": "payment_confirmation_2",
-                    "name": "weni_payment_confirmation_2",
+                    "name": f"weni_payment_confirmation_2_{formatted_datetime}",
                     "language": "pt_BR",
                     "category": "UTILITY",
                     "library_template_button_inputs": [
@@ -182,7 +193,7 @@ class IntegrationsService:
                 "status": "order-created",
                 "base_payload": {
                     "library_template_name": "order_management_2",
-                    "name": "weni_order_management_2",
+                    "name": f"weni_order_management_2_{formatted_datetime}",
                     "language": "pt_BR",
                     "category": "UTILITY",
                     "library_template_button_inputs": [
@@ -200,7 +211,7 @@ class IntegrationsService:
                 "status": "canceled",
                 "base_payload": {
                     "library_template_name": "order_canceled_3",
-                    "name": "weni_order_canceled_3",
+                    "name": f"weni_order_canceled_3_{formatted_datetime}",
                     "language": "pt_BR",
                     "category": "UTILITY",
                     "library_template_button_inputs": [
@@ -218,7 +229,7 @@ class IntegrationsService:
                 "status": "invoice-no-file",
                 "base_payload": {
                     "library_template_name": "purchase_transaction_alert",
-                    "name": "weni_purchase_transaction_alert",
+                    "name": f"weni_purchase_transaction_alert_{formatted_datetime}",
                     "language": "pt_BR",
                     "category": "UTILITY",
                 },
