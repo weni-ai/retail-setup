@@ -570,16 +570,18 @@ class MessageBuilder:
         """
         Get the template for a given order status.
         """
+        logger.info(f"Searching template for order status: {self.order_status}")
         order_status_templates = self.integrated_feature.config.get(
             "order_status_templates", {}
         )
 
         if not order_status_templates:
+            logger.info(f"Order status templates: {order_status_templates}.")
             error_message = f"Order status templates not found for project {self.integrated_feature.feature.project.uuid}."
             capture_message(error_message)
 
             raise ValidationError(
-                {"error": "Order status templates not found"},
+                {"error": error_message},
                 code="order_status_templates_not_found",
             )
 
