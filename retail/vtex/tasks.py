@@ -28,14 +28,9 @@ def task_order_status_update(order_update_data: dict):
     """
     Task to process an order status update.
     """
-    try:
-        order_status_dto = OrderStatusDTO(**order_update_data)
-        use_case = OrderStatusUseCase(order_status_dto)
-        use_case.process_notification()
-        logger.info(
-            f"Successfully processed order update for order ID: {order_update_data.get('orderId')}"
-        )
-    except ValidationError as e:
-        logger.error(f"Validation error processing order update: {str(e)}")
-    except Exception as e:
-        logger.error(f"Unexpected error processing order update: {str(e)}")
+    order_status_dto = OrderStatusDTO(**order_update_data)
+    use_case = OrderStatusUseCase(order_status_dto)
+    use_case.process_notification()
+    logger.info(
+        f"Successfully processed order update for order ID: {order_update_data.get('orderId')}"
+    )
