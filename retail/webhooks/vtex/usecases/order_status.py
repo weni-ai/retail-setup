@@ -43,7 +43,7 @@ class OrderStatusUseCase:
         """
         Get the domain for a given account.
         """
-        return f"{account}.myvtex.com"
+        return f"weni--{account}.myvtex.com"
 
     def _get_project_by_vtex_account(self) -> Project:
         """

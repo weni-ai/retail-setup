@@ -27,5 +27,5 @@ class OrderStatusWebhook(APIView):
                 "message": "Order status processing has been queued.",
                 "order_id": validated_data["orderId"],
             },
-            status=status.HTTP_202_ACCEPTED,  # Retorna 202 para indicar que a ação foi aceita e está em processamento
+            status=status.HTTP_202_ACCEPTED,
         )
