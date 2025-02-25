@@ -48,19 +48,23 @@ class OrderStatusUseCase:
     def _get_project_by_vtex_account(self) -> Project:
         """
         Get the project by VTEX account.
+
+        Raises:
+            ValidationError: If no project is found or if multiple projects are found.
+
+        Returns:
+            Project: The project associated with the VTEX account.
         """
-        project = Project.objects.filter(vtex_account=self.data.vtexAccount).first()
-
-        if not project:
+        try:
+            return Project.objects.get(vtex_account=self.data.vtexAccount)
+        except Project.DoesNotExist:
             error_message = f"Project not found for VTEX account {self.data.vtexAccount}. Order id: {self.data.orderId}"
-            capture_message(error_message)
-
-            raise ValidationError(
-                {"error": "Project not found for this VTEX account"},
-                code="project_not_found",
-            )
-
-        return project
+            logger.error(error_message)
+            raise ValidationError(error_message)
+        except Project.MultipleObjectsReturned:
+            error_message = f"Multiple projects found for VTEX account {self.data.vtexAccount}. Order id: {self.data.orderId}"
+            logger.error(error_message)
+            raise ValidationError(error_message)
 
     def _get_integrated_feature_by_project(self, project: Project) -> IntegratedFeature:
         """
