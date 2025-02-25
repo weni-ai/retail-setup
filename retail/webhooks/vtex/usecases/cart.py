@@ -45,7 +45,13 @@ class CartUseCase:
         try:
             return Project.objects.get(vtex_account=self.account)
         except Project.DoesNotExist:
-            raise NotFound(f"Project with account '{self.account}' does not exist.")
+            error_message = f"Project with account '{self.account}' does not exist."
+            logger.error(error_message)
+            raise NotFound(error_message)
+        except Project.MultipleObjectsReturned:
+            error_message = f"Multiple projects found with account '{self.account}'."
+            logger.error(error_message)
+            raise ValidationError(error_message)
 
     def _get_feature(self) -> IntegratedFeature:
         """

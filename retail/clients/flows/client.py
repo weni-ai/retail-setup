@@ -52,4 +52,4 @@ class FlowsClient(RequestClient, FlowsClientInterface):
             json=payload,
             headers=self.authentication_instance.headers,
         )
-        return response.json()
+        return response
