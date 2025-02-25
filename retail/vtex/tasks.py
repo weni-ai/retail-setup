@@ -23,8 +23,8 @@ def mark_cart_as_abandoned(cart_uuid: str):
     use_case.process_abandoned_cart(cart_uuid)
 
 
-@shared_task(bind=True)
-def task_order_status_update(self, order_update_data: dict):
+@shared_task
+def task_order_status_update(order_update_data: dict):
     """
     Task to process an order status update.
     """
@@ -37,7 +37,5 @@ def task_order_status_update(self, order_update_data: dict):
         )
     except ValidationError as e:
         logger.error(f"Validation error processing order update: {str(e)}")
-        raise self.retry(exc=e, countdown=60, max_retries=1)
     except Exception as e:
         logger.error(f"Unexpected error processing order update: {str(e)}")
-        raise self.retry(exc=e, countdown=60, max_retries=1)
