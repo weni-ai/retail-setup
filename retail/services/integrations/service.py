@@ -133,7 +133,7 @@ class IntegrationsService:
                 )
                 print(f"Translation created for language {translation['language']}.")
 
-            return {"template_uuid": template_uuid, "template_name": template_name}
+            return template_name
 
         except CustomAPIException as e:
             print(
@@ -269,3 +269,37 @@ class IntegrationsService:
                     raise
 
         return created_templates
+
+    def get_synchronized_templates(self, app_uuid: str, template_list: list) -> str:
+        """
+        Get all synchronized templates for a given app UUID and determine their synchronization status.
+
+        Args:
+            app_uuid (str): The UUID of the application.
+            template_list (list): List of template names to check.
+
+        Returns:
+            str: One of the following statuses:
+                - "synchronized" → All templates exist and are approved.
+                - "pending" → Some templates are missing or pending.
+                - "rejected" → At least one template was rejected.
+        """
+        templates = self.client.get_synchronized_templates(app_uuid)
+
+        # If no templates were synchronized yet, return "pending"
+        if not templates:
+            return "pending"
+
+        for template in template_list:
+            if template not in templates:
+                return "pending"  # Missing template → still pending
+
+            template_statuses = [t["status"] for t in templates[template]]
+
+            if "REJECTED" in template_statuses:
+                return "rejected"  # If any template is rejected, stop checking
+
+            if any(status != "APPROVED" for status in template_statuses):
+                return "pending"  # If any status is not approved, keep waiting
+
+        return "synchronized"  # If all templates exist and are approved

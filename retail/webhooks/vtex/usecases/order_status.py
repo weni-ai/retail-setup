@@ -135,6 +135,18 @@ class OrderStatusUseCase:
 
         integrated_feature = self._get_integrated_feature_by_project(project)
 
+        # Check if templates are synchronized before proceeding
+        sync_status = integrated_feature.config.get(
+            "templates_synchronization_status", "pending"
+        )
+
+        if sync_status != "synchronized":
+            logger.info(
+                f"Templates are not ready (status: {sync_status}) for project {project.uuid}. "
+                f"Skipping notification for order {self.data.orderId}."
+            )
+            return
+
         order_data = self.vtex_io_service.get_order_details_by_id(
             account_domain=account_domain, order_id=self.data.orderId
         )

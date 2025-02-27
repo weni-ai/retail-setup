@@ -254,7 +254,7 @@ class MessageBuilder:
             ValueError: If required data is missing in the cart or feature.
         """
         # Fetch required data from the cart's integrated feature
-        template = self._get_feature_config_value(cart, "template")
+        template_name = self._get_feature_config_value(cart, "abandoned_cart_template")
         channel_uuid = self._get_feature_config_value(cart, "flow_channel_uuid")
         # Build the payload
         return {
@@ -263,7 +263,7 @@ class MessageBuilder:
             "channel": channel_uuid,
             "msg": {
                 "template": {
-                    "name": template["name"],
+                    "name": template_name,
                     "variables": ["@contact.name"],
                 },
                 "buttons": [
