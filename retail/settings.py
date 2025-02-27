@@ -204,10 +204,6 @@ FLOWS_REST_ENDPOINT = env.str("FLOWS_REST_ENDPOINT")
 
 EMAILS_CAN_TESTING = env.str("EMAILS_CAN_TESTING", "").split(",")
 
-ABANDONED_CART_FEATURE_UUID = env.str("ABANDONED_CART_FEATURE_UUID", "")
-
-FLOWS_USER_CRM_EMAIL = env.str("FLOWS_USER_CRM_EMAIL", "")
-
 # Redis
 REDIS_URL = env.str("REDIS_URL", default="redis://localhost:6379")
 
