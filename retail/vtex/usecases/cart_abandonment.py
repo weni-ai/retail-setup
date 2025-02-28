@@ -1,8 +1,11 @@
 import logging
 
 from django.conf import settings
+import requests
 
 from retail.clients.vtex_io.client import VtexIOClient
+from retail.clients.vtex.client import VtexClient
+from retail.services.vtex.service import VtexService
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.models import Cart
 from retail.services.flows.service import FlowsService
@@ -18,10 +21,13 @@ class CartAbandonmentUseCase:
     Use case for handling cart abandonment and notifications.
     """
 
+    utm_source = "weniabandonedcart"
+
     def __init__(
         self,
         flows_service: FlowsService = None,
-        vtex_client: VtexIOService = None,
+        vtex_io_service: VtexIOService = None,
+        vtex_service: VtexService = None,
         message_builder=None,
     ):
         """
@@ -29,11 +35,14 @@ class CartAbandonmentUseCase:
 
         Args:
             flows_service (FlowsService): Service to handle notification flows.
-            vtex_client (VtexIOService): Client for interacting with VTEX API.
+            vtex_io_service (VtexIOService): Service for interacting with VtexIO.
+            vtex_service (VtexService): Service for interacting with VTEX.
             message_builder (MessageBuilder): Builder for constructing notification messages.
         """
         self.flows_service = flows_service or FlowsService(FlowsClient())
-        self.vtex_client = vtex_client or VtexIOService(VtexIOClient())
+        self.vtex_io_service = vtex_io_service or VtexIOService(VtexIOClient())
+        self.vtex_service = vtex_service or VtexService(VtexClient())
+
         self.message_builder = message_builder or MessageBuilder()
 
     def process_abandoned_cart(self, cart_uuid: str):
@@ -101,8 +110,9 @@ class CartAbandonmentUseCase:
             CustomAPIException: If the API request fails.
         """
 
-        order_form = self.vtex_client.get_order_form_details(
-            account_domain=self._get_account_domain(cart), order_form_id=cart.order_former_id
+        order_form = self.vtex_io_service.get_order_form_details(
+            account_domain=self._get_account_domain(cart),
+            order_form_id=cart.order_form_id,
         )
         if not order_form:
             logger.warning(
@@ -142,7 +152,7 @@ class CartAbandonmentUseCase:
         Returns:
             dict: List of orders associated with the email.
         """
-        orders = self.vtex_client.get_order_details(
+        orders = self.vtex_io_service.get_order_details(
             account_domain=self._get_account_domain(cart), user_email=email
         )
         return orders or {"list": []}
@@ -161,11 +171,17 @@ class CartAbandonmentUseCase:
 
         recent_orders = orders.get("list", [])[:3]
         for order in recent_orders:
-            if order.get("orderFormId") == cart.order_former_id:
+            if order.get("orderFormId") == cart.order_form_id:
                 self._update_cart_status(cart, "purchased")
                 return
 
         self._mark_cart_as_abandoned(cart)
+
+    def _set_utm_source(self, cart: Cart):
+        domain = self._get_account_domain(cart)
+        self.vtex_service.set_order_form_marketing_data(
+            domain, cart.order_form_id, self.utm_source
+        )
 
     def _mark_cart_as_abandoned(self, cart: Cart):
         """
@@ -178,8 +194,13 @@ class CartAbandonmentUseCase:
 
         # Prepare and send the notification
         payload = self.message_builder.build_abandonment_message(cart)
-        response = self.flows_service.send_whatsapp_broadcast(payload=payload)
+        response = self.flows_service.send_whatsapp_broadcast(
+            payload=payload, project_uuid=str(cart.project.uuid)
+        )
         self._update_cart_status(cart, "delivered_success", response)
+
+        # Set marketing data
+        self._set_utm_source(cart)
 
     def _update_cart_status(self, cart: Cart, status: str, response=None):
         """
@@ -210,8 +231,8 @@ class CartAbandonmentUseCase:
             logger.error(f"Cart not found during error handling: {error_message}")
 
     def _get_account_domain(self, cart: Cart) -> str:
-        # TODO: remove dev5-- before deploy
-        return f"dev5--{cart.project.vtex_account}.myvtex.com"
+        # TODO: remove weni-- before deploy
+        return f"weni--{cart.project.vtex_account}.myvtex.com"
 
 
 class MessageBuilder:
@@ -233,9 +254,8 @@ class MessageBuilder:
             ValueError: If required data is missing in the cart or feature.
         """
         # Fetch required data from the cart's integrated feature
-        template = self._get_feature_config_value(cart, "template")
+        template_name = self._get_feature_config_value(cart, "abandoned_cart_template")
         channel_uuid = self._get_feature_config_value(cart, "flow_channel_uuid")
-
         # Build the payload
         return {
             "project": str(cart.project.uuid),
@@ -243,13 +263,13 @@ class MessageBuilder:
             "channel": channel_uuid,
             "msg": {
                 "template": {
-                    "name": template["name"],
+                    "name": template_name,
                     "variables": ["@contact.name"],
                 },
                 "buttons": [
                     {
                         "sub_type": "url",
-                        "parameters": [{"type": "text", "text": cart.order_former_id}],
+                        "parameters": [{"type": "text", "text": cart.order_form_id}],
                     }
                 ],
             },

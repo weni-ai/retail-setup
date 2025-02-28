@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict
+from typing import Dict
 
 
 class FlowsClientInterface(ABC):
@@ -11,14 +11,15 @@ class FlowsClientInterface(ABC):
         pass
 
     @abstractmethod
-    def send_whatsapp_broadcast(self, payload: Dict) -> Dict:
+    def send_whatsapp_broadcast(self, payload: Dict, project_uuid: str) -> Dict:
         """
         Sends a WhatsApp broadcast message.
 
         Args:
             payload (dict): The pre-built payload containing all necessary data for the broadcast.
+            project_uuid (str): The project_uuid
 
         Returns:
-            dict: API response containing the broadcast information.
+            Response: API response containing the broadcast information.
         """
         pass

@@ -204,10 +204,6 @@ FLOWS_REST_ENDPOINT = env.str("FLOWS_REST_ENDPOINT")
 
 EMAILS_CAN_TESTING = env.str("EMAILS_CAN_TESTING", "").split(",")
 
-ABANDONED_CART_FEATURE_UUID = env.str("ABANDONED_CART_FEATURE_UUID", "")
-
-FLOWS_USER_CRM_EMAIL = env.str("FLOWS_USER_CRM_EMAIL", "")
-
 # Redis
 REDIS_URL = env.str("REDIS_URL", default="redis://localhost:6379")
 
@@ -240,3 +236,8 @@ OIDC_CACHE_TTL = env.int(
 
 VTEX_IO_OIDC_RP_CLIENT_SECRET = env.str("VTEX_IO_OIDC_RP_CLIENT_SECRET", "")
 VTEX_IO_OIDC_RP_CLIENT_ID = env.str("VTEX_IO_OIDC_RP_CLIENT_ID", "")
+
+# Abandoned Cart timeout in minutes
+ABANDONED_CART_COUNTDOWN = env.int(
+    "ABANDONED_CART_COUNTDOWN", default=25
+)

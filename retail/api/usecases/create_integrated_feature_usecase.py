@@ -61,13 +61,10 @@ class CreateIntegratedFeatureUseCase:
                 args=[
                     integrated_feature.uuid,
                     feature.uuid,
-                    request_data["project_uuid"],
-                    request_data["store"],
-                    request_data["flows_channel_uuid"],
-                    request_data["wpp_cloud_app_uuid"],
+                    request_data,
                 ]
             )
-        
+
         # check if have feature version to get sectors and globals
         if feature.last_version:
             # Process sectors and globals
@@ -250,7 +247,6 @@ class CreateIntegratedFeatureUseCase:
             body["definition"] = feature_version.definition,
             body["feature_version"] = str(feature_version.uuid)
 
-
         IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
         print(f"message sent `integrated feature` - body: {body}")
 
@@ -292,7 +288,7 @@ class CreateIntegratedFeatureUseCase:
         Raises:
             ValidationError: If any required field is missing.
         """
-        required_fields = ["store", "flows_channel_uuid", "wpp_cloud_app_uuid"]
+        required_fields = ["flows_channel_uuid", "wpp_cloud_app_uuid"]
         missing_fields = [
             field for field in required_fields if field not in request_data
         ]

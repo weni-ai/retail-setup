@@ -89,3 +89,17 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         response = self.make_request(url, method="GET", params=params)
 
         return response.json()
+
+    def get_order_details_by_id(self, account_domain: str, order_id: str) -> dict:
+        """
+        Fetches order details by order ID.
+        """
+        url = f"https://{account_domain}/_v/order-by-id"
+        params = {
+            "orderId": order_id,
+            "token": self.authentication_instance.token,
+        }
+
+        response = self.make_request(url, method="GET", params=params)
+
+        return response.json()

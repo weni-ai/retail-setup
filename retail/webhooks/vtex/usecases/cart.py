@@ -1,14 +1,12 @@
 import logging
 
-from django.conf import settings
-
 from rest_framework.exceptions import ValidationError, NotFound
 from retail.features.models import Feature, IntegratedFeature
 from retail.projects.models import Project
 from retail.vtex.models import Cart
 from retail.vtex.tasks import mark_cart_as_abandoned
 
-from retail.celery import app as celery_app
+from retail.webhooks.vtex.services import CartTimeRestrictionService
 
 
 logger = logging.getLogger(__name__)
@@ -29,7 +27,7 @@ class CartUseCase:
     def __init__(self, account: str):
         self.account = account
         self.project = self._get_project_by_account()
-        self.feature = self._get_feature()
+        self.integrated_feature = self._get_integrated_feature()
 
     def _get_project_by_account(self) -> Project:
         """
@@ -44,9 +42,15 @@ class CartUseCase:
         try:
             return Project.objects.get(vtex_account=self.account)
         except Project.DoesNotExist:
-            raise NotFound(f"Project with account '{self.account}' does not exist.")
+            error_message = f"Project with account '{self.account}' does not exist."
+            logger.error(error_message)
+            raise NotFound(error_message)
+        except Project.MultipleObjectsReturned:
+            error_message = f"Multiple projects found with account '{self.account}'."
+            logger.error(error_message)
+            raise ValidationError(error_message)
 
-    def _get_feature(self) -> IntegratedFeature:
+    def _get_integrated_feature(self) -> IntegratedFeature:
         """
         Retrieve the IntegratedFeature for the abandoned cart notification feature
         associated with the current project.
@@ -62,13 +66,12 @@ class CartUseCase:
             IntegratedFeature: The integrated feature instance for the abandoned cart.
         """
         try:
-            abandoned_cart_feature_uuid = settings.ABANDONED_CART_FEATURE_UUID
-            feature = Feature.objects.get(uuid=abandoned_cart_feature_uuid)
+            feature = Feature.objects.get(
+                can_vtex_integrate=True, code="abandoned_cart"
+            )
             return IntegratedFeature.objects.get(project=self.project, feature=feature)
         except Feature.DoesNotExist:
-            error_message = (
-                f"Feature with UUID {abandoned_cart_feature_uuid} not found."
-            )
+            error_message = f"Feature with code 'abandoned_cart' not found."
             logger.error(error_message, exc_info=True)
             raise NotFound(error_message)
         except IntegratedFeature.DoesNotExist:
@@ -79,15 +82,15 @@ class CartUseCase:
             error_message = (
                 f"An unexpected error occurred while retrieving the feature: {str(e)}"
             )
-            logger.error(error_message, exc_info=True)  # Captura o traceback completo
+            logger.error(error_message, exc_info=True)
             raise ValidationError(error_message)
 
-    def process_cart_notification(self, order_former_id: str, phone: str) -> Cart:
+    def process_cart_notification(self, order_form_id: str, phone: str) -> Cart:
         """
         Process incoming cart notification, renewing task or creating new cart.
 
         Args:
-            order_former_id (str): The unique identifier for the cart.
+            order_form_id (str): The unique identifier for the cart.
 
         Returns:
             Cart: The created or updated cart instance.
@@ -95,7 +98,7 @@ class CartUseCase:
         try:
             # Check if the cart already exists
             cart = Cart.objects.get(
-                order_former_id=order_former_id,
+                order_form_id=order_form_id,
                 project=self.project,
                 phone_number=phone,
                 status="created",
@@ -105,23 +108,38 @@ class CartUseCase:
             return cart
         except Cart.DoesNotExist:
             # Create new cart if it doesn't exist
-            return self._create_cart(order_former_id, phone)
+            return self._create_cart(order_form_id, phone)
 
-    def _create_cart(self, order_former_id: str, phone: str) -> Cart:
+    def _create_cart(self, order_form_id: str, phone: str) -> Cart:
         """
         Create a new cart entry and schedule an abandonment task.
 
         Args:
-            order_former_id (str): The UUID of the cart.
+            order_form_id (str): The UUID of the cart.
 
         Returns:
             Cart: The created cart instance.
         """
+        # Check if templates are synchronized before proceeding
+        sync_status = self.integrated_feature.config.get(
+            "templates_synchronization_status", "pending"
+        )
+
+        if sync_status != "synchronized":
+            logger.info(
+                f"Templates are not ready (status: {sync_status}) for project {self.project.uuid}. "
+                f"Skipping cart creation for order form {order_form_id}."
+            )
+            raise ValidationError(
+                {"error": "Templates are not synchronized"},
+                code="templates_not_synchronized",
+            )
+
         cart = Cart.objects.create(
-            order_former_id=order_former_id,
+            order_form_id=order_form_id,
             status="created",
             project=self.project,
-            integrated_feature=self._get_feature(),
+            integrated_feature=self.integrated_feature,
             phone_number=phone,
         )
 
@@ -138,6 +156,9 @@ class CartUseCase:
         """
         task_key = generate_task_key(cart_uuid)
 
+        time_restriction_service = CartTimeRestrictionService(self.integrated_feature)
+        countdown = time_restriction_service.get_countdown()
+
         mark_cart_as_abandoned.apply_async(
-            (cart_uuid,), countdown=25 * 60, task_id=task_key
+            (cart_uuid,), countdown=countdown, task_id=task_key
         )

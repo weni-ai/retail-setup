@@ -7,10 +7,7 @@ from retail.features.models import IntegratedFeature, Feature
 def execute_install_actions_task(
     integrated_feature_uuid,
     feature_uuid,
-    project_uuid,
-    store,
-    flows_channel_uuid,
-    wpp_cloud_app_uuid,
+    data,
 ):
     """
     Executes install actions asynchronously for the integrated feature.
@@ -23,10 +20,7 @@ def execute_install_actions_task(
         install_actions.execute(
             integrated_feature=integrated_feature,
             feature=feature,
-            project_uuid=project_uuid,
-            store=store,
-            flows_channel_uuid=flows_channel_uuid,
-            wpp_cloud_app_uuid=wpp_cloud_app_uuid,
+            data=data,
         )
 
         print(f"Install actions executed successfully for feature {feature.uuid}")

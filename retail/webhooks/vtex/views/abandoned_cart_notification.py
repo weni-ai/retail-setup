@@ -31,7 +31,7 @@ class AbandonedCartNotification(APIView):
             {
                 "message": "Cart processed successfully.",
                 "cart_uuid": str(result.uuid),
-                "cart_id": str(result.order_former_id),
+                "cart_id": str(result.order_form_id),
                 "status": result.status,
             },
             status=status.HTTP_200_OK,
