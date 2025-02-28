@@ -120,6 +120,21 @@ class CartUseCase:
         Returns:
             Cart: The created cart instance.
         """
+        # Check if templates are synchronized before proceeding
+        sync_status = self.integrated_feature.config.get(
+            "templates_synchronization_status", "pending"
+        )
+
+        if sync_status != "synchronized":
+            logger.info(
+                f"Templates are not ready (status: {sync_status}) for project {self.project.uuid}. "
+                f"Skipping cart creation for order form {order_form_id}."
+            )
+            raise ValidationError(
+                {"error": "Templates are not synchronized"},
+                code="templates_not_synchronized",
+            )
+
         cart = Cart.objects.create(
             order_form_id=order_form_id,
             status="created",
