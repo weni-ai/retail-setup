@@ -67,8 +67,9 @@ class IntegratedFeatureSettingsSerializer(serializers.Serializer):
     project_uuid = serializers.UUIDField(required=True)
     integration_settings = serializers.JSONField(required=True)
 
+
 class AppIntegratedFeatureSerializer(serializers.Serializer):
-    uuid = serializers.SerializerMethodField()
+    uuid = serializers.SerializerMethodField
     feature_uuid = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
     description = serializers.SerializerMethodField()
@@ -103,10 +104,7 @@ class AppIntegratedFeatureSerializer(serializers.Serializer):
     def get_globals(self, obj):
         globals_values = []
         globals_values.extend(
-            [
-                {"name": key, "value": value}
-                for key, value in obj.globals_values.items()
-            ]
+            [{"name": key, "value": value} for key, value in obj.globals_values.items()]
         )
         return globals_values
 
@@ -115,10 +113,7 @@ class AppIntegratedFeatureSerializer(serializers.Serializer):
         for sector in obj.sectors:
             if isinstance(sector, dict) and "name" in sector and "tags" in sector:
                 sector_list.append(
-                    {
-                        "name": sector.get("name", ""),
-                        "tags": sector.get("tags", [])
-                    }
+                    {"name": sector.get("name", ""), "tags": sector.get("tags", [])}
                 )
         return sector_list
 
