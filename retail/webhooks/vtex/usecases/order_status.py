@@ -1,4 +1,3 @@
-import locale
 import logging
 
 from datetime import datetime
@@ -18,6 +17,7 @@ from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 from retail.services.flows.service import FlowsService
 from retail.clients.flows.client import FlowsClient
 
+from babel.dates import format_date
 
 logger = logging.getLogger(__name__)
 
@@ -424,12 +424,12 @@ class MessageBuilder:
         )[0]
 
         # Using "or ''" to replace None with empty string
-        street = (address.get("street") or "").strip()
+        street = (address.get("street") or "").strip().title()
         number = (address.get("number") or "").strip()
-        neighborhood = (address.get("neighborhood") or "").strip()
-        city = (address.get("city") or "").strip()
-        state = (address.get("state") or "").strip()
-        country = (address.get("country") or "").strip()
+        neighborhood = (address.get("neighborhood") or "").strip().title()
+        city = (address.get("city") or "").strip().title()
+        state = (address.get("state") or "").strip().upper()
+        country = (address.get("country") or "").strip().title()
 
         locale_str = self.order_data.get("clientPreferencesData", {}).get(
             "locale", "pt-BR"
@@ -507,26 +507,20 @@ class MessageBuilder:
             dt = self._parse_datetime(date_str)
 
             locale_mapping = {
-                "pt-BR": "pt_BR.utf8",
-                "en-US": "en_US.utf8",
-                "es-ES": "es_ES.utf8",
+                "pt-BR": "pt_BR",
+                "en-US": "en_US",
+                "es-ES": "es_ES",
             }
 
-            # Try to set locale based on client preference
-            try:
-                locale.setlocale(
-                    locale.LC_TIME, locale_mapping.get(locale_str, "pt_BR.utf8")
-                )
-            except locale.Error:
-                logger.warning(f"Locale '{locale_str}' not available, using default.")
-                pass
+            # Format date using Babel
+            formatted_date = format_date(
+                dt, locale=locale_mapping.get(locale_str, "pt_BR")
+            )
 
-            if locale_str == "en-US":
-                return dt.strftime("%B %d, %Y")
-            elif locale_str == "es-ES":
-                return dt.strftime("%d de %B de %Y")
-            else:  # pt-BR
-                return dt.strftime("%d de %B de %Y").capitalize()
+            # Return formatted date, capitalized for pt-BR
+            return (
+                formatted_date.capitalize() if locale_str == "pt-BR" else formatted_date
+            )
 
         except ValueError:
             return "-"
@@ -570,7 +564,8 @@ class MessageBuilder:
         Extracts store name from order data.
         """
         sellers = self.order_data.get("sellers", [{}])
-        return sellers[0].get("name", "-")
+        store_name = sellers[0].get("name", "-").title()
+        return store_name
 
     def _get_payment_method(self) -> str:
         """
@@ -580,7 +575,7 @@ class MessageBuilder:
         if transactions:
             payments = transactions[0].get("payments", [])
             if payments:
-                return payments[0].get("paymentSystemName", "-")
+                return payments[0].get("paymentSystemName", "-").title()
         return "-"
 
     def _get_template_by_order_status(self) -> str:
