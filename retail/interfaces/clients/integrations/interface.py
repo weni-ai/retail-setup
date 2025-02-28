@@ -23,3 +23,7 @@ class IntegrationsClientInterface(ABC):
         self, app_uuid: str, project_uuid: str, template_data: str
     ) -> str:
         pass
+
+    @abstractmethod
+    def get_synchronized_templates(self, app_uuid: str, template_list: list) -> str:
+        pass

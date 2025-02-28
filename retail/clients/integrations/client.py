@@ -84,3 +84,35 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
             headers=headers,
         )
         return response.json()
+
+    def get_synchronized_templates(self, app_uuid: str) -> dict:
+        """
+        Get all templates from paginated API and return a dictionary of templates with their translations.
+
+        Args:
+            app_uuid (str): The UUID of the application
+
+        Returns:
+            dict: Dictionary containing templates where key is template name and value is list of translations
+        """
+        templates_dict = {}
+        page = 1
+
+        while True:
+            url = f"{self.base_url}/api/v1/apps/{app_uuid}/templates/?page={page}&page_size=15"
+
+            response = self.make_request(
+                url, method="GET", headers=self.authentication_instance.headers
+            ).json()
+
+            # Add templates from current page to dictionary
+            for template in response["results"]:
+                templates_dict[template["name"]] = template["translations"]
+
+            # Check if there are more pages
+            if not response["next"]:
+                break
+
+            page += 1
+
+        return templates_dict

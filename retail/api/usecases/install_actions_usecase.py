@@ -1,3 +1,4 @@
+from retail.api.tasks import check_templates_synchronization
 from retail.clients.exceptions import CustomAPIException
 from retail.features.models import Feature, IntegratedFeature
 from retail.services.integrations.service import IntegrationsService
@@ -45,7 +46,11 @@ class InstallActions:
             )
 
         if "store_flows_channel" in actions:
-            self._store_flow_channel_uuid(integrated_feature, flows_channel_uuid)
+            self._store_channel(
+                integrated_feature=integrated_feature,
+                flows_channel_uuid=flows_channel_uuid,
+                wpp_cloud_app_uuid=wpp_cloud_app_uuid,
+            )
 
     def _create_abandoned_cart_template(
         self,
@@ -62,25 +67,29 @@ class InstallActions:
                 app_uuid=wpp_cloud_app_uuid, project_uuid=project_uuid, domain=domain
             )
 
-            # Store the template details in the integrated feature config
-            template_details = {
-                "name": template["template_name"],
-                "uuid": template["template_uuid"],
-            }
-            integrated_feature.config["template"] = template_details
+            integrated_feature.config["abandoned_cart_template"] = template
+            # Set initial synchronization status as "pending"
+            integrated_feature.config["templates_synchronization_status"] = "pending"
+            # Save the updated integrated feature
             integrated_feature.save()
+
+            # Start the task to check template synchronization
+            self._check_templates_synchronization(integrated_feature)
         except CustomAPIException as e:
             print(f"Error creating template: {str(e)}")
             raise
 
-    def _store_flow_channel_uuid(
-        self, integrated_feature: IntegratedFeature, flows_channel_uuid: str
+    def _store_channel(
+        self,
+        integrated_feature: IntegratedFeature,
+        flows_channel_uuid: str,
+        wpp_cloud_app_uuid: str,
     ):
         """
         Fetches the flow channel UUID and stores it in the integrated feature config.
         """
-        # Example UUID for simulation (Replace with actual implementation)
         integrated_feature.config["flow_channel_uuid"] = flows_channel_uuid
+        integrated_feature.config["wpp_cloud_app_uuid"] = wpp_cloud_app_uuid
         integrated_feature.save()
 
     def _create_order_status_templates(
@@ -109,11 +118,32 @@ class InstallActions:
                 app_uuid=wpp_cloud_app_uuid, project_uuid=project_uuid, store=store
             )
 
-            # Store the templates in the integrated feature's config
+            # Store the template names in the integrated feature's config
             integrated_feature.config["order_status_templates"] = templates
+            # Set initial synchronization status as "pending"
+            integrated_feature.config["templates_synchronization_status"] = "pending"
+             # Save the updated integrated feature
             integrated_feature.save()
 
-            print("Order status templates created and saved successfully.")
+            # Start the task to check template synchronization
+            self._check_templates_synchronization(integrated_feature)
         except CustomAPIException as e:
             print(f"Error creating order status templates: {str(e)}")
+            raise
+
+    def _check_templates_synchronization(self, integrated_feature: IntegratedFeature):
+        """
+        Creates a task to check template synchronization status with Meta.
+
+        Args:
+            integrated_feature (IntegratedFeature): The integrated feature instance to update.
+        """
+        try:
+            # Call the task to check template synchronization
+            check_templates_synchronization.apply_async(
+                args=[str(integrated_feature.uuid)], countdown=300  # 5 minutes
+            )
+
+        except Exception as e:
+            print(f"Error scheduling template synchronization check: {str(e)}")
             raise
