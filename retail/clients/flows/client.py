@@ -46,10 +46,12 @@ class FlowsClient(RequestClient, FlowsClientInterface):
         url = f"{self.base_url}/api/v2/internals/whatsapp_broadcasts"
 
         payload = {**payload, "project": project_uuid}
+        print("flows payload", payload)
         response = self.make_request(
             url,
             method="POST",
             json=payload,
             headers=self.authentication_instance.headers,
         )
+        print("flows response", response)
         return response
