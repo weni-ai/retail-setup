@@ -63,14 +63,16 @@ class InstallActions:
         Creates an abandoned cart template and stores the template UUID in the config.
         """
         try:
+            # Set initial synchronization status as "pending" before creating templates
+            integrated_feature.config["templates_synchronization_status"] = "pending"
+            integrated_feature.save()
+
+            # Call the service to create the abandoned cart template
             template = self.integrations_service.create_abandoned_cart_template(
                 app_uuid=wpp_cloud_app_uuid, project_uuid=project_uuid, domain=domain
             )
-
+            # Save the template name in the integrated feature config
             integrated_feature.config["abandoned_cart_template"] = template
-            # Set initial synchronization status as "pending"
-            integrated_feature.config["templates_synchronization_status"] = "pending"
-            # Save the updated integrated feature
             integrated_feature.save()
 
             # Start the task to check template synchronization
@@ -113,6 +115,10 @@ class InstallActions:
             CustomAPIException: If there is an error during the creation of templates.
         """
         try:
+            # Set initial synchronization status as "pending" before creating templates
+            integrated_feature.config["templates_synchronization_status"] = "pending"
+            integrated_feature.save()
+
             # Call the service to create the order status templates
             templates = self.integrations_service.create_order_status_templates(
                 app_uuid=wpp_cloud_app_uuid, project_uuid=project_uuid, store=store
@@ -120,9 +126,6 @@ class InstallActions:
 
             # Store the template names in the integrated feature's config
             integrated_feature.config["order_status_templates"] = templates
-            # Set initial synchronization status as "pending"
-            integrated_feature.config["templates_synchronization_status"] = "pending"
-             # Save the updated integrated feature
             integrated_feature.save()
 
             # Start the task to check template synchronization
