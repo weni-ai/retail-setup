@@ -203,7 +203,8 @@ class OrderStatusUseCase:
         If restrictions are active, only allowed phone numbers and sellers can proceed.
         Returns False if the notification should be blocked, otherwise True.
         """
-        order_status_restriction = integrated_feature.config.get(
+        integration_settings = integrated_feature.config.get("integration_settings", {})
+        order_status_restriction = integration_settings.get(
             "order_status_restriction", {}
         )
 
