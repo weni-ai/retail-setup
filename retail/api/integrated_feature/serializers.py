@@ -69,7 +69,7 @@ class IntegratedFeatureSettingsSerializer(serializers.Serializer):
 
 
 class AppIntegratedFeatureSerializer(serializers.Serializer):
-    uuid = serializers.SerializerMethodField
+    uuid = serializers.SerializerMethodField()
     feature_uuid = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
     description = serializers.SerializerMethodField()
