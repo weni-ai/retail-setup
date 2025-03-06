@@ -1,3 +1,29 @@
+# 1.4.0
+
+## *Add*
+  - feat: applying black to the project
+  - feat: add task to sync templates from integrated features 
+  - feat: edit existing vtex projects and displays error with multiple projects
+  - feat: add dynamic template names
+  - feat: add order status restriction rules
+  - adding category in return from feature and integrated_feature
+  - feat: implement message builder and send order status notifications
+  - Feature/app integrated feature\
+  - Feature/get phone number from order
+  - Feature/order status webhook
+  - Feature/schedule abandoned cart notification based on settings
+  - feature: create order status templates on integrate feature with inst…
+  - feat: add utm_source to order form related to the abandoned cart
+  - Feature/update integrated feature config
+
+## *Change*
+  - fix: use babel to translate templates infos
+  - fix: get integration_settings value before validation
+  - fix: add abandoned cart countdown to settings
+  - fix: abandoned cart notification with domain
+  - fix: change static button urls to dynamic
+  - fix: rename order form field names
+
 # 1.3.4
 
 ## *HotFix*
