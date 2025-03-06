@@ -35,7 +35,8 @@ class TestProjectCreationUseCase(TestCase):
         created_project = Project.objects.get(uuid=self.base_project_dto.uuid)
         self.assertEqual(created_project.name, self.base_project_dto.name)
         self.assertEqual(
-            str(created_project.organization_uuid), self.base_project_dto.organization_uuid
+            str(created_project.organization_uuid),
+            self.base_project_dto.organization_uuid,
         )
         self.assertIsNone(created_project.vtex_account)
 
@@ -77,7 +78,7 @@ class TestProjectCreationUseCase(TestCase):
         Test that attempting to create/update a project with duplicate VTEX accounts raises an error
         """
         # Create duplicate projects with same VTEX account
-        uuid=str(uuid4())
+        uuid = str(uuid4())
         for _ in range(2):
             Project.objects.create(
                 name="Duplicate VTEX Project",

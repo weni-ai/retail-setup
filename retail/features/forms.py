@@ -28,7 +28,7 @@ class FeatureForm(forms.ModelForm):
             "functions",
             "documentation_url",
             "disclaimer",
-            "status"
+            "status",
         ]
 
     def __init__(self, *args, **kwargs):

@@ -12,10 +12,10 @@ class Feature(models.Model):
     features_types_choices = [("FEATURE", "Feature"), ("FUNCTION", "Function")]
     categories_choices = [("ACTIVE", "Active"), ("PASSIVE", "Passive")]
     STATUS_CHOICES = [
-            ('development', 'Development'),
-            ('testing', 'Testing'),
-            ('ready', 'Ready'),
-        ]
+        ("development", "Development"),
+        ("testing", "Testing"),
+        ("ready", "Ready"),
+    ]
     created_on = models.DateTimeField(
         "when are created the new feature", auto_now_add=True
     )
@@ -33,14 +33,14 @@ class Feature(models.Model):
     )
     documentation_url = models.TextField(null=True)
     disclaimer = models.TextField(null=True)
-    
+
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default='development',
-        verbose_name='Status of feature',
+        default="development",
+        verbose_name="Status of feature",
         null=True,
-        blank=True
+        blank=True,
     )
 
     can_vtex_integrate = models.BooleanField(default=False)
@@ -130,7 +130,10 @@ class IntegratedFeature(models.Model):
     )
 
     feature_version = models.ForeignKey(
-        FeatureVersion, on_delete=models.CASCADE, related_name="integrated_features", null=True
+        FeatureVersion,
+        on_delete=models.CASCADE,
+        related_name="integrated_features",
+        null=True,
     )
     feature = models.ForeignKey(
         Feature, on_delete=models.CASCADE, related_name="integrated_features"
@@ -148,8 +151,8 @@ class IntegratedFeature(models.Model):
     config = models.JSONField(default=dict)
 
     # def save(self, *args) -> None:
-        # self.feature = self.feature_version.feature
-        # return super().save(*args)
+    # self.feature = self.feature_version.feature
+    # return super().save(*args)
 
     def __str__(self) -> str:
         return self.feature.name
