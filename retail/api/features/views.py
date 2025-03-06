@@ -36,7 +36,7 @@ class FeaturesView(BaseServiceView):
 
             if can_vtex_integrate:
                 # Convert "true"/"false" to boolean
-                can_vtex_integrate = can_vtex_integrate == 'true'
+                can_vtex_integrate = can_vtex_integrate == "true"
                 features = features.filter(can_vtex_integrate=can_vtex_integrate)
 
             serializer = FeaturesSerializer(features, many=True)

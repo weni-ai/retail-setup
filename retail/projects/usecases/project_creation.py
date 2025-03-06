@@ -28,7 +28,9 @@ class ProjectCreationUseCase:
             )
 
     @staticmethod
-    def _create_new_project(project_dto: ProjectCreationDTO, include_vtex: bool = False):
+    def _create_new_project(
+        project_dto: ProjectCreationDTO, include_vtex: bool = False
+    ):
         """
         Creates a new project. Optionally includes VTEX account details.
         """
@@ -42,4 +44,3 @@ class ProjectCreationUseCase:
             project_data["vtex_account"] = project_dto.vtex_account
 
         Project.objects.create(**project_data)
-

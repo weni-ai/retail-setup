@@ -32,4 +32,4 @@ class FlowsService:
         response = self.client.send_whatsapp_broadcast(
             payload=payload, project_uuid=project_uuid
         )
-        return response.status_code==200
+        return response.status_code == 200

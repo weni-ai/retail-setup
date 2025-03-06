@@ -53,7 +53,7 @@ class FeatureVersionInlineForm(forms.ModelForm):
                         )
 
         return definition
-    
+
     def clean_action_base_flow_name(self):
         action_base_flow_name = self.cleaned_data.get("action_base_flow_name", None)
         if action_base_flow_name is None:
@@ -199,7 +199,7 @@ class FunctionVersionInlineForm(forms.ModelForm):
                         )
 
         return definition
-    
+
     def clean_action_base_flow_name(self):
         action_base_flow_name = self.cleaned_data.get("action_base_flow_name", None)
         if action_base_flow_name is None:

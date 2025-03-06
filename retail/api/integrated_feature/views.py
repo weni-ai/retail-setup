@@ -149,6 +149,7 @@ class IntegratedFeatureSettingsView(views.APIView):
 
         return Response(config, status=status.HTTP_200_OK)
 
+
 class AppIntegratedFeatureView(BaseServiceView):
     def get(self, request, project_uuid, *args, **kwargs):
         try:
@@ -158,11 +159,12 @@ class AppIntegratedFeatureView(BaseServiceView):
             )
 
             if category:
-                integrated_features = integrated_features.filter(feature__category=category)
+                integrated_features = integrated_features.filter(
+                    feature__category=category
+                )
 
             serializer = AppIntegratedFeatureSerializer(integrated_features, many=True)
 
             return Response({"results": serializer.data}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-

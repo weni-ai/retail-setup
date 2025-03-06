@@ -244,7 +244,7 @@ class CreateIntegratedFeatureUseCase:
         }
 
         if feature_version:
-            body["definition"] = feature_version.definition,
+            body["definition"] = feature_version.definition
             body["feature_version"] = str(feature_version.uuid)
 
         IntegratedFeatureEDA().publisher(body=body, exchange="integrated-feature.topic")
@@ -274,7 +274,9 @@ class CreateIntegratedFeatureUseCase:
         }
 
         if integrated_feature.feature_version:
-            response_data["data"]["feature_version"] = str(integrated_feature.feature_version.uuid)
+            response_data["data"]["feature_version"] = str(
+                integrated_feature.feature_version.uuid
+            )
 
         return response_data
 

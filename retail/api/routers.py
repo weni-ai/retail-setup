@@ -29,6 +29,6 @@ urlpatterns = [
     path(
         "app_integrated_feature/<uuid:project_uuid>/",
         AppIntegratedFeatureView.as_view(),
-        name="app-integrated-features"
-    )
+        name="app-integrated-features",
+    ),
 ]

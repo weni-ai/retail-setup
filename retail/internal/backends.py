@@ -53,7 +53,9 @@ class WeniOIDCAuthenticationBackend(OIDCAuthenticationBackend):  # pragma: no co
     def create_user(self, claims):
         email = claims.get("email")
 
-        user, _ = self.UserModel.objects.get_or_create(email=email, defaults={"username": email})
+        user, _ = self.UserModel.objects.get_or_create(
+            email=email, defaults={"username": email}
+        )
         user.first_name = claims.get("given_name", "")
         user.last_name = claims.get("family_name", "")
         user.save()
