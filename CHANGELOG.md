@@ -1,3 +1,9 @@
+# 1.4.1
+
+## *Change*
+  - fix: add slash to the cart link
+  - fix: move project uuid from client to payload
+
 # 1.4.0
 
 ## *Add*
