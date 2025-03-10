@@ -32,7 +32,7 @@ class FlowsClient(RequestClient, FlowsClientInterface):
         )
         return response.json()
 
-    def send_whatsapp_broadcast(self, payload: dict, project_uuid: str) -> dict:
+    def send_whatsapp_broadcast(self, payload: dict) -> dict:
         """
         Sends a WhatsApp broadcast message using the Flows API.
 
@@ -45,7 +45,6 @@ class FlowsClient(RequestClient, FlowsClientInterface):
 
         url = f"{self.base_url}/api/v2/internals/whatsapp_broadcasts"
 
-        payload = {**payload, "project": project_uuid}
         response = self.make_request(
             url,
             method="POST",
