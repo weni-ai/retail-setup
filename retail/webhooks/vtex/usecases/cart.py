@@ -85,7 +85,7 @@ class CartUseCase:
             logger.error(error_message, exc_info=True)
             raise ValidationError(error_message)
 
-    def process_cart_notification(self, order_form_id: str, phone: str) -> Cart:
+    def process_cart_notification(self, order_form_id: str, phone: str, name: str) -> Cart:
         """
         Process incoming cart notification, renewing task or creating new cart.
 
@@ -108,9 +108,9 @@ class CartUseCase:
             return cart
         except Cart.DoesNotExist:
             # Create new cart if it doesn't exist
-            return self._create_cart(order_form_id, phone)
+            return self._create_cart(order_form_id, phone, name)
 
-    def _create_cart(self, order_form_id: str, phone: str) -> Cart:
+    def _create_cart(self, order_form_id: str, phone: str, name: str) -> Cart:
         """
         Create a new cart entry and schedule an abandonment task.
 
@@ -141,6 +141,7 @@ class CartUseCase:
             project=self.project,
             integrated_feature=self.integrated_feature,
             phone_number=phone,
+            config={"client_name": name},
         )
 
         # Schedule abandonment task
