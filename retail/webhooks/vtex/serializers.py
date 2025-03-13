@@ -5,10 +5,10 @@ class CartSerializer(serializers.Serializer):
     """
     Serializer to validate cart data received from VTEX.
     """
-
     account = serializers.CharField()
     cart_id = serializers.CharField()
     phone = serializers.CharField()
+    name = serializers.CharField()
 
 
 class OrderStatusSerializer(serializers.Serializer):

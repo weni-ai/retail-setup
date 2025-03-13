@@ -20,12 +20,11 @@ class AbandonedCartNotification(APIView):
         serializer.is_valid(raise_exception=True)
 
         validated_data = serializer.validated_data
-        account = validated_data["account"]
         order_form_id = validated_data["cart_id"]
         phone = PhoneNumberNormalizer.normalize(validated_data["phone"])
-
-        cart_use_case = CartUseCase(account=account)
-        result = cart_use_case.process_cart_notification(order_form_id, phone)
+        name = validated_data["name"]
+        cart_use_case = CartUseCase(account=validated_data["account"])
+        result = cart_use_case.process_cart_notification(order_form_id, phone, name)
 
         return Response(
             {

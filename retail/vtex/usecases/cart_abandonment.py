@@ -256,6 +256,7 @@ class MessageBuilder:
         # Fetch required data from the cart's integrated feature
         template_name = self._get_feature_config_value(cart, "abandoned_cart_template")
         channel_uuid = self._get_feature_config_value(cart, "flow_channel_uuid")
+        client_name = self._get_cart_config_value(cart, "client_name")
         cart_link = f"{cart.order_form_id}/"
         # Build the payload
         return {
@@ -265,7 +266,7 @@ class MessageBuilder:
             "msg": {
                 "template": {
                     "name": template_name,
-                    "variables": ["@contact.name"],
+                    "variables": [f"{client_name}"],
                 },
                 "buttons": [
                     {
