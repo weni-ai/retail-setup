@@ -33,6 +33,8 @@ class ProjectVtexViewSet(viewsets.ViewSet):
     """ViewSet responsible for managing VTEX-related configurations in projects."""
 
     permission_classes = [CanCommunicateInternally]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
 
     @action(detail=True, methods=["POST"], url_path="set-vtex-store-type")
     def set_vtex_store_type(self, request, uuid=None):
