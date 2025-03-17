@@ -299,6 +299,7 @@ class MessageBuilder:
             "channel": self.flows_channel_uuid,
             "msg": {
                 "template": {
+                    "locale": self._get_locale(),
                     "name": self._get_template_by_order_status(),
                     "variables": [
                         f"{self._get_total_price()}",
@@ -314,14 +315,20 @@ class MessageBuilder:
         """
         Build message for purchase transaction alert.
         """
+        locale_str = self._get_locale()
+        purchase_text = {"pt-BR": "Compra", "en-US": "Purchase", "es-ES": "Compra"}.get(
+            locale_str, "Compra"
+        )
+
         return {
             "urns": [f"whatsapp:{self.phone_number}"],
             "channel": self.flows_channel_uuid,
             "msg": {
                 "template": {
+                    "locale": self._get_locale(),
                     "name": self._get_template_by_order_status(),
                     "variables": [
-                        "Compra",
+                        purchase_text,
                         f"{self._get_total_price()}",
                         self._get_store_name(),
                         self._get_order_date(),
@@ -339,6 +346,7 @@ class MessageBuilder:
             "channel": self.flows_channel_uuid,
             "msg": {
                 "template": {
+                    "locale": self._get_locale(),
                     "name": self._get_template_by_order_status(),
                     "variables": [f"Nº {self.order_id}"],
                 },
@@ -360,6 +368,7 @@ class MessageBuilder:
             "channel": self.flows_channel_uuid,
             "msg": {
                 "template": {
+                    "locale": self._get_locale(),
                     "name": self._get_template_by_order_status(),
                     "variables": [
                         self._get_client_name(),
@@ -385,6 +394,7 @@ class MessageBuilder:
             "channel": self.flows_channel_uuid,
             "msg": {
                 "template": {
+                    "locale": self._get_locale(),
                     "name": self._get_template_by_order_status(),
                     "variables": [
                         f"{self._get_total_price()}",
@@ -431,9 +441,7 @@ class MessageBuilder:
         state = (address.get("state") or "").strip().upper()
         country = (address.get("country") or "").strip().title()
 
-        locale_str = self.order_data.get("clientPreferencesData", {}).get(
-            "locale", "pt-BR"
-        )
+        locale_str = self._get_locale()
 
         # Building address based on location
         if locale_str == "en-US":
@@ -495,9 +503,7 @@ class MessageBuilder:
         Extracts and formats the order creation date based on the client's locale.
         """
         date_str = self.order_data.get("creationDate", "")
-        locale_str = self.order_data.get("clientPreferencesData", {}).get(
-            "locale", "pt-BR"
-        )
+        locale_str = self._get_locale()
 
         if not date_str:
             return "-"
@@ -598,3 +604,9 @@ class MessageBuilder:
             )
 
         return order_status_templates.get(self.order_status)
+
+    def _get_locale(self) -> str:
+        """
+        Extracts the locale from order data.
+        """
+        return self.order_data.get("clientPreferencesData", {}).get("locale", "pt-BR")

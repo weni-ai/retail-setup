@@ -60,7 +60,7 @@ class CartAbandonmentUseCase:
             order_form = self._fetch_order_form(cart)
 
             # Process and update cart information
-            client_profile = self._extract_client_profile(cart, order_form)
+            client_profile = self._extract_client_profile_and_save_locale(cart, order_form)
 
             if not order_form.get("items", []):
                 # Mark cart as empty if no items are found
@@ -122,21 +122,24 @@ class CartAbandonmentUseCase:
 
         return order_form
 
-    def _extract_client_profile(self, cart: Cart, order_form: dict) -> dict:
+    def _extract_client_profile_and_save_locale(self, cart: Cart, order_form: dict) -> dict:
         """
-        Extract and normalize client profile data from order form.
+        Extract client profile data and save locale from order form.
 
         Args:
             cart (Cart): The cart instance.
             order_form (dict): Order form details.
 
         Returns:
-            dict: Normalized client profile data.
+            dict: client profile data.
         """
         client_profile = order_form.get("clientProfileData", {})
 
-        # Update cart configuration and phone number
+        # Update cart configuration
         cart.config["client_profile"] = client_profile
+        cart.config["locale"] = order_form.get("clientPreferencesData", {}).get(
+            "locale", "pt-BR"
+        )
         cart.save()
 
         return client_profile
@@ -254,9 +257,15 @@ class MessageBuilder:
             ValueError: If required data is missing in the cart or feature.
         """
         # Fetch required data from the cart's integrated feature
-        template_name = self._get_feature_config_value(cart, "abandoned_cart_template")
-        channel_uuid = self._get_feature_config_value(cart, "flow_channel_uuid")
+        template_name = self._get_integrated_feature_config_value(
+            cart, "abandoned_cart_template"
+        )
+        channel_uuid = self._get_integrated_feature_config_value(
+            cart, "flow_channel_uuid"
+        )
+
         client_name = self._get_cart_config_value(cart, "client_name")
+        locale = self._get_cart_config_value(cart, "locale")
         cart_link = f"{cart.order_form_id}/"
         # Build the payload
         return {
@@ -265,6 +274,7 @@ class MessageBuilder:
             "channel": channel_uuid,
             "msg": {
                 "template": {
+                    "locale": locale,
                     "name": template_name,
                     "variables": [f"{client_name}"],
                 },
@@ -277,7 +287,7 @@ class MessageBuilder:
             },
         }
 
-    def _get_feature_config_value(self, cart: Cart, key: str) -> str:
+    def _get_integrated_feature_config_value(self, cart: Cart, key: str) -> str:
         """
         Helper method to retrieve a configuration value from the integrated feature.
 
@@ -317,8 +327,3 @@ class MessageBuilder:
             raise ValueError(f"Failed to retrieve '{key}' from the cart configuration.")
         return value
 
-    def _get_cart_link(self, order_form: dict):
-        cart_link = ""
-        for item in order_form.get("items"):
-            cart_link += f"&sku={item.get('productId')}&qty={item.get('quantity')}&seller={item.get('seller')}"
-        return cart_link
