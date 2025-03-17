@@ -1,3 +1,12 @@
+# 1.4.2
+
+## *Change*
+  - fix: save and send client locale to notification message
+  - fix: send client name to abandoned cart notification
+
+## *Add*
+  - feat: add config field to project and add viewset to set store type
+
 # 1.4.1
 
 ## *Change*
