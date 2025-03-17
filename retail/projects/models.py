@@ -6,6 +6,7 @@ class Project(models.Model):
     uuid = models.UUIDField()
     organization_uuid = models.UUIDField(null=True)
     vtex_account = models.CharField(max_length=100, null=True, blank=True)
+    config = models.JSONField(default=dict)
 
     def __str__(self) -> str:
         return self.name
