@@ -79,7 +79,6 @@ class AppIntegratedFeatureSerializer(serializers.Serializer):
     sectors = serializers.SerializerMethodField()
     config = serializers.JSONField()
     code = serializers.SerializerMethodField()
-    store_type = serializers.SerializerMethodField()
 
     def get_uuid(self, obj):
         return obj.uuid
@@ -117,10 +116,6 @@ class AppIntegratedFeatureSerializer(serializers.Serializer):
                     {"name": sector.get("name", ""), "tags": sector.get("tags", [])}
                 )
         return sector_list
-
-    def get_store_type(self, obj):
-        vtex_config = obj.project.config.store_type.get("vtex_config", {})
-        return vtex_config.get("vtex_store_type", "")
 
     class Meta:
         model = IntegratedFeature
