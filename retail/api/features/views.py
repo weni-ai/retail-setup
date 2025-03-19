@@ -51,9 +51,15 @@ class FeaturesView(BaseServiceView):
             user_email = request.user.email
             features_data = usecase.execute(serializer.data, user_email, project_uuid)
             project = Project.objects.get(uuid=project_uuid)
-            vtex_config = project.config.store_type.get("vtex_config", {})
-            
-            return Response({"results": features_data, "store_type": vtex_config.get("vtex_store_type", "")}, status=status.HTTP_200_OK)
+            vtex_config = project.config.get("vtex_config", {})
+
+            return Response(
+                {
+                    "results": features_data,
+                    "store_type": vtex_config.get("vtex_store_type", "")
+                },
+                status=status.HTTP_200_OK
+            )
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
