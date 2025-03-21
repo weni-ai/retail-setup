@@ -128,8 +128,6 @@ class InstallActions:
             integrated_feature.config["order_status_templates"] = templates
             integrated_feature.save()
 
-            # Start the task to check template synchronization
-            self._check_templates_synchronization(integrated_feature)
         except CustomAPIException as e:
             print(f"Error creating order status templates: {str(e)}")
             raise
@@ -144,7 +142,7 @@ class InstallActions:
         try:
             # Call the task to check template synchronization
             check_templates_synchronization.apply_async(
-                args=[str(integrated_feature.uuid)], countdown=300  # 5 minutes
+                args=[str(integrated_feature.uuid)], countdown=60  # 1 minute
             )
 
         except Exception as e:
