@@ -1,3 +1,8 @@
+# 1.5.0
+
+## *Add*
+  - feat: add webhook to sync template status
+
 # 1.4.2
 
 ## *Change*
