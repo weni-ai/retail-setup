@@ -160,6 +160,7 @@ class IntegrationsService:
         # Format the current datetime
         current_datetime = datetime.now()
         formatted_datetime = current_datetime.strftime("%Y%m%d%H%M%S")
+
         # Define the templates and their base payloads
         templates = [
             {
@@ -239,34 +240,26 @@ class IntegrationsService:
         # Languages to generate translations for each template
         languages = ["pt_BR", "en", "es"]
 
-        # Final dictionary to store the template names and UUIDs
         created_templates = {}
 
-        # Loop through each template and create them in all languages
+        # Prepare all templates for sending in a single call
+        library_templates = []
+
         for template in templates:
             template_name = template["base_payload"]["name"]
             template_status = template["status"]
+            created_templates[template_status] = template_name
+            library_templates.append(template["base_payload"])
 
-            for language in languages:
-                payload = template["base_payload"].copy()
-                payload["language"] = language  # Update the language for each iteration
-
-                try:
-                    # Call the service to create the template
-                    self.client.create_library_template_message(
-                        app_uuid=app_uuid,
-                        project_uuid=project_uuid,
-                        template_data=payload,
-                    )
-
-                    # Store the template name in the dictionary
-                    created_templates[template_status] = template_name
-
-                except CustomAPIException as e:
-                    print(
-                        f"Failed to create template '{template_name}' in {language}: {e}"
-                    )
-                    raise
+        # Send all templates at once with languages list
+        self.client.create_library_template_message(
+            app_uuid=app_uuid,
+            project_uuid=project_uuid,
+            template_data={
+                "library_templates": library_templates,
+                "languages": languages,
+            },
+        )
 
         return created_templates
 

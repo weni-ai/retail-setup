@@ -144,7 +144,8 @@ class CreateIntegratedFeatureUseCase:
                         "queues": sector.get("queues"),
                     }
                     integrated_feature.sectors.append(new_sector)
-        integrated_feature.save()
+
+        integrated_feature.save(update_fields=["sectors"])
 
     def _process_globals(self, integrated_feature, feature, globals_values_request):
         """
@@ -187,7 +188,7 @@ class CreateIntegratedFeatureUseCase:
 
         # Ensure all globals are included
         integrated_feature.globals_values = treated_globals_values
-        integrated_feature.save()
+        integrated_feature.save(update_fields=["globals_values"])
 
     def _publish_integration_event(self, integrated_feature):
         """

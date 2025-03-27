@@ -69,7 +69,7 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
         Returns:
             str: The response from the external service.
         """
-        url = f"{self.base_url}/api/v1/apps/{app_uuid}/templates/create_library_templates/"
+        url = f"{self.base_url}/api/v1/apps/{app_uuid}/templates/create-library-templates/"
 
         # Add Project-Uuid to the headers
         headers = {
