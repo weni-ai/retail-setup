@@ -69,3 +69,10 @@ class InternalAuthentication(RequestClient):
             "Content-Type": "application/json; charset: utf-8",
             "Authorization": self.__get_module_token(),
         }
+
+    @property
+    def headers_text(self):
+        return {
+            "Content-Type": "text/plain",
+            "Authorization": self.__get_module_token(),
+        }

@@ -8,8 +8,8 @@ from retail.clients.vtex.client import VtexClient
 from retail.services.vtex.service import VtexService
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.models import Cart
-from retail.services.flows.service import FlowsService
-from retail.clients.flows.client import FlowsClient
+from retail.services.code_actions.service import CodeActionsService
+from retail.clients.code_actions.client import CodeActionsClient
 from retail.clients.exceptions import CustomAPIException
 
 
@@ -25,7 +25,7 @@ class CartAbandonmentUseCase:
 
     def __init__(
         self,
-        flows_service: FlowsService = None,
+        code_actions_service: CodeActionsService = None,
         vtex_io_service: VtexIOService = None,
         vtex_service: VtexService = None,
         message_builder=None,
@@ -39,7 +39,7 @@ class CartAbandonmentUseCase:
             vtex_service (VtexService): Service for interacting with VTEX.
             message_builder (MessageBuilder): Builder for constructing notification messages.
         """
-        self.flows_service = flows_service or FlowsService(FlowsClient())
+        self.code_actions_service = code_actions_service or CodeActionsService(CodeActionsClient())
         self.vtex_io_service = vtex_io_service or VtexIOService(VtexIOClient())
         self.vtex_service = vtex_service or VtexService(VtexClient())
 
@@ -197,8 +197,9 @@ class CartAbandonmentUseCase:
 
         # Prepare and send the notification
         payload = self.message_builder.build_abandonment_message(cart)
-        response = self.flows_service.send_whatsapp_broadcast(
-            payload=payload, project_uuid=str(cart.project.uuid)
+        response = self.code_actions_service.run_code_action(
+            action_id=self._get_code_action_id_by_cart(cart),
+            payload=payload,
         )
         self._update_cart_status(cart, "delivered_success", response)
 
@@ -236,6 +237,30 @@ class CartAbandonmentUseCase:
     def _get_account_domain(self, cart: Cart) -> str:
         # TODO: remove weni-- before deploy
         return f"weni--{cart.project.vtex_account}.myvtex.com"
+
+    def _get_code_action_id_by_cart(self, cart: Cart) -> str:
+        """
+        Get the code action ID for the cart.
+
+        Args:
+            cart (Cart): The cart instance.
+
+        Returns:
+            str: The code action ID.
+            
+        Raises:
+            ValueError: If integrated feature, vtex account or action ID is not found.
+        """ 
+        integrated_feature = cart.integrated_feature
+            
+        vtex_account = integrated_feature.project.vtex_account
+        action_name = f"{vtex_account}_send_whatsapp_broadcast"
+        
+        action_id = integrated_feature.config.get("code_action_registered", {}).get(action_name)
+        if not action_id:
+            raise ValueError(f"Action ID not found for action '{action_name}'")
+            
+        return action_id
 
 
 class MessageBuilder:
