@@ -64,11 +64,17 @@ class OrderStatusUseCase:
         try:
             return Project.objects.get(vtex_account=self.data.vtexAccount)
         except Project.DoesNotExist:
-            error_message = f"Project not found for VTEX account {self.data.vtexAccount}. Order id: {self.data.orderId}"
+            error_message = (
+                f"Project not found for VTEX account {self.data.vtexAccount}. "
+                f"Order id: {self.data.orderId}"
+            )
             logger.error(error_message)
             raise ValidationError(error_message)
         except Project.MultipleObjectsReturned:
-            error_message = f"Multiple projects found for VTEX account {self.data.vtexAccount}. Order id: {self.data.orderId}"
+            error_message = (
+                f"Multiple projects found for VTEX account {self.data.vtexAccount}. "
+                f"Order id: {self.data.orderId}"
+            )
             logger.error(error_message)
             raise ValidationError(error_message)
 
@@ -82,7 +88,10 @@ class OrderStatusUseCase:
         ).first()
 
         if not integrated_feature:
-            error_message = f"Order status integration not found for project {project.name}. Order id: {self.data.orderId}"
+            error_message = (
+                f"Order status integration not found for project {project.name}. "
+                f"Order id: {self.data.orderId}"
+            )
             capture_message(error_message)
 
             raise ValidationError(
@@ -100,7 +109,10 @@ class OrderStatusUseCase:
         raw_phone_number = phone_data.get("phone")
 
         if not raw_phone_number:
-            error_message = f"Phone number not found in order {self.data.orderId} - {self.data.vtexAccount}. Cannot proceed."
+            error_message = (
+                f"Phone number not found in order {self.data.orderId} - {self.data.vtexAccount}. "
+                f"Cannot proceed."
+            )
             logger.error(error_message)
             raise ValidationError(
                 {"error": "Phone number is required for message dispatch."},
@@ -182,7 +194,12 @@ class OrderStatusUseCase:
                 message_payload, integrated_feature, order_data
             )
         else:
-            logger.info("No valid message payload found. Skipping message dispatch.")
+            logger.info(
+                f"No valid message payload found. Skipping message dispatch. "
+                f"Order id: {self.data.orderId}, "
+                f"VTEX account: {self.data.vtexAccount}, "
+                f"message payload: {message_payload}"
+            )
 
     def _get_code_action_id_by_integrated_feature(
         self, integrated_feature: IntegratedFeature
@@ -334,17 +351,24 @@ class MessageBuilder:
         Returns:
             dict: The formatted message payload.
         """
+        project_uuid = str(self.integrated_feature.project.uuid)
+
+        message = None
         if self.order_status == "invoiced":
-            return self._build_purchase_receipt_message()
+            message = self._build_purchase_receipt_message()
         elif self.order_status == "weni_purchase_transaction_alert":
-            return self._build_purchase_transaction_alert_message()
+            message = self._build_purchase_transaction_alert_message()
         elif self.order_status == "canceled":
-            return self._build_order_canceled_message()
+            message = self._build_order_canceled_message()
         elif self.order_status == "order-created":
-            return self._build_order_management_message()
+            message = self._build_order_management_message()
         elif self.order_status == "payment-approved":
-            return self._build_payment_confirmation_message()
-        return None
+            message = self._build_payment_confirmation_message()
+
+        if message:
+            message["project"] = project_uuid
+
+        return message
 
     def _build_purchase_receipt_message(self) -> Dict:
         """
@@ -658,7 +682,10 @@ class MessageBuilder:
 
         if not order_status_templates:
             logger.info(f"Order status templates: {order_status_templates}.")
-            error_message = f"Order status templates not found for project {self.integrated_feature.feature.project.uuid}."
+            error_message = (
+                f"Order status templates not found for project "
+                f"{self.integrated_feature.feature.project.uuid}."
+            )
             capture_message(error_message)
 
             raise ValidationError(
