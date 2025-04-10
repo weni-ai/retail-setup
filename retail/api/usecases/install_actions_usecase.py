@@ -207,7 +207,7 @@ class InstallActions:
 
             # Update the integrated feature config
             integrated_feature.config["code_action_registered"] = action_response
-            integrated_feature.save()
+            integrated_feature.save(update_fields=["config"])
 
             return action_response
 
