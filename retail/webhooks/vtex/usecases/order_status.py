@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from sentry_sdk import capture_message
 
+from retail.clients.exceptions import CustomAPIException
 from retail.clients.vtex_io.client import VtexIOClient
 from retail.features.models import IntegratedFeature
 from retail.projects.models import Project
@@ -16,6 +17,8 @@ from retail.vtex.usecases.phone_number_normalizer import PhoneNumberNormalizer
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 from retail.services.flows.service import FlowsService
 from retail.clients.flows.client import FlowsClient
+from retail.services.code_actions.service import CodeActionsService
+from retail.clients.code_actions.client import CodeActionsClient
 
 from babel.dates import format_date
 
@@ -32,10 +35,13 @@ class OrderStatusUseCase:
         data: OrderStatusDTO,
         flows_service: FlowsService = None,
         vtex_io_service: VtexIOService = None,
+        code_actions_service: CodeActionsService = None,
     ):
-
         self.flows_service = flows_service or FlowsService(FlowsClient())
         self.vtex_io_service = vtex_io_service or VtexIOService(VtexIOClient())
+        self.code_actions_service = code_actions_service or CodeActionsService(
+            CodeActionsClient()
+        )
         self.data = data
 
     @classmethod
@@ -172,27 +178,84 @@ class OrderStatusUseCase:
         message_payload = message_builder.build_message()
 
         if message_payload:
-            self._send_message_to_module(message_payload, integrated_feature)
+            self._send_message_to_module(
+                message_payload, integrated_feature, order_data
+            )
         else:
             logger.info("No valid message payload found. Skipping message dispatch.")
 
+    def _get_code_action_id_by_integrated_feature(
+        self, integrated_feature: IntegratedFeature
+    ) -> str:
+        """
+        Get the code action ID from the integrated feature.
+
+        Args:
+            integrated_feature (IntegratedFeature): The integrated feature instance.
+
+        Returns:
+            str: The code action ID.
+
+        Raises:
+            ValidationError: If vtex account or action ID is not found.
+        """
+        vtex_account = integrated_feature.project.vtex_account
+        feature_code = integrated_feature.feature.code
+
+        # Use feature code to create a specific action name
+        action_name = f"{vtex_account}_{feature_code}_send_whatsapp_broadcast"
+
+        action_id = integrated_feature.config.get("code_action_registered", {}).get(
+            action_name
+        )
+
+        # Fallback to direct code_action_id if the registered action is not found
+        if not action_id:
+            action_id = integrated_feature.config.get("code_action_id")
+
+        if not action_id:
+            error_message = f"Action ID not found for action '{action_name}'"
+            logger.error(error_message)
+            raise ValidationError(
+                {"error": "code_action_id not found"},
+                code="code_action_id_not_found",
+            )
+
+        return action_id
+
     def _send_message_to_module(
-        self, message_payload: Dict, integrated_feature: IntegratedFeature
+        self,
+        message_payload: Dict,
+        integrated_feature: IntegratedFeature,
+        order_data: Dict,
     ):
         """
-        Send the built message to the flows broadcasts.
+        Send the built message using code actions service.
         """
-        project_uuid = self._get_project_uuid_by_integrated_feature(integrated_feature)
-        success = self.flows_service.send_whatsapp_broadcast(
-            payload=message_payload, project_uuid=str(project_uuid)
-        )
-        if success:
-            logger.info(
-                f"Successfully sent message to the broadcast module for project {project_uuid}."
+        try:
+            # Get code action ID from integrated feature
+            code_action_id = self._get_code_action_id_by_integrated_feature(
+                integrated_feature
             )
-        else:
-            logger.warning(
-                f"Failed to send message to the broadcast module for project {project_uuid}."
+
+            # Prepare extra payload with order data
+            extra_payload = {
+                "order_data": order_data,
+            }
+
+            # Call code actions service
+            response = self.code_actions_service.run_code_action(
+                action_id=code_action_id,
+                message_payload=message_payload,
+                extra_payload=extra_payload,
+            )
+
+            logger.info(
+                f"Successfully sent message to code actions for order {self.data.orderId}. Response: {response}"
+            )
+        except CustomAPIException as e:
+            logger.error(
+                f"Failed to send message to code actions for order {self.data.orderId}. Error: {str(e)}"
             )
 
     def _validate_restrictions(

@@ -36,7 +36,6 @@ class CodeActionsClient(RequestClient, CodeActionsClientInterface):
 
         params = {
             "name": action_name,
-            "code": action_code,
             "language": language,
             "type": type,
             "project": project_uuid,
@@ -51,26 +50,29 @@ class CodeActionsClient(RequestClient, CodeActionsClientInterface):
         )
         return response.json()
 
-    def run_code_action(self, action_id: str, payload: dict) -> dict:
+    def run_code_action(
+        self, action_id: str, message_payload: dict, extra_payload: dict = None
+    ) -> dict:
         """
         Runs a code action using the Code Actions API.
-        
+
         Args:
             action_id (str): The ID of the code action to run.
-            payload (dict): The payload to send to the code action.
-            
+            message_payload (dict): The payload to send to the code action.
+            extra_payload (dict): The extra payload to send to the code action.
+
         Returns:
             dict: Response from the API.
         """
         url = f"{self.base_url}/action/endpoint/{action_id}"
-        
-        # Adicionar token e flows_url ao payload
+
         enhanced_payload = {
-            **payload,
-            "token": "TODO: need to get token",
-            "flows_url": settings.FLOWS_REST_ENDPOINT
+            "message_payload": message_payload,
+            "extra_data": extra_payload,
+            "token": self.authentication_instance.get_token(),
+            "flows_url": settings.FLOWS_REST_ENDPOINT,
         }
-        
+
         response = self.make_request(
             url,
             method="POST",

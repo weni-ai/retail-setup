@@ -20,8 +20,8 @@ class CodeActionsService:
             action_name, action_code, language, type, project_uuid
         )
 
-    def run_code_action(self, action_id: str, payload: dict) -> dict: #TODO: adjust params
+    def run_code_action(self, action_id: str, message_payload: dict, extra_payload: dict = None) -> dict:
         """
         Run a code action.
         """
-        return self.client.run_code_action(action_id, payload)
+        return self.client.run_code_action(action_id, message_payload, extra_payload)

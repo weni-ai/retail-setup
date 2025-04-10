@@ -85,7 +85,9 @@ class CartUseCase:
             logger.error(error_message, exc_info=True)
             raise ValidationError(error_message)
 
-    def process_cart_notification(self, order_form_id: str, phone: str, name: str) -> Cart:
+    def process_cart_notification(
+        self, order_form_id: str, phone: str, name: str
+    ) -> Cart:
         """
         Process incoming cart notification, renewing task or creating new cart.
 

@@ -198,19 +198,26 @@ class InstallActions:
                     engine.result.set({"error": "Invalid request body"}, status_code=400, content_type="json")
                     return
 
-                # Extracting required parameters
-                payload = data.get("payload")
+                # Extracting required parameters from the client's structure
+                message_payload = data.get("message_payload", {})  # This contains the payload for Flows
+                extra_data = data.get("extra_data", {})  # Additional data for custom processing
                 token = data.get("token")
                 flows_url = data.get("flows_url")
 
                 # Validating required parameters
-                if not payload or not token or not flows_url:
+                if not message_payload or not token or not flows_url:
                     engine.log.error("Missing required parameters.")
                     engine.result.set({"error": "Missing required parameters"}, status_code=400, content_type="json")
                     return
 
+                # Process extra_data if needed (example of how it could be used)
+                if extra_data:
+                    engine.log.info(f"Processing extra data: {extra_data}")
+                    # Custom processing logic can be added here
+                    # For example, modifying the message based on extra_data
+
                 # Sending the message via WhatsApp API
-                response = send_whatsapp_broadcast(payload, token, flows_url)
+                response = send_whatsapp_broadcast(message_payload, token, flows_url)
 
                 # Returning the result to the engine
                 if response.get("status") == 200:
@@ -218,12 +225,12 @@ class InstallActions:
                 else:
                     engine.result.set({"error": "Failed to send message", "details": response}, status_code=500, content_type="json")
 
-            def send_whatsapp_broadcast(payload: dict, token: str, flows_url: str) -> dict:
+            def send_whatsapp_broadcast(message_payload: dict, extra_payload: dict, token: str, flows_url: str) -> dict:
                 """
                 Sends a WhatsApp message via the internal API.
 
                 Args:
-                    payload (dict): Message data.
+                    payload (dict): Message data from the 'message' field.
                     token (str): Authentication token.
                     flows_url (str): Base URL for the Flows API.
 
@@ -250,7 +257,10 @@ class InstallActions:
                     }
             '''
             vtex_account = integrated_feature.project.vtex_account
-            action_name = f"{vtex_account}_send_whatsapp_broadcast"
+            feature_code = integrated_feature.feature.code
+
+            # Include feature code in the action name
+            action_name = f"{vtex_account}_{feature_code}_send_whatsapp_broadcast"
 
             response = self.code_actions_service.register_code_action(
                 action_name=action_name,

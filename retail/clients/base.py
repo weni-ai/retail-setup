@@ -76,3 +76,10 @@ class InternalAuthentication(RequestClient):
             "Content-Type": "text/plain",
             "Authorization": self.__get_module_token(),
         }
+
+    def get_token(self) -> str:
+        """
+        Public method to retrieve just the token string (without 'Bearer ').
+        Useful when passing raw tokens to external services.
+        """
+        return self.__get_module_token().replace("Bearer ", "")
