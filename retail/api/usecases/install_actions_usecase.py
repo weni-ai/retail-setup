@@ -76,7 +76,7 @@ class InstallActions:
         try:
             # Set initial synchronization status as "pending" before creating templates
             integrated_feature.config["templates_synchronization_status"] = "pending"
-            integrated_feature.save()
+            integrated_feature.save(update_fields=["config"])
 
             # Call the service to create the abandoned cart template
             template = self.integrations_service.create_abandoned_cart_template(
@@ -84,7 +84,7 @@ class InstallActions:
             )
             # Save the template name in the integrated feature config
             integrated_feature.config["abandoned_cart_template"] = template
-            integrated_feature.save()
+            integrated_feature.save(update_fields=["config"])
 
             # Start the task to check template synchronization
             self._check_templates_synchronization(integrated_feature)
@@ -103,7 +103,7 @@ class InstallActions:
         """
         integrated_feature.config["flow_channel_uuid"] = flows_channel_uuid
         integrated_feature.config["wpp_cloud_app_uuid"] = wpp_cloud_app_uuid
-        integrated_feature.save()
+        integrated_feature.save(update_fields=["config"])
 
     def _create_order_status_templates(
         self,
@@ -128,7 +128,7 @@ class InstallActions:
         try:
             # Set initial synchronization status as "pending" before creating templates
             integrated_feature.config["templates_synchronization_status"] = "pending"
-            integrated_feature.save()
+            integrated_feature.save(update_fields=["config"])
 
             # Call the service to create the order status templates
             templates = self.integrations_service.create_order_status_templates(
@@ -137,12 +137,10 @@ class InstallActions:
 
             # Store the template names in the integrated feature's config
             integrated_feature.config["order_status_templates"] = templates
-            integrated_feature.save()
+            integrated_feature.save(update_fields=["config"])
 
-            # Start the task to check template synchronization
-            self._check_templates_synchronization(integrated_feature)
-        except CustomAPIException as e:
-            print(f"Error creating order status templates: {str(e)}")
+        except Exception as e:
+            print(f"Error on process order status templates: {str(e)}")
             raise
 
     def _check_templates_synchronization(self, integrated_feature: IntegratedFeature):
@@ -155,7 +153,7 @@ class InstallActions:
         try:
             # Call the task to check template synchronization
             check_templates_synchronization.apply_async(
-                args=[str(integrated_feature.uuid)], countdown=300  # 5 minutes
+                args=[str(integrated_feature.uuid)], countdown=60  # 1 minute
             )
 
         except Exception as e:

@@ -14,9 +14,7 @@ from retail.api.integrated_feature.serializers import (
 from retail.api.usecases.create_integrated_feature_usecase import (
     CreateIntegratedFeatureUseCase,
 )
-from retail.api.usecases.populate_globals_values import PopulateGlobalsValuesUsecase
 
-from retail.api.usecases.populate_globals_with_defaults import PopulateDefaultsUseCase
 from retail.features.models import Feature, IntegratedFeature
 from retail.features.integrated_feature_eda import IntegratedFeatureEDA
 from retail.projects.models import Project
@@ -66,7 +64,7 @@ class IntegratedFeatureView(BaseServiceView):
             return Response(
                 status=status.HTTP_404_NOT_FOUND,
                 data={
-                    "error": f"Project with uuid equals {request.data['project_uuid' ]} does not exists!"
+                    "error": f"Project with uuid equals {request.data['project_uuid']} does not exists!"
                 },
             )
 
@@ -98,7 +96,7 @@ class IntegratedFeatureView(BaseServiceView):
             return Response(
                 status=status.HTTP_404_NOT_FOUND,
                 data={
-                    "error": f"Project with uuid equals {request.data['project_uuid' ]} does not exists!"
+                    "error": f"Project with uuid equals {request.data['project_uuid']} does not exists!"
                 },
             )
         integrated_feature = IntegratedFeature.objects.get(
@@ -165,6 +163,15 @@ class AppIntegratedFeatureView(BaseServiceView):
 
             serializer = AppIntegratedFeatureSerializer(integrated_features, many=True)
 
-            return Response({"results": serializer.data}, status=status.HTTP_200_OK)
+            project = Project.objects.get(uuid=project_uuid)
+            vtex_config = project.config.get("vtex_config", {})
+
+            return Response(
+                {
+                    "results": serializer.data,
+                    "store_type": vtex_config.get("vtex_store_type", "")
+                },
+                status=status.HTTP_200_OK
+            )
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
