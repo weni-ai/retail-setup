@@ -71,7 +71,7 @@ class CartUseCase:
             )
             return IntegratedFeature.objects.get(project=self.project, feature=feature)
         except Feature.DoesNotExist:
-            error_message = f"Feature with code 'abandoned_cart' not found."
+            error_message = "Feature with code 'abandoned_cart' not found."
             logger.error(error_message, exc_info=True)
             raise NotFound(error_message)
         except IntegratedFeature.DoesNotExist:
@@ -85,7 +85,9 @@ class CartUseCase:
             logger.error(error_message, exc_info=True)
             raise ValidationError(error_message)
 
-    def process_cart_notification(self, order_form_id: str, phone: str, name: str) -> Cart:
+    def process_cart_notification(
+        self, order_form_id: str, phone: str, name: str
+    ) -> Cart:
         """
         Process incoming cart notification, renewing task or creating new cart.
 
@@ -159,7 +161,7 @@ class CartUseCase:
 
         time_restriction_service = CartTimeRestrictionService(self.integrated_feature)
         countdown = time_restriction_service.get_countdown()
-
+        logger.info(f"Scheduling task for cart {cart_uuid} with countdown {countdown}")
         mark_cart_as_abandoned.apply_async(
             (cart_uuid,), countdown=countdown, task_id=task_key
         )

@@ -8,8 +8,8 @@ from retail.clients.vtex.client import VtexClient
 from retail.services.vtex.service import VtexService
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.models import Cart
-from retail.services.flows.service import FlowsService
-from retail.clients.flows.client import FlowsClient
+from retail.services.code_actions.service import CodeActionsService
+from retail.clients.code_actions.client import CodeActionsClient
 from retail.clients.exceptions import CustomAPIException
 
 
@@ -25,7 +25,7 @@ class CartAbandonmentUseCase:
 
     def __init__(
         self,
-        flows_service: FlowsService = None,
+        code_actions_service: CodeActionsService = None,
         vtex_io_service: VtexIOService = None,
         vtex_service: VtexService = None,
         message_builder=None,
@@ -39,7 +39,9 @@ class CartAbandonmentUseCase:
             vtex_service (VtexService): Service for interacting with VTEX.
             message_builder (MessageBuilder): Builder for constructing notification messages.
         """
-        self.flows_service = flows_service or FlowsService(FlowsClient())
+        self.code_actions_service = code_actions_service or CodeActionsService(
+            CodeActionsClient()
+        )
         self.vtex_io_service = vtex_io_service or VtexIOService(VtexIOClient())
         self.vtex_service = vtex_service or VtexService(VtexClient())
 
@@ -60,7 +62,9 @@ class CartAbandonmentUseCase:
             order_form = self._fetch_order_form(cart)
 
             # Process and update cart information
-            client_profile = self._extract_client_profile_and_save_locale(cart, order_form)
+            client_profile = self._extract_client_profile_and_save_locale(
+                cart, order_form
+            )
 
             if not order_form.get("items", []):
                 # Mark cart as empty if no items are found
@@ -69,7 +73,7 @@ class CartAbandonmentUseCase:
 
             # Check orders by email
             orders = self._fetch_orders_by_email(cart, client_profile["email"])
-            self._evaluate_orders(cart, orders, order_form)
+            self._evaluate_orders(cart, orders, order_form, client_profile)
 
         except Cart.DoesNotExist:
             logger.warning(
@@ -122,7 +126,9 @@ class CartAbandonmentUseCase:
 
         return order_form
 
-    def _extract_client_profile_and_save_locale(self, cart: Cart, order_form: dict) -> dict:
+    def _extract_client_profile_and_save_locale(
+        self, cart: Cart, order_form: dict
+    ) -> dict:
         """
         Extract client profile data and save locale from order form.
 
@@ -160,16 +166,20 @@ class CartAbandonmentUseCase:
         )
         return orders or {"list": []}
 
-    def _evaluate_orders(self, cart: Cart, orders: dict, order_form: dict):
+    def _evaluate_orders(
+        self, cart: Cart, orders: dict, order_form: dict, client_profile: dict
+    ):
         """
         Evaluate orders and determine the status of the cart.
 
         Args:
             cart (Cart): The cart instance.
             orders (dict): List of orders retrieved.
+            order_form (dict): Order form details.
+            client_profile (dict): Client profile data.
         """
         if not orders.get("list"):
-            self._mark_cart_as_abandoned(cart)
+            self._mark_cart_as_abandoned(cart, order_form, client_profile)
             return
 
         recent_orders = orders.get("list", [])[:3]
@@ -178,7 +188,7 @@ class CartAbandonmentUseCase:
                 self._update_cart_status(cart, "purchased")
                 return
 
-        self._mark_cart_as_abandoned(cart)
+        self._mark_cart_as_abandoned(cart, order_form, client_profile)
 
     def _set_utm_source(self, cart: Cart):
         domain = self._get_account_domain(cart)
@@ -186,19 +196,29 @@ class CartAbandonmentUseCase:
             domain, cart.order_form_id, self.utm_source
         )
 
-    def _mark_cart_as_abandoned(self, cart: Cart):
+    def _mark_cart_as_abandoned(
+        self, cart: Cart, order_form: dict, client_profile: dict
+    ):
         """
         Mark a cart as abandoned and send notification.
 
         Args:
             cart (Cart): The cart to process.
+            order_form (dict): Order form details.
+            client_profile (dict): Client profile data.
         """
         self._update_cart_status(cart, "abandoned")
 
         # Prepare and send the notification
-        payload = self.message_builder.build_abandonment_message(cart)
-        response = self.flows_service.send_whatsapp_broadcast(
-            payload=payload, project_uuid=str(cart.project.uuid)
+        message_payload = self.message_builder.build_abandonment_message(cart)
+        extra_payload = {
+            "order_form": order_form,
+            "client_profile": client_profile,
+        }
+        response = self.code_actions_service.run_code_action(
+            action_id=self._get_code_action_id_by_cart(cart),
+            message_payload=message_payload,
+            extra_payload=extra_payload,
         )
         self._update_cart_status(cart, "delivered_success", response)
 
@@ -236,6 +256,34 @@ class CartAbandonmentUseCase:
     def _get_account_domain(self, cart: Cart) -> str:
         # TODO: remove weni-- before deploy
         return f"weni--{cart.project.vtex_account}.myvtex.com"
+
+    def _get_code_action_id_by_cart(self, cart: Cart) -> str:
+        """
+        Get the code action ID for the cart based on feature type.
+
+        Args:
+            cart (Cart): The cart instance.
+
+        Returns:
+            str: The code action ID.
+
+        Raises:
+            ValueError: If integrated feature, vtex account or action ID is not found.
+        """
+        integrated_feature = cart.integrated_feature
+        feature_code = integrated_feature.feature.code
+        vtex_account = integrated_feature.project.vtex_account
+        
+        # Use feature code to create a specific action name
+        action_name = f"{vtex_account}_{feature_code}_send_whatsapp_broadcast"
+
+        action_id = integrated_feature.config.get("code_action_registered", {}).get(
+            action_name
+        )
+        if not action_id:
+            raise ValueError(f"Action ID not found for action '{action_name}'")
+
+        return action_id
 
 
 class MessageBuilder:
@@ -326,4 +374,3 @@ class MessageBuilder:
         if not value:
             raise ValueError(f"Failed to retrieve '{key}' from the cart configuration.")
         return value
-
