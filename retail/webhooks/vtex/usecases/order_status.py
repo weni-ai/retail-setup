@@ -190,8 +190,15 @@ class OrderStatusUseCase:
         message_payload = message_builder.build_message()
 
         if message_payload:
+            extra_payload = {
+                "phone_number": phone_number,
+                "order_status": self.data.currentState,
+                "order_data": order_data,
+                "flows_channel_uuid": flow_channel_uuid,
+                "project_uuid": project.uuid,
+            }
             self._send_message_to_module(
-                message_payload, integrated_feature, order_data
+                message_payload, integrated_feature, extra_payload
             )
         else:
             logger.info(
@@ -244,7 +251,7 @@ class OrderStatusUseCase:
         self,
         message_payload: Dict,
         integrated_feature: IntegratedFeature,
-        order_data: Dict,
+        extra_payload: Dict,
     ):
         """
         Send the built message using code actions service.
@@ -254,11 +261,6 @@ class OrderStatusUseCase:
             code_action_id = self._get_code_action_id_by_integrated_feature(
                 integrated_feature
             )
-
-            # Prepare extra payload with order data
-            extra_payload = {
-                "order_data": order_data,
-            }
 
             # Call code actions service
             response = self.code_actions_service.run_code_action(

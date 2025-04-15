@@ -1,8 +1,5 @@
 import logging
 
-from django.conf import settings
-import requests
-
 from retail.clients.vtex_io.client import VtexIOClient
 from retail.clients.vtex.client import VtexClient
 from retail.services.vtex.service import VtexService
@@ -198,30 +195,43 @@ class CartAbandonmentUseCase:
 
     def _mark_cart_as_abandoned(
         self, cart: Cart, order_form: dict, client_profile: dict
-    ):
+    ) -> None:
         """
         Mark a cart as abandoned and send notification.
 
+        This method updates the cart status to 'abandoned', builds the abandonment message,
+        sends the notification through the code actions service, and updates the cart status
+        based on the delivery result.
+
         Args:
             cart (Cart): The cart to process.
-            order_form (dict): Order form details.
-            client_profile (dict): Client profile data.
+            order_form (dict): Order form details containing cart items and pricing.
+            client_profile (dict): Client profile data with customer information.
+
+        Returns:
+            None
         """
         self._update_cart_status(cart, "abandoned")
 
-        # Prepare and send the notification
-        message_payload = self.message_builder.build_abandonment_message(cart)
+        # Get both message and extra parameters
+        (
+            message_payload,
+            message_parameters,
+        ) = self.message_builder.build_abandonment_message(cart)
+        # Build full extra payload
         extra_payload = {
             "order_form": order_form,
             "client_profile": client_profile,
+            **message_parameters,  # Include extra message context
         }
+
         response = self.code_actions_service.run_code_action(
             action_id=self._get_code_action_id_by_cart(cart),
             message_payload=message_payload,
             extra_payload=extra_payload,
         )
-        self._update_cart_status(cart, "delivered_success", response)
 
+        self._update_cart_status(cart, "delivered_success", response)
         # Set marketing data
         self._set_utm_source(cart)
 
@@ -273,7 +283,7 @@ class CartAbandonmentUseCase:
         integrated_feature = cart.integrated_feature
         feature_code = integrated_feature.feature.code
         vtex_account = integrated_feature.project.vtex_account
-        
+
         # Use feature code to create a specific action name
         action_name = f"{vtex_account}_{feature_code}_send_whatsapp_broadcast"
 
@@ -291,32 +301,27 @@ class MessageBuilder:
     Helper to build broadcast message payloads for abandoned cart notifications.
     """
 
-    def build_abandonment_message(self, cart: Cart) -> dict:
+    def build_abandonment_message(self, cart: Cart) -> tuple[dict, dict]:
         """
-        Build the message payload for an abandoned cart notification.
+        Build the message payload and extra parameters for an abandoned cart notification.
 
         Args:
             cart (Cart): The cart for which to build the message.
 
         Returns:
-            dict: The message payload.
-
-        Raises:
-            ValueError: If required data is missing in the cart or feature.
+            tuple: (message_payload, extra_parameters)
         """
-        # Fetch required data from the cart's integrated feature
         template_name = self._get_integrated_feature_config_value(
             cart, "abandoned_cart_template"
         )
         channel_uuid = self._get_integrated_feature_config_value(
             cart, "flow_channel_uuid"
         )
-
         client_name = self._get_cart_config_value(cart, "client_name")
         locale = self._get_cart_config_value(cart, "locale")
         cart_link = f"{cart.order_form_id}/"
-        # Build the payload
-        return {
+
+        message_payload = {
             "project": str(cart.project.uuid),
             "urns": [f"whatsapp:{cart.phone_number}"],
             "channel": channel_uuid,
@@ -334,6 +339,17 @@ class MessageBuilder:
                 ],
             },
         }
+
+        # Parameters that may help Code Action logic
+        extra_parameters = {
+            "project_uuid": str(cart.project.uuid),
+            "flow_channel_uuid": channel_uuid,
+            "client_name": client_name,
+            "locale": locale,
+            "cart_link": cart_link,
+        }
+
+        return message_payload, extra_parameters
 
     def _get_integrated_feature_config_value(self, cart: Cart, key: str) -> str:
         """
