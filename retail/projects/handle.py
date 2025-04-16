@@ -9,5 +9,5 @@ from retail.projects.consumers.project_vtex_config_consumer import (
 def handle_consumers(channel: amqp.Channel):
     channel.basic_consume("retail.projects", callback=ProjectConsumer().handle)
     channel.basic_consume(
-        "create_vtex_app.topic", callback=ProjectVtexConfigConsumer().handle
+        "retail.projects.config", callback=ProjectVtexConfigConsumer().handle
     )
