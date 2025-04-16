@@ -38,6 +38,13 @@ class InternalVtexIOAuthentication(RequestClient):
         """
         return self.__get_module_token()
 
+    @property
+    def headers(self):
+        return {
+            "Content-Type": "application/json; charset: utf-8",
+            "Authorization": f"Bearer {self.token}",
+        }
+
 
 class VtexIOClient(RequestClient, VtexIOClientInterface):
     """
@@ -48,7 +55,7 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         """
         Initializes the authentication instance.
         """
-        self.authentication_instance = InternalVtexIOAuthentication()
+        self.authentication = InternalVtexIOAuthentication()
 
     def _get_url(self, account_domain: str, path: str) -> str:
         """
@@ -84,9 +91,10 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         url = self._get_url(account_domain, "_v/order-form-details")
         params = {
             "orderFormId": order_form_id,
-            "token": self.authentication_instance.token,
         }
-        response = self.make_request(url, method="GET", params=params)
+        response = self.make_request(
+            url, method="GET", params=params, headers=self.authentication.headers
+        )
 
         return response.json()
 
@@ -104,9 +112,10 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         url = self._get_url(account_domain, "_v/orders-by-email")
         params = {
             "user_email": user_email,
-            "token": self.authentication_instance.token,
         }
-        response = self.make_request(url, method="GET", params=params)
+        response = self.make_request(
+            url, method="GET", params=params, headers=self.authentication.headers
+        )
 
         return response.json()
 
@@ -117,9 +126,10 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         url = self._get_url(account_domain, "_v/order-by-id")
         params = {
             "orderId": order_id,
-            "token": self.authentication_instance.token,
         }
 
-        response = self.make_request(url, method="GET", params=params)
+        response = self.make_request(
+            url, method="GET", params=params, headers=self.authentication.headers
+        )
 
         return response.json()
