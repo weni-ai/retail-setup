@@ -264,8 +264,7 @@ class CartAbandonmentUseCase:
             logger.error(f"Cart not found during error handling: {error_message}")
 
     def _get_account_domain(self, cart: Cart) -> str:
-        # TODO: remove weni-- before deploy
-        return f"weni--{cart.project.vtex_account}.myvtex.com"
+        return f"{cart.project.vtex_account}.myvtex.com"
 
     def _get_code_action_id_by_cart(self, cart: Cart) -> str:
         """
