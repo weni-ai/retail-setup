@@ -9,6 +9,7 @@ from retail.healthcheck import views
 from retail.api import routers as feature_routers
 from retail.webhooks import urls as webhooks_urls
 from retail.projects import urls as project_urls
+from retail.vtex import urls as vtex_urls
 
 urlpatterns = [
     path("", lambda _: redirect("admin/", permanent=True)),
@@ -17,6 +18,7 @@ urlpatterns = [
     path("api/", include(project_urls)),
     path("v2/", include(feature_routers)),
     path("", include(webhooks_urls)),
+    path("vtex/", include(vtex_urls)),
 ]
 
 urlpatterns.append(

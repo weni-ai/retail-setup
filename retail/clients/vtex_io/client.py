@@ -63,7 +63,7 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
 
         Args:
             account_domain (str): VTEX account domain (e.g., 'wenipartnerbr.myvtex.com').
-            path (str): API endpoint path (e.g., '_v/get-feature-list').
+            path (str): API endpoint path (e.g., '/get-feature-list').
 
         Returns:
             str: Complete URL for the API request.
@@ -75,7 +75,7 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         else:
             domain = account_domain
 
-        return f"https://{domain}/{path}"
+        return f"https://{domain}/_v{path}"
 
     def get_order_form_details(self, account_domain: str, order_form_id: str) -> dict:
         """
@@ -88,7 +88,7 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         Returns:
             dict: Order form details.
         """
-        url = self._get_url(account_domain, "_v/order-form-details")
+        url = self._get_url(account_domain, "/order-form-details")
         params = {
             "orderFormId": order_form_id,
         }
@@ -109,7 +109,7 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         Returns:
             dict: Order details.
         """
-        url = self._get_url(account_domain, "_v/orders-by-email")
+        url = self._get_url(account_domain, "/orders-by-email")
         params = {
             "user_email": user_email,
         }
@@ -123,13 +123,38 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         """
         Fetches order details by order ID.
         """
-        url = self._get_url(account_domain, "_v/order-by-id")
+        url = self._get_url(account_domain, "/order-by-id")
         params = {
             "orderId": order_id,
         }
 
         response = self.make_request(
             url, method="GET", params=params, headers=self.authentication.headers
+        )
+
+        return response.json()
+
+    def get_orders(self, account_domain: str, query_params: str) -> dict:
+        """
+        Acts as a proxy to fetch orders from VTEX IO OMS API.
+
+        This method forwards the query parameters to the VTEX IO API
+        and returns the response.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            query_params (dict): Query parameters to filter orders.
+
+        Returns:
+            dict: Orders data from VTEX IO.
+        """
+        url = self._get_url(account_domain, "/orders")
+
+        data = {
+            "raw_query": query_params,
+        }
+        response = self.make_request(
+            url, method="POST", json=data, headers=self.authentication_instance.headers
         )
 
         return response.json()

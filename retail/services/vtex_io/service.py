@@ -1,4 +1,5 @@
 from retail.interfaces.clients.vtex_io.interface import VtexIOClientInterface
+from retail.clients.vtex_io.client import VtexIOClient
 
 
 class VtexIOService:
@@ -7,14 +8,14 @@ class VtexIOService:
     Provides methods to fetch order form details and order history based on email.
     """
 
-    def __init__(self, client: VtexIOClientInterface):
+    def __init__(self, client: VtexIOClientInterface = None):
         """
         Initialize the VTEX IO service with the provided client.
 
         Args:
             client (VtexIOClientInterface): The client interface for VTEX IO.
         """
-        self.client = client
+        self.client = client or VtexIOClient()
 
     def get_order_form_details(self, account_domain: str, order_form_id: str) -> dict:
         """
@@ -50,3 +51,16 @@ class VtexIOService:
         Retrieve order details by order ID from VTEX IO.
         """
         return self.client.get_order_details_by_id(account_domain, order_id)
+
+    def get_orders(self, account_domain: str, query_params: str) -> dict:
+        """
+        Retrieve orders from VTEX IO.
+
+        Args:
+            account_domain (str): The domain of the VTEX account.
+            query_params (str): The query parameters to filter orders.
+
+        Returns:
+            dict: The orders if successful
+        """
+        return self.client.get_orders(account_domain, query_params)
