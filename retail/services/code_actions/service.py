@@ -57,3 +57,11 @@ class CodeActionsService:
         except Exception as e:
             logger.error(f"Error reading template file: {str(e)}")
             raise
+
+    def delete_registered_code_action(self, action_data: dict) -> None:
+        """
+        Deletes a previously registered code action for the given integrated feature.
+        """
+        for name, action_id in action_data.items():
+            self.client.delete_code_action(action_id)
+            logger.info(f"Deleted code action {name} (ID: {action_id}) successfully.")
