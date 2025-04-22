@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from retail.clients.base import RequestClient
+from retail.clients.exceptions import CustomAPIException
 
 
 class LambdaURLValidator(RequestClient):  # pragma: no cover
@@ -72,6 +73,11 @@ class LambdaURLValidator(RequestClient):  # pragma: no cover
                     },
                     status=status.HTTP_401_UNAUTHORIZED,
                 )
+        except CustomAPIException as e:
+            return Response(
+                {"error": f"Request API error: {str(e)}"},
+                status=e.status_code or status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as e:
             return Response(
                 {"error": f"Error processing request: {str(e)}"},
