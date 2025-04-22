@@ -154,7 +154,7 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
             "raw_query": query_params,
         }
         response = self.make_request(
-            url, method="POST", json=data, headers=self.authentication_instance.headers
+            url, method="POST", json=data, headers=self.authentication.headers
         )
 
         return response.json()
