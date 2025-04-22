@@ -7,6 +7,7 @@ from retail.utils.aws.lambda_validator import LambdaURLValidator
 from retail.vtex.serializers import OrdersQueryParamsSerializer
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.usecases.get_orders import GetOrdersUsecase
+from rest_framework.permissions import AllowAny
 
 
 class OrdersProxyView(APIView, LambdaURLValidator):
@@ -15,6 +16,7 @@ class OrdersProxyView(APIView, LambdaURLValidator):
     """
 
     authentication_classes = []
+    permission_classes = [AllowAny]
 
     def __init__(self, **kwargs):
         """
