@@ -14,6 +14,8 @@ class OrdersProxyView(APIView, LambdaURLValidator):
     POST endpoint that proxies query parameters to VTEX IO OMS API.
     """
 
+    authentication_classes = []
+
     def __init__(self, **kwargs):
         """
         Initialize the OrdersProxyView.
