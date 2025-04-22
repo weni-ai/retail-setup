@@ -5,8 +5,6 @@ from rest_framework import status
 
 
 from retail.vtex.serializers import OrdersQueryParamsSerializer
-from retail.services.vtex_io.service import VtexIOService
-from retail.vtex.usecases.get_orders import GetOrdersUsecase
 
 
 class OrdersProxyView(APIView):
@@ -23,7 +21,4 @@ class OrdersProxyView(APIView):
         serializer = OrdersQueryParamsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        usecase = GetOrdersUsecase(vtex_io_service=VtexIOService())
-        result = usecase.execute(data=serializer.validated_data)
-
-        return Response(result, status=status.HTTP_200_OK)
+        return Response({"Fe"}, status=status.HTTP_200_OK)
