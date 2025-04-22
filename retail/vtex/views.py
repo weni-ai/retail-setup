@@ -16,7 +16,7 @@ class OrdersProxyView(APIView):
 
     authentication_classes = []
 
-    def post(self, request: Request) -> Response:
+    def post(self, request: Request, *args, **kwargs) -> Response:
         """
         Handle POST requests to proxy orders from VTEX IO OMS API.
         """
