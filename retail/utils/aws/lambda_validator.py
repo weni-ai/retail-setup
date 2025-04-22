@@ -1,12 +1,12 @@
-import requests
-
 from django.conf import settings
 
 from rest_framework.response import Response
 from rest_framework import status
 
+from retail.clients.base import RequestClient
 
-class LambdaURLValidator:  # pragma: no cover
+
+class LambdaURLValidator(RequestClient):  # pragma: no cover
     """
     Validator class for AWS Lambda STS URLs and authentication.
 
@@ -47,12 +47,15 @@ class LambdaURLValidator:  # pragma: no cover
             sts_url = request.headers.get("Authorization").split("Bearer ", 2)[1]
             if not self.is_valid_url(sts_url):
                 return Response(
-                    {"message": "Invalid sts"}, status=status.HTTP_400_BAD_REQUEST
+                    {
+                        "message": "Invalid STS URL format. Missing required prefix or contains invalid characters."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            response = requests.request(
-                method="GET",
+            response = self.make_request(
                 url=sts_url,
+                method="GET",
                 headers={"Accept": "application/json"},
                 timeout=30,
             )
@@ -64,9 +67,13 @@ class LambdaURLValidator:  # pragma: no cover
                 return Response({"message": "Access granted!", "role": identity_arn})
             else:
                 return Response(
-                    {"message": "Invalid arn"}, status=status.HTTP_401_UNAUTHORIZED
+                    {
+                        "message": f"Unauthorized ARN: {identity_arn}. The ARN is not in the list of allowed roles."
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
                 )
         except Exception as e:
             return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": f"Error processing request: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
