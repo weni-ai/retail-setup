@@ -3,20 +3,18 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
 
-from retail.utils.aws.lambda_validator import LambdaURLValidator
+
 from retail.vtex.serializers import OrdersQueryParamsSerializer
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.usecases.get_orders import GetOrdersUsecase
-from rest_framework.permissions import AllowAny
 
 
-class OrdersProxyView(APIView, LambdaURLValidator):
+class OrdersProxyView(APIView):
     """
     POST endpoint that proxies query parameters to VTEX IO OMS API.
     """
 
     authentication_classes = []
-    permission_classes = [AllowAny]
 
     def __init__(self, **kwargs):
         """
@@ -50,10 +48,10 @@ class OrdersProxyView(APIView, LambdaURLValidator):
         Returns:
             Response: The API response with order data or error message.
         """
-        # AWS Lambda STS validation
-        validation_response = self.protected_resource(request)
-        if validation_response.status_code != 200:
-            return validation_response
+        # # AWS Lambda STS validation
+        # validation_response = self.protected_resource(request)
+        # if validation_response.status_code != 200:
+        #     return validation_response
 
         serializer = OrdersQueryParamsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
