@@ -80,3 +80,25 @@ class CodeActionsClient(RequestClient, CodeActionsClientInterface):
             headers=self.authentication_instance.headers,
         )
         return response.json()
+
+    def delete_code_action(
+        self,
+        action_id: str,
+    ) -> dict:
+        """
+        Deletes a code action using the Code Actions API.
+
+        Args:
+            action_id (str): ID of the code action.
+
+        Returns:
+            Response: Response object from the API.
+        """
+        url = f"{self.base_url}/code/{action_id}"
+
+        response = self.make_request(
+            url,
+            method="DELETE",
+            headers=self.authentication_instance.headers_text,
+        )
+        return response

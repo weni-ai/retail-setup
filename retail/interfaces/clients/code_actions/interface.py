@@ -42,3 +42,18 @@ class CodeActionsClientInterface(ABC):
             dict: Response from the API.
         """
         pass
+
+    @abstractmethod
+    def delete_code_action(
+        self,
+        action_id: str,
+    ) -> dict:
+        """
+        Deletes a code action using the Code Actions API.
+
+        Args:
+            action_id (str): ID of the code action.
+        Returns:
+            dict: Response from the API.
+        """
+        pass
