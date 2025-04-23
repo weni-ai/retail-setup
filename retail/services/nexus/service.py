@@ -16,7 +16,7 @@ class NexusService:
             return self.nexus_client.list_agents(project_uuid)
         except CustomAPIException as e:
             print(
-                f"Error {e.status_code} when listing agents for project {project_uuid}."
+                f"Code: {e.status_code} when listing agents for project {project_uuid}. Error: {str(e)}"
             )
             return None
 
