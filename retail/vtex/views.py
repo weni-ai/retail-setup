@@ -56,5 +56,14 @@ class OrdersProxyView(APIView, LambdaURLValidator):
         serializer = OrdersQueryParamsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        result = self.get_orders_usecase.execute(data=serializer.validated_data)
-        return Response(result, status=status.HTTP_200_OK)
+        try:
+            print("Executing GetOrdersUsecase...")
+            result = self.get_orders_usecase.execute(data=serializer.validated_data)
+            print("Execution completed successfully.")
+            return Response(result, status=status.HTTP_200_OK)
+        except Exception as e:
+            print("Error while executing GetOrdersUsecase")
+            print(str(e))
+            return Response(
+                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
