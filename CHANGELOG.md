@@ -1,3 +1,8 @@
+# 1.6.1
+
+## *Change*
+  - fix: Integrated features showing cross projects
+
 # 1.6.0
 
 ## *Add*
