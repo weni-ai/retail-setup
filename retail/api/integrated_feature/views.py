@@ -50,7 +50,9 @@ class IntegratedFeatureView(BaseServiceView):
             if category:
                 features = features.filter(category=category)
 
-            serializer = IntegratedFeatureSerializer(features, many=True)
+            serializer = IntegratedFeatureSerializer(
+                features, many=True, context={"project_uuid": project_uuid}
+            )
 
             return Response({"results": serializer.data}, status=status.HTTP_200_OK)
 
