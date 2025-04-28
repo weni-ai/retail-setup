@@ -1,3 +1,8 @@
+# 1.6.2
+
+## *Change*
+  - fix: remove static vtex workspace
+
 # 1.6.1
 
 ## *Change*
