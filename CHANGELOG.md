@@ -1,3 +1,8 @@
+# 1.6.3
+
+## *Change*
+  - fix: change autorization key to X-Weni-Auth
+
 # 1.6.2
 
 ## *Change*
