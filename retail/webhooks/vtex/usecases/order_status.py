@@ -195,7 +195,7 @@ class OrderStatusUseCase:
                 "order_status": self.data.currentState,
                 "order_data": order_data,
                 "flows_channel_uuid": flow_channel_uuid,
-                "project_uuid": project.uuid,
+                "project_uuid": str(project.uuid),
             }
             self._send_message_to_module(
                 message_payload, integrated_feature, extra_payload
