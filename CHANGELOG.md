@@ -1,3 +1,8 @@
+# 1.6.4
+
+## *Change*
+  - fix: encode project_uuid from object to string
+
 # 1.6.3
 
 ## *Change*
