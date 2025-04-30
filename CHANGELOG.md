@@ -1,3 +1,8 @@
+# 1.6.5
+
+## *Change*
+  - fix: add task_id to check_templates_synchronization task
+
 # 1.6.4
 
 ## *Change*
