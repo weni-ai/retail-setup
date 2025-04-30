@@ -152,6 +152,9 @@ class InstallActions:
             integrated_feature (IntegratedFeature): The integrated feature instance to update.
         """
         try:
+            logger.info(
+                f"Schedule template synchronization for integrated feature {integrated_feature.uuid}"
+            )
             # Call the task to check template synchronization
             check_templates_synchronization.apply_async(
                 args=[str(integrated_feature.uuid)], countdown=60  # 1 minute
