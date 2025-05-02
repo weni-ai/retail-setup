@@ -68,7 +68,6 @@ class OrderStatusUseCase:
                 f"Project not found for VTEX account {self.data.vtexAccount}. "
                 f"Order id: {self.data.orderId}"
             )
-            logger.error(error_message)
             raise ValidationError(error_message)
         except Project.MultipleObjectsReturned:
             error_message = (
