@@ -41,7 +41,7 @@ class NexusClient(RequestClient, NexusClientInterface):
             Dict: Integration response data.
         """
         url = f"{self.base_url}/api/project/{str(project_uuid)}/app-assign/{str(agent_uuid)}"
-        payload = {"assign": True}
+        payload = {"assigned": True}
 
         response = self.make_request(
             url,
@@ -63,7 +63,7 @@ class NexusClient(RequestClient, NexusClientInterface):
             Dict: Removal response data.
         """
         url = f"{self.base_url}/api/project/{str(project_uuid)}/app-assign/{str(agent_uuid)}"
-        payload = {"assign": False}
+        payload = {"assigned": False}
 
         response = self.make_request(
             url,
