@@ -1,3 +1,40 @@
+# 1.6.5
+
+## *Change*
+  - fix: add task_id to check_templates_synchronization task
+
+# 1.6.4
+
+## *Change*
+  - fix: encode project_uuid from object to string
+
+# 1.6.3
+
+## *Change*
+  - fix: change autorization key to X-Weni-Auth
+
+# 1.6.2
+
+## *Change*
+  - fix: remove static vtex workspace
+
+# 1.6.1
+
+## *Change*
+  - fix: Integrated features showing cross projects
+
+# 1.6.0
+
+## *Add*
+  - feat: add pre-commit to project
+  - Feature/vtex project app consumer
+  - feat: create code action and use run code action to send notifications
+  - feat: dynamic vtex workspace
+  - feat: add delete integrated feature usecase and delete code action linked
+
+## *Change*
+  - fix: remove authentication by params from vtex requets
+
 # 1.5.0
 
 ## *Add*
@@ -22,7 +59,7 @@
 
 ## *Add*
   - feat: applying black to the project
-  - feat: add task to sync templates from integrated features 
+  - feat: add task to sync templates from integrated features
   - feat: edit existing vtex projects and displays error with multiple projects
   - feat: add dynamic template names
   - feat: add order status restriction rules

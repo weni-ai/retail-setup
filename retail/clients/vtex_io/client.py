@@ -38,6 +38,13 @@ class InternalVtexIOAuthentication(RequestClient):
         """
         return self.__get_module_token()
 
+    @property
+    def headers(self):
+        return {
+            "Content-Type": "application/json; charset: utf-8",
+            "X-Weni-Auth": f"Bearer {self.token}",
+        }
+
 
 class VtexIOClient(RequestClient, VtexIOClientInterface):
     """
@@ -48,7 +55,27 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         """
         Initializes the authentication instance.
         """
-        self.authentication_instance = InternalVtexIOAuthentication()
+        self.authentication = InternalVtexIOAuthentication()
+
+    def _get_url(self, account_domain: str, path: str) -> str:
+        """
+        Builds the complete URL for VTEX IO API requests, optionally including a workspace prefix.
+
+        Args:
+            account_domain (str): VTEX account domain (e.g., 'wenipartnerbr.myvtex.com').
+            path (str): API endpoint path (e.g., '_v/get-feature-list').
+
+        Returns:
+            str: Complete URL for the API request.
+        """
+        workspace_prefix = getattr(settings, "VTEX_IO_WORKSPACE", "")
+        if workspace_prefix:
+            # Example: weni--wenipartnerbr.myvtex.com
+            domain = f"{workspace_prefix}--{account_domain}"
+        else:
+            domain = account_domain
+
+        return f"https://{domain}/{path}"
 
     def get_order_form_details(self, account_domain: str, order_form_id: str) -> dict:
         """
@@ -61,12 +88,13 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         Returns:
             dict: Order form details.
         """
-        url = f"https://{account_domain}/_v/order-form-details"
+        url = self._get_url(account_domain, "_v/order-form-details")
         params = {
             "orderFormId": order_form_id,
-            "token": self.authentication_instance.token,
         }
-        response = self.make_request(url, method="GET", params=params)
+        response = self.make_request(
+            url, method="GET", params=params, headers=self.authentication.headers
+        )
 
         return response.json()
 
@@ -81,12 +109,13 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         Returns:
             dict: Order details.
         """
-        url = f"https://{account_domain}/_v/orders-by-email"
+        url = self._get_url(account_domain, "_v/orders-by-email")
         params = {
             "user_email": user_email,
-            "token": self.authentication_instance.token,
         }
-        response = self.make_request(url, method="GET", params=params)
+        response = self.make_request(
+            url, method="GET", params=params, headers=self.authentication.headers
+        )
 
         return response.json()
 
@@ -94,12 +123,13 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         """
         Fetches order details by order ID.
         """
-        url = f"https://{account_domain}/_v/order-by-id"
+        url = self._get_url(account_domain, "_v/order-by-id")
         params = {
             "orderId": order_id,
-            "token": self.authentication_instance.token,
         }
 
-        response = self.make_request(url, method="GET", params=params)
+        response = self.make_request(
+            url, method="GET", params=params, headers=self.authentication.headers
+        )
 
         return response.json()

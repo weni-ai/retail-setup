@@ -15,9 +15,11 @@ from retail.api.integrated_feature.serializers import (
 from retail.api.usecases.create_integrated_feature_usecase import (
     CreateIntegratedFeatureUseCase,
 )
+from retail.api.usecases.delete_integrated_feature_usecase import (
+    DeleteIntegratedFeatureUseCase,
+)
 
 from retail.features.models import Feature, IntegratedFeature
-from retail.features.integrated_feature_eda import IntegratedFeatureEDA
 from retail.projects.models import Project
 
 
@@ -49,7 +51,9 @@ class IntegratedFeatureView(BaseServiceView):
             if category:
                 features = features.filter(category=category)
 
-            serializer = IntegratedFeatureSerializer(features, many=True)
+            serializer = IntegratedFeatureSerializer(
+                features, many=True, context={"project_uuid": project_uuid}
+            )
 
             return Response({"results": serializer.data}, status=status.HTTP_200_OK)
 
@@ -57,36 +61,17 @@ class IntegratedFeatureView(BaseServiceView):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, *args, **kwargs):
-        feature = Feature.objects.get(uuid=kwargs["feature_uuid"])
         try:
-            project = Project.objects.get(uuid=request.data["project_uuid"])
-        except Project.DoesNotExist:
-            return Response(
-                status=status.HTTP_404_NOT_FOUND,
-                data={
-                    "error": f"Project with uuid equals {request.data['project_uuid']} does not exists!"
-                },
-            )
+            feature_uuid = kwargs["feature_uuid"]
+            project_uuid = request.data["project_uuid"]
+            user_email = request.user.email
 
-        integrated_feature = IntegratedFeature.objects.get(
-            project__uuid=str(project.uuid), feature__uuid=str(feature.uuid)
-        )
+            use_case = DeleteIntegratedFeatureUseCase()
+            result = use_case.execute(project_uuid, feature_uuid, user_email)
 
-        body = {
-            "project_uuid": str(project.uuid),
-            "feature_version": (
-                str(integrated_feature.feature_version.uuid)
-                if integrated_feature.feature_version
-                else ""
-            ),
-            "feature_uuid": str(integrated_feature.feature.uuid),
-            "user_email": request.user.email,
-        }
-
-        IntegratedFeatureEDA().publisher(body=body, exchange="removed-feature.topic")
-        print(f"message send to `removed-feature.topic`: {body}")
-        integrated_feature.delete()
-        return Response({"status": 200, "data": "integrated feature removed"})
+            return Response(result, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     def put(self, request, *args, **kwargs):
         feature = Feature.objects.get(uuid=kwargs["feature_uuid"])

@@ -8,3 +8,9 @@ class ProjectCreationDTO:
     organization_uuid: str
     authorizations: list = None
     vtex_account: str = None
+
+
+@dataclass(frozen=True)
+class ProjectVtexConfigDTO:
+    account: str
+    store_type: str

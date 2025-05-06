@@ -35,7 +35,7 @@ def task_order_status_update(order_update_data: dict):
         logger.info(
             f"Successfully processed order update for order ID: {order_update_data.get('orderId')}"
         )
-    except ValidationError as e:
-        logger.error(f"Validation error processing order update: {str(e)}")
+    except ValidationError:
+        pass
     except Exception as e:
         logger.error(f"Unexpected error processing order update: {str(e)}")

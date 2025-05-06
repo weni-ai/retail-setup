@@ -68,7 +68,13 @@ def check_templates_synchronization(integrated_feature_uuid: str):
                 f"Templates still pending, scheduling retry for integrated feature {integrated_feature_uuid}"
             )
             check_templates_synchronization.apply_async(
-                args=[integrated_feature_uuid], countdown=300  # Reattempt in 5 minutes
+                args=[integrated_feature_uuid],
+                countdown=300,  # Reattempt in 5 minutes
+                task_id=f"template_sync_retry_{integrated_feature_uuid}",
+            )
+            logger.info(
+                f"Retry task for {integrated_feature_uuid} scheduled with task_id: "
+                f"template_sync_retry_{integrated_feature_uuid}"
             )
 
         elif sync_status == "rejected":

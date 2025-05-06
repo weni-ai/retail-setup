@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from sentry_sdk import capture_message
 
+from retail.clients.exceptions import CustomAPIException
 from retail.clients.vtex_io.client import VtexIOClient
 from retail.features.models import IntegratedFeature
 from retail.projects.models import Project
@@ -16,6 +17,8 @@ from retail.vtex.usecases.phone_number_normalizer import PhoneNumberNormalizer
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 from retail.services.flows.service import FlowsService
 from retail.clients.flows.client import FlowsClient
+from retail.services.code_actions.service import CodeActionsService
+from retail.clients.code_actions.client import CodeActionsClient
 
 from babel.dates import format_date
 
@@ -32,10 +35,13 @@ class OrderStatusUseCase:
         data: OrderStatusDTO,
         flows_service: FlowsService = None,
         vtex_io_service: VtexIOService = None,
+        code_actions_service: CodeActionsService = None,
     ):
-
         self.flows_service = flows_service or FlowsService(FlowsClient())
         self.vtex_io_service = vtex_io_service or VtexIOService(VtexIOClient())
+        self.code_actions_service = code_actions_service or CodeActionsService(
+            CodeActionsClient()
+        )
         self.data = data
 
     @classmethod
@@ -43,7 +49,7 @@ class OrderStatusUseCase:
         """
         Get the domain for a given account.
         """
-        return f"weni--{account}.myvtex.com"
+        return f"{account}.myvtex.com"
 
     def _get_project_by_vtex_account(self) -> Project:
         """
@@ -58,11 +64,16 @@ class OrderStatusUseCase:
         try:
             return Project.objects.get(vtex_account=self.data.vtexAccount)
         except Project.DoesNotExist:
-            error_message = f"Project not found for VTEX account {self.data.vtexAccount}. Order id: {self.data.orderId}"
-            logger.error(error_message)
+            error_message = (
+                f"Project not found for VTEX account {self.data.vtexAccount}. "
+                f"Order id: {self.data.orderId}"
+            )
             raise ValidationError(error_message)
         except Project.MultipleObjectsReturned:
-            error_message = f"Multiple projects found for VTEX account {self.data.vtexAccount}. Order id: {self.data.orderId}"
+            error_message = (
+                f"Multiple projects found for VTEX account {self.data.vtexAccount}. "
+                f"Order id: {self.data.orderId}"
+            )
             logger.error(error_message)
             raise ValidationError(error_message)
 
@@ -76,7 +87,10 @@ class OrderStatusUseCase:
         ).first()
 
         if not integrated_feature:
-            error_message = f"Order status integration not found for project {project.name}. Order id: {self.data.orderId}"
+            error_message = (
+                f"Order status integration not found for project {project.name}. "
+                f"Order id: {self.data.orderId}"
+            )
             capture_message(error_message)
 
             raise ValidationError(
@@ -94,7 +108,10 @@ class OrderStatusUseCase:
         raw_phone_number = phone_data.get("phone")
 
         if not raw_phone_number:
-            error_message = f"Phone number not found in order {self.data.orderId} - {self.data.vtexAccount}. Cannot proceed."
+            error_message = (
+                f"Phone number not found in order {self.data.orderId} - {self.data.vtexAccount}. "
+                f"Cannot proceed."
+            )
             logger.error(error_message)
             raise ValidationError(
                 {"error": "Phone number is required for message dispatch."},
@@ -172,27 +189,91 @@ class OrderStatusUseCase:
         message_payload = message_builder.build_message()
 
         if message_payload:
-            self._send_message_to_module(message_payload, integrated_feature)
-        else:
-            logger.info("No valid message payload found. Skipping message dispatch.")
-
-    def _send_message_to_module(
-        self, message_payload: Dict, integrated_feature: IntegratedFeature
-    ):
-        """
-        Send the built message to the flows broadcasts.
-        """
-        project_uuid = self._get_project_uuid_by_integrated_feature(integrated_feature)
-        success = self.flows_service.send_whatsapp_broadcast(
-            payload=message_payload, project_uuid=str(project_uuid)
-        )
-        if success:
-            logger.info(
-                f"Successfully sent message to the broadcast module for project {project_uuid}."
+            extra_payload = {
+                "phone_number": phone_number,
+                "order_status": self.data.currentState,
+                "order_data": order_data,
+                "flows_channel_uuid": flow_channel_uuid,
+                "project_uuid": str(project.uuid),
+            }
+            self._send_message_to_module(
+                message_payload, integrated_feature, extra_payload
             )
         else:
-            logger.warning(
-                f"Failed to send message to the broadcast module for project {project_uuid}."
+            logger.info(
+                f"No valid message payload found. Skipping message dispatch. "
+                f"Order id: {self.data.orderId}, "
+                f"VTEX account: {self.data.vtexAccount}, "
+                f"message payload: {message_payload}"
+            )
+
+    def _get_code_action_id_by_integrated_feature(
+        self, integrated_feature: IntegratedFeature
+    ) -> str:
+        """
+        Get the code action ID from the integrated feature.
+
+        Args:
+            integrated_feature (IntegratedFeature): The integrated feature instance.
+
+        Returns:
+            str: The code action ID.
+
+        Raises:
+            ValidationError: If vtex account or action ID is not found.
+        """
+        vtex_account = integrated_feature.project.vtex_account
+        feature_code = integrated_feature.feature.code
+
+        # Use feature code to create a specific action name
+        action_name = f"{vtex_account}_{feature_code}_send_whatsapp_broadcast"
+
+        action_id = integrated_feature.config.get("code_action_registered", {}).get(
+            action_name
+        )
+
+        # Fallback to direct code_action_id if the registered action is not found
+        if not action_id:
+            action_id = integrated_feature.config.get("code_action_id")
+
+        if not action_id:
+            error_message = f"Action ID not found for action '{action_name}'"
+            logger.error(error_message)
+            raise ValidationError(
+                {"error": "code_action_id not found"},
+                code="code_action_id_not_found",
+            )
+
+        return action_id
+
+    def _send_message_to_module(
+        self,
+        message_payload: Dict,
+        integrated_feature: IntegratedFeature,
+        extra_payload: Dict,
+    ):
+        """
+        Send the built message using code actions service.
+        """
+        try:
+            # Get code action ID from integrated feature
+            code_action_id = self._get_code_action_id_by_integrated_feature(
+                integrated_feature
+            )
+
+            # Call code actions service
+            response = self.code_actions_service.run_code_action(
+                action_id=code_action_id,
+                message_payload=message_payload,
+                extra_payload=extra_payload,
+            )
+
+            logger.info(
+                f"Successfully sent message to code actions for order {self.data.orderId}. Response: {response}"
+            )
+        except CustomAPIException as e:
+            logger.error(
+                f"Failed to send message to code actions for order {self.data.orderId}. Error: {str(e)}"
             )
 
     def _validate_restrictions(
@@ -271,17 +352,24 @@ class MessageBuilder:
         Returns:
             dict: The formatted message payload.
         """
+        project_uuid = str(self.integrated_feature.project.uuid)
+
+        message = None
         if self.order_status == "invoiced":
-            return self._build_purchase_receipt_message()
+            message = self._build_purchase_receipt_message()
         elif self.order_status == "weni_purchase_transaction_alert":
-            return self._build_purchase_transaction_alert_message()
+            message = self._build_purchase_transaction_alert_message()
         elif self.order_status == "canceled":
-            return self._build_order_canceled_message()
+            message = self._build_order_canceled_message()
         elif self.order_status == "order-created":
-            return self._build_order_management_message()
+            message = self._build_order_management_message()
         elif self.order_status == "payment-approved":
-            return self._build_payment_confirmation_message()
-        return None
+            message = self._build_payment_confirmation_message()
+
+        if message:
+            message["project"] = project_uuid
+
+        return message
 
     def _build_purchase_receipt_message(self) -> Dict:
         """
@@ -595,7 +683,10 @@ class MessageBuilder:
 
         if not order_status_templates:
             logger.info(f"Order status templates: {order_status_templates}.")
-            error_message = f"Order status templates not found for project {self.integrated_feature.feature.project.uuid}."
+            error_message = (
+                f"Order status templates not found for project "
+                f"{self.integrated_feature.feature.project.uuid}."
+            )
             capture_message(error_message)
 
             raise ValidationError(
