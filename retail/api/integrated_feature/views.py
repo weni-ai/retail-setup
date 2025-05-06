@@ -128,6 +128,23 @@ class NexusAgentIntegrationView(BaseServiceView):
             status=status.HTTP_200_OK,
         )
 
+    def delete(self, request, *args, **kwargs):
+        """
+        Disables an agent from a project.
+        """
+        serializer = IntegrateNexusAgentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        project_uuid = serializer.validated_data["project_uuid"]
+        agent_uuid = serializer.validated_data["agent_uuid"]
+
+        result = self.nexus_service.remove_agent(project_uuid, agent_uuid)
+
+        return Response(
+            {"message": "Agent disabled successfully", "data": result},
+            status=status.HTTP_200_OK,
+        )
+
 
 class IntegratedFeatureSettingsView(views.APIView):
     permission_classes = [IsAuthenticated]
