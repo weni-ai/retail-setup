@@ -1,3 +1,8 @@
+# 1.6.6
+
+## *Change*
+  - fix: remove logger error spamming sentry
+
 # 1.6.5
 
 ## *Change*
