@@ -7,6 +7,7 @@ from rest_framework.response import Response
 
 from retail.api.base_service_view import BaseServiceView
 from retail.api.integrated_feature.serializers import (
+    IntegrateNexusAgentSerializer,
     IntegratedFeatureSettingsSerializer,
     IntegratedFeatureSerializer,
     AppIntegratedFeatureSerializer,
@@ -14,9 +15,11 @@ from retail.api.integrated_feature.serializers import (
 from retail.api.usecases.create_integrated_feature_usecase import (
     CreateIntegratedFeatureUseCase,
 )
+from retail.api.usecases.delete_integrated_feature_usecase import (
+    DeleteIntegratedFeatureUseCase,
+)
 
 from retail.features.models import Feature, IntegratedFeature
-from retail.features.integrated_feature_eda import IntegratedFeatureEDA
 from retail.projects.models import Project
 
 
@@ -38,7 +41,6 @@ class IntegratedFeatureView(BaseServiceView):
 
     def get(self, request, project_uuid):
         try:
-
             category = request.query_params.get("category", None)
             integrated_features = IntegratedFeature.objects.filter(
                 project__uuid=project_uuid
@@ -49,7 +51,9 @@ class IntegratedFeatureView(BaseServiceView):
             if category:
                 features = features.filter(category=category)
 
-            serializer = IntegratedFeatureSerializer(features, many=True)
+            serializer = IntegratedFeatureSerializer(
+                features, many=True, context={"project_uuid": project_uuid}
+            )
 
             return Response({"results": serializer.data}, status=status.HTTP_200_OK)
 
@@ -57,36 +61,17 @@ class IntegratedFeatureView(BaseServiceView):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, *args, **kwargs):
-        feature = Feature.objects.get(uuid=kwargs["feature_uuid"])
         try:
-            project = Project.objects.get(uuid=request.data["project_uuid"])
-        except Project.DoesNotExist:
-            return Response(
-                status=status.HTTP_404_NOT_FOUND,
-                data={
-                    "error": f"Project with uuid equals {request.data['project_uuid']} does not exists!"
-                },
-            )
+            feature_uuid = kwargs["feature_uuid"]
+            project_uuid = request.data["project_uuid"]
+            user_email = request.user.email
 
-        integrated_feature = IntegratedFeature.objects.get(
-            project__uuid=str(project.uuid), feature__uuid=str(feature.uuid)
-        )
+            use_case = DeleteIntegratedFeatureUseCase()
+            result = use_case.execute(project_uuid, feature_uuid, user_email)
 
-        body = {
-            "project_uuid": str(project.uuid),
-            "feature_version": (
-                str(integrated_feature.feature_version.uuid)
-                if integrated_feature.feature_version
-                else ""
-            ),
-            "feature_uuid": str(integrated_feature.feature.uuid),
-            "user_email": request.user.email,
-        }
-
-        IntegratedFeatureEDA().publisher(body=body, exchange="removed-feature.topic")
-        print(f"message send to `removed-feature.topic`: {body}")
-        integrated_feature.delete()
-        return Response({"status": 200, "data": "integrated feature removed"})
+            return Response(result, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     def put(self, request, *args, **kwargs):
         feature = Feature.objects.get(uuid=kwargs["feature_uuid"])
@@ -121,6 +106,43 @@ class IntegratedFeatureView(BaseServiceView):
                     "config": integrated_feature.config,
                 },
             }
+        )
+
+
+class NexusAgentIntegrationView(BaseServiceView):
+    """
+    View responsible for handling Nexus Agent integration operations.
+    """
+
+    def post(self, request, *args, **kwargs):
+        serializer = IntegrateNexusAgentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        project_uuid = serializer.validated_data["project_uuid"]
+        agent_uuid = serializer.validated_data["agent_uuid"]
+
+        result = self.nexus_service.integrate_agent(project_uuid, agent_uuid)
+
+        return Response(
+            {"message": "Agent integrated successfully", "data": result},
+            status=status.HTTP_200_OK,
+        )
+
+    def delete(self, request, *args, **kwargs):
+        """
+        Disables an agent from a project.
+        """
+        serializer = IntegrateNexusAgentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        project_uuid = serializer.validated_data["project_uuid"]
+        agent_uuid = serializer.validated_data["agent_uuid"]
+
+        result = self.nexus_service.remove_agent(project_uuid, agent_uuid)
+
+        return Response(
+            {"message": "Agent disabled successfully", "data": result},
+            status=status.HTTP_200_OK,
         )
 
 
@@ -166,12 +188,16 @@ class AppIntegratedFeatureView(BaseServiceView):
             project = Project.objects.get(uuid=project_uuid)
             vtex_config = project.config.get("vtex_config", {})
 
-            return Response(
-                {
-                    "results": serializer.data,
-                    "store_type": vtex_config.get("vtex_store_type", "")
-                },
-                status=status.HTTP_200_OK
-            )
+            response_data = {
+                "results": serializer.data,
+                "store_type": vtex_config.get("vtex_store_type", ""),
+            }
+
+            agents_data = self.nexus_service.list_agents(project_uuid)
+            if agents_data:
+                response_data["nexus_agents"] = agents_data
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)

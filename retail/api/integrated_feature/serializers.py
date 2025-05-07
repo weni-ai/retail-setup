@@ -17,7 +17,8 @@ class IntegratedFeatureSerializer(serializers.Serializer):
         return obj.uuid
 
     def get_globals(self, obj):
-        integrated_features = obj.integrated_features.all()
+        project_uuid = self.context.get("project_uuid")
+        integrated_features = obj.integrated_features.filter(project__uuid=project_uuid)
 
         globals_list = []
         for integrated_feature in integrated_features:
@@ -32,7 +33,8 @@ class IntegratedFeatureSerializer(serializers.Serializer):
         return globals_list
 
     def get_sectors(self, obj):
-        integrated_features = obj.integrated_features.all()
+        project_uuid = self.context.get("project_uuid")
+        integrated_features = obj.integrated_features.filter(project__uuid=project_uuid)
 
         sectors_list = []
         for integrated_feature in integrated_features:
@@ -124,3 +126,8 @@ class AppIntegratedFeatureSerializer(serializers.Serializer):
             "globals",
             "sectors",
         )
+
+
+class IntegrateNexusAgentSerializer(serializers.Serializer):
+    project_uuid = serializers.UUIDField()
+    agent_uuid = serializers.UUIDField()

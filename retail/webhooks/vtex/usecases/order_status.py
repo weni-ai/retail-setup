@@ -49,7 +49,7 @@ class OrderStatusUseCase:
         """
         Get the domain for a given account.
         """
-        return f"weni--{account}.myvtex.com"
+        return f"{account}.myvtex.com"
 
     def _get_project_by_vtex_account(self) -> Project:
         """
@@ -68,7 +68,6 @@ class OrderStatusUseCase:
                 f"Project not found for VTEX account {self.data.vtexAccount}. "
                 f"Order id: {self.data.orderId}"
             )
-            logger.error(error_message)
             raise ValidationError(error_message)
         except Project.MultipleObjectsReturned:
             error_message = (
@@ -195,7 +194,7 @@ class OrderStatusUseCase:
                 "order_status": self.data.currentState,
                 "order_data": order_data,
                 "flows_channel_uuid": flow_channel_uuid,
-                "project_uuid": project.uuid,
+                "project_uuid": str(project.uuid),
             }
             self._send_message_to_module(
                 message_payload, integrated_feature, extra_payload

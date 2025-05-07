@@ -240,6 +240,9 @@ VTEX_IO_OIDC_RP_CLIENT_ID = env.str("VTEX_IO_OIDC_RP_CLIENT_ID", "")
 # Abandoned Cart timeout in minutes
 ABANDONED_CART_COUNTDOWN = env.int("ABANDONED_CART_COUNTDOWN", default=25)
 
+# Endpoint for Nexus service
+NEXUS_REST_ENDPOINT = env.str("NEXUS_REST_ENDPOINT", default="")
+
 # Endpoint for code actions service
 CODE_ACTIONS_REST_ENDPOINT = env.str("CODE_ACTIONS_REST_ENDPOINT", "")
 
