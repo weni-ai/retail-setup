@@ -1,3 +1,9 @@
+# 1.7.0
+
+## *Add*
+  - feat: add nexus agents
+  - feat: add route to return IO orders by params and add aws request auth
+
 # 1.6.6
 
 ## *Change*
