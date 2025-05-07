@@ -15,6 +15,7 @@ class RequestClient:
         params=None,
         files=None,
         json=None,
+        timeout=60,
     ):
         if data and json:
             raise ValueError(
@@ -27,7 +28,7 @@ class RequestClient:
                 headers=headers,
                 json=json,
                 data=data,
-                timeout=60,
+                timeout=timeout,
                 params=params,
                 files=files,
             )
