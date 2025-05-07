@@ -7,6 +7,7 @@ from rest_framework.response import Response
 
 from retail.api.base_service_view import BaseServiceView
 from retail.api.integrated_feature.serializers import (
+    IntegrateNexusAgentSerializer,
     IntegratedFeatureSettingsSerializer,
     IntegratedFeatureSerializer,
     AppIntegratedFeatureSerializer,
@@ -108,6 +109,43 @@ class IntegratedFeatureView(BaseServiceView):
         )
 
 
+class NexusAgentIntegrationView(BaseServiceView):
+    """
+    View responsible for handling Nexus Agent integration operations.
+    """
+
+    def post(self, request, *args, **kwargs):
+        serializer = IntegrateNexusAgentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        project_uuid = serializer.validated_data["project_uuid"]
+        agent_uuid = serializer.validated_data["agent_uuid"]
+
+        result = self.nexus_service.integrate_agent(project_uuid, agent_uuid)
+
+        return Response(
+            {"message": "Agent integrated successfully", "data": result},
+            status=status.HTTP_200_OK,
+        )
+
+    def delete(self, request, *args, **kwargs):
+        """
+        Disables an agent from a project.
+        """
+        serializer = IntegrateNexusAgentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        project_uuid = serializer.validated_data["project_uuid"]
+        agent_uuid = serializer.validated_data["agent_uuid"]
+
+        result = self.nexus_service.remove_agent(project_uuid, agent_uuid)
+
+        return Response(
+            {"message": "Agent disabled successfully", "data": result},
+            status=status.HTTP_200_OK,
+        )
+
+
 class IntegratedFeatureSettingsView(views.APIView):
     permission_classes = [IsAuthenticated]
 
@@ -150,12 +188,16 @@ class AppIntegratedFeatureView(BaseServiceView):
             project = Project.objects.get(uuid=project_uuid)
             vtex_config = project.config.get("vtex_config", {})
 
-            return Response(
-                {
-                    "results": serializer.data,
-                    "store_type": vtex_config.get("vtex_store_type", ""),
-                },
-                status=status.HTTP_200_OK,
-            )
+            response_data = {
+                "results": serializer.data,
+                "store_type": vtex_config.get("vtex_store_type", ""),
+            }
+
+            agents_data = self.nexus_service.list_agents(project_uuid)
+            if agents_data:
+                response_data["nexus_agents"] = agents_data
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
