@@ -1,0 +1,79 @@
+from retail.interfaces.services.integrations import IntegrationsServiceInterface
+from retail.templates.services.integrations import IntegrationsService
+from retail.templates.models import Template, Version
+from retail.templates.exceptions import IntegrationsServerError
+
+from typing import Optional, TypedDict, Dict, Any
+
+from datetime import datetime
+
+
+class CreateTemplateData(TypedDict):
+    template_translation: Dict[str, Any]
+    template_name: str
+    start_condition: str
+    category: str
+    app_uuid: str
+    project_uuid: str
+
+
+class CreateTemplateUseCase:
+    def __init__(self, service: Optional[IntegrationsServiceInterface] = None):
+        self.service = service or IntegrationsService()
+
+    def _create_template(self, name: str, start_condition: str) -> Template:
+        template = Template(
+            name=name,
+            start_condition=start_condition,
+            current_version=None,
+        )
+        template.full_clean()
+        template.save()
+        return template
+
+    def _create_version(
+        self, template: Template, app_uuid: str, project_uuid: str
+    ) -> Version:
+        template_name = template.name
+        version_name = f"weni_{template_name}_{datetime.now().timestamp()}"
+        version = Version(
+            template_name=version_name,
+            template=template,
+            integrations_app_uuid=app_uuid,
+            project_uuid=project_uuid,
+        )
+        version.full_clean()
+        version.save()
+        return version
+
+    def _notify_integrations(
+        self, version_name: str, payload: CreateTemplateData
+    ) -> None:
+        try:
+            template_uuid = self.service.create_template(
+                app_uuid=payload.get("app_uuid"),
+                project_uuid=payload.get("project_uuid"),
+                name=version_name,
+                category=payload.get("category"),
+            )
+            self.service.create_template_translation(
+                app_uuid=payload.get("app_uuid"),
+                project_uuid=payload.get("project_uuid"),
+                template_uuid=template_uuid,
+                payload=payload.get("template_translation"),
+            )
+        except Exception:
+            raise IntegrationsServerError()
+
+    def execute(self, payload: CreateTemplateData) -> Template:
+        template = self._create_template(
+            name=payload.get("template_name"),
+            start_condition=payload.get("start_condition"),
+        )
+        version = self._create_version(
+            template=template,
+            app_uuid=payload.get("app_uuid"),
+            project_uuid=payload.get("project_uuid"),
+        )
+        self._notify_integrations(version.template_name, payload)
+        return template
