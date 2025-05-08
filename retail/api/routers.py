@@ -6,6 +6,7 @@ from .integrated_feature.views import (
     IntegratedFeatureSettingsView,
     IntegratedFeatureView,
     AppIntegratedFeatureView,
+    NexusAgentIntegrationView,
 )
 
 
@@ -30,5 +31,10 @@ urlpatterns = [
         "app_integrated_feature/<uuid:project_uuid>/",
         AppIntegratedFeatureView.as_view(),
         name="app-integrated-features",
+    ),
+    path(
+        "nexus/integrate-agent/",
+        NexusAgentIntegrationView.as_view(),
+        name="integrate-nexus-agent",
     ),
 ]

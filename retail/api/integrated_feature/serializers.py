@@ -126,3 +126,8 @@ class AppIntegratedFeatureSerializer(serializers.Serializer):
             "globals",
             "sectors",
         )
+
+
+class IntegrateNexusAgentSerializer(serializers.Serializer):
+    project_uuid = serializers.UUIDField()
+    agent_uuid = serializers.UUIDField()

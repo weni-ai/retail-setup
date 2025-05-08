@@ -69,3 +69,9 @@ class FeaturesSerializer(serializers.Serializer):
             "category",
             "code",
         )
+
+
+class FeatureQueryParamsSerializer(serializers.Serializer):
+    category = serializers.CharField(required=False)
+    can_vtex_integrate = serializers.BooleanField(required=False)
+    nexus_agents = serializers.BooleanField(required=False)
