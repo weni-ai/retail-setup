@@ -2,8 +2,6 @@
 
 from django.conf import settings
 
-from typing import Optional
-
 from retail.clients.base import RequestClient, InternalAuthentication
 from retail.interfaces.clients.integrations.interface import IntegrationsClientInterface
 
@@ -22,12 +20,7 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
         return response.json()
 
     def create_template_message(
-        self,
-        app_uuid: str,
-        project_uuid: str,
-        name: str,
-        category: str,
-        gallery_version: Optional[str] = None,
+        self, app_uuid: str, project_uuid: str, name: str, category: str
     ) -> str:
         url = f"{self.base_url}/api/v1/apps/{app_uuid}/templates/"
 
@@ -38,16 +31,12 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
             "project_uuid": project_uuid,
         }
 
-        if gallery_version:
-            payload["gallery_version"] = gallery_version
-
         response = self.make_request(
             url,
             method="POST",
             json=payload,
             headers=self.authentication_instance.headers,
         )
-
         template_uuid = response.json().get("uuid")
         return template_uuid
 

@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
 
-from typing import Optional
-
 
 class IntegrationsClientInterface(ABC):
     @abstractmethod
@@ -10,12 +8,7 @@ class IntegrationsClientInterface(ABC):
 
     @abstractmethod
     def create_template_message(
-        self,
-        app_uuid: str,
-        project_uuid: str,
-        name: str,
-        category: str,
-        gallery_version: Optional[str] = None,
+        self, app_uuid: str, project_uuid: str, name: str, category: str
     ) -> str:
         pass
 
