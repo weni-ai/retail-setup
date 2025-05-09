@@ -80,7 +80,6 @@ INSTALLED_APPS = [
     "retail.internal",
     "rest_framework",
     "retail.vtex",
-    "retail.templates",
 ]
 
 MIDDLEWARE = [
