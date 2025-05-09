@@ -41,7 +41,8 @@ class CreateTemplateUseCase:
     ) -> Version:
         project = self._get_project(project_uuid)
         template_name = template.name
-        version_name = f"weni_{template_name}_{datetime.now().timestamp()}"
+        timestamp_str = str(datetime.now().timestamp()).replace(".", "")
+        version_name = f"weni_{template_name}_{timestamp_str}"
         version = Version(
             template_name=version_name,
             template=template,
@@ -79,14 +80,21 @@ class CreateTemplateUseCase:
             raise NotFound(f"Project not found: {project_uuid}")
 
     def execute(self, payload: CreateTemplateData) -> Template:
-        template = self._create_template(
-            name=payload.get("template_name"),
-            start_condition=payload.get("start_condition"),
-        )
+
+        template = Template.objects.filter(name=payload.get("template_name")).first()
+
+        if not template:
+            template = self._create_template(
+                name=payload.get("template_name"),
+                start_condition=payload.get("start_condition"),
+            )
+
         version = self._create_version(
             template=template,
             app_uuid=payload.get("app_uuid"),
             project_uuid=payload.get("project_uuid"),
         )
+
         self._notify_integrations(version.template_name, version.uuid, payload)
+
         return template

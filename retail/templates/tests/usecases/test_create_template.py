@@ -56,3 +56,28 @@ class CreateTemplateUseCaseTest(TestCase):
 
         with self.assertRaises(IntegrationsServerError):
             use_case.execute(self.VALID_PAYLOAD)
+
+    def test_execute_creates_new_version_for_existing_template(self):
+        existing_template = Template.objects.create(
+            name=self.VALID_PAYLOAD["template_name"],
+            start_condition=self.VALID_PAYLOAD["start_condition"],
+            current_version=None,
+        )
+
+        template = self.use_case.execute(self.VALID_PAYLOAD)
+
+        self.assertEqual(template.uuid, existing_template.uuid)
+        self.assertEqual(
+            Template.objects.filter(name=existing_template.name).count(), 1
+        )
+
+        version = Version.objects.get(template=existing_template)
+
+        self.assertTrue(version.template_name.startswith("weni_"))
+        self.assertEqual(
+            str(version.integrations_app_uuid), self.VALID_PAYLOAD["app_uuid"]
+        )
+        self.assertEqual(str(version.project.uuid), self.VALID_PAYLOAD["project_uuid"])
+
+        self.mock_service.create_template.assert_called_once()
+        self.mock_service.create_template_translation.assert_called_once()
