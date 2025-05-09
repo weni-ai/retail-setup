@@ -35,7 +35,9 @@ class Version(models.Model):
     )
     template_name = models.CharField(unique=True)
     integrations_app_uuid = models.UUIDField()
-    project_uuid = models.UUIDField()
+    project = models.ForeignKey(
+        "projects.Project", on_delete=models.CASCADE, related_name="template_versions"
+    )
     status = models.CharField(choices=STATUS_CHOICES, blank=True, default="PENDING")
     created_at = models.DateTimeField(auto_now_add=True)
     uuid = models.UUIDField(blank=True, editable=False, default=uuid4())

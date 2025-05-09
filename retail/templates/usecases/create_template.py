@@ -1,7 +1,10 @@
 from retail.interfaces.services.integrations import IntegrationsServiceInterface
 from retail.templates.services.integrations import IntegrationsService
 from retail.templates.models import Template, Version
+from retail.projects.models import Project
 from retail.templates.exceptions import IntegrationsServerError
+
+from rest_framework.exceptions import NotFound
 
 from typing import Optional, TypedDict, Dict, Any
 
@@ -34,13 +37,14 @@ class CreateTemplateUseCase:
     def _create_version(
         self, template: Template, app_uuid: str, project_uuid: str
     ) -> Version:
+        project = self._get_project(project_uuid)
         template_name = template.name
         version_name = f"weni_{template_name}_{datetime.now().timestamp()}"
         version = Version(
             template_name=version_name,
             template=template,
             integrations_app_uuid=app_uuid,
-            project_uuid=project_uuid,
+            project=project,
         )
         version.full_clean()
         version.save()
@@ -64,6 +68,12 @@ class CreateTemplateUseCase:
             )
         except Exception:
             raise IntegrationsServerError()
+
+    def _get_project(self, project_uuid: str) -> Project:
+        try:
+            return Project.objects.get(uuid=project_uuid)
+        except Project.DoesNotExist:
+            raise NotFound(f"Project not found: {project_uuid}")
 
     def execute(self, payload: CreateTemplateData) -> Template:
         template = self._create_template(
