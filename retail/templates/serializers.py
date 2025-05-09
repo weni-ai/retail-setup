@@ -10,6 +10,7 @@ class CreateTemplateSerializer(serializers.Serializer):
     start_condition = serializers.CharField(required=True)
     app_uuid = serializers.CharField(required=True)
     project_uuid = serializers.CharField(required=True)
+    rule_code = serializers.CharField(required=False)
 
 
 class ReadTemplateSerializer(serializers.Serializer):
@@ -17,6 +18,7 @@ class ReadTemplateSerializer(serializers.Serializer):
     name = serializers.CharField()
     start_condition = serializers.CharField()
     status = serializers.SerializerMethodField()
+    rule_code = serializers.CharField()
 
     def get_status(self, obj: Template) -> str:
         if obj.current_version is not None:

@@ -14,6 +14,7 @@ class Template(models.Model):
         blank=True,
         related_name="current_of",
     )
+    rule_code = models.TextField(null=True, blank=True)
 
 
 class Version(models.Model):
