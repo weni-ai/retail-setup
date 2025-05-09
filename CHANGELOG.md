@@ -1,3 +1,8 @@
+# 1.7.1
+
+## *Change*
+  - fix: adjust lambda authentication
+
 # 1.7.0
 
 ## *Add*
