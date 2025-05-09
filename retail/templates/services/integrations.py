@@ -10,10 +10,15 @@ class IntegrationsService(IntegrationsServiceInterface):
         self.client = client or IntegrationsClient()
 
     def create_template(
-        self, app_uuid: str, project_uuid: str, name: str, category: str
+        self,
+        app_uuid: str,
+        project_uuid: str,
+        name: str,
+        category: str,
+        gallery_version: Optional[str] = None,
     ) -> str:
         return self.client.create_template_message(
-            app_uuid, project_uuid, name, category
+            app_uuid, project_uuid, name, category, gallery_version=gallery_version
         )
 
     def create_template_translation(

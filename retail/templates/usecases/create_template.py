@@ -8,6 +8,8 @@ from rest_framework.exceptions import NotFound
 
 from typing import Optional, TypedDict, Dict, Any
 
+from uuid import UUID
+
 from datetime import datetime
 
 
@@ -51,7 +53,7 @@ class CreateTemplateUseCase:
         return version
 
     def _notify_integrations(
-        self, version_name: str, payload: CreateTemplateData
+        self, version_name: str, version_uuid: UUID, payload: CreateTemplateData
     ) -> None:
         try:
             template_uuid = self.service.create_template(
@@ -59,6 +61,7 @@ class CreateTemplateUseCase:
                 project_uuid=payload.get("project_uuid"),
                 name=version_name,
                 category=payload.get("category"),
+                gallery_version=str(version_uuid),
             )
             self.service.create_template_translation(
                 app_uuid=payload.get("app_uuid"),
@@ -85,5 +88,5 @@ class CreateTemplateUseCase:
             app_uuid=payload.get("app_uuid"),
             project_uuid=payload.get("project_uuid"),
         )
-        self._notify_integrations(version.template_name, payload)
+        self._notify_integrations(version.template_name, version.uuid, payload)
         return template
