@@ -1,4 +1,5 @@
 from rest_framework.viewsets import ViewSet
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
@@ -8,10 +9,13 @@ from retail.templates.usecases import (
     CreateTemplateUseCase,
     ReadTemplateUseCase,
     CreateTemplateData,
+    UpdateTemplateUseCase,
+    UpdateTemplateData,
 )
 from retail.templates.serializers import (
     CreateTemplateSerializer,
     ReadTemplateSerializer,
+    UpdateTemplateSerializer,
 )
 
 from uuid import UUID
@@ -34,6 +38,18 @@ class TemplateViewSet(ViewSet):
     def retrieve(self, request: Request, pk: UUID) -> Response:
         use_case = ReadTemplateUseCase()
         template = use_case.execute(pk)
+
+        response_serializer = ReadTemplateSerializer(template)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["patch"])
+    def status(self, request: Request) -> Response:
+        request_serializer = UpdateTemplateSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        data: UpdateTemplateData = request_serializer.data
+        use_case = UpdateTemplateUseCase()
+        template = use_case.execute(data)
 
         response_serializer = ReadTemplateSerializer(template)
         return Response(response_serializer.data, status=status.HTTP_200_OK)

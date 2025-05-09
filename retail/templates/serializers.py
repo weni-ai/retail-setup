@@ -23,3 +23,8 @@ class ReadTemplateSerializer(serializers.Serializer):
             return obj.current_version.status
 
         return "PENDING"
+
+
+class UpdateTemplateSerializer(serializers.Serializer):
+    status = serializers.CharField(required=True)
+    version_uuid = serializers.UUIDField(required=True)

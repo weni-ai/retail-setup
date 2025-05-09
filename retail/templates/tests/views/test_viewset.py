@@ -7,10 +7,15 @@ from django.contrib.contenttypes.models import ContentType
 from django.urls import reverse
 
 from rest_framework.test import APITestCase, APIClient
+from rest_framework.exceptions import NotFound
 from rest_framework import status
 
 from retail.templates.models import Template
-from retail.templates.usecases import CreateTemplateUseCase, ReadTemplateUseCase
+from retail.templates.usecases import (
+    CreateTemplateUseCase,
+    ReadTemplateUseCase,
+    UpdateTemplateUseCase,
+)
 
 User = get_user_model()
 
@@ -36,6 +41,7 @@ class TemplateViewSetTest(APITestCase):
 
         self.create_usecase = CreateTemplateUseCase(service=self.mock_service)
         self.read_usecase = ReadTemplateUseCase()
+        self.update_usecase = UpdateTemplateUseCase()
 
         self.create_usecase_patch = patch(
             "retail.templates.views.CreateTemplateUseCase",
@@ -45,12 +51,18 @@ class TemplateViewSetTest(APITestCase):
             "retail.templates.views.ReadTemplateUseCase",
             return_value=self.read_usecase,
         )
+        self.update_usecase_patch = patch(
+            "retail.templates.views.UpdateTemplateUseCase",
+            return_value=self.update_usecase,
+        )
 
         self.create_usecase_patch.start()
         self.read_usecase_patch.start()
+        self.update_usecase_patch.start()
 
         self.addCleanup(self.create_usecase_patch.stop)
         self.addCleanup(self.read_usecase_patch.stop)
+        self.addCleanup(self.update_usecase_patch.stop)
 
     def test_create_template(self):
         mock_template = Mock(spec=Template)
@@ -71,8 +83,6 @@ class TemplateViewSetTest(APITestCase):
         }
 
         response = self.client.post(reverse("template-list"), payload, format="json")
-
-        print(response.json)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["name"], "test_template")
@@ -100,3 +110,39 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.data["name"], "test_template")
         self.assertEqual(response.data["status"], "APPROVED")
         self.read_usecase.execute.assert_called_once_with(template_uuid)
+
+    def test_patch_status(self):
+        mock_template = Mock(spec=Template)
+        mock_template.uuid = uuid4()
+        mock_template.name = "test_template"
+        mock_template.start_condition = "start"
+
+        version_uuid = uuid4()
+
+        mock_version = Mock()
+        mock_version.uuid = version_uuid
+        mock_version.status = "APPROVED"
+        mock_template.current_version = mock_version
+
+        self.update_usecase.execute = Mock(return_value=mock_template)
+
+        payload = {"version_uuid": str(version_uuid), "status": "APPROVED"}
+
+        url = reverse("template-status")
+
+        response = self.client.patch(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["name"], "test_template")
+        self.assertEqual(response.data["status"], "APPROVED")
+        self.update_usecase.execute.assert_called_once_with(payload)
+
+    def test_patch_status_not_found(self):
+        self.update_usecase.execute = Mock(side_effect=NotFound("not found"))
+
+        payload = {"version_uuid": str(uuid4()), "status": "APPROVED"}
+
+        url = reverse("template-status")
+        response = self.client.patch(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
