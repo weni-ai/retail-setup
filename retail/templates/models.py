@@ -4,9 +4,7 @@ from uuid import uuid4
 
 
 class Template(models.Model):
-    uuid = models.UUIDField(
-        blank=True, editable=False, primary_key=True, default=uuid4()
-    )
+    uuid = models.UUIDField(blank=True, editable=False, primary_key=True, default=uuid4)
     name = models.CharField(unique=True)
     start_condition = models.TextField()
     current_version = models.OneToOneField(
@@ -40,4 +38,4 @@ class Version(models.Model):
     )
     status = models.CharField(choices=STATUS_CHOICES, blank=True, default="PENDING")
     created_at = models.DateTimeField(auto_now_add=True)
-    uuid = models.UUIDField(blank=True, editable=False, default=uuid4())
+    uuid = models.UUIDField(blank=True, editable=False, default=uuid4)
