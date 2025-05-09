@@ -64,7 +64,8 @@ class LambdaURLValidator(RequestClient):  # pragma: no cover
             identity_arn = response.json()["GetCallerIdentityResponse"][
                 "GetCallerIdentityResult"
             ]["Arn"]
-            if identity_arn in settings.LAMBDA_ALLOWED_ROLES:
+            allowed_prefixes = settings.LAMBDA_ALLOWED_ROLES
+            if any(identity_arn.startswith(prefix) for prefix in allowed_prefixes):
                 return Response({"message": "Access granted!", "role": identity_arn})
             else:
                 return Response(
