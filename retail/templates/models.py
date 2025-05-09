@@ -15,6 +15,9 @@ class Template(models.Model):
         related_name="current_of",
     )
     rule_code = models.TextField(null=True, blank=True)
+    integrated_agent = models.ForeignKey(
+        "agents.IntegratedAgent", on_delete=models.SET_NULL, null=True, blank=True
+    )
 
 
 class Version(models.Model):
