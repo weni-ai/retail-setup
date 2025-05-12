@@ -31,8 +31,15 @@ class PushAgentSerializer(serializers.Serializer):
     agents = serializers.DictField(child=AgentSerializer(), required=True)
 
 
+class PreApprovedTemplateSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    content = serializers.CharField(allow_null=True)
+    is_valid = serializers.BooleanField(allow_null=True)
+
+
 class ReadAgentSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
     name = serializers.CharField()
     is_oficial = serializers.BooleanField()
     lambda_arn = serializers.CharField()
+    templates = PreApprovedTemplateSerializer(many=True)

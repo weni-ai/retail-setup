@@ -1,6 +1,6 @@
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
-from retail.agents.models import Agent
+from retail.agents.models import Agent, PreApprovedTemplate
 from retail.projects.models import Project
 from retail.agents.exceptions import AgentFileNotSent
 
@@ -82,6 +82,18 @@ class PushAgentUseCase:
         simple_hash = f"{agent_name}_{str(agent_uuid.hex)}"
         return simple_hash
 
+    def _create_pre_approved_templates(
+        self, agent: Agent, agent_payload: AgentItemsData
+    ) -> None:
+        template_names = list(
+            {rule["template"] for rule in agent_payload["rules"].values()}
+        )
+        templates = [
+            PreApprovedTemplate.objects.get_or_create(name=name)[0]
+            for name in template_names
+        ]
+        agent.templates.set(templates)
+
     def execute(
         self, payload: PushAgentData, files: Dict[str, UploadedFile]
     ) -> List[Agent]:
@@ -102,6 +114,7 @@ class PushAgentUseCase:
                 function_name=self._create_function_name(key, agent.uuid),
             )
             agent = self._assign_arn_to_agent(lambda_arn, agent)
+            self._create_pre_approved_templates(agent, value)
             assigned_agents.append(agent)
 
         return assigned_agents

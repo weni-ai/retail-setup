@@ -11,6 +11,7 @@ class Agent(models.Model):
     project = models.ForeignKey(
         "projects.Project", on_delete=models.CASCADE, related_name="agents"
     )
+    templates = models.ManyToManyField("PreApprovedTemplate", related_name="agents")
 
     class Meta:
         unique_together = ("name", "project")
@@ -28,3 +29,9 @@ class IntegratedAgent(models.Model):
 
     class Meta:
         unique_together = ("agent", "project")
+
+
+class PreApprovedTemplate(models.Model):
+    name = models.CharField(unique=True)
+    content = models.TextField(blank=True, null=True)
+    is_valid = models.BooleanField(blank=True, null=True)
