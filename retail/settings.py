@@ -258,5 +258,5 @@ USE_LAMBDA = env.bool("USE_LAMBDA", default=False)
 
 if USE_LAMBDA:
     LAMBDA_ROLE_ARN = env.str("LAMBDA_ROLE_ARN")
-    LAMBDA_HANDLER = env.str("LAMBDA_HANDLER", "main.handler")
-    LAMBDA_RUNTIME = env.str("LAMBDA_RUNTIME", "python3.10")
+    LAMBDA_RUNTIME = env.str("LAMBDA_RUNTIME")
+    LAMBDA_HANDLER = env.str("LAMBDA_HANDLER")
