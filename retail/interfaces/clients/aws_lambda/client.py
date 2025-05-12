@@ -2,5 +2,5 @@ from typing import Protocol, Dict, Any
 
 
 class AwsLambdaClientInterface(Protocol):
-    def invoke(self, function_name: str, payload: bytes) -> Dict[str, Any]:
+    def create_function(self, function_name: str, zip_bytes: bytes) -> Dict[str, Any]:
         ...

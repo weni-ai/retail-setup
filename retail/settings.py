@@ -253,3 +253,10 @@ VTEX_IO_WORKSPACE = env.str("VTEX_IO_WORKSPACE", default="")
 
 # Lambda no token validation
 LAMBDA_ALLOWED_ROLES = env.list("LAMBDA_ALLOWED_ROLES", default=[])
+
+USE_LAMBDA = env.bool("USE_LAMBDA", default=False)
+
+if USE_LAMBDA:
+    LAMBDA_ROLE_ARN = env.str("LAMBDA_ROLE_ARN")
+    LAMBDA_HANDLER = env.str("LAMBDA_HANDLER", "main.handler")
+    LAMBDA_RUNTIME = env.str("LAMBDA_RUNTIME", "python3.10")
