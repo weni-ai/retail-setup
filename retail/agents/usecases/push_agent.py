@@ -56,15 +56,15 @@ class PushAgentUseCase:
         except Project.DoesNotExist:
             raise NotFound(f"No project found for UUID: {project_uuid}")
 
-    def _create_single_agent(self, payload: AgentItemsData, project: Project) -> Agent:
-        agent = Agent(
+    def _get_or_create_agent(self, payload: AgentItemsData, project: Project) -> Agent:
+        agent, created = Agent.objects.get_or_create(
             name=payload.get("name"),
             project=project,
-            is_oficial=False,
+            defaults={
+                "is_oficial": False,
+            },
         )
-        agent.full_clean()
-        agent.save()
-        return agent
+        return agent, created
 
     def _upload_to_lambda(self, file_obj: UploadedFile, function_name: str) -> str:
         lambda_arn = self.lambda_service.send_file(
@@ -91,17 +91,17 @@ class PushAgentUseCase:
         assigned_agents = []
 
         for key, value in agents.items():
-            agent = self._create_single_agent(payload=value, project=project)
+            agent, _ = self._get_or_create_agent(payload=value, project=project)
             file_obj = files.get(key)
 
             if not file_obj:
                 raise AgentFileNotSent(detail=f"File for agent {key} not sent.")
 
             lambda_arn = self._upload_to_lambda(
-                file_obj=files.get(key),
+                file_obj=file_obj,
                 function_name=self._create_function_name(key, agent.uuid),
             )
-            assigned_agent = self._assign_arn_to_agent(lambda_arn, agent)
-            assigned_agents.append(assigned_agent)
+            agent = self._assign_arn_to_agent(lambda_arn, agent)
+            assigned_agents.append(agent)
 
         return assigned_agents

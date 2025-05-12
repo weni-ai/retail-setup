@@ -25,3 +25,12 @@ class AwsLambdaClient(AwsLambdaClientInterface):
         }
 
         return self.boto3_client.create_function(**kwargs)
+
+    def update_function_code(
+        self, function_name: str, zip_bytes: bytes
+    ) -> Dict[str, Any]:
+        return self.boto3_client.update_function_code(
+            FunctionName=function_name,
+            ZipFile=zip_bytes,
+            Publish=True,
+        )

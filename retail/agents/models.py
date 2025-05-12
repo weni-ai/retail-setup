@@ -12,6 +12,9 @@ class Agent(models.Model):
         "projects.Project", on_delete=models.CASCADE, related_name="agents"
     )
 
+    class Meta:
+        unique_together = ("name", "project")
+
 
 class IntegratedAgent(models.Model):
     uuid = models.UUIDField(primary_key=True, blank=True, default=uuid4)
@@ -22,3 +25,6 @@ class IntegratedAgent(models.Model):
         "projects.Project", on_delete=models.CASCADE, related_name="integrated_agents"
     )
     external_id = models.TextField()
+
+    class Meta:
+        unique_together = ("agent", "project")
