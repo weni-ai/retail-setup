@@ -1,3 +1,5 @@
+import json
+
 from rest_framework.views import APIView
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -10,7 +12,12 @@ from retail.agents.tasks import validate_pre_approved_templates
 
 class PushAgentView(APIView):
     def post(self, request: Request, *args, **kwargs) -> Response:
-        request_serializer = PushAgentSerializer(data=request.data)
+        agents = json.loads(request.data.get("agents"))
+        project_uuid = request.data.get("project_uuid")
+
+        data = {"agents": agents, "project_uuid": project_uuid}
+
+        request_serializer = PushAgentSerializer(data=data)
         request_serializer.is_valid(raise_exception=True)
 
         data: PushAgentData = request_serializer.data
