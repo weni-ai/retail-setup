@@ -109,11 +109,11 @@ class PushAgentUseCase:
             if not file_obj:
                 raise AgentFileNotSent(detail=f"File for agent {key} not sent.")
 
-            lambda_arn = self._upload_to_lambda(
-                file_obj=file_obj,
-                function_name=self._create_function_name(key, agent.uuid),
-            )
-            agent = self._assign_arn_to_agent(lambda_arn, agent)
+            # lambda_arn = self._upload_to_lambda(
+            #    file_obj=file_obj,
+            #    function_name=self._create_function_name(key, agent.uuid),
+            # )
+            # agent = self._assign_arn_to_agent(lambda_arn, agent)
             self._create_pre_approved_templates(agent, value)
             assigned_agents.append(agent)
 

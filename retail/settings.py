@@ -268,5 +268,5 @@ if USE_META:
     META_SYSTEM_USER_ACCESS_TOKEN = env.str("META_SYSTEM_USER_ACCESS_TOKEN")
     META_VERSION = env.str("META_VERSION", default="v20.0")
     META_API_URL = urllib.parse.urljoin(
-        env.str("WHATSAPP_API_URL", default="https://graph.facebook.com/"), META_VERSION
+        env.str("META_API_URL", default="https://graph.facebook.com/"), META_VERSION
     )
