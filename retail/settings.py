@@ -261,6 +261,7 @@ if USE_LAMBDA:
     LAMBDA_ROLE_ARN = env.str("LAMBDA_ROLE_ARN")
     LAMBDA_RUNTIME = env.str("LAMBDA_RUNTIME")
     LAMBDA_HANDLER = env.str("LAMBDA_HANDLER")
+    LAMBDA_REGION = env.str("LAMBDA_REGION")
 
 USE_META = env.bool("USE_LAMBDA", default=False)
 
