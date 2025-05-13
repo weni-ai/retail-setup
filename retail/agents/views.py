@@ -15,7 +15,7 @@ class PushAgentView(APIView):
         agents = json.loads(request.data.get("agents"))
         project_uuid = request.data.get("project_uuid")
 
-        data = {"agents": agents, "project_uuid": project_uuid}
+        data = {**agents, "project_uuid": project_uuid}
 
         request_serializer = PushAgentSerializer(data=data)
         request_serializer.is_valid(raise_exception=True)

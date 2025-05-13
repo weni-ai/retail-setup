@@ -36,7 +36,6 @@ class PreProcessingData(TypedDict, total=False):
 
 class AgentItemsData(TypedDict):
     name: str
-    description: str
     rules: RuleData
     pre_processing: PreProcessingData
 

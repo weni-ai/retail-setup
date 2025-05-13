@@ -21,7 +21,6 @@ class PreProcessingSerializer(serializers.Serializer):
 
 class AgentSerializer(serializers.Serializer):
     name = serializers.CharField()
-    description = serializers.CharField()
     rules = serializers.DictField(child=RuleSerializer())
     pre_processing = PreProcessingSerializer(source="pre-processing", required=False)
 
