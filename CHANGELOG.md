@@ -1,3 +1,8 @@
+# 1.8.0
+
+## *Change*
+  - feat: template app
+
 # 1.7.1
 
 ## *Change*
