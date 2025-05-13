@@ -1,3 +1,5 @@
+import logging
+
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
 from retail.agents.models import Agent, PreApprovedTemplate
@@ -11,6 +13,8 @@ from rest_framework.exceptions import NotFound
 from typing import Optional, Dict, TypedDict, List
 
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 
 class SourceData(TypedDict):
@@ -115,5 +119,7 @@ class PushAgentUseCase:
             agent = self._assign_arn_to_agent(lambda_arn, agent)
             self._create_pre_approved_templates(agent, value)
             assigned_agents.append(agent)
+
+            logger.info(f"Agent push completed: {agent.uuid}")
 
         return assigned_agents

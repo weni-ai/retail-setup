@@ -1,13 +1,12 @@
-import requests
-
 from django.conf import settings
 
 from typing import Dict, Optional
 
 from retail.interfaces.clients.meta.client import MetaClientInterface
+from retail.clients.base import RequestClient
 
 
-class MetaClient(MetaClientInterface):
+class MetaClient(MetaClientInterface, RequestClient):
     def __init__(self, token: Optional[str] = None, url: Optional[str] = None):
         self.token = token or settings.META_SYSTEM_USER_ACCESS_TOKEN
         self.url = url or settings.META_API_URL
@@ -25,6 +24,8 @@ class MetaClient(MetaClientInterface):
             "Content-Type": "application/json",
         }
 
-        response = requests.get(url, params=params, headers=headers)
+        response = self.make_request(
+            url=url, method="GET", params=params, headers=headers
+        )
 
         return response
