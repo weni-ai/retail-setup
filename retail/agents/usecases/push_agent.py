@@ -1,5 +1,6 @@
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
-from retail.services.aws_lambda import AwsLambdaService
+
+# from retail.services.aws_lambda import AwsLambdaService
 from retail.agents.models import Agent, PreApprovedTemplate
 from retail.projects.models import Project
 from retail.agents.exceptions import AgentFileNotSent
@@ -48,7 +49,7 @@ class PushAgentData(TypedDict):
 
 class PushAgentUseCase:
     def __init__(self, lambda_service: Optional[AwsLambdaServiceInterface] = None):
-        self.lambda_service = lambda_service or AwsLambdaService()
+        self.lambda_service = lambda_service or None
 
     def _get_project(self, project_uuid: str) -> Project:
         try:
