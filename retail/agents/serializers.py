@@ -14,7 +14,7 @@ class RuleSerializer(serializers.Serializer):
 
 
 class PreProcessingSerializer(serializers.Serializer):
-    source = SourceSerializer()
+    source = SourceSerializer(required=False)
     result_examples_file = serializers.CharField(required=False, allow_blank=True)
     pre_result_examples_file = serializers.CharField(required=False, allow_blank=True)
 

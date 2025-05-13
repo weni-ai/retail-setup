@@ -8,9 +8,12 @@ from rest_framework import status
 from retail.agents.serializers import PushAgentSerializer, ReadAgentSerializer
 from retail.agents.usecases import PushAgentUseCase, PushAgentData
 from retail.agents.tasks import validate_pre_approved_templates
+from retail.internal.permissions import CanCommunicateInternally
 
 
 class PushAgentView(APIView):
+    permission_classes = [CanCommunicateInternally]
+
     def post(self, request: Request, *args, **kwargs) -> Response:
         agents = json.loads(request.data.get("agents"))
         project_uuid = request.data.get("project_uuid")
