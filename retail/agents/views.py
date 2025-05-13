@@ -8,7 +8,7 @@ from retail.agents.usecases import PushAgentUseCase, PushAgentData
 from retail.agents.tasks import validate_pre_approved_templates
 
 
-class PushAgentViewSet(APIView):
+class PushAgentView(APIView):
     def post(self, request: Request, *args, **kwargs) -> Response:
         request_serializer = PushAgentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
