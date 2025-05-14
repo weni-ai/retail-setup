@@ -98,14 +98,14 @@ class AssignAgentView(APIView):
             raise NotFound(f"Agent not found: {agent_uuid}")
 
     def post(self, request: Request, agent_uuid: UUID) -> Response:
-        __get_project_uuid_from_request(request)
+        project_uuid = __get_project_uuid_from_request(request)
         agent = self.__get_agent(agent_uuid)
 
         self.check_object_permissions(request, agent)
 
         use_case = AssignAgentUseCase()
 
-        integrated_agent, raw_client_secret = use_case.execute(agent)
+        integrated_agent, raw_client_secret = use_case.execute(agent, project_uuid)
 
         response_serializer = ReadIntegratedAgentSerializer(
             integrated_agent, show_client_secret=True

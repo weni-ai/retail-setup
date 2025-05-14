@@ -13,6 +13,7 @@ from django.db.models import QuerySet, Q
 from rest_framework.exceptions import ValidationError, NotFound
 
 from retail.agents.models import Agent, PreApprovedTemplate, IntegratedAgent
+from retail.projects.models import Project
 
 SECRET_NUM_BYTES = 32
 
@@ -20,6 +21,12 @@ URANDOM_SIZE = 16
 
 
 class AssignAgentUseCase:
+    def _get_project(self, project_uuid: uuid.UUID):
+        try:
+            return Project.objects.get(uuid=project_uuid)
+        except Project.DoesNotExist:
+            raise NotFound(f"Project not found: {project_uuid}")
+
     def _verify_templates_from_meta(
         self, templates: QuerySet[PreApprovedTemplate]
     ) -> None:
@@ -49,17 +56,21 @@ class AssignAgentUseCase:
     def _create_integrated_agent(
         self,
         agent: Agent,
+        project: Project,
         hashed_client_secret: str,
         webhook_uuid: str,
     ) -> IntegratedAgent:
         return IntegratedAgent.objects.create(
             agent=agent,
-            project=agent.project,
+            project=project,
             webhook_uuid=webhook_uuid,
             client_secret=hashed_client_secret,
         )
 
-    def execute(self, agent: Agent) -> Tuple[IntegratedAgent, str]:
+    def execute(
+        self, agent: Agent, project_uuid: uuid.UUID
+    ) -> Tuple[IntegratedAgent, str]:
+        project = self._get_project(project_uuid)
         templates = agent.templates.all()
         self._verify_templates_from_meta(templates)
 
@@ -69,6 +80,7 @@ class AssignAgentUseCase:
 
         integrated_agent = self._create_integrated_agent(
             agent=agent,
+            project=project,
             hashed_client_secret=hashed_client_secret,
             webhook_uuid=webhook_uuid,
         )
