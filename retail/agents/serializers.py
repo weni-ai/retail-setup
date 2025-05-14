@@ -45,9 +45,9 @@ class ReadAgentSerializer(serializers.Serializer):
 
 
 class ReadIntegratedAgentSerializer(serializers.Serializer):
-    agent = ReadAgentSerializer()
-    webhook_uuid = serializers.CharField()
+    uuid = serializers.UUIDField()
     client_secret = serializers.CharField()
+    agent = ReadAgentSerializer()
 
     def __init__(self, *args, show_client_secret=False, **kwargs):
         super().__init__(*args, **kwargs)

@@ -25,7 +25,7 @@ class IntegratedAgent(models.Model):
     project = models.ForeignKey(
         "projects.Project", on_delete=models.CASCADE, related_name="integrated_agents"
     )
-    webhook_uuid = models.TextField()
+    lambda_arn = models.CharField(max_length=500, null=True, blank=True)
     client_secret = models.TextField()
 
     class Meta:
@@ -33,6 +33,15 @@ class IntegratedAgent(models.Model):
 
 
 class PreApprovedTemplate(models.Model):
+    """
+    The field is_valid controls if the pre approved template from meta is a valide
+    template.
+
+    is_valid = None if do not have response from meta;
+    is_valid = False if response from meta if negative;
+    is_valid = True if response from meta if positive.
+    """
+
     name = models.CharField(unique=True)
     content = models.TextField(blank=True, null=True)
     is_valid = models.BooleanField(blank=True, null=True)
