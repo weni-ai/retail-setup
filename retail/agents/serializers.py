@@ -42,3 +42,14 @@ class ReadAgentSerializer(serializers.Serializer):
     is_oficial = serializers.BooleanField()
     lambda_arn = serializers.CharField()
     templates = PreApprovedTemplateSerializer(many=True)
+
+
+class ReadIntegratedAgentSerializer(serializers.Serializer):
+    agent = ReadAgentSerializer()
+    webhook_uuid = serializers.CharField()
+    client_secret = serializers.CharField()
+
+    def __init__(self, *args, show_client_secret=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not show_client_secret:
+            self.fields.pop("client_secret")

@@ -25,7 +25,8 @@ class IntegratedAgent(models.Model):
     project = models.ForeignKey(
         "projects.Project", on_delete=models.CASCADE, related_name="integrated_agents"
     )
-    external_id = models.TextField()
+    webhook_uuid = models.TextField()
+    client_secret = models.TextField()
 
     class Meta:
         unique_together = ("agent", "project")
