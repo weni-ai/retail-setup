@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from retail.templates.usecases.create_template import (
     CreateTemplateUseCase,
@@ -9,7 +9,6 @@ from django.test import TestCase
 
 from retail.templates.models import Template, Version
 from retail.projects.models import Project
-from retail.templates.exceptions import IntegrationsServerError
 
 from uuid import uuid4
 
@@ -33,7 +32,8 @@ class CreateTemplateUseCaseTest(TestCase):
             "project_uuid": str(project_uuid),
         }
 
-    def test_execute_successfully_creates_template_and_version(self):
+    @patch("retail.templates.usecases.create_template.task_create_template.delay")
+    def test_execute_successfully_creates_template_and_version(self, mock_task_delay):
         template = self.use_case.execute(self.VALID_PAYLOAD)
 
         self.assertIsInstance(template, Template)
@@ -47,17 +47,14 @@ class CreateTemplateUseCaseTest(TestCase):
         )
         self.assertEqual(str(version.project.uuid), self.VALID_PAYLOAD["project_uuid"])
 
-        self.mock_service.create_template.assert_called_once()
-        self.mock_service.create_template_translation.assert_called_once()
+        mock_task_delay.assert_called_once()
+        kwargs = mock_task_delay.call_args.kwargs
+        self.assertEqual(kwargs["template_name"], version.template_name)
+        self.assertEqual(kwargs["app_uuid"], self.VALID_PAYLOAD["app_uuid"])
+        self.assertEqual(kwargs["project_uuid"], self.VALID_PAYLOAD["project_uuid"])
 
-    def test_execute_raises_error_on_service_failure(self):
-        self.mock_service.create_template.side_effect = Exception("Integration error")
-        use_case = CreateTemplateUseCase(service=self.mock_service)
-
-        with self.assertRaises(IntegrationsServerError):
-            use_case.execute(self.VALID_PAYLOAD)
-
-    def test_execute_creates_new_version_for_existing_template(self):
+    @patch("retail.templates.usecases.create_template.task_create_template.delay")
+    def test_execute_creates_new_version_for_existing_template(self, mock_task_delay):
         existing_template = Template.objects.create(
             name=self.VALID_PAYLOAD["template_name"],
             start_condition=self.VALID_PAYLOAD["start_condition"],
@@ -79,5 +76,4 @@ class CreateTemplateUseCaseTest(TestCase):
         )
         self.assertEqual(str(version.project.uuid), self.VALID_PAYLOAD["project_uuid"])
 
-        self.mock_service.create_template.assert_called_once()
-        self.mock_service.create_template_translation.assert_called_once()
+        mock_task_delay.assert_called_once()
