@@ -2,7 +2,6 @@ from retail.interfaces.services.integrations import IntegrationsServiceInterface
 from retail.templates.services.integrations import IntegrationsService
 from retail.templates.models import Template, Version
 from retail.projects.models import Project
-from retail.templates.exceptions import IntegrationsServerError
 
 from rest_framework.exceptions import NotFound
 
@@ -11,6 +10,8 @@ from typing import Optional, TypedDict, Dict, Any
 from uuid import UUID
 
 from datetime import datetime
+
+from retail.templates.tasks import task_create_template
 
 
 class CreateTemplateData(TypedDict):
@@ -56,22 +57,24 @@ class CreateTemplateUseCase:
     def _notify_integrations(
         self, version_name: str, version_uuid: UUID, payload: CreateTemplateData
     ) -> None:
-        try:
-            template_uuid = self.service.create_template(
-                app_uuid=payload.get("app_uuid"),
-                project_uuid=payload.get("project_uuid"),
-                name=version_name,
-                category=payload.get("category"),
-                gallery_version=str(version_uuid),
-            )
-            self.service.create_template_translation(
-                app_uuid=payload.get("app_uuid"),
-                project_uuid=payload.get("project_uuid"),
-                template_uuid=template_uuid,
-                payload=payload.get("template_translation"),
-            )
-        except Exception:
-            raise IntegrationsServerError()
+        if not all(
+            [
+                version_name,
+                payload.get("app_uuid"),
+                payload.get("project_uuid"),
+                version_uuid,
+            ]
+        ):
+            raise ValueError("Missing required data to notify integrations")
+
+        task_create_template.delay(
+            template_name=version_name,
+            app_uuid=payload.get("app_uuid"),
+            project_uuid=payload.get("project_uuid"),
+            category=payload.get("category"),
+            version_uuid=str(version_uuid),
+            template_translation=payload.get("template_translation"),
+        )
 
     def _get_project(self, project_uuid: str) -> Project:
         try:
@@ -80,7 +83,6 @@ class CreateTemplateUseCase:
             raise NotFound(f"Project not found: {project_uuid}")
 
     def execute(self, payload: CreateTemplateData) -> Template:
-
         template = Template.objects.filter(name=payload.get("template_name")).first()
 
         if not template:
