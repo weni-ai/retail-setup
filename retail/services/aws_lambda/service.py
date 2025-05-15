@@ -36,3 +36,8 @@ class AwsLambdaService(AwsLambdaServiceInterface):
             logger.info(f"Updated Lambda: {function_name}")
 
         return response["FunctionArn"]
+
+
+class AwsLambdaTempMockService(AwsLambdaServiceInterface):
+    def send_file(self, file_obj, function_name):
+        return f"arn:aws:iam::{function_name}"
