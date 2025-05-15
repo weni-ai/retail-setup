@@ -15,6 +15,7 @@ from pathlib import Path
 
 import environ
 import sentry_sdk
+import urllib
 
 from sentry_sdk.integrations.django import DjangoIntegration
 
@@ -81,6 +82,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "retail.vtex",
     "retail.templates",
+    "retail.agents",
 ]
 
 MIDDLEWARE = [
@@ -252,3 +254,20 @@ VTEX_IO_WORKSPACE = env.str("VTEX_IO_WORKSPACE", default="")
 
 # Lambda no token validation
 LAMBDA_ALLOWED_ROLES = env.list("LAMBDA_ALLOWED_ROLES", default=[])
+
+USE_LAMBDA = env.bool("USE_LAMBDA", default=False)
+
+if USE_LAMBDA:
+    LAMBDA_ROLE_ARN = env.str("LAMBDA_ROLE_ARN")
+    LAMBDA_RUNTIME = env.str("LAMBDA_RUNTIME")
+    LAMBDA_HANDLER = env.str("LAMBDA_HANDLER")
+    LAMBDA_REGION = env.str("LAMBDA_REGION")
+
+USE_META = env.bool("USE_LAMBDA", default=False)
+
+if USE_META:
+    META_SYSTEM_USER_ACCESS_TOKEN = env.str("META_SYSTEM_USER_ACCESS_TOKEN")
+    META_VERSION = env.str("META_VERSION", default="v20.0")
+    META_API_URL = urllib.parse.urljoin(
+        env.str("WHATSAPP_API_URL", default="https://graph.facebook.com/"), META_VERSION
+    )
