@@ -34,7 +34,7 @@ class IntegratedAgent(models.Model):
 
 class PreApprovedTemplate(models.Model):
     """
-    The field is_valid controls if the pre approved template from meta is a valide
+    The field is_valid controls if the pre approved template from meta is a valid
     template.
 
     is_valid = None if do not have response from meta;
