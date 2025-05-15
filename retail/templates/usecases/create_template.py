@@ -1,5 +1,5 @@
 from retail.interfaces.services.integrations import IntegrationsServiceInterface
-from retail.templates.services.integrations import IntegrationsService
+from retail.services.integrations.service import IntegrationsService
 from retail.templates.models import Template, Version
 from retail.projects.models import Project
 
