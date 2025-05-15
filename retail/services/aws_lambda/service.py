@@ -27,12 +27,12 @@ class AwsLambdaService(AwsLambdaServiceInterface):
                 zip_bytes=zip_bytes,
             )
             logger.info(f"Created Lambda: {function_name}")
+            return response["FunctionArn"]
         except ClientError as e:
             if e.response["Error"]["Code"] == "ResourceConflictException":
                 response = self.client.update_function_code(
                     function_name=function_name,
                     zip_bytes=zip_bytes,
                 )
+                return response["FunctionArn"]
             logger.info(f"Updated Lambda: {function_name}")
-
-        return response["FunctionArn"]
