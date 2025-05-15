@@ -9,7 +9,7 @@ router.register(r"", AgentViewSet, basename="agents")
 
 urlpatterns = [
     path("push/", PushAgentView.as_view(), name="push-agent"),
-    path("<uuid:pk>/assign/", AssignAgentView.as_view(), name="assign-agent"),
+    path("<uuid:agent_uuid>/assign/", AssignAgentView.as_view(), name="assign-agent"),
 ]
 
 urlpatterns += router.urls
