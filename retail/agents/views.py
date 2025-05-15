@@ -28,11 +28,13 @@ from retail.agents.permissions import IsAgentOficialOrFromProjet
 from retail.internal.permissions import CanCommunicateInternally
 
 
-def __get_project_uuid_from_request(request: Request) -> str:
+def get_project_uuid_from_request(request: Request) -> str:
     project_uuid = request.headers.get("Project-Uuid")
 
     if project_uuid is None:
         raise ValidationError({"project_uuid": "Missing project uuid in header."})
+
+    return project_uuid
 
 
 class PushAgentView(APIView):
@@ -70,15 +72,16 @@ class AgentViewSet(ViewSet):
         return permissions
 
     def list(self, request: Request, *args, **kwargs) -> Response:
-        project_uuid = __get_project_uuid_from_request(request)
+        project_uuid = get_project_uuid_from_request(request)
 
         agents = ListAgentsUseCase.execute(project_uuid)
 
         response_serializer = ReadAgentSerializer(agents, many=True)
+
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> Response:
-        __get_project_uuid_from_request(request)
+        get_project_uuid_from_request(request)
 
         agent = RetrieveAgentUseCase.execute(pk)
 
@@ -98,7 +101,7 @@ class AssignAgentView(APIView):
             raise NotFound(f"Agent not found: {agent_uuid}")
 
     def post(self, request: Request, agent_uuid: UUID) -> Response:
-        project_uuid = __get_project_uuid_from_request(request)
+        project_uuid = get_project_uuid_from_request(request)
         agent = self.__get_agent(agent_uuid)
 
         self.check_object_permissions(request, agent)

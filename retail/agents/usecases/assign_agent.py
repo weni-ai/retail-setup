@@ -38,12 +38,10 @@ class AssignAgentUseCase:
         agent: Agent,
         project: Project,
         hashed_client_secret: str,
-        webhook_uuid: str,
     ) -> IntegratedAgent:
         return IntegratedAgent.objects.create(
             agent=agent,
             project=project,
-            webhook_uuid=webhook_uuid,
             client_secret=hashed_client_secret,
             lambda_arn=agent.lambda_arn,
         )
