@@ -2,7 +2,7 @@ import logging
 
 from celery import shared_task
 
-from retail.templates.services.integrations import IntegrationsService
+from retail.services.integrations.service import IntegrationsService
 
 
 logger = logging.getLogger(__name__)

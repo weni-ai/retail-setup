@@ -1,3 +1,5 @@
+from typing import Optional, Dict, Any
+
 from datetime import datetime
 
 from retail.clients.exceptions import CustomAPIException
@@ -28,7 +30,6 @@ class IntegrationsService:
         Creates an abandoned cart template and translations for multiple languages.
         """
         try:
-
             # Format the current datetime
             current_datetime = datetime.now()
             formatted_datetime = current_datetime.strftime("%Y%m%d%H%M%S")
@@ -296,3 +297,26 @@ class IntegrationsService:
                 return "pending"  # If any status is not approved, keep waiting
 
         return "synchronized"  # If all templates exist and are approved
+
+    def create_template(
+        self,
+        app_uuid: str,
+        project_uuid: str,
+        name: str,
+        category: str,
+        gallery_version: Optional[str] = None,
+    ) -> str:
+        return self.client.create_template_message(
+            app_uuid, project_uuid, name, category, gallery_version=gallery_version
+        )
+
+    def create_template_translation(
+        self,
+        app_uuid: str,
+        project_uuid: str,
+        template_uuid: str,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return self.client.create_template_translation(
+            app_uuid, project_uuid, template_uuid, payload
+        )
