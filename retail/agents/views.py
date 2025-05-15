@@ -22,6 +22,7 @@ from retail.agents.usecases import (
     ListAgentsUseCase,
     RetrieveAgentUseCase,
     AssignAgentUseCase,
+    UnassignAgentUseCase,
 )
 from retail.agents.tasks import validate_pre_approved_templates
 from retail.agents.permissions import IsAgentOficialOrFromProjet
@@ -91,18 +92,20 @@ class AgentViewSet(ViewSet):
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 
-class AssignAgentView(APIView):
-    permission_classes = [IsAuthenticated, IsAgentOficialOrFromProjet]
-
-    def __get_agent(self, agent_uuid: UUID) -> Agent:
+class GenericIntegratedAgentView(APIView):
+    def get_agent(self, agent_uuid: UUID) -> Agent:
         try:
             return Agent.objects.get(uuid=agent_uuid)
         except Agent.DoesNotExist:
             raise NotFound(f"Agent not found: {agent_uuid}")
 
+
+class AssignAgentView(GenericIntegratedAgentView):
+    permission_classes = [IsAuthenticated, IsAgentOficialOrFromProjet]
+
     def post(self, request: Request, agent_uuid: UUID) -> Response:
         project_uuid = get_project_uuid_from_request(request)
-        agent = self.__get_agent(agent_uuid)
+        agent = self.get_agent(agent_uuid)
 
         self.check_object_permissions(request, agent)
 
@@ -118,3 +121,18 @@ class AssignAgentView(APIView):
         data["client_secret"] = raw_client_secret
 
         return Response(data, status=status.HTTP_201_CREATED)
+
+
+class UnassignAgentView(GenericIntegratedAgentView):
+    permission_classes = [IsAuthenticated, IsAgentOficialOrFromProjet]
+
+    def post(self, request: Request, agent_uuid: UUID) -> Response:
+        project_uuid = get_project_uuid_from_request(request)
+        agent = self.get_agent(agent_uuid)
+
+        self.check_object_permissions(request, agent)
+
+        use_case = UnassignAgentUseCase()
+        use_case.execute(agent, project_uuid)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
