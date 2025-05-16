@@ -127,3 +127,24 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
             page += 1
 
         return templates_dict
+
+    def create_library_template(
+        self, app_uuid: str, project_uuid: str, template_data: dict
+    ) -> str:
+        url = (
+            f"{self.base_url}/api/v1/apps/{app_uuid}/templates/create-library-template/"
+        )
+
+        # Add Project-Uuid to the headers
+        headers = {
+            **self.authentication_instance.headers,
+            "Project-Uuid": project_uuid,
+        }
+
+        response = self.make_request(
+            url,
+            method="POST",
+            json=template_data,
+            headers=headers,
+        )
+        return response.json()

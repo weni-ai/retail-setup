@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from retail.templates.usecases.create_template import (
     CreateTemplateUseCase,
@@ -15,9 +15,7 @@ from uuid import uuid4
 
 class CreateTemplateUseCaseTest(TestCase):
     def setUp(self):
-        self.mock_service = Mock()
-        self.mock_service.create_template.return_value = str(uuid4())
-        self.use_case = CreateTemplateUseCase(service=self.mock_service)
+        self.use_case = CreateTemplateUseCase()
 
         project_uuid = uuid4()
 
