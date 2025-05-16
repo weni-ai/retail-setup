@@ -3,12 +3,13 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 
 from retail.clients.exceptions import CustomAPIException
+from retail.clients.integrations.client import IntegrationsClient
 from retail.interfaces.clients.integrations.interface import IntegrationsClientInterface
 
 
 class IntegrationsService:
     def __init__(self, client: IntegrationsClientInterface):
-        self.client = client
+        self.client = client or IntegrationsClient()
 
     def get_vtex_integration_detail(self, project_uuid: str) -> dict:
         """
