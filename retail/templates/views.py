@@ -62,7 +62,7 @@ class TemplateViewSet(ViewSet):
         response_serializer = ReadTemplateSerializer(template)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["POST"])
+    @action(detail=False, methods=["POST"], url_path="create-library-template")
     def create_library_template(self, request: Request) -> Response:
         request_serializer = CreateLibraryTemplateSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
