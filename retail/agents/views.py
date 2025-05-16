@@ -1,23 +1,40 @@
 import json
 
+from uuid import UUID
+
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 
-from retail.agents.serializers import PushAgentSerializer, ReadAgentSerializer
+from retail.agents.models import Agent
+from retail.agents.serializers import (
+    PushAgentSerializer,
+    ReadAgentSerializer,
+    ReadIntegratedAgentSerializer,
+)
 from retail.agents.usecases import (
     PushAgentUseCase,
     PushAgentData,
     ListAgentsUseCase,
     RetrieveAgentUseCase,
+    AssignAgentUseCase,
 )
 from retail.agents.tasks import validate_pre_approved_templates
 from retail.agents.permissions import IsAgentOficialOrFromProjet
 from retail.internal.permissions import CanCommunicateInternally
+
+
+def get_project_uuid_from_request(request: Request) -> str:
+    project_uuid = request.headers.get("Project-Uuid")
+
+    if project_uuid is None:
+        raise ValidationError({"project_uuid": "Missing project uuid in header."})
+
+    return project_uuid
 
 
 class PushAgentView(APIView):
@@ -55,21 +72,16 @@ class AgentViewSet(ViewSet):
         return permissions
 
     def list(self, request: Request, *args, **kwargs) -> Response:
-        project_uuid = request.headers.get("Project-Uuid")
-
-        if project_uuid is None:
-            raise ValidationError({"project_uuid": "Missing project uuid in header."})
+        project_uuid = get_project_uuid_from_request(request)
 
         agents = ListAgentsUseCase.execute(project_uuid)
 
         response_serializer = ReadAgentSerializer(agents, many=True)
+
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> Response:
-        project_uuid = request.headers.get("Project-Uuid")
-
-        if project_uuid is None:
-            raise ValidationError({"project_uuid": "Missing project uuid in header."})
+        get_project_uuid_from_request(request)
 
         agent = RetrieveAgentUseCase.execute(pk)
 
@@ -77,3 +89,32 @@ class AgentViewSet(ViewSet):
 
         response_serializer = ReadAgentSerializer(agent)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
+class AssignAgentView(APIView):
+    permission_classes = [IsAuthenticated, IsAgentOficialOrFromProjet]
+
+    def __get_agent(self, agent_uuid: UUID) -> Agent:
+        try:
+            return Agent.objects.get(uuid=agent_uuid)
+        except Agent.DoesNotExist:
+            raise NotFound(f"Agent not found: {agent_uuid}")
+
+    def post(self, request: Request, agent_uuid: UUID) -> Response:
+        project_uuid = get_project_uuid_from_request(request)
+        agent = self.__get_agent(agent_uuid)
+
+        self.check_object_permissions(request, agent)
+
+        use_case = AssignAgentUseCase()
+
+        integrated_agent, raw_client_secret = use_case.execute(agent, project_uuid)
+
+        response_serializer = ReadIntegratedAgentSerializer(
+            integrated_agent, show_client_secret=True
+        )
+
+        data = dict(response_serializer.data)
+        data["client_secret"] = raw_client_secret
+
+        return Response(data, status=status.HTTP_201_CREATED)
