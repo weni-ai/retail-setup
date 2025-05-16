@@ -38,5 +38,5 @@ class AwsLambdaService(AwsLambdaServiceInterface):
                 )
                 logger.info(f"Updated Lambda: {function_name}")
                 return response["FunctionArn"]
-        except Exception as e:
+
             raise APIException(str(e))
