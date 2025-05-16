@@ -8,7 +8,7 @@ from retail.interfaces.clients.integrations.interface import IntegrationsClientI
 
 
 class IntegrationsService:
-    def __init__(self, client: IntegrationsClientInterface):
+    def __init__(self, client: Optional[IntegrationsClientInterface] = None):
         self.client = client or IntegrationsClient()
 
     def get_vtex_integration_detail(self, project_uuid: str) -> dict:

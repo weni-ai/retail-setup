@@ -1,9 +1,6 @@
 from typing import Optional, TypedDict, List, Dict, Any
-
 from uuid import UUID
 
-from retail.interfaces.services.integrations import IntegrationsServiceInterface
-from retail.services.integrations.service import IntegrationsService
 from retail.templates.models import Template
 from retail.templates.tasks import task_create_library_template
 
@@ -22,12 +19,27 @@ class CreateLibraryTemplateData(TypedDict):
 
 
 class CreateLibraryTemplateUseCase(TemplateBuilderMixin):
-    def __init__(self, service: Optional[IntegrationsServiceInterface] = None):
-        self.service = service or IntegrationsService()
+    """
+    Use case responsible for creating a library template and its version.
+
+    This class handles the creation of a library-based Meta template, including versioning,
+    and delegates the integration trigger to an asynchronous task.
+    """
 
     def _notify_integrations(
         self, version_name: str, version_uuid: UUID, payload: CreateLibraryTemplateData
     ) -> None:
+        """
+        Notifies the integration layer to asynchronously create the library template.
+
+        Args:
+            version_name (str): The generated name of the template version.
+            version_uuid (UUID): UUID of the created version, used as gallery_version.
+            payload (CreateLibraryTemplateData): All template data required for the integration.
+
+        Raises:
+            ValueError: If required fields for integration are missing.
+        """
         if (
             not version_name
             or not payload.get("app_uuid")
@@ -50,6 +62,20 @@ class CreateLibraryTemplateUseCase(TemplateBuilderMixin):
         )
 
     def execute(self, payload: CreateLibraryTemplateData) -> Template:
+        """
+        Executes the library template creation flow.
+
+        This method will:
+        - Retrieve or create the base Template.
+        - Create a new Version associated with the template.
+        - Trigger the asynchronous task to notify Meta integrations.
+
+        Args:
+            payload (CreateLibraryTemplateData): The data required to create the library template.
+
+        Returns:
+            Template: The created or existing Template instance.
+        """
         template, version = self.build_template_and_version(payload)
         self._notify_integrations(version.template_name, version.uuid, payload)
         return template
