@@ -6,6 +6,8 @@ from django.core.files.uploadedfile import UploadedFile
 
 from botocore.exceptions import ClientError
 
+from rest_framework.exceptions import APIException
+
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.interfaces.clients.aws_lambda.client import AwsLambdaClientInterface
 from retail.clients.aws_lambda.client import AwsLambdaClient
@@ -34,5 +36,7 @@ class AwsLambdaService(AwsLambdaServiceInterface):
                     function_name=function_name,
                     zip_bytes=zip_bytes,
                 )
+                logger.info(f"Updated Lambda: {function_name}")
                 return response["FunctionArn"]
-            logger.info(f"Updated Lambda: {function_name}")
+        except Exception as e:
+            raise APIException(str(e))
