@@ -320,3 +320,13 @@ class IntegrationsService:
         return self.client.create_template_translation(
             app_uuid, project_uuid, template_uuid, payload
         )
+
+    def create_library_template(
+        self,
+        app_uuid: str,
+        project_uuid: str,
+        template_data: Dict[str, Any],
+    ) -> str:
+        return self.client.create_library_template(
+            app_uuid, project_uuid, template_data
+        )
