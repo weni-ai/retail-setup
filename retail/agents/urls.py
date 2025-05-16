@@ -7,6 +7,7 @@ from retail.agents.views import (
     AgentViewSet,
     AssignAgentView,
     UnassignAgentView,
+    AgentWebhookView,
 )
 
 router = SimpleRouter()
@@ -19,6 +20,9 @@ urlpatterns = [
         "<uuid:agent_uuid>/unassign/",
         UnassignAgentView.as_view(),
         name="unassign-agent",
+    ),
+    path(
+        "webhook/<uuid:webhook_uuid>/", AgentWebhookView.as_view(), name="agent-webhook"
     ),
 ]
 

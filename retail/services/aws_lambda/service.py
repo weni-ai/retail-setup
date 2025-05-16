@@ -1,6 +1,6 @@
 import logging
 
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from django.core.files.uploadedfile import UploadedFile
 
@@ -36,6 +36,9 @@ class AwsLambdaService(AwsLambdaServiceInterface):
             logger.info(f"Updated Lambda: {function_name}")
 
         return response["FunctionArn"]
+
+    def invoke(self, function_name: str) -> Dict[str, Any]:
+        return self.client.invoke(function_name=function_name)
 
 
 class AwsLambdaTempMockService(AwsLambdaServiceInterface):

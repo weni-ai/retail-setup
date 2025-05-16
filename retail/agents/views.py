@@ -15,6 +15,7 @@ from retail.agents.serializers import (
     PushAgentSerializer,
     ReadAgentSerializer,
     ReadIntegratedAgentSerializer,
+    AgentWebhookSerializer,
 )
 from retail.agents.usecases import (
     PushAgentUseCase,
@@ -23,6 +24,8 @@ from retail.agents.usecases import (
     RetrieveAgentUseCase,
     AssignAgentUseCase,
     UnassignAgentUseCase,
+    AgentWebhookUseCase,
+    AgentWebhookData,
 )
 from retail.agents.tasks import validate_pre_approved_templates
 from retail.agents.permissions import IsAgentOficialOrFromProjet
@@ -136,3 +139,19 @@ class UnassignAgentView(GenericIntegratedAgentView):
         use_case.execute(agent, project_uuid)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AgentWebhookView(APIView):
+    def post(self, request: Request, webhook_uuid: UUID, *args, **kwargs) -> Response:
+        data = AgentWebhookData(
+            client_secret=request.query_params.get("client_secret"),
+            webhook_uuid=webhook_uuid,
+        )
+
+        request_serializer = AgentWebhookSerializer(data=data)
+        request_serializer.is_valid(raise_exception=True)
+
+        use_case = AgentWebhookUseCase()
+        lambda_return = use_case.execute(request_serializer.data)
+
+        return Response(lambda_return, status=status.HTTP_200_OK)
