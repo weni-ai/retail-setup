@@ -1,19 +1,20 @@
 import logging
-
-from typing import Optional, Dict, Any
-
-from django.core.files.uploadedfile import UploadedFile
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from botocore.exceptions import ClientError
-
+from django.core.files.uploadedfile import UploadedFile
 from rest_framework.exceptions import APIException
 
-from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
-from retail.interfaces.clients.aws_lambda.client import AwsLambdaClientInterface
 from retail.clients.aws_lambda.client import AwsLambdaClient
-
+from retail.interfaces.clients.aws_lambda.client import \
+    AwsLambdaClientInterface
+from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 
 logger = logging.getLogger(__name__)
+
+
+if TYPE_CHECKING:
+    from retail.interfaces.clients.aws_lambda.client import RequestData
 
 
 class AwsLambdaService(AwsLambdaServiceInterface):
@@ -41,8 +42,11 @@ class AwsLambdaService(AwsLambdaServiceInterface):
 
             raise APIException("Failed to create function in aws lambda.")
 
-    def invoke(self, function_name: str) -> Dict[str, Any]:
-        return self.client.invoke(function_name=function_name)
+    def invoke(self, function_name: str, data: "RequestData") -> Dict[str, Any]:
+        return self.client.invoke(
+            function_name=function_name,
+            data=data
+        )
 
 
 class AwsLambdaTempMockService(AwsLambdaServiceInterface):
