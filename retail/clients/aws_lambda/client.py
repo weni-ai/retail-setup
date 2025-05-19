@@ -34,3 +34,9 @@ class AwsLambdaClient(AwsLambdaClientInterface):
             ZipFile=zip_bytes,
             Publish=True,
         )
+
+    def invoke(self, function_name: str) -> Dict[str, Any]:
+        return self.boto3_client.invoke(
+            FunctionName=function_name,
+            InvocationType="RequestResponse",
+        )

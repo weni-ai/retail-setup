@@ -53,3 +53,8 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
         super().__init__(*args, **kwargs)
         if not show_client_secret:
             self.fields.pop("client_secret")
+
+
+class AgentWebhookSerializer(serializers.Serializer):
+    client_secret = serializers.CharField(required=True)
+    webhook_uuid = serializers.UUIDField(required=True)

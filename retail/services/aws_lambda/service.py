@@ -1,6 +1,6 @@
 import logging
 
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from django.core.files.uploadedfile import UploadedFile
 
@@ -40,3 +40,11 @@ class AwsLambdaService(AwsLambdaServiceInterface):
                 return response["FunctionArn"]
 
             raise APIException("Failed to create function in aws lambda.")
+
+    def invoke(self, function_name: str) -> Dict[str, Any]:
+        return self.client.invoke(function_name=function_name)
+
+
+class AwsLambdaTempMockService(AwsLambdaServiceInterface):
+    def send_file(self, file_obj, function_name):
+        return f"arn:aws:iam::{function_name}"
