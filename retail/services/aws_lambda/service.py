@@ -39,4 +39,4 @@ class AwsLambdaService(AwsLambdaServiceInterface):
                 logger.info(f"Updated Lambda: {function_name}")
                 return response["FunctionArn"]
 
-            raise APIException(str(e))
+            raise APIException("Failed to create function in aws lambda.")
