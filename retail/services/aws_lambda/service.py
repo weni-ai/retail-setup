@@ -6,6 +6,8 @@ from django.core.files.uploadedfile import UploadedFile
 
 from botocore.exceptions import ClientError
 
+from rest_framework.exceptions import APIException
+
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.interfaces.clients.aws_lambda.client import AwsLambdaClientInterface
 from retail.clients.aws_lambda.client import AwsLambdaClient
@@ -27,17 +29,14 @@ class AwsLambdaService(AwsLambdaServiceInterface):
                 zip_bytes=zip_bytes,
             )
             logger.info(f"Created Lambda: {function_name}")
+            return response["FunctionArn"]
         except ClientError as e:
             if e.response["Error"]["Code"] == "ResourceConflictException":
                 response = self.client.update_function_code(
                     function_name=function_name,
                     zip_bytes=zip_bytes,
                 )
-            logger.info(f"Updated Lambda: {function_name}")
+                logger.info(f"Updated Lambda: {function_name}")
+                return response["FunctionArn"]
 
-        return response["FunctionArn"]
-
-
-class AwsLambdaTempMockService(AwsLambdaServiceInterface):
-    def send_file(self, file_obj, function_name):
-        return f"arn:aws:iam::{function_name}"
+            raise APIException("Failed to create function in aws lambda.")
