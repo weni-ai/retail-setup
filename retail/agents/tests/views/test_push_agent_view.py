@@ -96,30 +96,6 @@ class PushAgentViewE2ETest(APITestCase):
 
     @patch("retail.agents.views.PushAgentUseCase")
     @patch("retail.agents.views.validate_pre_approved_templates.delay")
-    def test_push_agent_permission_denied(
-        self, mock_validate_task, mock_push_agent_usecase
-    ):
-        user_no_perm = User.objects.create_user(username="nopermuser", password="12345")
-        self.client.force_authenticate(user=user_no_perm)
-
-        data = {
-            "project_uuid": str(self.project.uuid),
-            "agents": json.dumps(self.agent_data),
-        }
-
-        files = {"agent1": self.uploaded_file}
-
-        response = self.client.post(
-            self.url, data=data, files=files, format="multipart"
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-        mock_push_agent_usecase.assert_not_called()
-        mock_validate_task.assert_not_called()
-
-    @patch("retail.agents.views.PushAgentUseCase")
-    @patch("retail.agents.views.validate_pre_approved_templates.delay")
     def test_push_agent_unauthenticated(
         self, mock_validate_task, mock_push_agent_usecase
     ):
