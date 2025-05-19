@@ -1,34 +1,26 @@
 import json
-
 from uuid import UUID
 
-from rest_framework.views import APIView
-from rest_framework.viewsets import ViewSet
+from rest_framework import status
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError, NotFound
-from rest_framework.permissions import IsAuthenticated
-from rest_framework import status
+from rest_framework.views import APIView
+from rest_framework.viewsets import ViewSet
 
 from retail.agents.models import Agent
-from retail.agents.serializers import (
-    PushAgentSerializer,
-    ReadAgentSerializer,
-    ReadIntegratedAgentSerializer,
-    AgentWebhookSerializer,
-)
-from retail.agents.usecases import (
-    PushAgentUseCase,
-    PushAgentData,
-    ListAgentsUseCase,
-    RetrieveAgentUseCase,
-    AssignAgentUseCase,
-    UnassignAgentUseCase,
-    AgentWebhookUseCase,
-    AgentWebhookData,
-)
-from retail.agents.tasks import validate_pre_approved_templates
 from retail.agents.permissions import IsAgentOficialOrFromProjet
+from retail.agents.serializers import (AgentWebhookSerializer,
+                                       PushAgentSerializer,
+                                       ReadAgentSerializer,
+                                       ReadIntegratedAgentSerializer)
+from retail.agents.tasks import validate_pre_approved_templates
+from retail.agents.usecases import (AgentWebhookData, AgentWebhookUseCase,
+                                    AssignAgentUseCase, ListAgentsUseCase,
+                                    PushAgentData, PushAgentUseCase,
+                                    RetrieveAgentUseCase, UnassignAgentUseCase)
+from retail.interfaces.clients.aws_lambda.client import RequestData
 from retail.internal.permissions import CanCommunicateInternally
 
 
@@ -142,6 +134,16 @@ class UnassignAgentView(GenericIntegratedAgentView):
 
 
 class AgentWebhookView(APIView):
+    def _get_data_from_request(self, request: Request) -> RequestData:
+        request_params = request.query_params
+        request_params.pop("client_secret")
+
+        return RequestData(
+            params=request_params,
+            payload=request.data,
+            credentials={}, # TODO: Set credentials in usecase
+        )
+
     def post(self, request: Request, webhook_uuid: UUID, *args, **kwargs) -> Response:
         data = AgentWebhookData(
             client_secret=request.query_params.get("client_secret"),
@@ -151,7 +153,9 @@ class AgentWebhookView(APIView):
         request_serializer = AgentWebhookSerializer(data=data)
         request_serializer.is_valid(raise_exception=True)
 
+        request_data = self._get_data_from_request(request)
+
         use_case = AgentWebhookUseCase()
-        lambda_return = use_case.execute(request_serializer.data)
+        lambda_return = use_case.execute(request_serializer.data, request_data)
 
         return Response(lambda_return, status=status.HTTP_200_OK)
