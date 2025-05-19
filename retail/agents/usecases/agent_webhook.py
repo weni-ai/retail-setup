@@ -19,7 +19,7 @@ class AgentWebhookData(TypedDict):
 
 
 class AgentWebhookUseCase:
-    def __init__(self, lambda_service: Optional[AwsLambdaServiceInterface]):
+    def __init__(self, lambda_service: Optional[AwsLambdaServiceInterface] = None):
         self.lambda_service = lambda_service or AwsLambdaService()
 
     def _get_integrated_agent(self, webhook_uuid: UUID):
