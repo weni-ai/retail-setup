@@ -1,18 +1,15 @@
 import logging
-
-from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
-from retail.services.aws_lambda import AwsLambdaTempMockService
-from retail.agents.models import Agent, PreApprovedTemplate
-from retail.projects.models import Project
-from retail.agents.exceptions import AgentFileNotSent
+from typing import Dict, List, Optional, TypedDict
+from uuid import UUID
 
 from django.core.files.uploadedfile import UploadedFile
-
 from rest_framework.exceptions import NotFound
 
-from typing import Optional, Dict, TypedDict, List
-
-from uuid import UUID
+from retail.agents.exceptions import AgentFileNotSent
+from retail.agents.models import Agent, PreApprovedTemplate
+from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
+from retail.projects.models import Project
+from retail.services.aws_lambda import AwsLambdaTempMockService
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +56,25 @@ class PushAgentUseCase:
         except Project.DoesNotExist:
             raise NotFound(f"No project found for UUID: {project_uuid}")
 
+    def _parse_credentials(self, credentials: List[Dict]) -> Dict:
+        return {credential.get("key"): credential for credential in credentials}
+
     def _get_or_create_agent(self, payload: AgentItemsData, project: Project) -> Agent:
+        credentials = self._parse_credentials(payload.get("credentials", []))
+
         agent, created = Agent.objects.get_or_create(
             name=payload.get("name"),
             project=project,
             defaults={
                 "is_oficial": False,
+                "credentials": credentials,
             },
         )
+
+        if not created:
+            agent.credentials = credentials
+            agent.save()
+
         return agent, created
 
     def _upload_to_lambda(self, file_obj: UploadedFile, function_name: str) -> str:

@@ -1,16 +1,12 @@
-import secrets
-
-import uuid
-
 import hashlib
-
 import os
-
+import secrets
+import uuid
 from typing import Tuple
 
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 
-from retail.agents.models import Agent, IntegratedAgent
+from retail.agents.models import Agent, Credential, IntegratedAgent
 from retail.projects.models import Project
 
 SECRET_NUM_BYTES = 32
@@ -39,17 +35,51 @@ class AssignAgentUseCase:
         project: Project,
         hashed_client_secret: str,
     ) -> IntegratedAgent:
-        return IntegratedAgent.objects.create(
+        integrated_agent, created =  IntegratedAgent.objects.get_or_create(
             agent=agent,
             project=project,
-            client_secret=hashed_client_secret,
-            lambda_arn=agent.lambda_arn,
+            defaults={
+                "client_secret": hashed_client_secret,
+                "lambda_arn": agent.lambda_arn,
+            }
         )
+        
+        if not created:
+            raise ValidationError("Agent already integrated to this project")
+
+        return integrated_agent
+
+
+    def _validate_credentials(self, agent: Agent, credentials: dict):
+        for key in agent.credentials.keys():
+            credential = credentials.get(key, None)
+
+            if credential is None:
+                raise ValidationError(f"Credential {key} is required")
+
+    def _create_credentials(self, integrated_agent: IntegratedAgent, agent: Agent, credentials: dict) -> None:
+        for key, value in credentials.items():
+            agent_credential = agent.credentials.get(key, None)
+
+            if agent_credential is None:
+                continue
+
+            Credential.objects.get_or_create(
+                key=key,
+                integrated_agent=integrated_agent,
+                defaults={
+                    "value": value,
+                    "label": agent_credential.get("label"),
+                    "placeholder": agent_credential.get("placeholder"),
+                    "is_confidential": agent_credential.get("is_confidential"),
+                }
+            )
 
     def execute(
-        self, agent: Agent, project_uuid: uuid.UUID
+        self, agent: Agent, project_uuid: uuid.UUID, credentials: dict
     ) -> Tuple[IntegratedAgent, str]:
         project = self._get_project(project_uuid)
+        self._validate_credentials(agent, credentials)
 
         client_secret = self._generate_client_secret()
         hashed_client_secret = self._hash_secret(client_secret)
@@ -59,5 +89,7 @@ class AssignAgentUseCase:
             project=project,
             hashed_client_secret=hashed_client_secret,
         )
+
+        self._create_credentials(integrated_agent, agent, credentials)
 
         return integrated_agent, client_secret

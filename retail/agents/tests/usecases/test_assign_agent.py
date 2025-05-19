@@ -1,9 +1,7 @@
 import uuid
-
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
-
 from rest_framework.exceptions import NotFound
 
 from retail.agents.models import Agent, IntegratedAgent
@@ -76,7 +74,7 @@ class AssignAgentUseCaseTest(TestCase):
         mock_integrated = MagicMock(spec=IntegratedAgent)
         mock_create_integrated.return_value = mock_integrated
 
-        result = self.use_case.execute(self.agent, self.project.uuid)
+        result = self.use_case.execute(self.agent, self.project.uuid, {})
         self.assertEqual(result, (mock_integrated, "plain_secret"))
         mock_get_project.assert_called_once_with(self.project.uuid)
         mock_generate_secret.assert_called_once()
@@ -89,7 +87,7 @@ class AssignAgentUseCaseTest(TestCase):
 
     def test_execute_integration(self):
         integrated_agent, client_secret = self.use_case.execute(
-            self.agent, self.project.uuid
+            self.agent, self.project.uuid, {}
         )
         self.assertIsInstance(integrated_agent, IntegratedAgent)
         self.assertEqual(integrated_agent.agent, self.agent)
@@ -100,4 +98,4 @@ class AssignAgentUseCaseTest(TestCase):
     def test_execute_project_not_found(self):
         random_uuid = uuid.uuid4()
         with self.assertRaises(NotFound):
-            self.use_case.execute(self.agent, random_uuid)
+            self.use_case.execute(self.agent, random_uuid, {})
