@@ -69,7 +69,7 @@ class AssignAgentUseCase:
         )
 
     def _adapt_button(
-        buttons: List[MetaButtonFormat],
+        self, buttons: List[MetaButtonFormat]
     ) -> List[IntegrationsButtonFormat]:
         integration_buttons = []
 
@@ -95,7 +95,7 @@ class AssignAgentUseCase:
 
         for template in templates:
             if not template.is_valid:
-                pass
+                continue
 
             metadata = template.metadata or {}
             data: CreateLibraryTemplateData = {
@@ -106,10 +106,13 @@ class AssignAgentUseCase:
                 "app_uuid": app_uuid,
                 "project_uuid": project_uuid,
                 "start_condition": template.start_condition,
-                "library_template_button_inputs": self._adapt_button(
-                    metadata.get("buttons")
-                ),
             }
+
+            if metadata.get("buttons"):
+                data["library_template_button_inputs"] = self._adapt_button(
+                    metadata.get("buttons")
+                )
+
             raw_template = use_case.execute(data)
             raw_template.integrated_agent = integrated_agent
             raw_template.save()
