@@ -94,9 +94,6 @@ class AssignAgentUseCase:
         use_case = CreateLibraryTemplateUseCase()
 
         for template in templates:
-            if not template.is_valid:
-                pass
-
             metadata = template.metadata or {}
             data: CreateLibraryTemplateData = {
                 "template_name": metadata.get("name"),
@@ -106,10 +103,13 @@ class AssignAgentUseCase:
                 "app_uuid": app_uuid,
                 "project_uuid": project_uuid,
                 "start_condition": template.start_condition,
-                "library_template_button_inputs": self._adapt_button(
-                    metadata.get("buttons")
-                ),
             }
+
+            if metadata.get("buttons"):
+                data["library_template_button_inputs"] = self._adapt_button(
+                    metadata.get("buttons")
+                )
+
             raw_template = use_case.execute(data)
             raw_template.integrated_agent = integrated_agent
             raw_template.save()
