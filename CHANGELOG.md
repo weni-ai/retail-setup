@@ -1,3 +1,16 @@
+# 1.9.0
+
+## *Change*
+  - fix: create async template with task
+  - feat: list and get agents
+  - refactor: move IntegrationsService from template to retail.services.integrations
+  - feat: assign agent
+  - feat: unassign agent
+  - feat: Add script to generate local .env configuration file
+  - fix: Push agent lambda exception and meta
+  - fix: push agent permissions
+  - feat: agent webhook
+
 # 1.8.0
 
 ## *Change*
