@@ -1,17 +1,23 @@
 import secrets
 
-import uuid
-
 import hashlib
 
 import os
 
 from typing import Tuple
 
+from uuid import UUID
+
+from django.db.models import QuerySet
+
 from rest_framework.exceptions import NotFound
 
-from retail.agents.models import Agent, IntegratedAgent
+from retail.agents.models import Agent, IntegratedAgent, PreApprovedTemplate
 from retail.projects.models import Project
+from retail.templates.usecases.create_library_template import (
+    CreateLibraryTemplateData,
+    CreateLibraryTemplateUseCase,
+)
 
 SECRET_NUM_BYTES = 32
 
@@ -19,7 +25,7 @@ URANDOM_SIZE = 16
 
 
 class AssignAgentUseCase:
-    def _get_project(self, project_uuid: uuid.UUID):
+    def _get_project(self, project_uuid: UUID):
         try:
             return Project.objects.get(uuid=project_uuid)
         except Project.DoesNotExist:
@@ -46,10 +52,39 @@ class AssignAgentUseCase:
             lambda_arn=agent.lambda_arn,
         )
 
+    def _create_templates(
+        self,
+        integrated_agent: IntegratedAgent,
+        templates: QuerySet[PreApprovedTemplate],
+        project_uuid: UUID,
+        app_uuid: UUID,
+    ) -> None:
+        use_case = CreateLibraryTemplateUseCase()
+
+        for template in templates:
+            if not template.is_valid:
+                pass
+
+            metadata = template.metadata
+            data: CreateLibraryTemplateData = {
+                "template_name": metadata.get("name"),
+                "library_template_name": metadata.get("name"),
+                "category": metadata.get("category"),
+                "language": metadata.get("language"),
+                "app_uuid": app_uuid,
+                "project_uuid": project_uuid,
+                "start_condition": template.start_condition,
+                "library_template_button_inputs": metadata.get("buttons"),
+            }
+            raw_template = use_case.execute(data)
+            raw_template.integrated_agent = integrated_agent
+            raw_template.save()
+
     def execute(
-        self, agent: Agent, project_uuid: uuid.UUID
+        self, agent: Agent, project_uuid: UUID, app_uuid: UUID
     ) -> Tuple[IntegratedAgent, str]:
         project = self._get_project(project_uuid)
+        templates = agent.templates.all()
 
         client_secret = self._generate_client_secret()
         hashed_client_secret = self._hash_secret(client_secret)
@@ -59,5 +94,7 @@ class AssignAgentUseCase:
             project=project,
             hashed_client_secret=hashed_client_secret,
         )
+
+        self._create_templates(integrated_agent, templates, project_uuid, app_uuid)
 
         return integrated_agent, client_secret

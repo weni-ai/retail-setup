@@ -42,6 +42,8 @@ class PreApprovedTemplate(models.Model):
     is_valid = True if response from meta if positive.
     """
 
-    name = models.CharField(unique=True)
+    name = models.CharField()
     content = models.TextField(blank=True, null=True)
     is_valid = models.BooleanField(blank=True, null=True)
+    start_condition = models.TextField()
+    metadata = models.JSONField(null=True)

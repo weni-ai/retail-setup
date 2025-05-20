@@ -41,7 +41,9 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
         self.meta_service_mock.get_pre_approved_template.assert_called_with(
             "valid_template"
         )
-        self.assertEqual(info, {"name": "valid_template", "content": "new content"})
+
+        data = {"name": info.get("name"), "content": info.get("content")}
+        self.assertEqual(data, {"name": "valid_template", "content": "new content"})
 
     def test_get_template_info_returns_none_when_not_exists(self):
         info = self.usecase._get_template_info("invalid_template")
