@@ -9,3 +9,6 @@ class AwsLambdaClientInterface(Protocol):
         self, function_name: str, zip_bytes: bytes
     ) -> Dict[str, Any]:
         ...
+
+    def invoke(self, function_name: str) -> Dict[str, Any]:
+        ...
