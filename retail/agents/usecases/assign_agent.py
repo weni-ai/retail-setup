@@ -94,6 +94,9 @@ class AssignAgentUseCase:
         use_case = CreateLibraryTemplateUseCase()
 
         for template in templates:
+            if not template.is_valid:
+                continue
+
             metadata = template.metadata or {}
             data: CreateLibraryTemplateData = {
                 "template_name": metadata.get("name"),
