@@ -116,18 +116,11 @@ class AssignAgentView(GenericIntegratedAgentView):
 
         use_case = AssignAgentUseCase()
 
-        integrated_agent, raw_client_secret = use_case.execute(
-            agent, project_uuid, app_uuid
-        )
+        integrated_agent = use_case.execute(agent, project_uuid, app_uuid)
 
-        response_serializer = ReadIntegratedAgentSerializer(
-            integrated_agent, show_client_secret=True
-        )
+        response_serializer = ReadIntegratedAgentSerializer(integrated_agent)
 
-        data = dict(response_serializer.data)
-        data["client_secret"] = raw_client_secret
-
-        return Response(data, status=status.HTTP_201_CREATED)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class UnassignAgentView(GenericIntegratedAgentView):

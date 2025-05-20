@@ -49,11 +49,4 @@ class ReadAgentSerializer(serializers.Serializer):
 
 class ReadIntegratedAgentSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
-    client_secret = serializers.CharField()
     templates = ReadTemplateSerializer(many=True)
-    agent = ReadAgentSerializer()
-
-    def __init__(self, *args, show_client_secret=False, **kwargs):
-        super().__init__(*args, **kwargs)
-        if not show_client_secret:
-            self.fields.pop("client_secret")
