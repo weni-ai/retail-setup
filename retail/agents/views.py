@@ -11,17 +11,24 @@ from rest_framework.viewsets import ViewSet
 
 from retail.agents.models import Agent
 from retail.agents.permissions import IsAgentOficialOrFromProjet
-from retail.agents.serializers import (AgentWebhookSerializer,
-                                       PushAgentSerializer,
-                                       ReadAgentSerializer,
-                                       ReadIntegratedAgentSerializer)
+from retail.agents.serializers import (
+    AgentWebhookSerializer,
+    PushAgentSerializer,
+    ReadAgentSerializer,
+    ReadIntegratedAgentSerializer,
+)
 from retail.agents.tasks import validate_pre_approved_templates
-from retail.agents.usecases import (AgentWebhookData, AgentWebhookUseCase,
-                                    AssignAgentUseCase, ListAgentsUseCase,
-                                    PushAgentData, PushAgentUseCase,
-                                    RetrieveAgentUseCase, UnassignAgentUseCase)
+from retail.agents.usecases import (
+    AgentWebhookData,
+    AgentWebhookUseCase,
+    AssignAgentUseCase,
+    ListAgentsUseCase,
+    PushAgentData,
+    PushAgentUseCase,
+    RetrieveAgentUseCase,
+    UnassignAgentUseCase,
+)
 from retail.interfaces.clients.aws_lambda.client import RequestData
-from retail.internal.permissions import CanCommunicateInternally
 
 
 def get_project_uuid_from_request(request: Request) -> str:
@@ -34,7 +41,7 @@ def get_project_uuid_from_request(request: Request) -> str:
 
 
 class PushAgentView(APIView):
-    permission_classes = [CanCommunicateInternally]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request: Request, *args, **kwargs) -> Response:
         agents = json.loads(request.data.get("agents"))
@@ -141,7 +148,7 @@ class AgentWebhookView(APIView):
         return RequestData(
             params=request_params,
             payload=request.data,
-            credentials={}, # TODO: Set credentials in usecase
+            credentials={},  # TODO: Set credentials in usecase
         )
 
     def post(self, request: Request, webhook_uuid: UUID, *args, **kwargs) -> Response:
