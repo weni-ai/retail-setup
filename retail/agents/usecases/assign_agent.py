@@ -69,7 +69,7 @@ class AssignAgentUseCase:
         )
 
     def _adapt_button(
-        buttons: List[MetaButtonFormat],
+        self, buttons: List[MetaButtonFormat]
     ) -> List[IntegrationsButtonFormat]:
         integration_buttons = []
 
