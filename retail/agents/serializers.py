@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from django.conf import settings
+
 from retail.templates.serializers import ReadTemplateSerializer
 
 
@@ -49,16 +51,13 @@ class ReadAgentSerializer(serializers.Serializer):
 
 class ReadIntegratedAgentSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
-    client_secret = serializers.CharField()
     templates = ReadTemplateSerializer(many=True)
-    agent = ReadAgentSerializer()
+    webhook_url = serializers.SerializerMethodField()
 
-    def __init__(self, *args, show_client_secret=False, **kwargs):
-        super().__init__(*args, **kwargs)
-        if not show_client_secret:
-            self.fields.pop("client_secret")
+    def get_webhook_url(self, obj):
+        domain_url = settings.DOMAIN
+        return f"{domain_url}/api/v3/agents/webhook/{str(obj.uuid)}/"
 
 
 class AgentWebhookSerializer(serializers.Serializer):
-    client_secret = serializers.CharField(required=True)
     webhook_uuid = serializers.UUIDField(required=True)

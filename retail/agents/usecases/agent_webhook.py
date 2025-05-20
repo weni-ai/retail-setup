@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 
 class AgentWebhookData(TypedDict):
-    client_secret: str
     webhook_uuid: UUID
 
 
