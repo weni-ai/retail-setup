@@ -26,7 +26,6 @@ from retail.agents.usecases import (
 )
 from retail.agents.tasks import validate_pre_approved_templates
 from retail.agents.permissions import IsAgentOficialOrFromProjet
-from retail.internal.permissions import CanCommunicateInternally
 
 
 def get_project_uuid_from_request(request: Request) -> str:
@@ -39,7 +38,7 @@ def get_project_uuid_from_request(request: Request) -> str:
 
 
 class PushAgentView(APIView):
-    permission_classes = [CanCommunicateInternally]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request: Request, *args, **kwargs) -> Response:
         agents = json.loads(request.data.get("agents"))
