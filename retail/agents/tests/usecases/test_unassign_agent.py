@@ -22,7 +22,6 @@ class UnassignAgentUseCaseTest(TestCase):
         self.integrated_agent = IntegratedAgent.objects.create(
             agent=self.agent,
             project=self.project,
-            client_secret="hashedsecret",
             lambda_arn=self.agent.lambda_arn,
         )
         self.use_case = UnassignAgentUseCase()

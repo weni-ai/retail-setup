@@ -44,7 +44,6 @@ class AssignAgentViewTest(APITestCase):
             HTTP_PROJECT_UUID=str(self.project.uuid),
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn("client_secret", response.data)
 
     def test_assign_agent_not_oficial_wrong_project(self):
         url = reverse(
@@ -71,7 +70,6 @@ class AssignAgentViewTest(APITestCase):
             HTTP_PROJECT_UUID=str(self.project.uuid),
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn("client_secret", response.data)
 
     def test_missing_project_uuid_header(self):
         url = reverse("assign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})

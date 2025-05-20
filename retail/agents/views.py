@@ -3,7 +3,7 @@ from uuid import UUID
 
 from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -118,18 +118,11 @@ class AssignAgentView(GenericIntegratedAgentView):
 
         use_case = AssignAgentUseCase()
 
-        integrated_agent, raw_client_secret = use_case.execute(
-            agent, project_uuid, app_uuid
-        )
+        integrated_agent = use_case.execute(agent, project_uuid, app_uuid)
 
-        response_serializer = ReadIntegratedAgentSerializer(
-            integrated_agent, show_client_secret=True
-        )
+        response_serializer = ReadIntegratedAgentSerializer(integrated_agent)
 
-        data = dict(response_serializer.data)
-        data["client_secret"] = raw_client_secret
-
-        return Response(data, status=status.HTTP_201_CREATED)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class UnassignAgentView(GenericIntegratedAgentView):
@@ -148,9 +141,10 @@ class UnassignAgentView(GenericIntegratedAgentView):
 
 
 class AgentWebhookView(APIView):
+    permission_classes = [AllowAny]
+
     def _get_data_from_request(self, request: Request) -> RequestData:
         request_params = request.query_params
-        request_params.pop("client_secret")
 
         return RequestData(
             params=request_params,
@@ -160,7 +154,6 @@ class AgentWebhookView(APIView):
 
     def post(self, request: Request, webhook_uuid: UUID, *args, **kwargs) -> Response:
         data = AgentWebhookData(
-            client_secret=request.query_params.get("client_secret"),
             webhook_uuid=webhook_uuid,
         )
 
