@@ -1,4 +1,12 @@
-from typing import Protocol, Dict, Any
+from dataclasses import dataclass
+from typing import Any, Dict, Protocol
+
+
+@dataclass
+class RequestData:
+    params: dict
+    payload: dict
+    credentials: dict
 
 
 class AwsLambdaClientInterface(Protocol):
@@ -10,5 +18,5 @@ class AwsLambdaClientInterface(Protocol):
     ) -> Dict[str, Any]:
         ...
 
-    def invoke(self, function_name: str) -> Dict[str, Any]:
+    def invoke(self, function_name: str, data: RequestData) -> Dict[str, Any]:
         ...

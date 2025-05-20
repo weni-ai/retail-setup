@@ -1,16 +1,16 @@
 import hashlib
-
 import secrets
-
-from typing import Optional, Dict, Any, TypedDict
-
+from typing import TYPE_CHECKING, Any, Dict, Optional, TypedDict
 from uuid import UUID
 
 from rest_framework.exceptions import NotFound, PermissionDenied
 
+from retail.agents.models import IntegratedAgent
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
-from retail.agents.models import IntegratedAgent
+
+if TYPE_CHECKING:
+    from retail.interfaces.clients.aws_lambda.client import RequestData
 
 
 class AgentWebhookData(TypedDict):
@@ -34,10 +34,10 @@ class AgentWebhookUseCase:
         new_hash = hashlib.sha256(salt + client_secret.encode()).hexdigest()
         return secrets.compare_digest(new_hash, hashed_secret)
 
-    def _invoke_lambda(self, function_name: str) -> Dict[str, Any]:
-        return self.lambda_service.invoke(function_name)
+    def _invoke_lambda(self, function_name: str, data: "RequestData") -> Dict[str, Any]:
+        return self.lambda_service.invoke(function_name, data)
 
-    def execute(self, payload: AgentWebhookData) -> Dict[str, Any]:
+    def execute(self, payload: AgentWebhookData, data: "RequestData") -> Dict[str, Any]:
         integrated_agent = self._get_integrated_agent(
             webhook_uuid=payload.get("webhook_uuid")
         )
@@ -47,4 +47,4 @@ class AgentWebhookUseCase:
         ):
             raise PermissionDenied("Invalid client secret.")
 
-        return self._invoke_lambda(function_name=integrated_agent.lambda_arn)
+        return self._invoke_lambda(function_name=integrated_agent.lambda_arn, data=data)
