@@ -1,32 +1,34 @@
 import json
-
 from uuid import UUID
 
-from rest_framework.views import APIView
-from rest_framework.viewsets import ViewSet
+from rest_framework import status
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError, NotFound
-from rest_framework.permissions import IsAuthenticated
-from rest_framework import status
+from rest_framework.views import APIView
+from rest_framework.viewsets import ViewSet
 
 from retail.agents.models import Agent
+from retail.agents.permissions import IsAgentOficialOrFromProjet
 from retail.agents.serializers import (
+    AgentWebhookSerializer,
     PushAgentSerializer,
     ReadAgentSerializer,
     ReadIntegratedAgentSerializer,
 )
+from retail.agents.tasks import validate_pre_approved_templates
 from retail.agents.usecases import (
-    PushAgentUseCase,
-    PushAgentData,
-    ListAgentsUseCase,
-    RetrieveAgentUseCase,
+    AgentWebhookData,
+    AgentWebhookUseCase,
     AssignAgentUseCase,
+    ListAgentsUseCase,
+    PushAgentData,
+    PushAgentUseCase,
+    RetrieveAgentUseCase,
     UnassignAgentUseCase,
 )
-from retail.agents.tasks import validate_pre_approved_templates
-from retail.agents.permissions import IsAgentOficialOrFromProjet
-from retail.internal.permissions import CanCommunicateInternally
+from retail.interfaces.clients.aws_lambda.client import RequestData
 
 
 def get_project_uuid_from_request(request: Request) -> str:
@@ -39,7 +41,7 @@ def get_project_uuid_from_request(request: Request) -> str:
 
 
 class PushAgentView(APIView):
-    permission_classes = [CanCommunicateInternally]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request: Request, *args, **kwargs) -> Response:
         agents = json.loads(request.data.get("agents"))
@@ -136,3 +138,31 @@ class UnassignAgentView(GenericIntegratedAgentView):
         use_case.execute(agent, project_uuid)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AgentWebhookView(APIView):
+    permission_classes = [AllowAny]
+
+    def _get_data_from_request(self, request: Request) -> RequestData:
+        request_params = request.query_params
+
+        return RequestData(
+            params=request_params,
+            payload=request.data,
+            credentials={},  # TODO: Set credentials in usecase
+        )
+
+    def post(self, request: Request, webhook_uuid: UUID, *args, **kwargs) -> Response:
+        data = AgentWebhookData(
+            webhook_uuid=webhook_uuid,
+        )
+
+        request_serializer = AgentWebhookSerializer(data=data)
+        request_serializer.is_valid(raise_exception=True)
+
+        request_data = self._get_data_from_request(request)
+
+        use_case = AgentWebhookUseCase()
+        lambda_return = use_case.execute(request_serializer.data, request_data)
+
+        return Response(lambda_return, status=status.HTTP_200_OK)
