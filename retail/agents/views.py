@@ -142,7 +142,8 @@ class UnassignAgentView(GenericIntegratedAgentView):
 
 class AgentWebhookView(APIView):
     def _get_data_from_request(self, request: Request) -> RequestData:
-        request_params = request.query_params
+        request_params = request.query_params.copy()
+
         request_params.pop("client_secret")
 
         return RequestData(
