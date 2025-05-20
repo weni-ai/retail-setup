@@ -88,12 +88,11 @@ class PushAgentUseCase:
     def _create_pre_approved_templates(
         self, agent: Agent, agent_payload: AgentItemsData
     ) -> None:
-        template_names = list(
-            {rule["template"] for rule in agent_payload["rules"].values()}
-        )
         templates = [
-            PreApprovedTemplate.objects.get_or_create(name=name)[0]
-            for name in template_names
+            PreApprovedTemplate.objects.get_or_create(
+                name=rule.get("template"), start_condition=rule.get("start_condition")
+            )[0]
+            for rule in agent_payload["rules"].values()
         ]
         agent.templates.set(templates)
 

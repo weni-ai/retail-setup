@@ -107,13 +107,20 @@ class AssignAgentView(GenericIntegratedAgentView):
 
     def post(self, request: Request, agent_uuid: UUID) -> Response:
         project_uuid = get_project_uuid_from_request(request)
+        app_uuid = request.query_params.get("app_uuid")
+
+        if app_uuid is None:
+            raise ValidationError({"app_uuid": "Missing app_uuid in params."})
+
         agent = self.get_agent(agent_uuid)
 
         self.check_object_permissions(request, agent)
 
         use_case = AssignAgentUseCase()
 
-        integrated_agent, raw_client_secret = use_case.execute(agent, project_uuid)
+        integrated_agent, raw_client_secret = use_case.execute(
+            agent, project_uuid, app_uuid
+        )
 
         response_serializer = ReadIntegratedAgentSerializer(
             integrated_agent, show_client_secret=True
