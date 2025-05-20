@@ -4,7 +4,7 @@ import hashlib
 
 import os
 
-from typing import Tuple
+from typing import Tuple, List, TypedDict
 
 from uuid import UUID
 
@@ -22,6 +22,22 @@ from retail.templates.usecases.create_library_template import (
 SECRET_NUM_BYTES = 32
 
 URANDOM_SIZE = 16
+
+
+class MetaButtonFormat(TypedDict):
+    url: str
+    text: str
+    type: str
+
+
+class IntegrationsButtonUrlFormat(TypedDict):
+    base_url: str
+    url_suffix_example: str
+
+
+class IntegrationsButtonFormat(TypedDict):
+    type: str
+    url: IntegrationsButtonUrlFormat
 
 
 class AssignAgentUseCase:
@@ -52,6 +68,22 @@ class AssignAgentUseCase:
             lambda_arn=agent.lambda_arn,
         )
 
+    def _adapt_button(
+        buttons: List[MetaButtonFormat],
+    ) -> List[IntegrationsButtonFormat]:
+        integration_buttons = []
+
+        for button in buttons:
+            integration_button_url_format = IntegrationsButtonUrlFormat(
+                base_url=button.get("url"), url_suffix_example=button.get("url")
+            )
+            integrations_button = IntegrationsButtonFormat(
+                type=button.get("type"), url=integration_button_url_format
+            )
+            integration_buttons.append(integrations_button)
+
+        return integration_buttons
+
     def _create_templates(
         self,
         integrated_agent: IntegratedAgent,
@@ -65,7 +97,7 @@ class AssignAgentUseCase:
             if not template.is_valid:
                 pass
 
-            metadata = template.metadata
+            metadata = template.metadata or {}
             data: CreateLibraryTemplateData = {
                 "template_name": metadata.get("name"),
                 "library_template_name": metadata.get("name"),
@@ -74,7 +106,9 @@ class AssignAgentUseCase:
                 "app_uuid": app_uuid,
                 "project_uuid": project_uuid,
                 "start_condition": template.start_condition,
-                "library_template_button_inputs": metadata.get("buttons"),
+                "library_template_button_inputs": self._adapt_button(
+                    metadata.get("buttons")
+                ),
             }
             raw_template = use_case.execute(data)
             raw_template.integrated_agent = integrated_agent
