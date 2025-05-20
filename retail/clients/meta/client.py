@@ -28,4 +28,4 @@ class MetaClient(MetaClientInterface, RequestClient):
             url=url, method="GET", params=params, headers=headers
         )
 
-        return response
+        return response.json()

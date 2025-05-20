@@ -35,11 +35,7 @@ class TemplateViewSetTest(APITestCase):
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
-        self.mock_service = Mock()
-        self.mock_service.create_template.return_value = str(uuid4())
-        self.mock_service.create_template_translation.return_value = None
-
-        self.create_usecase = CreateTemplateUseCase(service=self.mock_service)
+        self.create_usecase = CreateTemplateUseCase()
         self.read_usecase = ReadTemplateUseCase()
         self.update_usecase = UpdateTemplateUseCase()
 

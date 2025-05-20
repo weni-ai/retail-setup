@@ -1,1 +1,1 @@
-from .service import AwsLambdaService, AwsLambdaTempMockService
+from .service import AwsLambdaService

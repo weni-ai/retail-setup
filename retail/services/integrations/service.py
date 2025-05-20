@@ -3,12 +3,13 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 
 from retail.clients.exceptions import CustomAPIException
+from retail.clients.integrations.client import IntegrationsClient
 from retail.interfaces.clients.integrations.interface import IntegrationsClientInterface
 
 
 class IntegrationsService:
-    def __init__(self, client: IntegrationsClientInterface):
-        self.client = client
+    def __init__(self, client: Optional[IntegrationsClientInterface] = None):
+        self.client = client or IntegrationsClient()
 
     def get_vtex_integration_detail(self, project_uuid: str) -> dict:
         """
@@ -319,4 +320,14 @@ class IntegrationsService:
     ) -> Dict[str, Any]:
         return self.client.create_template_translation(
             app_uuid, project_uuid, template_uuid, payload
+        )
+
+    def create_library_template(
+        self,
+        app_uuid: str,
+        project_uuid: str,
+        template_data: Dict[str, Any],
+    ) -> str:
+        return self.client.create_library_template(
+            app_uuid, project_uuid, template_data
         )
