@@ -82,6 +82,7 @@ class PushAgentUseCase:
         integrated_agent = agent.integrateds.filter(project=project)
 
         if integrated_agent.exists():
+            integrated_agent = integrated_agent.first()
             integrated_agent.lambda_arn = lambda_arn
             integrated_agent.save()
 
