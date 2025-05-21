@@ -43,6 +43,7 @@ def task_create_template(
         logger.error(
             f"Error creating template: {template_name} for App: {app_uuid} - {category} - version: {version_uuid} {e}"
         )
+        # TODO: on exception, delete the template on integrations
 
 
 @shared_task

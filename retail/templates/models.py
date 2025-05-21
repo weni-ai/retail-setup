@@ -18,6 +18,7 @@ class Template(models.Model):
     integrated_agent = models.ForeignKey(
         "agents.IntegratedAgent", on_delete=models.SET_NULL, null=True, blank=True
     )
+    metadata = models.JSONField(default=dict, blank=True)
 
 
 class Version(models.Model):
