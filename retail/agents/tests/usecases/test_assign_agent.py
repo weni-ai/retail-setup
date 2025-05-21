@@ -35,7 +35,6 @@ class AssignAgentUseCaseTest(TestCase):
         self.assertIsInstance(integrated_agent, IntegratedAgent)
         self.assertEqual(integrated_agent.agent, self.agent)
         self.assertEqual(integrated_agent.project, self.project)
-        self.assertEqual(integrated_agent.lambda_arn, self.agent.lambda_arn)
 
     @patch.object(AssignAgentUseCase, "_create_integrated_agent")
     @patch.object(AssignAgentUseCase, "_get_project")

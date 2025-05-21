@@ -1,7 +1,9 @@
 from typing import List, TypedDict
+
 from uuid import UUID
 
 from django.db.models import QuerySet
+
 from rest_framework.exceptions import NotFound, ValidationError
 
 from retail.agents.models import Agent, Credential, IntegratedAgent, PreApprovedTemplate
@@ -43,13 +45,12 @@ class AssignAgentUseCase:
         integrated_agent, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
             project=project,
-            defaults={
-                "lambda_arn": agent.lambda_arn,
-            },
         )
 
         if not created:
-            raise ValidationError("Agent already integrated to this project")
+            raise ValidationError(
+                detail={"agent": "This agent is already assigned in this project."}
+            )
 
         return integrated_agent
 

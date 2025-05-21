@@ -84,16 +84,6 @@ class PushAgentUseCase:
 
         return lambda_arn
 
-    def _assign_arn_to_integrated_agent(
-        self, lambda_arn: str, agent: Agent, project: Project
-    ) -> None:
-        integrated_agent = agent.integrateds.filter(project=project)
-
-        if integrated_agent.exists():
-            integrated_agent = integrated_agent.first()
-            integrated_agent.lambda_arn = lambda_arn
-            integrated_agent.save()
-
     def _assign_arn_to_agent(self, lambda_arn: str, agent: Agent) -> Agent:
         agent.lambda_arn = lambda_arn
         agent.save()
@@ -134,7 +124,6 @@ class PushAgentUseCase:
                 function_name=self._create_function_name(key, agent.uuid),
             )
             agent = self._assign_arn_to_agent(lambda_arn, agent)
-            self._assign_arn_to_integrated_agent(lambda_arn, agent, project)
             self._create_pre_approved_templates(agent, value)
             assigned_agents.append(agent)
 
