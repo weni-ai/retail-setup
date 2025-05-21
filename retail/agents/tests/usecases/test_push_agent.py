@@ -1,16 +1,14 @@
 from unittest.mock import Mock
-
-from django.test import TestCase
-from django.core.files.uploadedfile import SimpleUploadedFile
-
 from uuid import uuid4
 
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase
 from rest_framework.exceptions import NotFound
 
-from retail.projects.models import Project
 from retail.agents.exceptions import AgentFileNotSent
 from retail.agents.models import Agent, PreApprovedTemplate
 from retail.agents.usecases import PushAgentUseCase
+from retail.projects.models import Project
 
 
 class PushAgentUseCaseTest(TestCase):
@@ -40,6 +38,7 @@ class PushAgentUseCaseTest(TestCase):
         self.assertTrue(created)
         self.assertEqual(agent.name, self.agent_name)
         self.assertEqual(agent.project, self.project)
+        self.assertEqual(agent.credentials, {})
 
     def test_get_or_create_agent_gets_existing(self):
         Agent.objects.create(name=self.agent_name, project=self.project)
@@ -47,6 +46,34 @@ class PushAgentUseCaseTest(TestCase):
         agent, created = self.usecase._get_or_create_agent(payload, self.project)
         self.assertFalse(created)
         self.assertEqual(agent.name, self.agent_name)
+        self.assertEqual(agent.credentials, {})
+
+    def test_get_or_create_agent_with_credentials(self):
+        payload = {
+            "name": self.agent_name,
+            "rules": {},
+            "pre_processing": {},
+            "credentials": [{
+                "key": "EXAMPLE_CREDENTIAL",
+                "label": "Label Example",
+                "placeholder": "placeholder-example",
+                "is_confidential": False
+            }]
+        }
+        
+        awaited_credentials = {
+            'EXAMPLE_CREDENTIAL': {
+                'is_confidential': False,
+                'key': 'EXAMPLE_CREDENTIAL',
+                "placeholder": "placeholder-example",
+                'label': 'Label Example'
+            }
+        }
+
+        agent, created = self.usecase._get_or_create_agent(payload, self.project)
+        self.assertTrue(created)
+        self.assertEqual(agent.name, self.agent_name)
+        self.assertEqual(agent.credentials, awaited_credentials)
 
     def test_upload_to_lambda(self):
         arn = self.usecase._upload_to_lambda(self.uploaded_file, "function_name")
