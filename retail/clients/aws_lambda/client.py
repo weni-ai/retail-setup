@@ -1,10 +1,13 @@
-import boto3
 
+
+import json
+from typing import Any, Dict
+
+import boto3
 from django.conf import settings
 
-from typing import Dict, Any
-
-from retail.interfaces.clients.aws_lambda.client import AwsLambdaClientInterface
+from retail.interfaces.clients.aws_lambda.client import (
+    AwsLambdaClientInterface, RequestData)
 
 
 class AwsLambdaClient(AwsLambdaClientInterface):
@@ -33,4 +36,17 @@ class AwsLambdaClient(AwsLambdaClientInterface):
             FunctionName=function_name,
             ZipFile=zip_bytes,
             Publish=True,
+        )
+
+    def invoke(self, function_name: str, data: RequestData) -> Dict[str, Any]:
+        lambdaPayload = json.dumps({
+            "params": data.params,
+            "payload": data.payload,
+            "credentials": data.credentials,
+        })
+
+        return self.boto3_client.invoke(
+            FunctionName=function_name,
+            InvocationType="RequestResponse",
+            Payload=lambdaPayload,
         )

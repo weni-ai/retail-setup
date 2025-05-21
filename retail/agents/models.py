@@ -1,9 +1,20 @@
-from django.db import models
-
 from uuid import uuid4
+
+from django.db import models
 
 
 class Agent(models.Model):
+    """
+    Credentials format:
+    {
+        "EXAMPLE_CREDENTIAL": {
+          "label": "Label Example",
+          "placeholder": "placeholder-example",
+          "is_confidential": true
+        },
+    }
+    """
+
     uuid = models.UUIDField(primary_key=True, blank=True, default=uuid4)
     name = models.CharField(max_length=255)
     is_oficial = models.BooleanField(blank=True, default=False)
@@ -12,6 +23,7 @@ class Agent(models.Model):
         "projects.Project", on_delete=models.CASCADE, related_name="agents"
     )
     templates = models.ManyToManyField("PreApprovedTemplate", related_name="agents")
+    credentials = models.JSONField(null=True, default=dict)
 
     class Meta:
         unique_together = ("name", "project")
@@ -25,8 +37,6 @@ class IntegratedAgent(models.Model):
     project = models.ForeignKey(
         "projects.Project", on_delete=models.CASCADE, related_name="integrated_agents"
     )
-    lambda_arn = models.CharField(max_length=500, null=True, blank=True)
-    client_secret = models.TextField()
 
     class Meta:
         unique_together = ("agent", "project")
@@ -42,6 +52,26 @@ class PreApprovedTemplate(models.Model):
     is_valid = True if response from meta if positive.
     """
 
-    name = models.CharField(unique=True)
+    name = models.CharField()
     content = models.TextField(blank=True, null=True)
     is_valid = models.BooleanField(blank=True, null=True)
+    start_condition = models.TextField()
+    metadata = models.JSONField(null=True)
+
+
+class Credential(models.Model):
+    key = models.CharField(max_length=255)
+    label = models.CharField(max_length=255)
+    value = models.CharField(max_length=8192)
+    placeholder = models.CharField(max_length=255, null=True)
+    is_confidential = models.BooleanField(default=False)
+
+    integrated_agent = models.ForeignKey(
+        "IntegratedAgent", on_delete=models.CASCADE, related_name="credentials"
+    )
+
+    class Meta:
+        unique_together = ("key", "integrated_agent")
+
+    def __str__(self) -> str:
+        return f"{self.label} - {self.integrated_agent.agent.name}"

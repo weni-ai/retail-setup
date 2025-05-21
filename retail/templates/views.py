@@ -1,3 +1,5 @@
+from typing import cast
+
 from rest_framework.viewsets import ViewSet
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -13,12 +15,18 @@ from retail.templates.usecases import (
     UpdateTemplateData,
 )
 from retail.templates.serializers import (
+    CreateLibraryTemplateSerializer,
     CreateTemplateSerializer,
     ReadTemplateSerializer,
     UpdateTemplateSerializer,
 )
 
 from uuid import UUID
+
+from retail.templates.usecases.create_library_template import (
+    CreateLibraryTemplateData,
+    CreateLibraryTemplateUseCase,
+)
 
 
 class TemplateViewSet(ViewSet):
@@ -53,3 +61,18 @@ class TemplateViewSet(ViewSet):
 
         response_serializer = ReadTemplateSerializer(template)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["POST"], url_path="create-library-template")
+    def create_library_template(self, request: Request) -> Response:
+        request_serializer = CreateLibraryTemplateSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        data: CreateLibraryTemplateData = cast(
+            CreateLibraryTemplateData, request_serializer.validated_data
+        )
+
+        use_case = CreateLibraryTemplateUseCase()
+        template = use_case.execute(data)
+
+        response_serializer = ReadTemplateSerializer(template)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)

@@ -13,4 +13,4 @@ class RetrieveAgentUseCase:
         try:
             return Agent.objects.get(uuid=agent_uuid)
         except Agent.DoesNotExist:
-            raise NotFound(f"Agente not found: {str(agent_uuid)}")
+            raise NotFound(f"Agent not found: {str(agent_uuid)}")

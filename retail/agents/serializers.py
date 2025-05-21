@@ -1,6 +1,9 @@
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from rest_framework import serializers
+
+from retail.templates.serializers import ReadTemplateSerializer
 
 if TYPE_CHECKING:
     from .models import Agent
@@ -24,10 +27,18 @@ class PreProcessingSerializer(serializers.Serializer):
     pre_result_examples_file = serializers.CharField(required=False, allow_blank=True)
 
 
+class PushAgentsCredentialSerializer(serializers.Serializer):
+    key = serializers.CharField(required=True)
+    label = serializers.CharField(required=False, allow_null=True)
+    placeholder = serializers.CharField(required=False, allow_null=True)
+    is_confidential = serializers.BooleanField(required=False, default=False)
+
+
 class AgentSerializer(serializers.Serializer):
     name = serializers.CharField()
     rules = serializers.DictField(child=RuleSerializer())
     pre_processing = PreProcessingSerializer(source="pre-processing", required=False)
+    credentials = PushAgentsCredentialSerializer(many=True)
 
 
 class PushAgentSerializer(serializers.Serializer):
@@ -39,6 +50,7 @@ class PreApprovedTemplateSerializer(serializers.Serializer):
     name = serializers.CharField()
     content = serializers.CharField(allow_null=True)
     is_valid = serializers.BooleanField(allow_null=True)
+    metadata = serializers.JSONField()
 
 
 class ReadAgentSerializer(serializers.Serializer):
@@ -59,10 +71,13 @@ class GalleryAgentSerializer(ReadAgentSerializer):
 
 class ReadIntegratedAgentSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
-    client_secret = serializers.CharField()
-    agent = ReadAgentSerializer()
+    templates = ReadTemplateSerializer(many=True)
+    webhook_url = serializers.SerializerMethodField()
 
-    def __init__(self, *args, show_client_secret=False, **kwargs):
-        super().__init__(*args, **kwargs)
-        if not show_client_secret:
-            self.fields.pop("client_secret")
+    def get_webhook_url(self, obj):
+        domain_url = settings.DOMAIN
+        return f"{domain_url}/api/v3/agents/webhook/{str(obj.uuid)}/"
+
+
+class AgentWebhookSerializer(serializers.Serializer):
+    webhook_uuid = serializers.UUIDField(required=True)

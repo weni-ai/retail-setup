@@ -257,6 +257,8 @@ LAMBDA_ALLOWED_ROLES = env.list("LAMBDA_ALLOWED_ROLES", default=[])
 
 USE_LAMBDA = env.bool("USE_LAMBDA", default=False)
 
+DOMAIN = env.str("DOMAIN", default="http://localhost:8000")
+
 if USE_LAMBDA:
     LAMBDA_ROLE_ARN = env.str("LAMBDA_ROLE_ARN")
     LAMBDA_RUNTIME = env.str("LAMBDA_RUNTIME")

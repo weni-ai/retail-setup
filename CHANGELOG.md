@@ -1,3 +1,28 @@
+# 1.10.0
+
+## *Change*
+  - fix: remove lambda arn from integrated agent
+  - feat: apis to list and retrieve assigned agent
+  - feat: add credentials to the push and assign agent endpoint
+
+# 1.9.1
+
+## *Change*
+  - hotfix: push agent breaking
+
+# 1.9.0
+
+## *Change*
+  - fix: create async template with task
+  - feat: list and get agents
+  - refactor: move IntegrationsService from template to retail.services.integrations
+  - feat: assign agent
+  - feat: unassign agent
+  - feat: Add script to generate local .env configuration file
+  - fix: Push agent lambda exception and meta
+  - fix: push agent permissions
+  - feat: agent webhook
+
 # 1.8.0
 
 ## *Change*
