@@ -76,6 +76,7 @@ class CreateLibraryTemplateUseCase(TemplateBuilderMixin):
         Returns:
             Template: The created or existing Template instance.
         """
+        payload["template_name"] = payload["library_template_name"]
         template, version = self.build_template_and_version(payload)
         self._notify_integrations(version.template_name, version.uuid, payload)
         return template

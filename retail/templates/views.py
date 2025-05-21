@@ -13,20 +13,18 @@ from retail.templates.usecases import (
     CreateTemplateData,
     UpdateTemplateUseCase,
     UpdateTemplateData,
+    UpdateTemplateBodyData,
+    UpdateTemplateBodyUseCase,
 )
+
 from retail.templates.serializers import (
-    CreateLibraryTemplateSerializer,
     CreateTemplateSerializer,
     ReadTemplateSerializer,
+    UpdateTemplateBodySerializer,
     UpdateTemplateSerializer,
 )
 
 from uuid import UUID
-
-from retail.templates.usecases.create_library_template import (
-    CreateLibraryTemplateData,
-    CreateLibraryTemplateUseCase,
-)
 
 
 class TemplateViewSet(ViewSet):
@@ -62,17 +60,40 @@ class TemplateViewSet(ViewSet):
         response_serializer = ReadTemplateSerializer(template)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["POST"], url_path="create-library-template")
-    def create_library_template(self, request: Request) -> Response:
-        request_serializer = CreateLibraryTemplateSerializer(data=request.data)
+    def partial_update(self, request: Request, pk: UUID) -> Response:
+        """
+        Partially updates a template instance by modifying its message body.
+
+        This endpoint is intended to allow editing only the 'body' field of an
+        existing template, using its metadata as base. A new version is created
+        and propagated to the integrations layer.
+
+        Expected payload:
+            {
+                "template_body": "<new body string with {{placeholders}}>",
+                "app_uuid": "<application identifier>",
+                "project_uuid": "<project identifier>"
+            }
+
+        URL format:
+            PATCH /templates/{uuid}/
+
+        Returns:
+            200 OK with updated template data.
+        """
+        request_serializer = UpdateTemplateBodySerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
 
-        data: CreateLibraryTemplateData = cast(
-            CreateLibraryTemplateData, request_serializer.validated_data
+        data: UpdateTemplateBodyData = cast(
+            UpdateTemplateBodyData,
+            {
+                **request_serializer.validated_data,
+                "template_uuid": str(pk),
+            },
         )
 
-        use_case = CreateLibraryTemplateUseCase()
-        template = use_case.execute(data)
+        use_case = UpdateTemplateBodyUseCase()
+        updated_template = use_case.execute(data)
 
-        response_serializer = ReadTemplateSerializer(template)
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+        response_serializer = ReadTemplateSerializer(updated_template)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
