@@ -12,7 +12,7 @@ from rest_framework.viewsets import ViewSet
 from retail.agents.models import Agent
 from retail.agents.permissions import (
     IsAgentOficialOrFromProjet,
-    IsIntegratedAgentFromProjet,
+    IsIntegratedAgentFromProject,
 )
 from retail.agents.serializers import (
     AgentWebhookSerializer,
@@ -209,7 +209,7 @@ class AgentWebhookView(APIView):
 
 
 class IntegratedAgentViewSet(ViewSet):
-    permission_classes = [AllowAny, IsIntegratedAgentFromProjet]
+    permission_classes = [AllowAny, IsIntegratedAgentFromProject]
 
     def retrieve(self, request: Request, pk: UUID, *args, **kwargs) -> Response:
         get_project_uuid_from_request(request)
