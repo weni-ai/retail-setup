@@ -30,4 +30,4 @@ class RetrieveAgentUseCaseTest(TestCase):
         with self.assertRaises(NotFound) as context:
             RetrieveAgentUseCase.execute(fake_uuid)
         self.assertIn(str(fake_uuid), str(context.exception))
-        self.assertIn("Agente not found", str(context.exception))
+        self.assertIn("Agent not found", str(context.exception))

@@ -10,7 +10,10 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from retail.agents.models import Agent
-from retail.agents.permissions import IsAgentOficialOrFromProjet
+from retail.agents.permissions import (
+    IsAgentOficialOrFromProjet,
+    IsIntegratedAgentFromProject,
+)
 from retail.agents.serializers import (
     AgentWebhookSerializer,
     PushAgentSerializer,
@@ -27,9 +30,10 @@ from retail.agents.usecases import (
     PushAgentUseCase,
     RetrieveAgentUseCase,
     UnassignAgentUseCase,
+    RetrieveIntegratedAgentUseCase,
+    ListIntegratedAgentUseCase,
 )
 from retail.interfaces.clients.aws_lambda.client import RequestData
-from retail.internal.permissions import CanCommunicateInternally
 
 
 def get_project_uuid_from_request(request: Request) -> str:
@@ -202,3 +206,30 @@ class AgentWebhookView(APIView):
         lambda_return = use_case.execute(request_serializer.data, request_data)
 
         return Response(lambda_return, status=status.HTTP_200_OK)
+
+
+class IntegratedAgentViewSet(ViewSet):
+    permission_classes = [AllowAny, IsIntegratedAgentFromProject]
+
+    def retrieve(self, request: Request, pk: UUID, *args, **kwargs) -> Response:
+        get_project_uuid_from_request(request)
+        use_case = RetrieveIntegratedAgentUseCase()
+        integrated_agent = use_case.execute(pk)
+
+        self.check_object_permissions(request, integrated_agent)
+
+        response_serializer = ReadIntegratedAgentSerializer(integrated_agent)
+
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        project_uuid = get_project_uuid_from_request(request)
+
+        use_case = ListIntegratedAgentUseCase()
+        integrated_agents = use_case.execute(project_uuid)
+
+        response_serializer = ReadIntegratedAgentSerializer(
+            integrated_agents, many=True
+        )
+
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
