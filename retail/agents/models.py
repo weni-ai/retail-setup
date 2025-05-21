@@ -38,7 +38,6 @@ class IntegratedAgent(models.Model):
         "projects.Project", on_delete=models.CASCADE, related_name="integrated_agents"
     )
     lambda_arn = models.CharField(max_length=500, null=True, blank=True)
-    client_secret = models.TextField()
 
     class Meta:
         unique_together = ("agent", "project")
@@ -54,9 +53,11 @@ class PreApprovedTemplate(models.Model):
     is_valid = True if response from meta if positive.
     """
 
-    name = models.CharField(unique=True)
+    name = models.CharField()
     content = models.TextField(blank=True, null=True)
     is_valid = models.BooleanField(blank=True, null=True)
+    start_condition = models.TextField()
+    metadata = models.JSONField(null=True)
 
 
 class Credential(models.Model):

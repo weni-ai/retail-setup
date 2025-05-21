@@ -9,7 +9,7 @@ from retail.agents.exceptions import AgentFileNotSent
 from retail.agents.models import Agent, PreApprovedTemplate
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.projects.models import Project
-from retail.services.aws_lambda import AwsLambdaTempMockService
+from retail.services.aws_lambda import AwsLambdaService
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class PushAgentData(TypedDict):
 
 class PushAgentUseCase:
     def __init__(self, lambda_service: Optional[AwsLambdaServiceInterface] = None):
-        self.lambda_service = lambda_service or AwsLambdaTempMockService()
+        self.lambda_service = lambda_service or AwsLambdaService()
 
     def _get_project(self, project_uuid: str) -> Project:
         try:
@@ -84,6 +84,16 @@ class PushAgentUseCase:
 
         return lambda_arn
 
+    def _assign_arn_to_integrated_agent(
+        self, lambda_arn: str, agent: Agent, project: Project
+    ) -> None:
+        integrated_agent = agent.integrateds.filter(project=project)
+
+        if integrated_agent.exists():
+            integrated_agent = integrated_agent.first()
+            integrated_agent.lambda_arn = lambda_arn
+            integrated_agent.save()
+
     def _assign_arn_to_agent(self, lambda_arn: str, agent: Agent) -> Agent:
         agent.lambda_arn = lambda_arn
         agent.save()
@@ -96,12 +106,11 @@ class PushAgentUseCase:
     def _create_pre_approved_templates(
         self, agent: Agent, agent_payload: AgentItemsData
     ) -> None:
-        template_names = list(
-            {rule["template"] for rule in agent_payload["rules"].values()}
-        )
         templates = [
-            PreApprovedTemplate.objects.get_or_create(name=name)[0]
-            for name in template_names
+            PreApprovedTemplate.objects.get_or_create(
+                name=rule.get("template"), start_condition=rule.get("start_condition")
+            )[0]
+            for rule in agent_payload["rules"].values()
         ]
         agent.templates.set(templates)
 
@@ -125,6 +134,7 @@ class PushAgentUseCase:
                 function_name=self._create_function_name(key, agent.uuid),
             )
             agent = self._assign_arn_to_agent(lambda_arn, agent)
+            self._assign_arn_to_integrated_agent(lambda_arn, agent, project)
             self._create_pre_approved_templates(agent, value)
             assigned_agents.append(agent)
 
