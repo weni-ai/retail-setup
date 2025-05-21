@@ -1,3 +1,10 @@
+# 1.10.0
+
+## *Change*
+  - fix: remove lambda arn from integrated agent
+  - feat: apis to list and retrieve assigned agent
+  - feat: add credentials to the push and assign agent endpoint
+
 # 1.9.1
 
 ## *Change*
