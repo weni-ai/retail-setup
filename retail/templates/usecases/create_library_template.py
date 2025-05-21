@@ -48,7 +48,7 @@ class CreateLibraryTemplateUseCase(TemplateBuilderMixin):
         ):
             raise ValueError("Missing required data to notify integrations")
 
-        task_create_library_template(
+        task_create_library_template.delay(
             name=version_name,
             app_uuid=payload["app_uuid"],
             project_uuid=payload["project_uuid"],
