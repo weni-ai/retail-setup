@@ -8,9 +8,11 @@ from retail.agents.views import (
     AssignAgentView,
     UnassignAgentView,
     AgentWebhookView,
+    IntegratedAgentViewSet,
 )
 
 router = SimpleRouter()
+router.register(r"assigneds", IntegratedAgentViewSet, basename="assigned-agents")
 router.register(r"", AgentViewSet, basename="agents")
 
 urlpatterns = [
