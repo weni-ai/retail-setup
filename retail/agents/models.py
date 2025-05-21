@@ -25,7 +25,6 @@ class IntegratedAgent(models.Model):
     project = models.ForeignKey(
         "projects.Project", on_delete=models.CASCADE, related_name="integrated_agents"
     )
-    lambda_arn = models.CharField(max_length=500, null=True, blank=True)
 
     class Meta:
         unique_together = ("agent", "project")

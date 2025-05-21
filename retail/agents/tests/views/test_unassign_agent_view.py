@@ -32,12 +32,10 @@ class UnassignAgentViewTest(APITestCase):
         self.integrated_agent_oficial = IntegratedAgent.objects.create(
             agent=self.agent_oficial,
             project=self.project,
-            lambda_arn=self.agent_oficial.lambda_arn,
         )
         self.integrated_agent_not_oficial = IntegratedAgent.objects.create(
             agent=self.agent_not_oficial,
             project=self.project,
-            lambda_arn=self.agent_not_oficial.lambda_arn,
         )
         self.user = User.objects.create_user(username="testuser", password="12345")
         self.client = APIClient()
