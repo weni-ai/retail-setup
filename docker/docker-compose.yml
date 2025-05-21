@@ -9,6 +9,10 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-retail}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-retail}
       - POSTGRES_DB=${POSTGRES_DB:-retail}
+  redis:
+    image: redis
+    ports:
+      - 6379:6379
   rabbitmq:
     image: rabbitmq:3.9.7-management
     ports:

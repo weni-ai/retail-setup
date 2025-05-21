@@ -3,7 +3,7 @@ from uuid import UUID
 
 from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -29,11 +29,11 @@ from retail.agents.usecases import (
     UnassignAgentUseCase,
 )
 from retail.interfaces.clients.aws_lambda.client import RequestData
+from retail.internal.permissions import CanCommunicateInternally
 
 
 def get_project_uuid_from_request(request: Request) -> str:
     project_uuid = request.headers.get("Project-Uuid")
-
     if project_uuid is None:
         raise ValidationError({"project_uuid": "Missing project uuid in header."})
 
@@ -43,18 +43,42 @@ def get_project_uuid_from_request(request: Request) -> str:
 class PushAgentView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def __parse_credentials(self, agent: dict) -> list[dict]:
+        credentials = []
+
+        for key, credential in agent.get("credentials", {}).items():
+            credentials.append(
+                {
+                    "key": key,
+                    "value": credential.get("credentials", []),
+                    "label": credential.get("label"),
+                    "placeholder": credential.get("placeholder"),
+                    "is_confidential": credential.get("is_confidential"),
+                }
+            )
+
+        return credentials
+
     def post(self, request: Request, *args, **kwargs) -> Response:
-        agents = json.loads(request.data.get("agents"))
+        try:
+            agents = json.loads(request.data.get("agents"))
+        except (json.JSONDecodeError, TypeError):
+            raise ValidationError({"agents": "Invalid JSON format"})
+
         project_uuid = request.data.get("project_uuid")
+
+        for agent in agents.get("agents", {}).values():
+            agent["credentials"] = self.__parse_credentials(agent)
 
         data = {**agents, "project_uuid": project_uuid}
 
         request_serializer = PushAgentSerializer(data=data)
         request_serializer.is_valid(raise_exception=True)
 
-        data: PushAgentData = request_serializer.data
+        serialized_data: PushAgentData = request_serializer.data
+
         use_case = PushAgentUseCase()
-        agents = use_case.execute(payload=data, files=request.FILES)
+        agents = use_case.execute(payload=serialized_data, files=request.FILES)
 
         agent_ids = [str(agent.uuid) for agent in agents]
         validate_pre_approved_templates.delay(agent_ids)
@@ -106,7 +130,20 @@ class AssignAgentView(GenericIntegratedAgentView):
     permission_classes = [IsAuthenticated, IsAgentOficialOrFromProjet]
 
     def post(self, request: Request, agent_uuid: UUID) -> Response:
+        """
+        Receives a agent and a list of credentials and create a IntegratedAgent.
+
+        credentials format:
+        [
+            {
+                "key": "KEY_EXAMPLE",
+                "value": "Value Example"
+            }
+        ]
+        """
+
         project_uuid = get_project_uuid_from_request(request)
+        credentials = request.data.get("credentials", {})
         app_uuid = request.query_params.get("app_uuid")
 
         if app_uuid is None:
@@ -117,8 +154,7 @@ class AssignAgentView(GenericIntegratedAgentView):
         self.check_object_permissions(request, agent)
 
         use_case = AssignAgentUseCase()
-
-        integrated_agent = use_case.execute(agent, project_uuid, app_uuid)
+        integrated_agent = use_case.execute(agent, project_uuid, app_uuid, credentials)
 
         response_serializer = ReadIntegratedAgentSerializer(integrated_agent)
 

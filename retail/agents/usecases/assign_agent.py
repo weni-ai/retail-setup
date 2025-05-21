@@ -6,7 +6,7 @@ from django.db.models import QuerySet
 
 from rest_framework.exceptions import NotFound, ValidationError
 
-from retail.agents.models import Agent, IntegratedAgent, PreApprovedTemplate
+from retail.agents.models import Agent, Credential, IntegratedAgent, PreApprovedTemplate
 from retail.projects.models import Project
 from retail.templates.usecases.create_library_template import (
     CreateLibraryTemplateData,
@@ -42,7 +42,7 @@ class AssignAgentUseCase:
         agent: Agent,
         project: Project,
     ) -> IntegratedAgent:
-        instance, created = IntegratedAgent.objects.get_or_create(
+        integrated_agent, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
             project=project,
         )
@@ -52,7 +52,34 @@ class AssignAgentUseCase:
                 detail={"agent": "This agent is already assigned in this project."}
             )
 
-        return instance
+        return integrated_agent
+
+    def _validate_credentials(self, agent: Agent, credentials: dict):
+        for key in agent.credentials.keys():
+            credential = credentials.get(key, None)
+
+            if credential is None:
+                raise ValidationError(f"Credential {key} is required")
+
+    def _create_credentials(
+        self, integrated_agent: IntegratedAgent, agent: Agent, credentials: dict
+    ) -> None:
+        for key, value in credentials.items():
+            agent_credential = agent.credentials.get(key, None)
+
+            if agent_credential is None:
+                continue
+
+            Credential.objects.get_or_create(
+                key=key,
+                integrated_agent=integrated_agent,
+                defaults={
+                    "value": value,
+                    "label": agent_credential.get("label"),
+                    "placeholder": agent_credential.get("placeholder"),
+                    "is_confidential": agent_credential.get("is_confidential"),
+                },
+            )
 
     def _adapt_button(
         self, buttons: List[MetaButtonFormat]
@@ -104,9 +131,11 @@ class AssignAgentUseCase:
             raw_template.save()
 
     def execute(
-        self, agent: Agent, project_uuid: UUID, app_uuid: UUID
+        self, agent: Agent, project_uuid: UUID, app_uuid: UUID, credentials: dict
     ) -> IntegratedAgent:
         project = self._get_project(project_uuid)
+        self._validate_credentials(agent, credentials)
+
         templates = agent.templates.all()
 
         integrated_agent = self._create_integrated_agent(
@@ -114,6 +143,7 @@ class AssignAgentUseCase:
             project=project,
         )
 
+        self._create_credentials(integrated_agent, agent, credentials)
         self._create_templates(integrated_agent, templates, project_uuid, app_uuid)
 
         return integrated_agent
