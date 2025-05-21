@@ -23,10 +23,18 @@ class PreProcessingSerializer(serializers.Serializer):
     pre_result_examples_file = serializers.CharField(required=False, allow_blank=True)
 
 
+class PushAgentsCredentialSerializer(serializers.Serializer):
+    key = serializers.CharField(required=True)
+    label = serializers.CharField(required=False, allow_null=True)
+    placeholder = serializers.CharField(required=False, allow_null=True)
+    is_confidential = serializers.BooleanField(required=False, default=False)
+
+
 class AgentSerializer(serializers.Serializer):
     name = serializers.CharField()
     rules = serializers.DictField(child=RuleSerializer())
     pre_processing = PreProcessingSerializer(source="pre-processing", required=False)
+    credentials = PushAgentsCredentialSerializer(many=True)
 
 
 class PushAgentSerializer(serializers.Serializer):
