@@ -4,7 +4,7 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 
 from retail.agents.models import Agent, IntegratedAgent, PreApprovedTemplate
 from retail.projects.models import Project
@@ -42,11 +42,17 @@ class AssignAgentUseCase:
         agent: Agent,
         project: Project,
     ) -> IntegratedAgent:
-        return IntegratedAgent.objects.create(
+        instance, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
             project=project,
-            lambda_arn=agent.lambda_arn,
         )
+
+        if not created:
+            raise ValidationError(
+                detail={"agent": "This agent is already assigned in this project."}
+            )
+
+        return instance
 
     def _adapt_button(
         self, buttons: List[MetaButtonFormat]

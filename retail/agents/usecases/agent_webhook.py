@@ -33,4 +33,6 @@ class AgentWebhookUseCase:
             webhook_uuid=payload.get("webhook_uuid")
         )
 
-        return self._invoke_lambda(function_name=integrated_agent.lambda_arn, data=data)
+        return self._invoke_lambda(
+            function_name=integrated_agent.agent.lambda_arn, data=data
+        )
