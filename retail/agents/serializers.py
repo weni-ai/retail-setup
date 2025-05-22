@@ -32,6 +32,7 @@ class PushAgentsCredentialSerializer(serializers.Serializer):
 
 class AgentSerializer(serializers.Serializer):
     name = serializers.CharField()
+    description = serializers.CharField()
     rules = serializers.DictField(child=RuleSerializer())
     pre_processing = PreProcessingSerializer(source="pre-processing", required=False)
     credentials = PushAgentsCredentialSerializer(many=True)
@@ -45,6 +46,8 @@ class PushAgentSerializer(serializers.Serializer):
 class PreApprovedTemplateSerializer(serializers.Serializer):
     name = serializers.CharField()
     content = serializers.CharField(allow_null=True)
+    start_condition = serializers.CharField()
+    display_name = serializers.CharField()
     is_valid = serializers.BooleanField(allow_null=True)
     metadata = serializers.JSONField()
 
@@ -52,6 +55,7 @@ class PreApprovedTemplateSerializer(serializers.Serializer):
 class ReadAgentSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
     name = serializers.CharField()
+    description = serializers.CharField()
     is_oficial = serializers.BooleanField()
     lambda_arn = serializers.CharField()
     templates = PreApprovedTemplateSerializer(many=True)

@@ -37,6 +37,7 @@ class PreProcessingData(TypedDict, total=False):
 
 class AgentItemsData(TypedDict):
     name: str
+    description: str
     rules: RuleData
     pre_processing: PreProcessingData
 
@@ -64,6 +65,7 @@ class PushAgentUseCase:
 
         agent, created = Agent.objects.get_or_create(
             name=payload.get("name"),
+            description=payload.get("description"),
             project=project,
             defaults={
                 "is_oficial": False,
@@ -98,7 +100,9 @@ class PushAgentUseCase:
     ) -> None:
         templates = [
             PreApprovedTemplate.objects.get_or_create(
-                name=rule.get("template"), start_condition=rule.get("start_condition")
+                name=rule.get("template"),
+                start_condition=rule.get("start_condition"),
+                display_name=rule.get("display_name"),
             )[0]
             for rule in agent_payload["rules"].values()
         ]
