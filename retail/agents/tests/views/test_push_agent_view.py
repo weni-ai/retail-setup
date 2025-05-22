@@ -1,6 +1,6 @@
 import json
 
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from types import SimpleNamespace
 
@@ -71,6 +71,9 @@ class PushAgentViewE2ETest(APITestCase):
             },
         )
 
+        mock_templates_manager = MagicMock()
+        mock_templates_manager.all.return_value = [mock_template]
+
         mock_agent = SimpleNamespace(
             uuid=uuid4(),
             slug="test_agent",
@@ -78,7 +81,7 @@ class PushAgentViewE2ETest(APITestCase):
             description="description",
             lambda_arn="arn:aws:lambda:region:123:function:test",
             is_oficial=False,
-            templates=[mock_template],
+            templates=mock_templates_manager,
         )
 
         mock_push_agent_instance = mock_push_agent_usecase.return_value
