@@ -32,7 +32,7 @@ class Agent(models.Model):
 
 class IntegratedAgent(models.Model):
     uuid = models.UUIDField(primary_key=True, blank=True, default=uuid4)
-    channel_uuid = models.UUIDField()
+    channel_uuid = models.UUIDField(null=True)
     agent = models.ForeignKey(
         "Agent", on_delete=models.CASCADE, related_name="integrateds"
     )
