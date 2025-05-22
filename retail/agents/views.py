@@ -189,7 +189,6 @@ class AgentWebhookView(APIView):
         return RequestData(
             params=request_params,
             payload=request.data,
-            credentials={},  # TODO: Set credentials in usecase
         )
 
     def post(self, request: Request, webhook_uuid: UUID, *args, **kwargs) -> Response:

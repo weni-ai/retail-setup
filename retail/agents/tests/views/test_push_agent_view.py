@@ -60,6 +60,7 @@ class PushAgentViewE2ETest(APITestCase):
     @patch("retail.agents.views.validate_pre_approved_templates.delay")
     def test_push_agent_success(self, mock_validate_task, mock_push_agent_usecase):
         mock_template = SimpleNamespace(
+            uuid=uuid4(),
             name="approved_status",
             content="some content",
             display_name="display",
