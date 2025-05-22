@@ -28,10 +28,23 @@ class AgentWebhookUseCase:
     def _invoke_lambda(self, function_name: str, data: "RequestData") -> Dict[str, Any]:
         return self.lambda_service.invoke(function_name, data)
 
+    def _addapt_credentials(self, integrated_agent: IntegratedAgent) -> Dict[str, str]:
+        credentials = integrated_agent.credentials.all()
+
+        crdentials_dict = {}
+        for credential in credentials:
+            crdentials_dict[credential.key] = credential.value
+
+        return crdentials_dict
+
     def execute(self, payload: AgentWebhookData, data: "RequestData") -> Dict[str, Any]:
         integrated_agent = self._get_integrated_agent(
             webhook_uuid=payload.get("webhook_uuid")
         )
+
+        credentials = self._addapt_credentials(integrated_agent)
+
+        data.set_credentials(credentials)
 
         return self._invoke_lambda(
             function_name=integrated_agent.agent.lambda_arn, data=data

@@ -1,12 +1,16 @@
 from dataclasses import dataclass
-from typing import Any, Dict, Protocol
+
+from typing import Any, Dict, Protocol, Mapping, Optional
 
 
 @dataclass
 class RequestData:
-    params: dict
-    payload: dict
-    credentials: dict
+    params: Mapping[str, Any]
+    payload: Mapping[Any, Any]
+    credentials: Optional[Mapping[str, str]] = None
+
+    def set_credentials(self, credentials: Mapping[str, str]):
+        self.credentials = credentials
 
 
 class AwsLambdaClientInterface(Protocol):
