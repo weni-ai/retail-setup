@@ -5,7 +5,7 @@ from django.urls import path, include
 from retail.templates.views import TemplateViewSet
 
 router = DefaultRouter()
-router.register(r"templates", TemplateViewSet, basename="template")
+router.register(r"", TemplateViewSet, basename="template")
 
 urlpatterns = [
     path("", include(router.urls)),
