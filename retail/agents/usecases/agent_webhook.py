@@ -96,14 +96,12 @@ class AgentWebhookUseCase:
             logger.error(f"Failed to build broadcast message from payload data: {data}")
             return response
 
-        self._send_broadcast_message(message, integrated_agent.project.uuid)
+        self._send_broadcast_message(message)
         logger.info(
             f"Successfully executed broadcast for agent: {integrated_agent.uuid}"
         )
         return response
 
-    def _send_broadcast_message(self, message: Dict[str, Any], project_uuid: str):
-        response = self.flows_service.send_whatsapp_broadcast(
-            message, project_uuid=project_uuid
-        )
-        logger.info(f"Broadcast message sent: {response}, for project: {project_uuid}")
+    def _send_broadcast_message(self, message: Dict[str, Any]):
+        response = self.flows_service.send_whatsapp_broadcast(message)
+        logger.info(f"Broadcast message sent: {response}")
