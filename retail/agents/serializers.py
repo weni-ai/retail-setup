@@ -59,6 +59,7 @@ class PreApprovedTemplateSerializer(serializers.Serializer):
 class ReadAgentSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
     name = serializers.CharField()
+    description = serializers.CharField()
     is_oficial = serializers.BooleanField()
     lambda_arn = serializers.CharField()
     templates = PreApprovedTemplateSerializer(many=True)
