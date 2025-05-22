@@ -67,6 +67,7 @@ class ReadAgentSerializer(serializers.Serializer):
 
 class GalleryAgentSerializer(ReadAgentSerializer):
     assigned = serializers.SerializerMethodField("get_is_assigned")
+    credentials = serializers.JSONField()
 
     def get_is_assigned(self, agent: "Agent") -> bool:
         project_uuid = self.context.get("project_uuid")
