@@ -69,8 +69,8 @@ class AgentWebhookUseCase:
         )
 
         try:
-            payload_raw = response.get("Payload", "{}")
-            data = json.loads(payload_raw)
+            payload_raw = response.get("Payload").read()
+            data = json.loads(payload_raw[0])
 
             # verify if the lambda returned an error
             if isinstance(data, dict) and "errorMessage" in data:
@@ -85,20 +85,21 @@ class AgentWebhookUseCase:
 
         except json.JSONDecodeError as e:
             logger.error(f"Error decoding JSON payload: {e}")
-            return
+            return response
 
         except Exception as e:
             logger.exception(f"Unexpected error while building broadcast message: {e}")
-            return
+            return response
 
         if not message:
             logger.error(f"Failed to build broadcast message from payload data: {data}")
-            return
+            return response
 
         self._send_broadcast_message(message, integrated_agent.project.uuid)
         logger.info(
             f"Successfully executed broadcast for agent: {integrated_agent.uuid}"
         )
+        return response
 
     def _send_broadcast_message(self, message: Dict[str, Any], project_uuid: str):
         response = self.flows_service.send_whatsapp_broadcast(
