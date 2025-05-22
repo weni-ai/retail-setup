@@ -63,7 +63,11 @@ class ReadAgentSerializer(serializers.Serializer):
     description = serializers.CharField()
     is_oficial = serializers.BooleanField()
     lambda_arn = serializers.CharField()
-    templates = PreApprovedTemplateSerializer(many=True)
+    templates = serializers.SerializerMethodField()
+
+    def get_templates(self, obj):
+        templates = obj.templates.all()
+        return PreApprovedTemplateSerializer(templates, many=True).data
 
 
 class GalleryAgentSerializer(ReadAgentSerializer):
