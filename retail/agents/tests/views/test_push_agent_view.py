@@ -35,6 +35,7 @@ class PushAgentViewE2ETest(APITestCase):
             "agents": {
                 "agent1": {
                     "name": self.agent_name,
+                    "description": "description",
                     "rules": {
                         "r1": {
                             "display_name": "Approved Status",
@@ -61,6 +62,8 @@ class PushAgentViewE2ETest(APITestCase):
         mock_template = SimpleNamespace(
             name="approved_status",
             content="some content",
+            display_name="display",
+            start_condition="when",
             is_valid=True,
             metadata={
                 "type": "status",
@@ -71,6 +74,7 @@ class PushAgentViewE2ETest(APITestCase):
         mock_agent = SimpleNamespace(
             uuid=uuid4(),
             name=self.agent_name,
+            description="description",
             lambda_arn="arn:aws:lambda:region:123:function:test",
             is_oficial=False,
             templates=[mock_template],

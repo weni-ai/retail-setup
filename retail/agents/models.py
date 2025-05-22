@@ -17,6 +17,7 @@ class Agent(models.Model):
 
     uuid = models.UUIDField(primary_key=True, blank=True, default=uuid4)
     name = models.CharField(max_length=255)
+    description = models.TextField()
     is_oficial = models.BooleanField(blank=True, default=False)
     lambda_arn = models.CharField(max_length=500, null=True, blank=True)
     project = models.ForeignKey(
@@ -53,6 +54,7 @@ class PreApprovedTemplate(models.Model):
     """
 
     name = models.CharField()
+    display_name = models.CharField()
     content = models.TextField(blank=True, null=True)
     is_valid = models.BooleanField(blank=True, null=True)
     start_condition = models.TextField()

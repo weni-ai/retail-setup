@@ -22,6 +22,7 @@ class Template(models.Model):
         blank=True,
         related_name="templates",
     )
+    metadata = models.JSONField(default=dict, blank=True)
 
 
 class Version(models.Model):

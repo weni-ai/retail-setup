@@ -33,7 +33,6 @@ class UpdateTemplateSerializer(serializers.Serializer):
 
 
 class CreateLibraryTemplateSerializer(serializers.Serializer):
-    template_name = serializers.CharField(required=True)
     library_template_name = serializers.CharField(required=True)
     category = serializers.CharField(required=True)
     language = serializers.CharField(required=True)
@@ -41,3 +40,9 @@ class CreateLibraryTemplateSerializer(serializers.Serializer):
     project_uuid = serializers.CharField(required=True)
     start_condition = serializers.CharField(required=True)
     library_template_button_inputs = serializers.ListField(required=False)
+
+
+class UpdateTemplateBodySerializer(serializers.Serializer):
+    template_body = serializers.CharField(required=True)
+    app_uuid = serializers.CharField(required=True)
+    project_uuid = serializers.CharField(required=True)

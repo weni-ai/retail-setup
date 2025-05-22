@@ -15,6 +15,7 @@ class PushAgentUseCaseTest(TestCase):
     def setUp(self):
         self.project = Project.objects.create(uuid=uuid4(), name="Test Project")
         self.agent_name = "Test Agent"
+        self.agent_description = "Description"
         self.agent_uuid = uuid4()
         self.file_content = b"print('hello world')"
         self.uploaded_file = SimpleUploadedFile("test.py", self.file_content)
@@ -33,7 +34,12 @@ class PushAgentUseCaseTest(TestCase):
             self.usecase._get_project(str(uuid4()))
 
     def test_get_or_create_agent_creates(self):
-        payload = {"name": self.agent_name, "rules": {}, "pre_processing": {}}
+        payload = {
+            "name": self.agent_name,
+            "rules": {},
+            "pre_processing": {},
+            "description": self.agent_description,
+        }
         agent, created = self.usecase._get_or_create_agent(payload, self.project)
         self.assertTrue(created)
         self.assertEqual(agent.name, self.agent_name)
@@ -41,8 +47,17 @@ class PushAgentUseCaseTest(TestCase):
         self.assertEqual(agent.credentials, {})
 
     def test_get_or_create_agent_gets_existing(self):
-        Agent.objects.create(name=self.agent_name, project=self.project)
-        payload = {"name": self.agent_name, "rules": {}, "pre_processing": {}}
+        Agent.objects.create(
+            name=self.agent_name,
+            project=self.project,
+            description=self.agent_description,
+        )
+        payload = {
+            "name": self.agent_name,
+            "rules": {},
+            "pre_processing": {},
+            "description": self.agent_description,
+        }
         agent, created = self.usecase._get_or_create_agent(payload, self.project)
         self.assertFalse(created)
         self.assertEqual(agent.name, self.agent_name)
@@ -51,22 +66,25 @@ class PushAgentUseCaseTest(TestCase):
     def test_get_or_create_agent_with_credentials(self):
         payload = {
             "name": self.agent_name,
+            "description": self.agent_description,
             "rules": {},
             "pre_processing": {},
-            "credentials": [{
-                "key": "EXAMPLE_CREDENTIAL",
-                "label": "Label Example",
-                "placeholder": "placeholder-example",
-                "is_confidential": False
-            }]
+            "credentials": [
+                {
+                    "key": "EXAMPLE_CREDENTIAL",
+                    "label": "Label Example",
+                    "placeholder": "placeholder-example",
+                    "is_confidential": False,
+                }
+            ],
         }
-        
+
         awaited_credentials = {
-            'EXAMPLE_CREDENTIAL': {
-                'is_confidential': False,
-                'key': 'EXAMPLE_CREDENTIAL',
+            "EXAMPLE_CREDENTIAL": {
+                "is_confidential": False,
+                "key": "EXAMPLE_CREDENTIAL",
                 "placeholder": "placeholder-example",
-                'label': 'Label Example'
+                "label": "Label Example",
             }
         }
 
@@ -83,7 +101,11 @@ class PushAgentUseCaseTest(TestCase):
         self.assertEqual(arn, "arn:aws:lambda:region:123:function:test")
 
     def test_assign_arn_to_agent(self):
-        agent = Agent.objects.create(name=self.agent_name, project=self.project)
+        agent = Agent.objects.create(
+            name=self.agent_name,
+            project=self.project,
+            description=self.agent_description,
+        )
         arn = "arn:aws:lambda:region:123:function:test"
         agent = self.usecase._assign_arn_to_agent(arn, agent)
         self.assertEqual(agent.lambda_arn, arn)
@@ -94,10 +116,15 @@ class PushAgentUseCaseTest(TestCase):
         self.assertIn(self.agent_uuid.hex, name)
 
     def test_create_pre_approved_templates(self):
-        agent = Agent.objects.create(name=self.agent_name, project=self.project)
+        agent = Agent.objects.create(
+            name=self.agent_name,
+            project=self.project,
+            description=self.agent_description,
+        )
         PreApprovedTemplate.objects.create(name="template1")
         payload = {
             "name": self.agent_name,
+            "description": self.agent_description,
             "rules": {
                 "r1": {
                     "display_name": "d",
@@ -118,6 +145,7 @@ class PushAgentUseCaseTest(TestCase):
             "agents": {
                 "agent1": {
                     "name": self.agent_name,
+                    "description": self.agent_description,
                     "rules": {
                         "r1": {
                             "display_name": "d",
@@ -130,7 +158,7 @@ class PushAgentUseCaseTest(TestCase):
                 }
             },
         }
-        PreApprovedTemplate.objects.create(name="template1")
+        PreApprovedTemplate.objects.create(name="template1", display_name="display")
         files = {"agent1": self.uploaded_file}
         agents = self.usecase.execute(payload, files)
         self.assertEqual(len(agents), 1)
@@ -144,7 +172,12 @@ class PushAgentUseCaseTest(TestCase):
         payload = {
             "project_uuid": str(self.project.uuid),
             "agents": {
-                "agent1": {"name": self.agent_name, "rules": {}, "pre_processing": {}}
+                "agent1": {
+                    "name": self.agent_name,
+                    "description": self.agent_description,
+                    "rules": {},
+                    "pre_processing": {},
+                }
             },
         }
         files = {}
