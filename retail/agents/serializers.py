@@ -48,6 +48,7 @@ class PushAgentSerializer(serializers.Serializer):
 
 
 class PreApprovedTemplateSerializer(serializers.Serializer):
+    uuid = serializers.UUIDField()
     name = serializers.CharField()
     content = serializers.CharField(allow_null=True)
     start_condition = serializers.CharField()
