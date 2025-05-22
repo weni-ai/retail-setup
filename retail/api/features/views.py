@@ -1,17 +1,21 @@
-from django.conf import settings
+import logging
 
+from django.conf import settings
 from rest_framework import status
 from rest_framework.response import Response
 
+from retail.agents.serializers import GalleryAgentSerializer
+from retail.agents.usecases.list_agents import ListAgentsUseCase
 from retail.api.base_service_view import BaseServiceView
 from retail.api.features.serializers import (
     FeatureQueryParamsSerializer,
     FeaturesSerializer,
 )
-
 from retail.api.usecases.remove_globals_keys import RemoveGlobalsKeysUsecase
 from retail.features.models import Feature, IntegratedFeature
 from retail.projects.models import Project
+
+logger = logging.getLogger(__name__)
 
 
 class FeaturesView(BaseServiceView):
@@ -64,11 +68,23 @@ class FeaturesView(BaseServiceView):
                 "store_type": vtex_config.get("vtex_store_type", ""),
             }
 
-            # If nexus_agents parameter is provided, fetch and include agent data from Nexus service
             if nexus_agents:
+                # List Nexus agents
                 agents_data = self.nexus_service.list_agents(project_uuid)
                 if agents_data:
                     response_data["nexus_agents"] = agents_data
+
+                # List gallery agents
+                try:
+                    gallery_agents = ListAgentsUseCase.execute(project_uuid)
+                except Exception as e:
+                    gallery_agents = []
+                    logger.error(f"Error fetching gallery agents: {e}")
+
+                serializer = GalleryAgentSerializer(
+                    gallery_agents, many=True, context={"project_uuid": project_uuid}
+                )
+                response_data["gallery_agents"] = serializer.data
 
             return Response(response_data, status=status.HTTP_200_OK)
 
