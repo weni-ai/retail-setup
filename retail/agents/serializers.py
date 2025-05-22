@@ -48,6 +48,7 @@ class PushAgentSerializer(serializers.Serializer):
 
 
 class PreApprovedTemplateSerializer(serializers.Serializer):
+    uuid = serializers.UUIDField()
     name = serializers.CharField()
     content = serializers.CharField(allow_null=True)
     start_condition = serializers.CharField()
@@ -59,10 +60,15 @@ class PreApprovedTemplateSerializer(serializers.Serializer):
 class ReadAgentSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
     name = serializers.CharField()
+    slug = serializers.CharField()
     description = serializers.CharField()
     is_oficial = serializers.BooleanField()
     lambda_arn = serializers.CharField()
-    templates = PreApprovedTemplateSerializer(many=True)
+    templates = serializers.SerializerMethodField()
+
+    def get_templates(self, obj):
+        templates = obj.templates.all()
+        return PreApprovedTemplateSerializer(templates, many=True).data
 
 
 class GalleryAgentSerializer(ReadAgentSerializer):

@@ -1,6 +1,6 @@
 import json
 
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from types import SimpleNamespace
 
@@ -60,6 +60,7 @@ class PushAgentViewE2ETest(APITestCase):
     @patch("retail.agents.views.validate_pre_approved_templates.delay")
     def test_push_agent_success(self, mock_validate_task, mock_push_agent_usecase):
         mock_template = SimpleNamespace(
+            uuid=uuid4(),
             name="approved_status",
             content="some content",
             display_name="display",
@@ -71,13 +72,17 @@ class PushAgentViewE2ETest(APITestCase):
             },
         )
 
+        mock_templates_manager = MagicMock()
+        mock_templates_manager.all.return_value = [mock_template]
+
         mock_agent = SimpleNamespace(
             uuid=uuid4(),
+            slug="test_agent",
             name=self.agent_name,
             description="description",
             lambda_arn="arn:aws:lambda:region:123:function:test",
             is_oficial=False,
-            templates=[mock_template],
+            templates=mock_templates_manager,
         )
 
         mock_push_agent_instance = mock_push_agent_usecase.return_value

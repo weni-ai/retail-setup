@@ -60,15 +60,17 @@ class PushAgentUseCase:
     def _parse_credentials(self, credentials: List[Dict]) -> Dict:
         return {credential.get("key"): credential for credential in credentials}
 
-    def _get_or_create_agent(self, payload: AgentItemsData, project: Project) -> Agent:
+    def _update_or_create_agent(
+        self, payload: AgentItemsData, slug: str, project: Project
+    ) -> Agent:
         credentials = self._parse_credentials(payload.get("credentials", []))
 
-        agent, created = Agent.objects.get_or_create(
-            name=payload.get("name"),
-            description=payload.get("description"),
+        agent, created = Agent.objects.update_or_create(
+            slug=slug,
             project=project,
             defaults={
-                "is_oficial": False,
+                "name": payload.get("name"),
+                "description": payload.get("description"),
                 "credentials": credentials,
             },
         )
@@ -95,18 +97,18 @@ class PushAgentUseCase:
         simple_hash = f"{agent_name}_{str(agent_uuid.hex)}"
         return simple_hash
 
-    def _create_pre_approved_templates(
+    def _update_or_create_pre_approved_templates(
         self, agent: Agent, agent_payload: AgentItemsData
     ) -> None:
-        templates = [
-            PreApprovedTemplate.objects.get_or_create(
+        for rule in agent_payload["rules"].values():
+            PreApprovedTemplate.objects.update_or_create(
                 name=rule.get("template"),
-                start_condition=rule.get("start_condition"),
-                display_name=rule.get("display_name"),
-            )[0]
-            for rule in agent_payload["rules"].values()
-        ]
-        agent.templates.set(templates)
+                agent=agent,
+                defaults={
+                    "start_condition": rule.get("start_condition"),
+                    "display_name": rule.get("display_name"),
+                },
+            )
 
     def execute(
         self, payload: PushAgentData, files: Dict[str, UploadedFile]
@@ -114,10 +116,12 @@ class PushAgentUseCase:
         project = self._get_project(payload.get("project_uuid"))
         agents = payload.get("agents")
 
-        assigned_agents = []
+        created_agents = []
 
         for key, value in agents.items():
-            agent, _ = self._get_or_create_agent(payload=value, project=project)
+            agent, _ = self._update_or_create_agent(
+                payload=value, slug=key, project=project
+            )
             file_obj = files.get(key)
 
             if not file_obj:
@@ -128,9 +132,9 @@ class PushAgentUseCase:
                 function_name=self._create_function_name(key, agent.uuid),
             )
             agent = self._assign_arn_to_agent(lambda_arn, agent)
-            self._create_pre_approved_templates(agent, value)
-            assigned_agents.append(agent)
+            self._update_or_create_pre_approved_templates(agent, value)
+            created_agents.append(agent)
 
             logger.info(f"Agent push completed: {agent.uuid}")
 
-        return assigned_agents
+        return created_agents
