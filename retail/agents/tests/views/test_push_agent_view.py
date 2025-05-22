@@ -73,6 +73,7 @@ class PushAgentViewE2ETest(APITestCase):
 
         mock_agent = SimpleNamespace(
             uuid=uuid4(),
+            slug="test_agent",
             name=self.agent_name,
             description="description",
             lambda_arn="arn:aws:lambda:region:123:function:test",
