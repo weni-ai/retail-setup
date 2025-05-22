@@ -17,13 +17,13 @@ class Agent(models.Model):
 
     uuid = models.UUIDField(primary_key=True, blank=True, default=uuid4)
     name = models.CharField(max_length=255)
+    slug = models.CharField()
     description = models.TextField()
     is_oficial = models.BooleanField(blank=True, default=False)
     lambda_arn = models.CharField(max_length=500, null=True, blank=True)
     project = models.ForeignKey(
         "projects.Project", on_delete=models.CASCADE, related_name="agents"
     )
-    templates = models.ManyToManyField("PreApprovedTemplate", related_name="agents")
     credentials = models.JSONField(null=True, default=dict)
 
     class Meta:
@@ -53,6 +53,10 @@ class PreApprovedTemplate(models.Model):
     is_valid = True if response from meta if positive.
     """
 
+    agent = models.ForeignKey(
+        "Agent", on_delete=models.CASCADE, null=True, related_name="templates"
+    )
+    uuid = models.UUIDField(blank=True, default=uuid4)
     name = models.CharField()
     display_name = models.CharField()
     content = models.TextField(blank=True, null=True)
