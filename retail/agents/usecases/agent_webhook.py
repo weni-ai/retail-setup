@@ -68,10 +68,11 @@ class AgentWebhookUseCase:
             function_name=integrated_agent.agent.lambda_arn, data=data
         )
 
-        try:
-            payload_raw = response.get("Payload").read()
-            data = json.loads(payload_raw[0])
+        payload_raw = response.get("Payload").read().decode()
+        data = json.loads(payload_raw)
+        response["payload"] = data
 
+        try:
             # verify if the lambda returned an error
             if isinstance(data, dict) and "errorMessage" in data:
                 logger.error(f"Lambda execution error: {data.get('errorMessage')}")
