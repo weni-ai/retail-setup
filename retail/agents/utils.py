@@ -1,0 +1,85 @@
+import logging
+from typing import Any, Dict
+
+logger = logging.getLogger(__name__)
+
+
+def build_broadcast_template_message(
+    data: Dict[str, Any], channel_uuid: str, project_uuid: str
+) -> Dict[str, Any]:
+    """
+    Builds a WhatsApp broadcast message payload based on a template and variable input.
+
+    This function transforms agent-provided input into the expected format for the
+    Flows Broadcast API. It processes template variables (ordered by numeric keys),
+    and optionally includes a button with a URL if specified.
+
+    Args:
+        data (Dict[str, Any]): The input data from the agent, including:
+            - "template" (str): The name of the template to use.
+            - "template_variables" (Dict[str, Any]): A dictionary of template variables,
+              where keys are numeric strings representing their position in the message
+              (e.g., "1", "2", ...). May optionally include a key "button" for URL injection.
+            - "contact_urn" (str): The WhatsApp contact identifier.
+            - "language" (str, optional): The locale for the template (e.g., "pt-BR").
+        channel_uuid (str): The UUID of the WhatsApp channel used to send the message.
+        project_uuid (str): The UUID of the project associated with the message.
+
+    Returns:
+        Dict[str, Any]: A formatted message dictionary for the Flows Broadcast API.
+        Returns an empty dictionary if required fields are missing or invalid.
+    """
+    template_name = data.get("template")
+    template_variables = data.get("template_variables", {})
+    content_urn = data.get("contact_urn")
+    language = data.get("language", "pt-BR")
+
+    # Extract and remove button if present
+    button = template_variables.pop("button", None)
+
+    # Sort template variables by numeric key
+    sorted_keys = []
+    for key in template_variables:
+        try:
+            int_key = int(key)
+            sorted_keys.append((int_key, key))
+        except ValueError:
+            logger.warning(f"Ignoring non-numeric template variable key: {key}")
+            continue
+
+    # Extract values in sorted order
+    variables = [
+        template_variables[original_key] for _, original_key in sorted(sorted_keys)
+    ]
+
+    # Validate required fields before building the message
+    if not template_name or not content_urn or not variables:
+        logger.error(
+            f"Incomplete message data. "
+            f"Template: {template_name}, URN: {content_urn}, Variables: {variables}"
+        )
+        return {}
+
+    message: Dict[str, Any] = {
+        "project": project_uuid,
+        "urns": [f"whatsapp:{content_urn}"],
+        "channel": channel_uuid,
+        "msg": {
+            "template": {
+                "locale": language,
+                "name": template_name,
+                "variables": variables,
+            }
+        },
+    }
+
+    # Optionally add button if provided
+    if button:
+        message["msg"]["buttons"] = [
+            {
+                "sub_type": "url",
+                "parameters": [{"type": "text", "text": button}],
+            }
+        ]
+
+    return message
