@@ -116,7 +116,7 @@ class AgentWebhookUseCase:
     def _get_current_template_name(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> str:
-        template_name = data.get("template_name")
+        template_name = data.get("template")
         try:
             template = integrated_agent.templates.get(name=template_name)
             return template.current_version.template_name
