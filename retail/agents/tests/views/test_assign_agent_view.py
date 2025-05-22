@@ -36,7 +36,9 @@ class AssignAgentViewTest(APITestCase):
 
     def test_assign_agent_oficial(self):
         url = reverse("assign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})
-        query_string = urlencode({"app_uuid": str(uuid4())})
+        query_string = urlencode(
+            {"app_uuid": str(uuid4()), "channel_uuid": str(uuid4())}
+        )
         full_url = f"{url}?{query_string}"
 
         response = self.client.post(
@@ -49,7 +51,9 @@ class AssignAgentViewTest(APITestCase):
         url = reverse(
             "assign-agent", kwargs={"agent_uuid": self.agent_not_oficial.uuid}
         )
-        query_string = urlencode({"app_uuid": str(uuid4())})
+        query_string = urlencode(
+            {"app_uuid": str(uuid4()), "channel_uuid": str(uuid4())}
+        )
         full_url = f"{url}?{query_string}"
 
         response = self.client.post(
@@ -62,7 +66,9 @@ class AssignAgentViewTest(APITestCase):
         url = reverse(
             "assign-agent", kwargs={"agent_uuid": self.agent_not_oficial.uuid}
         )
-        query_string = urlencode({"app_uuid": str(uuid4())})
+        query_string = urlencode(
+            {"app_uuid": str(uuid4()), "channel_uuid": str(uuid4())}
+        )
         full_url = f"{url}?{query_string}"
 
         response = self.client.post(
@@ -73,7 +79,9 @@ class AssignAgentViewTest(APITestCase):
 
     def test_missing_project_uuid_header(self):
         url = reverse("assign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})
-        query_string = urlencode({"app_uuid": str(uuid4())})
+        query_string = urlencode(
+            {"app_uuid": str(uuid4()), "channel_uuid": str(uuid4())}
+        )
         full_url = f"{url}?{query_string}"
 
         response = self.client.post(full_url)
@@ -81,7 +89,9 @@ class AssignAgentViewTest(APITestCase):
 
     def test_agent_not_found(self):
         url = reverse("assign-agent", kwargs={"agent_uuid": uuid4()})
-        query_string = urlencode({"app_uuid": str(uuid4())})
+        query_string = urlencode(
+            {"app_uuid": str(uuid4()), "channel_uuid": str(uuid4())}
+        )
         full_url = f"{url}?{query_string}"
 
         response = self.client.post(

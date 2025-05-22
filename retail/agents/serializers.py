@@ -63,7 +63,6 @@ class ReadAgentSerializer(serializers.Serializer):
     slug = serializers.CharField()
     description = serializers.CharField()
     is_oficial = serializers.BooleanField()
-    lambda_arn = serializers.CharField()
     templates = serializers.SerializerMethodField()
 
     def get_templates(self, obj):
@@ -82,6 +81,7 @@ class GalleryAgentSerializer(ReadAgentSerializer):
 
 class ReadIntegratedAgentSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
+    channel_uuid = serializers.UUIDField()
     templates = ReadTemplateSerializer(many=True)
     webhook_url = serializers.SerializerMethodField()
 
