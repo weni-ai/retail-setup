@@ -31,7 +31,7 @@ def build_broadcast_template_message(
     """
     template_name = data.get("template")
     template_variables = data.get("template_variables", {})
-    content_urn = data.get("contact_urn")
+    contact_urn = data.get("contact_urn")
     language = data.get("language", "pt-BR")
 
     # Extract and remove button if present
@@ -53,16 +53,16 @@ def build_broadcast_template_message(
     ]
 
     # Validate required fields before building the message
-    if not template_name or not content_urn or not variables:
+    if not template_name or not contact_urn or not variables:
         logger.error(
             f"Incomplete message data. "
-            f"Template: {template_name}, URN: {content_urn}, Variables: {variables}"
+            f"Template: {template_name}, URN: {contact_urn}, Variables: {variables}"
         )
         return {}
 
     message: Dict[str, Any] = {
         "project": project_uuid,
-        "urns": [f"whatsapp:{content_urn}"],
+        "urns": [contact_urn],
         "channel": channel_uuid,
         "msg": {
             "template": {

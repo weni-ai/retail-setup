@@ -12,7 +12,7 @@ class TestBuildBroadcastTemplateMessage(TestCase):
         data = {
             "template": "order_confirmation",
             "template_variables": {"2": "12345", "1": "@contact.name"},
-            "contact_urn": "5565992828858",
+            "contact_urn": "whatsapp:5565992828858",
             "language": "pt-BR",
         }
 
@@ -41,7 +41,7 @@ class TestBuildBroadcastTemplateMessage(TestCase):
                 "1": "@contact.name",
                 "button": "2960629205a149fd88f2d080d5affe25/",
             },
-            "contact_urn": "5565992828858",
+            "contact_urn": "whatsapp:5565992828858",
             "language": "pt-BR",
         }
 
@@ -78,7 +78,7 @@ class TestBuildBroadcastTemplateMessage(TestCase):
         data = {
             "template": "test",
             "template_variables": {"1": "a", "abc": "should_be_ignored", "2": "b"},
-            "contact_urn": "123",
+            "contact_urn": "whatsapp:123",
             "language": "en-US",
         }
 
@@ -91,7 +91,7 @@ class TestBuildBroadcastTemplateMessage(TestCase):
         data = {
             "template": "test",
             "template_variables": {"1": "only"},
-            "contact_urn": "123",
+            "contact_urn": "whatsapp:123",
         }
 
         result = build_broadcast_template_message(
@@ -103,7 +103,7 @@ class TestBuildBroadcastTemplateMessage(TestCase):
         data = {
             "template": "missing_locale",
             "template_variables": {"1": "Hello"},
-            "contact_urn": "123",
+            "contact_urn": "whatsapp:123",
         }
 
         result = build_broadcast_template_message(
@@ -116,7 +116,7 @@ class TestBuildBroadcastTemplateMessage(TestCase):
         data = {
             "template": "ordering_test",
             "template_variables": {"3": "third", "1": "first", "2": "second"},
-            "contact_urn": "5511999999999",
+            "contact_urn": "whatsapp:5511999999999",
             "language": "pt-BR",
         }
 
@@ -134,7 +134,7 @@ class TestBuildBroadcastTemplateMessage(TestCase):
         data = {
             "template": "empty_case",
             "template_variables": {},
-            "contact_urn": "999999999",
+            "contact_urn": "whatsapp:999999999",
         }
 
         result = build_broadcast_template_message(
