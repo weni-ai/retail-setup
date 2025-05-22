@@ -71,7 +71,6 @@ class PushAgentUseCase:
             defaults={
                 "name": payload.get("name"),
                 "description": payload.get("description"),
-                "is_oficial": False,
                 "credentials": credentials,
             },
         )
