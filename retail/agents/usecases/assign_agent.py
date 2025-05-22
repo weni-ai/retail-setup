@@ -38,13 +38,14 @@ class AssignAgentUseCase:
             raise NotFound(f"Project not found: {project_uuid}")
 
     def _create_integrated_agent(
-        self,
-        agent: Agent,
-        project: Project,
+        self, agent: Agent, project: Project, channel_uuid: UUID
     ) -> IntegratedAgent:
         integrated_agent, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
             project=project,
+            defaults={
+                "channel_uuid": channel_uuid,
+            },
         )
 
         if not created:
@@ -131,7 +132,12 @@ class AssignAgentUseCase:
             raw_template.save()
 
     def execute(
-        self, agent: Agent, project_uuid: UUID, app_uuid: UUID, credentials: dict
+        self,
+        agent: Agent,
+        project_uuid: UUID,
+        app_uuid: UUID,
+        channel_uuid: UUID,
+        credentials: dict,
     ) -> IntegratedAgent:
         project = self._get_project(project_uuid)
         self._validate_credentials(agent, credentials)
@@ -141,6 +147,7 @@ class AssignAgentUseCase:
         integrated_agent = self._create_integrated_agent(
             agent=agent,
             project=project,
+            channel_uuid=channel_uuid,
         )
 
         self._create_credentials(integrated_agent, agent, credentials)

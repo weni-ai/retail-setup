@@ -20,8 +20,7 @@ class UnassignAgentUseCaseTest(TestCase):
             project=self.project,
         )
         self.integrated_agent = IntegratedAgent.objects.create(
-            agent=self.agent,
-            project=self.project,
+            agent=self.agent, project=self.project, channel_uuid=uuid4()
         )
         self.use_case = UnassignAgentUseCase()
 
