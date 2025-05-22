@@ -18,7 +18,7 @@ class FlowsService:
             )
             return None
 
-    def send_whatsapp_broadcast(self, payload: dict, project_uuid: str) -> dict:
+    def send_whatsapp_broadcast(self, payload: dict) -> dict:
         """
         Send a WhatsApp broadcast message.
 
@@ -29,6 +29,5 @@ class FlowsService:
         Returns:
             dict: API response from the Flows service.
         """
-        payload = {**payload, "project": project_uuid}
         response = self.client.send_whatsapp_broadcast(payload=payload)
         return response.status_code == 200
