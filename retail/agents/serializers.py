@@ -1,8 +1,12 @@
-from rest_framework import serializers
+from typing import TYPE_CHECKING
 
 from django.conf import settings
+from rest_framework import serializers
 
 from retail.templates.serializers import ReadTemplateSerializer
+
+if TYPE_CHECKING:
+    from .models import Agent
 
 
 class SourceSerializer(serializers.Serializer):
@@ -58,6 +62,14 @@ class ReadAgentSerializer(serializers.Serializer):
     is_oficial = serializers.BooleanField()
     lambda_arn = serializers.CharField()
     templates = PreApprovedTemplateSerializer(many=True)
+
+
+class GalleryAgentSerializer(ReadAgentSerializer):
+    assigned = serializers.SerializerMethodField("get_is_assigned")
+
+    def get_is_assigned(self, agent: "Agent") -> bool:
+        project_uuid = self.context.get("project_uuid")
+        return agent.integrateds.filter(project__uuid=project_uuid).exists()
 
 
 class ReadIntegratedAgentSerializer(serializers.Serializer):
