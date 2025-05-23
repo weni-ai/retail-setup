@@ -66,6 +66,7 @@ class TemplateViewSetTest(APITestCase):
         mock_template.name = "test_template"
         mock_template.start_condition = "start"
         mock_template.current_version = None
+        mock_template.metadata = {}
 
         self.create_usecase.execute = Mock(return_value=mock_template)
 
@@ -90,6 +91,7 @@ class TemplateViewSetTest(APITestCase):
         mock_template.uuid = uuid4()
         mock_template.name = "test_template"
         mock_template.start_condition = "start"
+        mock_template.metadata = {}
 
         mock_version = Mock()
         mock_version.status = "APPROVED"
@@ -112,6 +114,7 @@ class TemplateViewSetTest(APITestCase):
         mock_template.uuid = uuid4()
         mock_template.name = "test_template"
         mock_template.start_condition = "start"
+        mock_template.metadata = {}
 
         version_uuid = uuid4()
 
