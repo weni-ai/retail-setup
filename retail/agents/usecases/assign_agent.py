@@ -43,6 +43,7 @@ class AssignAgentUseCase:
         integrated_agent, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
             project=project,
+            is_active=True,
             defaults={
                 "channel_uuid": channel_uuid,
             },
@@ -101,17 +102,17 @@ class AssignAgentUseCase:
     def _create_templates(
         self,
         integrated_agent: IntegratedAgent,
-        templates: QuerySet[PreApprovedTemplate],
+        pre_approveds: QuerySet[PreApprovedTemplate],
         project_uuid: UUID,
         app_uuid: UUID,
     ) -> None:
         use_case = CreateLibraryTemplateUseCase()
 
-        for template in templates:
-            if not template.is_valid:
+        for pre_approved in pre_approveds:
+            if not pre_approved.is_valid:
                 continue
 
-            metadata = template.metadata or {}
+            metadata = pre_approved.metadata or {}
             data: CreateLibraryTemplateData = {
                 "template_name": metadata.get("name"),
                 "library_template_name": metadata.get("name"),
@@ -119,7 +120,7 @@ class AssignAgentUseCase:
                 "language": metadata.get("language"),
                 "app_uuid": app_uuid,
                 "project_uuid": project_uuid,
-                "start_condition": template.start_condition,
+                "start_condition": pre_approved.start_condition,
             }
 
             if metadata.get("buttons"):
@@ -127,9 +128,11 @@ class AssignAgentUseCase:
                     metadata.get("buttons")
                 )
 
-            raw_template = use_case.execute(data)
-            raw_template.integrated_agent = integrated_agent
-            raw_template.save()
+            template = use_case.execute(data)
+            template.metadata = pre_approved.metadata
+            template.parent = pre_approved
+            template.integrated_agent = integrated_agent
+            template.save()
 
     def execute(
         self,

@@ -13,7 +13,6 @@ class ReadTemplateUseCaseTest(TestCase):
         self.template = Template.objects.create(
             uuid=uuid4(),
             name="test_template",
-            start_condition="When an user does that.",
         )
         self.use_case = ReadTemplateUseCase()
 

@@ -5,8 +5,10 @@ from uuid import uuid4
 
 class Template(models.Model):
     uuid = models.UUIDField(blank=True, editable=False, primary_key=True, default=uuid4)
-    name = models.CharField(unique=True)
-    start_condition = models.TextField()
+    name = models.CharField()
+    parent = models.ForeignKey(
+        "agents.PreApprovedTemplate", on_delete=models.PROTECT, null=True, blank=True
+    )
     current_version = models.OneToOneField(
         "Version",
         on_delete=models.SET_NULL,
@@ -17,7 +19,7 @@ class Template(models.Model):
     rule_code = models.TextField(null=True, blank=True)
     integrated_agent = models.ForeignKey(
         "agents.IntegratedAgent",
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name="templates",

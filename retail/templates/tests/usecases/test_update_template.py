@@ -15,7 +15,6 @@ class UpdateTemplateUseCaseTest(TestCase):
         self.project = Project.objects.create(name="project", uuid=uuid4())
         self.template = Template.objects.create(
             name="test_template",
-            start_condition="When an user does that.",
         )
         self.version_template_name = (
             f"weni_{self.template.name}_{str(datetime.now().timestamp())}"

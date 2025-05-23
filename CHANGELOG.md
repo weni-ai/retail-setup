@@ -1,3 +1,16 @@
+# 2.0.0
+
+## *Fix*
+  - fix: update payload handling in AgentWebhookUseCase to read from response directly
+
+## *Feature*
+  - feat: add channel uuid to integrated agent
+  - feat: pass credentials to webhook
+  - feat: implement whatsapp broadcast message build to integrated agent
+  - feat: agent slug
+  - feature: serialize credentials
+  - feat: pre approved templates extra fields
+
 # 1.10.0
 
 ## *Change*
