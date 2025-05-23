@@ -80,7 +80,7 @@ class CreateLibraryTemplateUseCase(TemplateBuilderMixin):
         """
         payload["template_name"] = payload["library_template_name"]
         template, version = self.build_template_and_version(
-            payload, integrated_agent=payload.pop("integrated_agent", default=None)
+            payload, integrated_agent=payload.pop("integrated_agent", None)
         )
         self._notify_integrations(version.template_name, version.uuid, payload)
         return template
