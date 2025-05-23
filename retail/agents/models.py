@@ -39,7 +39,7 @@ class IntegratedAgent(models.Model):
     project = models.ForeignKey(
         "projects.Project", on_delete=models.CASCADE, related_name="integrated_agents"
     )
-    is_active = models.BooleanField(blank=True, default=True)
+    is_active = models.BooleanField(default=True)
 
 
 class PreApprovedTemplate(models.Model):
