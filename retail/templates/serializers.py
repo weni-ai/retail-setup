@@ -19,6 +19,7 @@ class ReadTemplateSerializer(serializers.Serializer):
     start_condition = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
     rule_code = serializers.CharField()
+    metadata = serializers.JSONField()
 
     def get_status(self, obj: Template) -> str:
         if obj.current_version is not None:
