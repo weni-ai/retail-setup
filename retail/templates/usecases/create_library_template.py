@@ -2,6 +2,7 @@ from typing import Optional, TypedDict, List, Dict, Any
 from uuid import UUID
 
 from retail.templates.models import Template
+from retail.agents.models import IntegratedAgent
 from retail.templates.tasks import task_create_library_template
 
 from ._base_template_creator import TemplateBuilderMixin
@@ -16,6 +17,7 @@ class CreateLibraryTemplateData(TypedDict):
     project_uuid: str
     start_condition: str
     library_template_button_inputs: Optional[List[Dict[str, Any]]] = None
+    integrated_agent: IntegratedAgent
 
 
 class CreateLibraryTemplateUseCase(TemplateBuilderMixin):
@@ -77,6 +79,8 @@ class CreateLibraryTemplateUseCase(TemplateBuilderMixin):
             Template: The created or existing Template instance.
         """
         payload["template_name"] = payload["library_template_name"]
-        template, version = self.build_template_and_version(payload)
+        template, version = self.build_template_and_version(
+            payload, integrated_agent=payload.pop("integrated_agent", default=None)
+        )
         self._notify_integrations(version.template_name, version.uuid, payload)
         return template

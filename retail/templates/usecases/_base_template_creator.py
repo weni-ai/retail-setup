@@ -3,6 +3,7 @@ from typing import Optional, Tuple
 
 from rest_framework.exceptions import NotFound
 
+from retail.agents.models import IntegratedAgent
 from retail.templates.models import Template, Version
 from retail.projects.models import Project
 
@@ -16,11 +17,11 @@ if TYPE_CHECKING:
 
 class TemplateBuilderMixin:
     def _create_template(
-        self, name: str, start_condition: Optional[str] = None
+        self,
+        name: str,
     ) -> Template:
         template = Template(
             name=name,
-            start_condition=start_condition,
             current_version=None,
         )
         template.full_clean()
@@ -50,7 +51,9 @@ class TemplateBuilderMixin:
             raise NotFound(f"Project not found: {project_uuid}")
 
     def build_template_and_version(
-        self, payload: "CreateTemplateData | CreateLibraryTemplateData"
+        self,
+        payload: "CreateTemplateData | CreateLibraryTemplateData",
+        integrated_agent: Optional[IntegratedAgent] = None,
     ) -> Tuple[Template, Version]:
         """
         Centralized logic to create or retrieve a template and create a new version.
@@ -61,12 +64,13 @@ class TemplateBuilderMixin:
         Returns:
             Tuple[Template, Version]: The template (new or existing) and the newly created version.
         """
-        template = Template.objects.filter(name=payload["template_name"]).first()
+        template = Template.objects.filter(
+            name=payload["template_name"], integrated_agent=integrated_agent
+        ).first()
 
         if not template:
             template = self._create_template(
                 name=payload["template_name"],
-                start_condition=payload["start_condition"],
             )
 
         version = self._create_version(
