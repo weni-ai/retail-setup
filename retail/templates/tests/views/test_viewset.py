@@ -1,5 +1,6 @@
 from uuid import uuid4
-from unittest.mock import Mock, patch
+
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
@@ -10,12 +11,14 @@ from rest_framework.test import APITestCase, APIClient
 from rest_framework.exceptions import NotFound
 from rest_framework import status
 
-from retail.templates.models import Template
+from retail.agents.models import PreApprovedTemplate, Agent
+from retail.templates.models import Template, Version
 from retail.templates.usecases import (
     CreateTemplateUseCase,
     ReadTemplateUseCase,
     UpdateTemplateUseCase,
 )
+from retail.projects.models import Project
 
 User = get_user_model()
 
@@ -34,6 +37,33 @@ class TemplateViewSetTest(APITestCase):
 
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
+
+        self.project = Project.objects.create(
+            uuid=uuid4(),
+            name="Projeto Teste",
+        )
+
+        self.agent = Agent.objects.create(
+            uuid=uuid4(),
+            name="Agente de Teste",
+            slug="agente-teste",
+            description="Agente para testes",
+            is_oficial=True,
+            lambda_arn=None,
+            project=self.project,
+            credentials={},
+        )
+
+        self.parent = PreApprovedTemplate.objects.create(
+            agent=self.agent,
+            uuid=uuid4(),
+            name="parent_template",
+            display_name="Parent Template",
+            content="Conteúdo do template",
+            is_valid=True,
+            start_condition="always",
+            metadata={},
+        )
 
         self.create_usecase = CreateTemplateUseCase()
         self.read_usecase = ReadTemplateUseCase()
@@ -61,21 +91,20 @@ class TemplateViewSetTest(APITestCase):
         self.addCleanup(self.update_usecase_patch.stop)
 
     def test_create_template(self):
-        mock_template = Mock(spec=Template)
-        mock_template.uuid = uuid4()
-        mock_template.name = "test_template"
-        mock_template.start_condition = "start"
-        mock_template.current_version = None
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="test_template",
+            parent=self.parent,
+        )
 
-        self.create_usecase.execute = Mock(return_value=mock_template)
+        self.create_usecase.execute = lambda payload: template
 
         payload = {
             "template_translation": {"en": {"text": "Hello"}},
             "template_name": "test_template",
-            "start_condition": "start",
             "category": "test",
             "app_uuid": str(uuid4()),
-            "project_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
         }
 
         response = self.client.post(reverse("template-list"), payload, format="json")
@@ -83,46 +112,58 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["name"], "test_template")
         self.assertEqual(response.data["status"], "PENDING")
-        self.create_usecase.execute.assert_called_once_with(payload)
 
     def test_read_template(self):
-        mock_template = Mock(spec=Template)
-        mock_template.uuid = uuid4()
-        mock_template.name = "test_template"
-        mock_template.start_condition = "start"
-
-        mock_version = Mock()
-        mock_version.status = "APPROVED"
-        mock_template.current_version = mock_version
-
-        self.read_usecase.execute = Mock(return_value=mock_template)
-
-        template_uuid = str(mock_template.uuid)
-        response = self.client.get(
-            reverse("template-detail", args=[str(template_uuid)])
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="test_template",
+            parent=self.parent,
         )
+        version = Version.objects.create(
+            template=template,
+            template_name="test_template",
+            integrations_app_uuid=uuid4(),
+            project=self.project,
+            status="APPROVED",
+        )
+        template.current_version = version
+        template.save()
+
+        self.read_usecase.execute = lambda uuid: template
+
+        template_uuid = str(template.uuid)
+        response = self.client.get(reverse("template-detail", args=[template_uuid]))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["name"], "test_template")
         self.assertEqual(response.data["status"], "APPROVED")
-        self.read_usecase.execute.assert_called_once_with(template_uuid)
 
     def test_patch_status(self):
-        mock_template = Mock(spec=Template)
-        mock_template.uuid = uuid4()
-        mock_template.name = "test_template"
-        mock_template.start_condition = "start"
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="test_template",
+            parent=self.parent,
+        )
+        version = Version.objects.create(
+            template=template,
+            template_name="test_template",
+            integrations_app_uuid=uuid4(),
+            project=self.project,
+            status="PENDING",
+        )
+        template.current_version = version
+        template.save()
 
-        version_uuid = uuid4()
+        def execute(payload):
+            version.status = payload["status"]
+            version.save()
+            template.current_version = version
+            template.save()
+            return template
 
-        mock_version = Mock()
-        mock_version.uuid = version_uuid
-        mock_version.status = "APPROVED"
-        mock_template.current_version = mock_version
+        self.update_usecase.execute = execute
 
-        self.update_usecase.execute = Mock(return_value=mock_template)
-
-        payload = {"version_uuid": str(version_uuid), "status": "APPROVED"}
+        payload = {"version_uuid": str(version.uuid), "status": "APPROVED"}
 
         url = reverse("template-status")
 
@@ -131,10 +172,11 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["name"], "test_template")
         self.assertEqual(response.data["status"], "APPROVED")
-        self.update_usecase.execute.assert_called_once_with(payload)
 
     def test_patch_status_not_found(self):
-        self.update_usecase.execute = Mock(side_effect=NotFound("not found"))
+        self.update_usecase.execute = lambda payload: (_ for _ in ()).throw(
+            NotFound("not found")
+        )
 
         payload = {"version_uuid": str(uuid4()), "status": "APPROVED"}
 

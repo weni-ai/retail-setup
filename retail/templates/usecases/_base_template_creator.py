@@ -19,11 +19,9 @@ class TemplateBuilderMixin:
     def _create_template(
         self,
         name: str,
-        start_condition: Optional[str] = None,
     ) -> Template:
         template = Template(
             name=name,
-            start_condition=start_condition,
             current_version=None,
         )
         template.full_clean()
@@ -73,7 +71,6 @@ class TemplateBuilderMixin:
         if not template:
             template = self._create_template(
                 name=payload["template_name"],
-                start_condition=payload["start_condition"],
             )
 
         version = self._create_version(
