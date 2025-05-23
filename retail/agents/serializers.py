@@ -72,11 +72,21 @@ class ReadAgentSerializer(serializers.Serializer):
 
 class GalleryAgentSerializer(ReadAgentSerializer):
     assigned = serializers.SerializerMethodField("get_is_assigned")
+    assigned_agent_uuid = serializers.SerializerMethodField("get_assigned_agent_uuid")
     credentials = serializers.JSONField()
 
     def get_is_assigned(self, agent: "Agent") -> bool:
         project_uuid = self.context.get("project_uuid")
         return agent.integrateds.filter(project__uuid=project_uuid).exists()
+
+    def get_assigned_agent_uuid(self, agent: "Agent"):
+        project_uuid = self.context.get("project_uuid")
+        assigned = agent.integrateds.filter(project__uuid=project_uuid).first()
+
+        if not assigned:
+            return None
+
+        return str(assigned.uuid)
 
 
 class ReadIntegratedAgentSerializer(serializers.Serializer):
@@ -84,10 +94,14 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
     channel_uuid = serializers.UUIDField()
     templates = ReadTemplateSerializer(many=True)
     webhook_url = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField("get_description")
 
     def get_webhook_url(self, obj):
         domain_url = settings.DOMAIN
         return f"{domain_url}/api/v3/agents/webhook/{str(obj.uuid)}/"
+
+    def get_description(self, obj):
+        return obj.agent.description
 
 
 class AgentWebhookSerializer(serializers.Serializer):

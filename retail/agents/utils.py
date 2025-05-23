@@ -5,7 +5,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_broadcast_template_message(
-    data: Dict[str, Any], channel_uuid: str, project_uuid: str
+    data: Dict[str, Any], channel_uuid: str, project_uuid: str, template_name: str
 ) -> Dict[str, Any]:
     """
     Builds a WhatsApp broadcast message payload based on a template and variable input.
@@ -16,7 +16,6 @@ def build_broadcast_template_message(
 
     Args:
         data (Dict[str, Any]): The input data from the agent, including:
-            - "template" (str): The name of the template to use.
             - "template_variables" (Dict[str, Any]): A dictionary of template variables,
               where keys are numeric strings representing their position in the message
               (e.g., "1", "2", ...). May optionally include a key "button" for URL injection.
@@ -24,12 +23,12 @@ def build_broadcast_template_message(
             - "language" (str, optional): The locale for the template (e.g., "pt-BR").
         channel_uuid (str): The UUID of the WhatsApp channel used to send the message.
         project_uuid (str): The UUID of the project associated with the message.
+        template_name (str): The name of the template to use.
 
     Returns:
         Dict[str, Any]: A formatted message dictionary for the Flows Broadcast API.
         Returns an empty dictionary if required fields are missing or invalid.
     """
-    template_name = data.get("template")
     template_variables = data.get("template_variables", {})
     contact_urn = data.get("contact_urn")
     language = data.get("language", "pt-BR")
