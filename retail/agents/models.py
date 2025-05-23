@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from django.db import models
+from django.contrib.postgres.fields import ArrayField
 
 
 class Agent(models.Model):
@@ -40,6 +41,7 @@ class IntegratedAgent(models.Model):
         "projects.Project", on_delete=models.CASCADE, related_name="integrated_agents"
     )
     is_active = models.BooleanField(blank=True, default=True)
+    ignore_templates = ArrayField(models.UUIDField(), blank=True, default=list)
 
 
 class PreApprovedTemplate(models.Model):
@@ -55,6 +57,7 @@ class PreApprovedTemplate(models.Model):
     agent = models.ForeignKey(
         "Agent", on_delete=models.CASCADE, null=True, related_name="templates"
     )
+    slug = models.CharField(null=True)
     uuid = models.UUIDField(blank=True, default=uuid4)
     name = models.CharField()
     display_name = models.CharField()

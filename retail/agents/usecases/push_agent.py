@@ -100,11 +100,12 @@ class PushAgentUseCase:
     def _update_or_create_pre_approved_templates(
         self, agent: Agent, agent_payload: AgentItemsData
     ) -> None:
-        for rule in agent_payload["rules"].values():
+        for slug, rule in agent_payload["rules"].items():
             PreApprovedTemplate.objects.update_or_create(
-                name=rule.get("template"),
+                slug=slug,
                 agent=agent,
                 defaults={
+                    "name": rule.get("template"),
                     "start_condition": rule.get("start_condition"),
                     "display_name": rule.get("display_name"),
                 },

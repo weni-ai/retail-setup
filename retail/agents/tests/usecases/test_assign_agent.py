@@ -49,7 +49,7 @@ class AssignAgentUseCaseTest(TestCase):
         channel_uuid = str(uuid.uuid4())
 
         self.use_case.execute(
-            self.agent, self.project.uuid, str(uuid.uuid4()), channel_uuid, {}
+            self.agent, self.project.uuid, str(uuid.uuid4()), channel_uuid, {}, []
         )
 
         mock_get_project.assert_called_once_with(self.project.uuid)
@@ -59,7 +59,7 @@ class AssignAgentUseCaseTest(TestCase):
 
     def test_execute_integration(self):
         integrated_agent = self.use_case.execute(
-            self.agent, self.project.uuid, str(uuid.uuid4()), str(uuid.uuid4()), {}
+            self.agent, self.project.uuid, str(uuid.uuid4()), str(uuid.uuid4()), {}, []
         )
         self.assertIsInstance(integrated_agent, IntegratedAgent)
         self.assertEqual(integrated_agent.agent, self.agent)
@@ -69,5 +69,5 @@ class AssignAgentUseCaseTest(TestCase):
         random_uuid = uuid.uuid4()
         with self.assertRaises(NotFound):
             self.use_case.execute(
-                self.agent, random_uuid, str(uuid.uuid4()), str(uuid.uuid4()), {}
+                self.agent, random_uuid, str(uuid.uuid4()), str(uuid.uuid4()), {}, []
             )

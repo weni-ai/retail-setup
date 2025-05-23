@@ -1,4 +1,4 @@
-from typing import List, TypedDict
+from typing import List, TypedDict, Mapping, Any
 
 from uuid import UUID
 
@@ -134,13 +134,22 @@ class AssignAgentUseCase:
             template.integrated_agent = integrated_agent
             template.save()
 
+    def _set_ignore_templates(
+        self,
+        integrated_agent: IntegratedAgent,
+        ignore_templates: List[str],
+    ) -> None:
+        integrated_agent.ignore_templates = ignore_templates
+        integrated_agent.save()
+
     def execute(
         self,
         agent: Agent,
         project_uuid: UUID,
         app_uuid: UUID,
         channel_uuid: UUID,
-        credentials: dict,
+        credentials: Mapping[str, Any],
+        ignore_templates: List[str],
     ) -> IntegratedAgent:
         project = self._get_project(project_uuid)
         self._validate_credentials(agent, credentials)
@@ -153,6 +162,7 @@ class AssignAgentUseCase:
             channel_uuid=channel_uuid,
         )
 
+        self._set_ignore_templates(integrated_agent, ignore_templates)
         self._create_credentials(integrated_agent, agent, credentials)
         self._create_templates(integrated_agent, templates, project_uuid, app_uuid)
 
