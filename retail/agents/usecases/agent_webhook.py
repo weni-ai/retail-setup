@@ -3,6 +3,7 @@ import json
 import logging
 
 from typing import TYPE_CHECKING, Any, Dict, Optional, TypedDict
+
 from uuid import UUID
 
 from rest_framework.exceptions import NotFound
@@ -48,11 +49,11 @@ class AgentWebhookUseCase:
     def _addapt_credentials(self, integrated_agent: IntegratedAgent) -> Dict[str, str]:
         credentials = integrated_agent.credentials.all()
 
-        crdentials_dict = {}
+        credentials_dict = {}
         for credential in credentials:
-            crdentials_dict[credential.key] = credential.value
+            credentials_dict[credential.key] = credential.value
 
-        return crdentials_dict
+        return credentials_dict
 
     def execute(
         self, payload: AgentWebhookData, data: "RequestData"
@@ -64,6 +65,7 @@ class AgentWebhookUseCase:
         credentials = self._addapt_credentials(integrated_agent)
 
         data.set_credentials(credentials)
+        data.set_ignored_official_rules(integrated_agent.ignore_templates)
 
         response = self._invoke_lambda(
             function_name=integrated_agent.agent.lambda_arn, data=data

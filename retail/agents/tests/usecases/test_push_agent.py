@@ -37,7 +37,14 @@ class PushAgentUseCaseTest(TestCase):
     def test_update_or_create_agent_creates(self):
         payload = {
             "name": self.agent_name,
-            "rules": {},
+            "rules": {
+                "r1": {
+                    "display_name": "d",
+                    "template": "template1",
+                    "start_condition": "cond",
+                    "source": {"entrypoint": "", "path": ""},
+                }
+            },
             "pre_processing": {},
             "description": self.agent_description,
         }
@@ -59,7 +66,14 @@ class PushAgentUseCaseTest(TestCase):
         )
         payload = {
             "name": self.agent_name,
-            "rules": {},
+            "rules": {
+                "r1": {
+                    "display_name": "d",
+                    "template": "template1",
+                    "start_condition": "cond",
+                    "source": {"entrypoint": "", "path": ""},
+                }
+            },
             "pre_processing": {},
             "description": self.agent_description,
         }
@@ -75,7 +89,14 @@ class PushAgentUseCaseTest(TestCase):
         payload = {
             "name": self.agent_name,
             "description": self.agent_description,
-            "rules": {},
+            "rules": {
+                "r1": {
+                    "display_name": "d",
+                    "template": "template1",
+                    "start_condition": "cond",
+                    "source": {"entrypoint": "", "path": ""},
+                }
+            },
             "pre_processing": {},
             "credentials": [
                 {
@@ -187,7 +208,14 @@ class PushAgentUseCaseTest(TestCase):
                 self.agent_slug: {
                     "name": self.agent_name,
                     "description": self.agent_description,
-                    "rules": {},
+                    "rules": {
+                        "r1": {
+                            "display_name": "d",
+                            "template": "template1",
+                            "start_condition": "cond",
+                            "source": {"entrypoint": "", "path": ""},
+                        }
+                    },
                     "pre_processing": {},
                 }
             },

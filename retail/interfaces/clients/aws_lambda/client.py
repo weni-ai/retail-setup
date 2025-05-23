@@ -1,16 +1,20 @@
 from dataclasses import dataclass
 
-from typing import Any, Dict, Protocol, Mapping, Optional
+from typing import Any, Dict, Protocol, Mapping, Optional, List
 
 
 @dataclass
 class RequestData:
     params: Mapping[str, Any]
     payload: Mapping[Any, Any]
+    ignored_official_rules: Optional[List[str]] = None
     credentials: Optional[Mapping[str, str]] = None
 
     def set_credentials(self, credentials: Mapping[str, str]):
         self.credentials = credentials
+
+    def set_ignored_official_rules(self, ignored_official_rules: List[str]):
+        self.ignored_official_rules = ignored_official_rules
 
 
 class AwsLambdaClientInterface(Protocol):
