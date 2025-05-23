@@ -47,10 +47,11 @@ def adapt_library_template_to_translation(template_data: Dict) -> Dict:
     # Final translation payload
     translation_payload = {
         "language": language,
-        "header": header_data,
         "body": body_data,
     }
 
+    if header_data:
+        translation_payload["header"] = header_data
     if footer_data:
         translation_payload["footer"] = footer_data
     if buttons_data:
