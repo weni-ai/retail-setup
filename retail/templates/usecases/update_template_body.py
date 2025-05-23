@@ -13,14 +13,16 @@ from retail.templates.adapters.template_library_to_custom_adapter import (
 from ._base_template_creator import TemplateBuilderMixin
 
 
-class UpdateTemplateBodyData(TypedDict):
+class UpdateTemplateContentData(TypedDict):
     template_uuid: str
     template_body: str
+    template_header: str
+    template_footer: str
     app_uuid: str
     project_uuid: str
 
 
-class UpdateTemplateBodyUseCase(TemplateBuilderMixin):
+class UpdateTemplateContentUseCase(TemplateBuilderMixin):
     """
     Updates the body of a template using its metadata and triggers a new version with integrations.
     """
@@ -55,15 +57,16 @@ class UpdateTemplateBodyUseCase(TemplateBuilderMixin):
             template_translation=translation_payload,
         )
 
-    def execute(self, payload: UpdateTemplateBodyData) -> Template:
+    def execute(self, payload: UpdateTemplateContentData) -> Template:
         """
-        Executes the flow to update the template body and propagate a new version.
+        Updates template content fields (body, header, footer) based on metadata and creates a new version.
 
         Args:
-            payload (UpdateTemplateBodyData): The request input
+            payload (UpdateTemplateContentData): The update input including optional content fields
+            and required context.
 
         Returns:
-            Template: The original Template with updated version
+            Template: The template instance with a new version propagated to integrations.
         """
         template = self._get_template(payload["template_uuid"])
 
@@ -75,7 +78,23 @@ class UpdateTemplateBodyUseCase(TemplateBuilderMixin):
             raise ValueError("Missing category in template metadata")
 
         updated_metadata = dict(template.metadata)
-        updated_metadata["body"] = payload["template_body"]
+
+        updated_fields = False
+
+        if payload.get("template_body"):
+            updated_metadata["body"] = payload["template_body"]
+            updated_fields = True
+        if payload.get("template_header"):
+            updated_metadata["header"] = payload["template_header"]
+            updated_fields = True
+        if payload.get("template_footer"):
+            updated_metadata["footer"] = payload["template_footer"]
+            updated_fields = True
+
+        if updated_fields:
+            # Persist changes into the Template.metadata
+            template.metadata = updated_metadata
+            template.save(update_fields=["metadata"])
 
         translation_payload = adapt_library_template_to_translation(updated_metadata)
 
