@@ -43,7 +43,19 @@ class CreateLibraryTemplateSerializer(serializers.Serializer):
     library_template_button_inputs = serializers.ListField(required=False)
 
 
-class UpdateTemplateBodySerializer(serializers.Serializer):
-    template_body = serializers.CharField(required=True)
+class UpdateTemplateContentSerializer(serializers.Serializer):
+    template_body = serializers.CharField(required=False)
+    template_header = serializers.CharField(required=False)
+    template_footer = serializers.CharField(required=False)
     app_uuid = serializers.CharField(required=True)
     project_uuid = serializers.CharField(required=True)
+
+    def validate(self, attrs):
+        if not any(
+            attrs.get(field)
+            for field in ("template_body", "template_header", "template_footer")
+        ):
+            raise serializers.ValidationError(
+                "At least one of 'template_body', 'template_header', or 'template_footer' must be provided."
+            )
+        return attrs

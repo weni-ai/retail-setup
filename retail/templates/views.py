@@ -13,14 +13,14 @@ from retail.templates.usecases import (
     CreateTemplateData,
     UpdateTemplateUseCase,
     UpdateTemplateData,
-    UpdateTemplateBodyData,
-    UpdateTemplateBodyUseCase,
+    UpdateTemplateContentData,
+    UpdateTemplateContentUseCase,
 )
 
 from retail.templates.serializers import (
     CreateTemplateSerializer,
     ReadTemplateSerializer,
-    UpdateTemplateBodySerializer,
+    UpdateTemplateContentSerializer,
     UpdateTemplateSerializer,
 )
 
@@ -81,18 +81,18 @@ class TemplateViewSet(ViewSet):
         Returns:
             200 OK with updated template data.
         """
-        request_serializer = UpdateTemplateBodySerializer(data=request.data)
+        request_serializer = UpdateTemplateContentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
 
-        data: UpdateTemplateBodyData = cast(
-            UpdateTemplateBodyData,
+        data: UpdateTemplateContentData = cast(
+            UpdateTemplateContentData,
             {
                 **request_serializer.validated_data,
                 "template_uuid": str(pk),
             },
         )
 
-        use_case = UpdateTemplateBodyUseCase()
+        use_case = UpdateTemplateContentUseCase()
         updated_template = use_case.execute(data)
 
         response_serializer = ReadTemplateSerializer(updated_template)
