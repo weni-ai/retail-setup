@@ -8,7 +8,7 @@ from retail.agents.models import IntegratedAgent
 class RetrieveIntegratedAgentUseCase:
     def _get_integrated_agent(self, pk: UUID) -> IntegratedAgent:
         try:
-            return IntegratedAgent.objects.get(uuid=pk)
+            return IntegratedAgent.objects.get(uuid=pk, is_active=True)
         except IntegratedAgent.DoesNotExist:
             raise NotFound(f"Assigned agent not found: {pk}")
 

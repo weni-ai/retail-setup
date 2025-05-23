@@ -38,7 +38,7 @@ class AgentWebhookUseCase:
 
     def _get_integrated_agent(self, webhook_uuid: UUID):
         try:
-            return IntegratedAgent.objects.get(uuid=webhook_uuid)
+            return IntegratedAgent.objects.get(uuid=webhook_uuid, is_active=True)
         except IntegratedAgent.DoesNotExist:
             raise NotFound(f"Assigned agent no found: {webhook_uuid}")
 

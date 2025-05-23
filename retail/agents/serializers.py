@@ -77,11 +77,15 @@ class GalleryAgentSerializer(ReadAgentSerializer):
 
     def get_is_assigned(self, agent: "Agent") -> bool:
         project_uuid = self.context.get("project_uuid")
-        return agent.integrateds.filter(project__uuid=project_uuid).exists()
+        return agent.integrateds.filter(
+            project__uuid=project_uuid, is_active=True
+        ).exists()
 
     def get_assigned_agent_uuid(self, agent: "Agent"):
         project_uuid = self.context.get("project_uuid")
-        assigned = agent.integrateds.filter(project__uuid=project_uuid).first()
+        assigned = agent.integrateds.filter(
+            project__uuid=project_uuid, is_active=True
+        ).first()
 
         if not assigned:
             return None

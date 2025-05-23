@@ -24,7 +24,6 @@ class CreateTemplateUseCaseTest(TestCase):
         self.VALID_PAYLOAD: CreateTemplateData = {
             "template_translation": {"en": {"text": "Hello"}},
             "template_name": "TestTemplate",
-            "start_condition": "start",
             "category": "test",
             "app_uuid": str(uuid4()),
             "project_uuid": str(project_uuid),
@@ -55,7 +54,6 @@ class CreateTemplateUseCaseTest(TestCase):
     def test_execute_creates_new_version_for_existing_template(self, mock_task_delay):
         existing_template = Template.objects.create(
             name=self.VALID_PAYLOAD["template_name"],
-            start_condition=self.VALID_PAYLOAD["start_condition"],
             current_version=None,
         )
 
