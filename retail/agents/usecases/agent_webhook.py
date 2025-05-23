@@ -13,6 +13,7 @@ from retail.clients.flows.client import FlowsClient
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
 from retail.services.flows.service import FlowsService
+from retail.templates.models import Template
 
 
 logger = logging.getLogger(__name__)
@@ -68,40 +69,56 @@ class AgentWebhookUseCase:
             function_name=integrated_agent.agent.lambda_arn, data=data
         )
 
-        try:
-            payload_raw = response.get("Payload", "{}")
-            data = json.loads(payload_raw)
+        payload_raw = response.get("Payload").read().decode()
+        data = json.loads(payload_raw)
+        response["payload"] = data
 
+        try:
             # verify if the lambda returned an error
             if isinstance(data, dict) and "errorMessage" in data:
                 logger.error(f"Lambda execution error: {data.get('errorMessage')}")
                 return
 
+            template_name = self._get_current_template_name(integrated_agent, data)
+            if not template_name:
+                logger.error(f"Template not found: {template_name}")
+                return response
+
             message = build_broadcast_template_message(
                 data=data,
-                channel_uuid=integrated_agent.channel_uuid,
-                project_uuid=integrated_agent.project.uuid,
+                channel_uuid=str(integrated_agent.channel_uuid),
+                project_uuid=str(integrated_agent.project.uuid),
+                template_name=template_name,
             )
 
         except json.JSONDecodeError as e:
             logger.error(f"Error decoding JSON payload: {e}")
-            return
+            return response
 
         except Exception as e:
             logger.exception(f"Unexpected error while building broadcast message: {e}")
-            return
+            return response
 
         if not message:
             logger.error(f"Failed to build broadcast message from payload data: {data}")
-            return
+            return response
 
-        self._send_broadcast_message(message, integrated_agent.project.uuid)
+        self._send_broadcast_message(message)
         logger.info(
             f"Successfully executed broadcast for agent: {integrated_agent.uuid}"
         )
+        return response
 
-    def _send_broadcast_message(self, message: Dict[str, Any], project_uuid: str):
-        response = self.flows_service.send_whatsapp_broadcast(
-            message, project_uuid=project_uuid
-        )
-        logger.info(f"Broadcast message sent: {response}, for project: {project_uuid}")
+    def _send_broadcast_message(self, message: Dict[str, Any]):
+        response = self.flows_service.send_whatsapp_broadcast(message)
+        logger.info(f"Broadcast message sent: {response}")
+
+    def _get_current_template_name(
+        self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
+    ) -> str:
+        template_name = data.get("template")
+        try:
+            template = integrated_agent.templates.get(name=template_name)
+            return template.current_version.template_name
+        except Template.DoesNotExist:
+            return None
