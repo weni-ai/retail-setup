@@ -148,7 +148,7 @@ class AssignAgentView(GenericIntegratedAgentView):
 
         project_uuid = get_project_uuid_from_request(request)
         credentials = request.data.get("credentials", {})
-        ignore_templates = request.data.get("ignore_templates", [])
+        include_templates = request.data.get("templates", [])
         app_uuid = request.query_params.get("app_uuid")
         channel_uuid = request.query_params.get("channel_uuid")
 
@@ -164,7 +164,7 @@ class AssignAgentView(GenericIntegratedAgentView):
 
         use_case = AssignAgentUseCase()
         integrated_agent = use_case.execute(
-            agent, project_uuid, app_uuid, channel_uuid, credentials, ignore_templates
+            agent, project_uuid, app_uuid, channel_uuid, credentials, include_templates
         )
 
         response_serializer = ReadIntegratedAgentSerializer(integrated_agent)
