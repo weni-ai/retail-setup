@@ -39,9 +39,7 @@ class IntegratedAgent(models.Model):
     project = models.ForeignKey(
         "projects.Project", on_delete=models.CASCADE, related_name="integrated_agents"
     )
-
-    class Meta:
-        unique_together = ("agent", "project")
+    is_active = models.BooleanField(blank=True, default=False)
 
 
 class PreApprovedTemplate(models.Model):

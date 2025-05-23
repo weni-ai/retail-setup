@@ -45,7 +45,7 @@ class UnassignAgentViewTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(
             IntegratedAgent.objects.filter(
-                agent=self.agent_oficial, project=self.project
+                agent=self.agent_oficial, project=self.project, is_active=True
             ).exists()
         )
 
@@ -57,7 +57,7 @@ class UnassignAgentViewTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(
             IntegratedAgent.objects.filter(
-                agent=self.agent_not_oficial, project=self.project
+                agent=self.agent_not_oficial, project=self.project, is_active=True
             ).exists()
         )
 

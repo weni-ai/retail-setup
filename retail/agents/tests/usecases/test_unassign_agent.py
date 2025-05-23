@@ -33,7 +33,7 @@ class UnassignAgentUseCaseTest(TestCase):
         self.use_case.execute(self.agent, str(self.project.uuid))
         self.assertFalse(
             IntegratedAgent.objects.filter(
-                agent=self.agent, project=self.project
+                agent=self.agent, project=self.project, is_active=True
             ).exists()
         )
 
