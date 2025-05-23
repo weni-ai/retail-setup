@@ -43,6 +43,7 @@ class AssignAgentUseCase:
         integrated_agent, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
             project=project,
+            is_active=True,
             defaults={
                 "channel_uuid": channel_uuid,
             },
