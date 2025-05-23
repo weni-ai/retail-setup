@@ -41,7 +41,7 @@ class IntegratedAgent(models.Model):
         "projects.Project", on_delete=models.CASCADE, related_name="integrated_agents"
     )
     is_active = models.BooleanField(default=True)
-    ignore_templates = ArrayField(models.UUIDField(), blank=True, default=list)
+    ignore_templates = ArrayField(models.CharField(), blank=True, default=list)
 
 
 class PreApprovedTemplate(models.Model):

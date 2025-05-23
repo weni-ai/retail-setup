@@ -29,7 +29,10 @@ class AssignAgentUseCaseTest(TestCase):
 
     def test_create_integrated_agent(self):
         integrated_agent = self.use_case._create_integrated_agent(
-            agent=self.agent, project=self.project, channel_uuid=uuid.uuid4()
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=uuid.uuid4(),
+            ignore_templates=[],
         )
         self.assertIsInstance(integrated_agent, IntegratedAgent)
         self.assertEqual(integrated_agent.agent, self.agent)
@@ -54,7 +57,10 @@ class AssignAgentUseCaseTest(TestCase):
 
         mock_get_project.assert_called_once_with(self.project.uuid)
         mock_create_integrated.assert_called_once_with(
-            agent=self.agent, project=self.project, channel_uuid=channel_uuid
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=channel_uuid,
+            ignore_templates=[],
         )
 
     def test_execute_integration(self):

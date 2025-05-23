@@ -38,11 +38,18 @@ class AssignAgentUseCase:
             raise NotFound(f"Project not found: {project_uuid}")
 
     def _create_integrated_agent(
-        self, agent: Agent, project: Project, channel_uuid: UUID
+        self,
+        agent: Agent,
+        project: Project,
+        channel_uuid: UUID,
+        ignore_templates: List[str],
     ) -> IntegratedAgent:
+        ignore_templates = self._set_ignore_templates(ignore_templates)
+
         integrated_agent, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
             project=project,
+            ignore_templates=ignore_templates,
             is_active=True,
             defaults={
                 "channel_uuid": channel_uuid,
@@ -136,11 +143,13 @@ class AssignAgentUseCase:
 
     def _set_ignore_templates(
         self,
-        integrated_agent: IntegratedAgent,
         ignore_templates: List[str],
     ) -> None:
-        integrated_agent.ignore_templates = ignore_templates
-        integrated_agent.save()
+        slugs = PreApprovedTemplate.objects.filter(
+            uuid__in=ignore_templates
+        ).values_list("slug", flat=True)
+
+        return list(slugs)
 
     def execute(
         self,
@@ -160,9 +169,9 @@ class AssignAgentUseCase:
             agent=agent,
             project=project,
             channel_uuid=channel_uuid,
+            ignore_templates=ignore_templates,
         )
 
-        self._set_ignore_templates(integrated_agent, ignore_templates)
         self._create_credentials(integrated_agent, agent, credentials)
         self._create_templates(integrated_agent, templates, project_uuid, app_uuid)
 

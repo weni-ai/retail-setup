@@ -7,7 +7,7 @@ from typing import Any, Dict, Protocol, Mapping, Optional, List
 class RequestData:
     params: Mapping[str, Any]
     payload: Mapping[Any, Any]
-    ignored_official_rules: List[str]
+    ignored_official_rules: Optional[List[str]] = None
     credentials: Optional[Mapping[str, str]] = None
 
     def set_credentials(self, credentials: Mapping[str, str]):

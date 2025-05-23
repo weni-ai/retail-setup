@@ -2,13 +2,13 @@ import json
 
 import logging
 
-from typing import TYPE_CHECKING, Any, Dict, Optional, TypedDict, List
+from typing import TYPE_CHECKING, Any, Dict, Optional, TypedDict
 
 from uuid import UUID
 
 from rest_framework.exceptions import NotFound
 
-from retail.agents.models import IntegratedAgent, PreApprovedTemplate
+from retail.agents.models import IntegratedAgent
 from retail.agents.utils import build_broadcast_template_message
 from retail.clients.flows.client import FlowsClient
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
@@ -55,15 +55,6 @@ class AgentWebhookUseCase:
 
         return credentials_dict
 
-    def _get_ignored_official_rules(
-        self, integrated_agent: IntegratedAgent
-    ) -> List[str]:
-        slugs = PreApprovedTemplate.objects.filter(
-            uuid__in=integrated_agent.ignore_templates
-        ).values_list("slug", flat=True)
-
-        return list(slugs)
-
     def execute(
         self, payload: AgentWebhookData, data: "RequestData"
     ) -> Optional[Dict[str, Any]]:
@@ -72,10 +63,9 @@ class AgentWebhookUseCase:
         )
 
         credentials = self._addapt_credentials(integrated_agent)
-        ignored_official_rules = self._get_ignored_official_rules(integrated_agent)
 
         data.set_credentials(credentials)
-        data.set_ignored_official_rules(ignored_official_rules)
+        data.set_ignored_official_rules(integrated_agent.ignore_templates)
 
         response = self._invoke_lambda(
             function_name=integrated_agent.agent.lambda_arn, data=data
