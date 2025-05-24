@@ -1,3 +1,13 @@
+# 3.0.0
+
+## *Fix*
+  - fix: template changing agent
+  - fix: update template header and footer
+
+## *Feature*
+  - feat: serialize missing fields
+  - feat: slug in preapproved
+
 # 2.0.0
 
 ## *Fix*
