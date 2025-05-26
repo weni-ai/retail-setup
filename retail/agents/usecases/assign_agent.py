@@ -112,7 +112,7 @@ class AssignAgentUseCase:
         app_uuid: UUID,
         ignore_templates: List[str],
     ) -> None:
-        use_case = CreateLibraryTemplateUseCase()
+        create_library_use_case = CreateLibraryTemplateUseCase()
         pre_approveds = pre_approveds.exclude(uuid__in=ignore_templates)
 
         for pre_approved in pre_approveds:
@@ -130,12 +130,20 @@ class AssignAgentUseCase:
                 "start_condition": pre_approved.start_condition,
             }
 
-            if metadata.get("buttons"):
+            if pre_approved.needs_button_edit:
                 data["library_template_button_inputs"] = self._adapt_button(
                     metadata.get("buttons")
                 )
 
-            template = use_case.execute(data)
+            template, version = create_library_use_case.execute(data)
+
+            if not pre_approved.needs_button_edit:
+                create_library_use_case.notify_integrations(
+                    version.template_name, version.uuid, data
+                )
+            else:
+                template.current_version = version
+
             template.metadata = pre_approved.metadata
             template.parent = pre_approved
             template.integrated_agent = integrated_agent

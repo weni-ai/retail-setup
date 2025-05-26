@@ -4,9 +4,11 @@ from rest_framework.viewsets import ViewSet
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.request import Request
+from rest_framework.exceptions import NotFound
 from rest_framework import status
 
 from retail.internal.permissions import CanCommunicateInternally
+from retail.templates.models import Template
 from retail.templates.usecases import (
     CreateTemplateUseCase,
     ReadTemplateUseCase,
@@ -15,6 +17,8 @@ from retail.templates.usecases import (
     UpdateTemplateData,
     UpdateTemplateContentData,
     UpdateTemplateContentUseCase,
+    CreateLibraryTemplateUseCase,
+    CreateLibraryTemplateData,
 )
 
 from retail.templates.serializers import (
@@ -22,6 +26,7 @@ from retail.templates.serializers import (
     ReadTemplateSerializer,
     UpdateTemplateContentSerializer,
     UpdateTemplateSerializer,
+    UpdateLibraryTemplateSerializer,
 )
 
 from uuid import UUID
@@ -97,3 +102,53 @@ class TemplateViewSet(ViewSet):
 
         response_serializer = ReadTemplateSerializer(updated_template)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
+class TemplateLibraryViewSet(ViewSet):
+    permission_classes = [CanCommunicateInternally]
+
+    def _get_template(self, pk: UUID) -> Template:
+        try:
+            return Template.objects.get(uuid=pk)
+        except Template.DoesNotExist:
+            raise NotFound(f"Template not found: {pk}")
+
+    def partial_update(self, request: Request, pk: UUID) -> Response:
+        request_serializer = UpdateLibraryTemplateSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        app_uuid = request.query_params.get("app_uuid")
+        project_uuid = request.query_params.get("project_uuid")
+
+        if not app_uuid or not project_uuid:
+            return Response(
+                {"error": "app_uuid and project_uuid are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        template = self._get_template(pk)
+
+        payload: CreateLibraryTemplateData = {
+            "template_name": template.metadata.get("name"),
+            "library_template_name": template.metadata.get("name"),
+            "category": template.metadata.get("category"),
+            "language": template.metadata.get("language"),
+            "app_uuid": app_uuid,
+            "project_uuid": project_uuid,
+            "start_condition": template.parent.start_condition,
+            "library_template_button_inputs": request_serializer.validated_data.get(
+                "library_template_button_inputs"
+            ),
+        }
+
+        use_case = CreateLibraryTemplateUseCase()
+        use_case.notify_integrations(
+            template.current_version.template_name,
+            template.current_version.uuid,
+            payload,
+        )
+
+        return Response(
+            data={"message": "Created library template task triggered."},
+            status=status.HTTP_200_OK,
+        )
