@@ -28,7 +28,7 @@ class CreateLibraryTemplateUseCase(TemplateBuilderMixin):
     and delegates the integration trigger to an asynchronous task.
     """
 
-    def _notify_integrations(
+    def notify_integrations(
         self, version_name: str, version_uuid: UUID, payload: CreateLibraryTemplateData
     ) -> None:
         """
@@ -70,7 +70,6 @@ class CreateLibraryTemplateUseCase(TemplateBuilderMixin):
         This method will:
         - Retrieve or create the base Template.
         - Create a new Version associated with the template.
-        - Trigger the asynchronous task to notify Meta integrations.
 
         Args:
             payload (CreateLibraryTemplateData): The data required to create the library template.
@@ -82,5 +81,4 @@ class CreateLibraryTemplateUseCase(TemplateBuilderMixin):
         template, version = self.build_template_and_version(
             payload, integrated_agent=payload.pop("integrated_agent", None)
         )
-        self._notify_integrations(version.template_name, version.uuid, payload)
-        return template
+        return template, version

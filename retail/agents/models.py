@@ -66,6 +66,10 @@ class PreApprovedTemplate(models.Model):
     start_condition = models.TextField()
     metadata = models.JSONField(null=True)
 
+    @property
+    def needs_button_edit(self) -> bool:
+        return bool(self.metadata.get("buttons", False))
+
 
 class Credential(models.Model):
     key = models.CharField(max_length=255)

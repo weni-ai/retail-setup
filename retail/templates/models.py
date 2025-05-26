@@ -26,6 +26,10 @@ class Template(models.Model):
     )
     metadata = models.JSONField(default=dict, blank=True)
 
+    @property
+    def needs_button_edit(self) -> bool:
+        return bool(self.metadata.get("buttons", False))
+
 
 class Version(models.Model):
     STATUS_CHOICES = (
