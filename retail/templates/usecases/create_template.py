@@ -1,10 +1,18 @@
-from typing import TypedDict, Dict, Any
+import logging
+from typing import Any, Dict, Optional, TypedDict
 from uuid import UUID
 
+from django.conf import settings
+
+from retail.clients.aws_lambda.client import AwsLambdaClient
+from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
+from retail.services.aws_lambda import AwsLambdaService
 from retail.templates.models import Template
 from retail.templates.tasks import task_create_template
 
 from ._base_template_creator import TemplateBuilderMixin
+
+logger = logging.getLogger(__name__)
 
 
 class CreateTemplateData(TypedDict):
@@ -16,6 +24,11 @@ class CreateTemplateData(TypedDict):
     project_uuid: str
 
 
+class RuleGenerator:
+    def execute(self):
+        pass
+
+
 class CreateTemplateUseCase(TemplateBuilderMixin):
     """
     Use case responsible for creating a Meta template and its version.
@@ -24,6 +37,10 @@ class CreateTemplateUseCase(TemplateBuilderMixin):
     creating one if necessary, creating a new version, and notifying the
     asynchronous integration process.
     """
+
+    def __init__(self, lambda_service: Optional[AwsLambdaServiceInterface] = None):
+        lambda_client = AwsLambdaClient(settings.RULE_GENERATOR_LAMBDA_REGION)
+        self.lambda_service = lambda_service or AwsLambdaService(lambda_client)
 
     def _notify_integrations(
         self, version_name: str, version_uuid: UUID, payload: CreateTemplateData
@@ -58,6 +75,32 @@ class CreateTemplateUseCase(TemplateBuilderMixin):
             template_translation=payload["template_translation"],
         )
 
+    def _generate_rule(self) -> str:
+        payload = {
+            "actionGroup": "MyGroup",
+            "function": "MyFunction",
+            "parameters": [
+                {
+                    "name": "variables",
+                    "value": '[{"definition": "abcd", "fallback": "dcba"}]',
+                },
+                {"name": "start_condition", "value": "some condition"},
+                {
+                    "name": "exemples",
+                    "value": '[{"input": "example 1"}, {"input": "example 2"}]',
+                },
+                {"name": "template_content", "value": "some template text"},
+            ],
+        }
+
+        response = self.lambda_service.invoke(
+            settings.RULE_GENERATOR_LAMBDA_NAME, payload
+        )
+
+        logger.info(f"Rules generator invoked successfully: {response}")
+
+        return response.get("Payload")
+
     def execute(self, payload: CreateTemplateData) -> Template:
         """
         Executes the template creation flow.
@@ -73,6 +116,7 @@ class CreateTemplateUseCase(TemplateBuilderMixin):
         Returns:
             Template: The created or existing template instance.
         """
+
         template, version = self.build_template_and_version(payload)
         self._notify_integrations(version.template_name, version.uuid, payload)
         return template

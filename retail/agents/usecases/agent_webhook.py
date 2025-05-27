@@ -1,9 +1,6 @@
 import json
-
 import logging
-
 from typing import TYPE_CHECKING, Any, Dict, Optional, TypedDict
-
 from uuid import UUID
 
 from rest_framework.exceptions import NotFound
@@ -15,7 +12,6 @@ from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
 from retail.services.flows.service import FlowsService
 from retail.templates.models import Template
-
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +40,14 @@ class AgentWebhookUseCase:
             raise NotFound(f"Assigned agent no found: {webhook_uuid}")
 
     def _invoke_lambda(self, function_name: str, data: "RequestData") -> Dict[str, Any]:
-        return self.lambda_service.invoke(function_name, data)
+        return self.lambda_service.invoke(
+            function_name,
+            {
+                "params": data.params,
+                "payload": data.payload,
+                "credentials": data.credentials,
+            },
+        )
 
     def _addapt_credentials(self, integrated_agent: IntegratedAgent) -> Dict[str, str]:
         credentials = integrated_agent.credentials.all()
