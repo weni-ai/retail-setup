@@ -20,6 +20,7 @@ class ReadTemplateSerializer(serializers.Serializer):
     status = serializers.SerializerMethodField()
     rule_code = serializers.CharField()
     metadata = serializers.JSONField()
+    needs_button_edit = serializers.BooleanField()
 
     def get_status(self, obj: Template) -> str:
         if obj.current_version is not None:
@@ -65,3 +66,17 @@ class UpdateTemplateContentSerializer(serializers.Serializer):
                 "At least one of 'template_body', 'template_header', or 'template_footer' must be provided."
             )
         return attrs
+
+
+class UpdateLibraryTemplateButtonUrlSerializer(serializers.Serializer):
+    base_url = serializers.CharField()
+    url_suffix_example = serializers.CharField(required=False)
+
+
+class UpdateLibraryTemplateButtonSerializer(serializers.Serializer):
+    type = serializers.CharField()
+    url = UpdateLibraryTemplateButtonUrlSerializer()
+
+
+class UpdateLibraryTemplateSerializer(serializers.Serializer):
+    library_template_button_inputs = UpdateLibraryTemplateButtonSerializer(many=True)
