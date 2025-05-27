@@ -7,7 +7,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 from retail.agents.models import Agent, Credential, IntegratedAgent, PreApprovedTemplate
 from retail.projects.models import Project
 from retail.templates.usecases.create_library_template import (
-    CreateLibraryTemplateData,
+    LibraryTemplateData,
     CreateLibraryTemplateUseCase,
 )
 
@@ -88,22 +88,6 @@ class AssignAgentUseCase:
                 },
             )
 
-    def _adapt_button(
-        self, buttons: List[MetaButtonFormat]
-    ) -> List[IntegrationsButtonFormat]:
-        integration_buttons = []
-
-        for button in buttons:
-            integration_button_url_format = IntegrationsButtonUrlFormat(
-                base_url=button.get("url"), url_suffix_example=button.get("url")
-            )
-            integrations_button = IntegrationsButtonFormat(
-                type=button.get("type"), url=integration_button_url_format
-            )
-            integration_buttons.append(integrations_button)
-
-        return integration_buttons
-
     def _create_templates(
         self,
         integrated_agent: IntegratedAgent,
@@ -120,7 +104,7 @@ class AssignAgentUseCase:
                 continue
 
             metadata = pre_approved.metadata or {}
-            data: CreateLibraryTemplateData = {
+            data: LibraryTemplateData = {
                 "template_name": metadata.get("name"),
                 "library_template_name": metadata.get("name"),
                 "category": metadata.get("category"),
@@ -130,14 +114,9 @@ class AssignAgentUseCase:
                 "start_condition": pre_approved.start_condition,
             }
 
-            if pre_approved.needs_button_edit:
-                data["library_template_button_inputs"] = self._adapt_button(
-                    metadata.get("buttons")
-                )
-
             template, version = create_library_use_case.execute(data)
 
-            if not pre_approved.needs_button_edit:
+            if not metadata.get("buttons"):
                 create_library_use_case.notify_integrations(
                     version.template_name, version.uuid, data
                 )

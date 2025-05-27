@@ -6,6 +6,9 @@ from .update_template_body import (
     UpdateTemplateContentUseCase,
 )
 from .create_library_template import (
-    CreateLibraryTemplateData,
     CreateLibraryTemplateUseCase,
+)
+from .update_library_template import (
+    UpdateLibraryTemplateData,
+    UpdateLibraryTemplateUseCase,
 )

@@ -70,7 +70,7 @@ class UpdateTemplateContentSerializer(serializers.Serializer):
 
 class UpdateLibraryTemplateButtonUrlSerializer(serializers.Serializer):
     base_url = serializers.CharField()
-    url_suffix_example = serializers.CharField()
+    url_suffix_example = serializers.CharField(required=False)
 
 
 class UpdateLibraryTemplateButtonSerializer(serializers.Serializer):
