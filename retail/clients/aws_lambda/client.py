@@ -8,8 +8,8 @@ from retail.interfaces.clients.aws_lambda.client import AwsLambdaClientInterface
 
 
 class AwsLambdaClient(AwsLambdaClientInterface):
-    def __init__(self):
-        self.boto3_client = boto3.client("lambda", region_name=settings.LAMBDA_REGION)
+    def __init__(self, region_name: str = settings.LAMBDA_REGION):
+        self.boto3_client = boto3.client("lambda", region_name=region_name)
         self.role_arn = settings.LAMBDA_ROLE_ARN
         self.runtime = settings.LAMBDA_RUNTIME
         self.handler = settings.LAMBDA_HANDLER

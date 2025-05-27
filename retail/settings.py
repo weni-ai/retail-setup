@@ -11,14 +11,12 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 import os
+import urllib
 from pathlib import Path
 
 import environ
 import sentry_sdk
-import urllib
-
 from sentry_sdk.integrations.django import DjangoIntegration
-
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -264,6 +262,9 @@ if USE_LAMBDA:
     LAMBDA_RUNTIME = env.str("LAMBDA_RUNTIME")
     LAMBDA_HANDLER = env.str("LAMBDA_HANDLER")
     LAMBDA_REGION = env.str("LAMBDA_REGION")
+
+    RULE_GENERATOR_LAMBDA_NAME = env.str("RULE_GENERATOR_LAMBDA_NAME")
+    RULE_GENERATOR_LAMBDA_REGION = env.str("RULE_GENERATOR_LAMBDA_REGION")
 
 USE_META = env.bool("USE_LAMBDA", default=False)
 
