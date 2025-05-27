@@ -25,10 +25,7 @@ class Template(models.Model):
         related_name="templates",
     )
     metadata = models.JSONField(default=dict, blank=True)
-
-    @property
-    def needs_button_edit(self) -> bool:
-        return bool(self.metadata.get("buttons", False))
+    needs_button_edit = models.BooleanField(default=False)
 
 
 class Version(models.Model):

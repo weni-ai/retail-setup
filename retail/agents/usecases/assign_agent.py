@@ -122,6 +122,7 @@ class AssignAgentUseCase:
                 )
             else:
                 template.current_version = version
+                template.needs_button_edit = True
 
             template.metadata = pre_approved.metadata
             template.parent = pre_approved

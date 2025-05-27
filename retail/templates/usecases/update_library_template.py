@@ -62,8 +62,9 @@ class UpdateLibraryTemplateUseCase(BaseLibraryTemplateUseCase):
 
     def execute(self, payload: UpdateLibraryTemplateData) -> None:
         template = self._get_template(payload["template_uuid"])
+        template.needs_button_edit = False
         version = template.current_version
         payload = self._build_payload(template, payload)
         self._update_template_metadata(template, payload)
-        self.notify_integrations(version.template_name, version.uuid.uuid, payload)
+        self.notify_integrations(version.template_name, version.uuid, payload)
         return template
