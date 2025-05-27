@@ -11,12 +11,14 @@ class MetaClient(MetaClientInterface, RequestClient):
         self.token = token or settings.META_SYSTEM_USER_ACCESS_TOKEN
         self.url = url or settings.META_API_URL
 
-    def get_pre_approved_template(self, template_name: str) -> Dict[str, any]:
+    def get_pre_approved_template(
+        self, template_name: str, language: str
+    ) -> Dict[str, any]:
         url = f"{self.url}/message_template_library/"
 
         params = {
             "search": template_name,
-            "language": "pt_BR",
+            "language": language,
         }
 
         headers = {

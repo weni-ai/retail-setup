@@ -9,5 +9,7 @@ class MetaService(MetaServiceInterface):
     def __init__(self, client: Optional[MetaClientInterface] = None):
         self.client = client or MetaClient()
 
-    def get_pre_approved_template(self, template_name: str) -> Dict[str, any]:
-        return self.client.get_pre_approved_template(template_name)
+    def get_pre_approved_template(
+        self, template_name: str, language: str
+    ) -> Dict[str, any]:
+        return self.client.get_pre_approved_template(template_name, language)

@@ -26,6 +26,7 @@ class Agent(models.Model):
         "projects.Project", on_delete=models.CASCADE, related_name="agents"
     )
     credentials = models.JSONField(null=True, default=dict)
+    language = models.CharField(max_length=5, default="pt_BR")
 
     class Meta:
         unique_together = ("name", "project")
