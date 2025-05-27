@@ -40,6 +40,7 @@ class AgentItemsData(TypedDict):
     description: str
     rules: RuleData
     pre_processing: PreProcessingData
+    language: str
 
 
 class PushAgentData(TypedDict):
@@ -72,6 +73,7 @@ class PushAgentUseCase:
                 "name": payload.get("name"),
                 "description": payload.get("description"),
                 "credentials": credentials,
+                "language": payload.get("language"),
             },
         )
 
