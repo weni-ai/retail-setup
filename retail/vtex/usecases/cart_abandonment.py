@@ -113,7 +113,7 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
         """
 
         order_form = self.vtex_io_service.get_order_form_details(
-            account_domain=self._get_account_domain(cart),
+            account_domain=self._get_account_domain(str(cart.project.uuid)),
             order_form_id=cart.order_form_id,
         )
         if not order_form:
