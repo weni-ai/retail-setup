@@ -36,6 +36,7 @@ class PushAgentViewE2ETest(APITestCase):
                 "agent1": {
                     "name": self.agent_name,
                     "description": "description",
+                    "language": "pt_BR",
                     "rules": {
                         "r1": {
                             "display_name": "Approved Status",
@@ -80,6 +81,7 @@ class PushAgentViewE2ETest(APITestCase):
             slug="test_agent",
             name=self.agent_name,
             description="description",
+            language="pt_BR",
             lambda_arn="arn:aws:lambda:region:123:function:test",
             is_oficial=False,
             templates=mock_templates_manager,

@@ -40,6 +40,7 @@ class AgentSerializer(serializers.Serializer):
     rules = serializers.DictField(child=RuleSerializer())
     pre_processing = PreProcessingSerializer(source="pre-processing", required=False)
     credentials = PushAgentsCredentialSerializer(many=True)
+    language = serializers.CharField()
 
 
 class PushAgentSerializer(serializers.Serializer):
@@ -62,6 +63,7 @@ class ReadAgentSerializer(serializers.Serializer):
     name = serializers.CharField()
     slug = serializers.CharField()
     description = serializers.CharField()
+    language = serializers.CharField()
     is_oficial = serializers.BooleanField()
     templates = serializers.SerializerMethodField()
 
