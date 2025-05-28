@@ -160,7 +160,8 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
             dict: List of orders associated with the email.
         """
         orders = self.vtex_io_service.get_order_details(
-            account_domain=self._get_account_domain(cart), user_email=email
+            account_domain=self._get_account_domain(str(cart.project.uuid)),
+            user_email=email,
         )
         return orders or {"list": []}
 
@@ -189,7 +190,7 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
         self._mark_cart_as_abandoned(cart, order_form, client_profile)
 
     def _set_utm_source(self, cart: Cart):
-        domain = self._get_account_domain(cart)
+        domain = self._get_account_domain(str(cart.project.uuid))
         self.vtex_service.set_order_form_marketing_data(
             domain, cart.order_form_id, self.utm_source
         )
