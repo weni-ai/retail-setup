@@ -8,6 +8,8 @@ from rest_framework.exceptions import ValidationError
 
 from sentry_sdk import capture_message
 
+from django.core.cache import cache
+
 from retail.clients.exceptions import CustomAPIException
 from retail.clients.vtex_io.client import VtexIOClient
 from retail.features.models import IntegratedFeature
@@ -53,7 +55,7 @@ class OrderStatusUseCase:
 
     def _get_project_by_vtex_account(self) -> Project:
         """
-        Get the project by VTEX account.
+        Get the project by VTEX account, with caching.
 
         Raises:
             ValidationError: If no project is found or if multiple projects are found.
@@ -61,8 +63,16 @@ class OrderStatusUseCase:
         Returns:
             Project: The project associated with the VTEX account.
         """
+        cache_key = f"project_by_vtex_account_{self.data.vtexAccount}"
+        project = cache.get(cache_key)
+
+        if project:
+            return project
+
         try:
-            return Project.objects.get(vtex_account=self.data.vtexAccount)
+            project = Project.objects.get(vtex_account=self.data.vtexAccount)
+            cache.set(cache_key, project, timeout=43200)  # 12 hours
+            return project
         except Project.DoesNotExist:
             error_message = (
                 f"Project not found for VTEX account {self.data.vtexAccount}. "

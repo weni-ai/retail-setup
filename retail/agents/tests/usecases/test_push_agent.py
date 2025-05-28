@@ -37,6 +37,7 @@ class PushAgentUseCaseTest(TestCase):
     def test_update_or_create_agent_creates(self):
         payload = {
             "name": self.agent_name,
+            "language": "pt_BR",
             "rules": {
                 "r1": {
                     "display_name": "d",
@@ -54,6 +55,7 @@ class PushAgentUseCaseTest(TestCase):
         self.assertTrue(created)
         self.assertEqual(agent.slug, self.agent_slug)
         self.assertEqual(agent.name, self.agent_name)
+        self.assertEqual(agent.language, "pt_BR")
         self.assertEqual(agent.project, self.project)
         self.assertEqual(agent.credentials, {})
 
@@ -61,11 +63,13 @@ class PushAgentUseCaseTest(TestCase):
         agent = Agent.objects.create(
             slug=self.agent_slug,
             name="Old Name",
+            language="pt_BR",
             project=self.project,
             description="Old Description",
         )
         payload = {
             "name": self.agent_name,
+            "language": "en_US",
             "rules": {
                 "r1": {
                     "display_name": "d",
@@ -83,11 +87,13 @@ class PushAgentUseCaseTest(TestCase):
         self.assertFalse(created)
         self.assertEqual(updated_agent.pk, agent.pk)
         self.assertEqual(updated_agent.name, self.agent_name)
+        self.assertEqual(updated_agent.language, "en_US")
         self.assertEqual(updated_agent.description, self.agent_description)
 
     def test_update_or_create_agent_with_credentials(self):
         payload = {
             "name": self.agent_name,
+            "language": "pt_BR",
             "description": self.agent_description,
             "rules": {
                 "r1": {
@@ -132,6 +138,7 @@ class PushAgentUseCaseTest(TestCase):
         agent = Agent.objects.create(
             slug=self.agent_slug,
             name=self.agent_name,
+            language="pt_BR",
             project=self.project,
             description=self.agent_description,
         )
@@ -148,11 +155,13 @@ class PushAgentUseCaseTest(TestCase):
         agent = Agent.objects.create(
             slug=self.agent_slug,
             name=self.agent_name,
+            language="pt_BR",
             project=self.project,
             description=self.agent_description,
         )
         payload = {
             "name": self.agent_name,
+            "language": "pt_BR",
             "description": self.agent_description,
             "rules": {
                 "r1": {
@@ -179,6 +188,7 @@ class PushAgentUseCaseTest(TestCase):
             "agents": {
                 self.agent_slug: {
                     "name": self.agent_name,
+                    "language": "pt_BR",
                     "description": self.agent_description,
                     "rules": {
                         "r1": {
@@ -207,6 +217,7 @@ class PushAgentUseCaseTest(TestCase):
             "agents": {
                 self.agent_slug: {
                     "name": self.agent_name,
+                    "language": "pt_BR",
                     "description": self.agent_description,
                     "rules": {
                         "r1": {

@@ -8,12 +8,13 @@ from retail.vtex.models import Cart
 from retail.services.code_actions.service import CodeActionsService
 from retail.clients.code_actions.client import CodeActionsClient
 from retail.clients.exceptions import CustomAPIException
+from retail.vtex.usecases.base import BaseVtexUseCase
 
 
 logger = logging.getLogger(__name__)
 
 
-class CartAbandonmentUseCase:
+class CartAbandonmentUseCase(BaseVtexUseCase):
     """
     Use case for handling cart abandonment and notifications.
     """
@@ -112,7 +113,7 @@ class CartAbandonmentUseCase:
         """
 
         order_form = self.vtex_io_service.get_order_form_details(
-            account_domain=self._get_account_domain(cart),
+            account_domain=self._get_account_domain(str(cart.project.uuid)),
             order_form_id=cart.order_form_id,
         )
         if not order_form:
@@ -262,9 +263,6 @@ class CartAbandonmentUseCase:
             self._update_cart_status(cart, "delivered_error", error_message)
         except Cart.DoesNotExist:
             logger.error(f"Cart not found during error handling: {error_message}")
-
-    def _get_account_domain(self, cart: Cart) -> str:
-        return f"{cart.project.vtex_account}.myvtex.com"
 
     def _get_code_action_id_by_cart(self, cart: Cart) -> str:
         """

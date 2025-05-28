@@ -158,3 +158,13 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         )
 
         return response.json()
+
+    def get_account_identifier(self, account_domain: str) -> dict:
+        """
+        Retrieves the VTEX account identifier.
+        """
+        url = self._get_url(account_domain, "/account-identifier")
+        response = self.make_request(
+            url, method="GET", headers=self.authentication.headers
+        )
+        return response.json()
