@@ -39,13 +39,22 @@ class AgentWebhookUseCase:
         except IntegratedAgent.DoesNotExist:
             raise NotFound(f"Assigned agent no found: {webhook_uuid}")
 
-    def _invoke_lambda(self, function_name: str, data: "RequestData") -> Dict[str, Any]:
+    def _invoke_lambda(
+        self, integrated_agent: IntegratedAgent, data: "RequestData"
+    ) -> Dict[str, Any]:
+        function_name = integrated_agent.agent.lambda_arn
+        project = integrated_agent.project
+
         return self.lambda_service.invoke(
             function_name,
             {
                 "params": data.params,
                 "payload": data.payload,
                 "credentials": data.credentials,
+                "project": {
+                    "uuid": str(project.uuid),
+                    "vtex_account": project.vtex_account,
+                },
             },
         )
 
@@ -70,9 +79,7 @@ class AgentWebhookUseCase:
         data.set_credentials(credentials)
         data.set_ignored_official_rules(integrated_agent.ignore_templates)
 
-        response = self._invoke_lambda(
-            function_name=integrated_agent.agent.lambda_arn, data=data
-        )
+        response = self._invoke_lambda(integrated_agent=integrated_agent, data=data)
 
         payload_raw = response.get("Payload").read().decode()
         data = json.loads(payload_raw)
