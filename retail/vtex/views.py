@@ -6,15 +6,40 @@ from rest_framework import status
 from retail.utils.aws.lambda_validator import LambdaURLValidator
 from retail.vtex.serializers import OrdersQueryParamsSerializer
 from retail.services.vtex_io.service import VtexIOService
+from retail.vtex.usecases.get_account_identifier import GetAccountIdentifierUsecase
 from retail.vtex.usecases.get_orders import GetOrdersUsecase
 
 
-class OrdersProxyView(APIView, LambdaURLValidator):
+class BaseVtexProxyView(APIView, LambdaURLValidator):
     """
-    POST endpoint that proxies query parameters to VTEX IO OMS API.
+    Base class for all VTEX proxy views.
+
+    Includes shared behaviors like Lambda STS validation and
+    default settings for authentication.
     """
 
     authentication_classes = []
+
+    def validate_lambda(self, request: Request) -> Response | None:
+        """
+        Validates the request against the Lambda URL validator.
+
+        Args:
+            request (Request): The incoming request.
+
+        Returns:
+            Optional[Response]: Error response if validation fails, else None.
+        """
+        validation_response = self.protected_resource(request)
+        if validation_response.status_code != 200:
+            return validation_response
+        return None
+
+
+class OrdersProxyView(BaseVtexProxyView):
+    """
+    POST endpoint that proxies query parameters to VTEX IO OMS API.
+    """
 
     def __init__(self, **kwargs):
         """
@@ -49,12 +74,49 @@ class OrdersProxyView(APIView, LambdaURLValidator):
             Response: The API response with order data or error message.
         """
         # AWS Lambda STS validation
-        validation_response = self.protected_resource(request)
-        if validation_response.status_code != 200:
-            return validation_response
+        error_response = self.validate_lambda(request)
+        if error_response:
+            return error_response
 
         serializer = OrdersQueryParamsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         result = self.get_orders_usecase.execute(data=serializer.validated_data)
         return Response(result, status=status.HTTP_200_OK)
+
+
+class AccountIdentifierProxyView(BaseVtexProxyView):
+    """
+    GET endpoint to retrieve VTEX account identifier for a specific project.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._usecase = None
+
+    @property
+    def usecase(self) -> GetAccountIdentifierUsecase:
+        if not self._usecase:
+            self._usecase = GetAccountIdentifierUsecase(VtexIOService())
+        return self._usecase
+
+    def get(self, request: Request, project_uuid: str) -> Response:
+        """
+        Retrieves the VTEX account identifier using the project UUID from the URL.
+
+        Args:
+            request (Request): The incoming HTTP request.
+            project_uuid (str): The UUID of the project.
+
+        Returns:
+            Response: VTEX account identifier or error.
+        """
+        error_response = self.validate_lambda(request)
+        if error_response:
+            return error_response
+
+        try:
+            result = self.usecase.execute(project_uuid)
+            return Response(result, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)

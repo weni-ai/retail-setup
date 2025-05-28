@@ -64,3 +64,9 @@ class VtexIOService:
             dict: The orders if successful
         """
         return self.client.get_orders(account_domain, query_params)
+
+    def get_account_identifier(self, account_domain: str) -> dict:
+        """
+        Retrieve account identifier from VTEX IO.
+        """
+        return self.client.get_account_identifier(account_domain)

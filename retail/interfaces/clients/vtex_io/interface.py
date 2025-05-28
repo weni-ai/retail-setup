@@ -17,3 +17,16 @@ class VtexIOClientInterface(ABC):
     @abstractmethod
     def get_orders(self, account_domain: str, query: str) -> dict:
         pass
+
+    @abstractmethod
+    def get_account_identifier(self, account_domain: str) -> dict:
+        """
+        Retrieves the VTEX account identifier.
+
+        Args:
+            account_domain (str): VTEX account domain.
+
+        Returns:
+            dict: Account identifier details.
+        """
+        pass
