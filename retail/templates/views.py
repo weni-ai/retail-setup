@@ -15,6 +15,8 @@ from retail.templates.usecases import (
     UpdateTemplateData,
     UpdateTemplateContentData,
     UpdateTemplateContentUseCase,
+    UpdateLibraryTemplateUseCase,
+    UpdateLibraryTemplateData,
 )
 
 from retail.templates.serializers import (
@@ -22,6 +24,7 @@ from retail.templates.serializers import (
     ReadTemplateSerializer,
     UpdateTemplateContentSerializer,
     UpdateTemplateSerializer,
+    UpdateLibraryTemplateSerializer,
 )
 
 from uuid import UUID
@@ -96,4 +99,36 @@ class TemplateViewSet(ViewSet):
         updated_template = use_case.execute(data)
 
         response_serializer = ReadTemplateSerializer(updated_template)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
+class TemplateLibraryViewSet(ViewSet):
+    permission_classes = [CanCommunicateInternally]
+
+    def partial_update(self, request: Request, pk: UUID) -> Response:
+        request_serializer = UpdateLibraryTemplateSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        app_uuid = request.query_params.get("app_uuid")
+        project_uuid = request.query_params.get("project_uuid")
+
+        if not app_uuid or not project_uuid:
+            return Response(
+                {"error": "app_uuid and project_uuid are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data: UpdateLibraryTemplateData = {
+            "template_uuid": str(pk),
+            "app_uuid": app_uuid,
+            "project_uuid": project_uuid,
+            "library_template_button_inputs": request_serializer.validated_data.get(
+                "library_template_button_inputs"
+            ),
+        }
+
+        use_case = UpdateLibraryTemplateUseCase()
+        template = use_case.execute(data)
+
+        response_serializer = ReadTemplateSerializer(template)
         return Response(response_serializer.data, status=status.HTTP_200_OK)

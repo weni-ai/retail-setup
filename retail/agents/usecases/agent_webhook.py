@@ -1,9 +1,6 @@
 import json
-
 import logging
-
 from typing import TYPE_CHECKING, Any, Dict, Optional, TypedDict
-
 from uuid import UUID
 
 from rest_framework.exceptions import NotFound
@@ -15,7 +12,6 @@ from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
 from retail.services.flows.service import FlowsService
 from retail.templates.models import Template
-
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +39,24 @@ class AgentWebhookUseCase:
         except IntegratedAgent.DoesNotExist:
             raise NotFound(f"Assigned agent no found: {webhook_uuid}")
 
-    def _invoke_lambda(self, function_name: str, data: "RequestData") -> Dict[str, Any]:
-        return self.lambda_service.invoke(function_name, data)
+    def _invoke_lambda(
+        self, integrated_agent: IntegratedAgent, data: "RequestData"
+    ) -> Dict[str, Any]:
+        function_name = integrated_agent.agent.lambda_arn
+        project = integrated_agent.project
+
+        return self.lambda_service.invoke(
+            function_name,
+            {
+                "params": data.params,
+                "payload": data.payload,
+                "credentials": data.credentials,
+                "project": {
+                    "uuid": str(project.uuid),
+                    "vtex_account": project.vtex_account,
+                },
+            },
+        )
 
     def _addapt_credentials(self, integrated_agent: IntegratedAgent) -> Dict[str, str]:
         credentials = integrated_agent.credentials.all()
@@ -67,9 +79,7 @@ class AgentWebhookUseCase:
         data.set_credentials(credentials)
         data.set_ignored_official_rules(integrated_agent.ignore_templates)
 
-        response = self._invoke_lambda(
-            function_name=integrated_agent.agent.lambda_arn, data=data
-        )
+        response = self._invoke_lambda(integrated_agent=integrated_agent, data=data)
 
         payload_raw = response.get("Payload").read().decode()
         data = json.loads(payload_raw)

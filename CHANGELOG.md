@@ -1,3 +1,9 @@
+
+# 3.0.1
+
+## *Feature*
+  - feat: feat: add VtexAccountLookupView
+
 # 3.0.0
 
 ## *Fix*

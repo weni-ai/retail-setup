@@ -1,27 +1,10 @@
 from retail.services.vtex_io.service import VtexIOService
-from retail.projects.models import Project
+from retail.vtex.usecases.base import BaseVtexUseCase
 
 
-class GetOrdersUsecase:
+class GetOrdersUsecase(BaseVtexUseCase):
     def __init__(self, vtex_io_service: VtexIOService):
         self.vtex_io_service = vtex_io_service
-
-    def _get_account_domain(self, project_uuid: str) -> str:
-        """
-        Get the VTEX account domain from the project.
-
-        Args:
-            project_uuid (str): The UUID of the project
-
-        Returns:
-            str: The complete VTEX account domain
-        """
-        try:
-            project = Project.objects.get(uuid=project_uuid)
-            return f"{project.vtex_account}.myvtex.com"
-        except Project.DoesNotExist:
-            # Default fallback or raise an exception based on requirements
-            return "wenipartnerbr.myvtex.com"
 
     def execute(self, data: dict) -> dict:
         """
