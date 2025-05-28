@@ -26,6 +26,7 @@ class Template(models.Model):
     )
     metadata = models.JSONField(default=dict, blank=True)
     needs_button_edit = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
 
 
 class Version(models.Model):
