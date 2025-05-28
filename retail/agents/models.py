@@ -27,9 +27,6 @@ class Agent(models.Model):
     )
     credentials = models.JSONField(null=True, default=dict)
 
-    class Meta:
-        unique_together = ("name", "project")
-
 
 class IntegratedAgent(models.Model):
     uuid = models.UUIDField(primary_key=True, blank=True, default=uuid4)
