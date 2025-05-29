@@ -7,6 +7,7 @@ from retail.utils.aws.lambda_validator import LambdaURLValidator
 from retail.vtex.serializers import OrdersQueryParamsSerializer
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.usecases.get_account_identifier import GetAccountIdentifierUsecase
+from retail.vtex.usecases.get_order_detail import GetOrderDetailsUsecase
 from retail.vtex.usecases.get_orders import GetOrdersUsecase
 
 
@@ -117,6 +118,60 @@ class AccountIdentifierProxyView(BaseVtexProxyView):
 
         try:
             result = self.usecase.execute(project_uuid)
+            return Response(result, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class OrderDetailsProxyView(BaseVtexProxyView):
+    """
+    GET endpoint that retrieves details for a specific order from VTEX IO OMS API.
+    """
+
+    def __init__(self, **kwargs):
+        """
+        Initialize the OrderDetailsProxyView.
+
+        Args:
+            **kwargs: Additional keyword arguments passed to parent classes.
+        """
+        super().__init__(**kwargs)
+        self._get_order_details_usecase = None
+
+    @property
+    def get_order_details_usecase(self) -> GetOrderDetailsUsecase:
+        """
+        Lazy-loaded property that returns the GetOrderDetailsUsecase instance.
+
+        Returns:
+            GetOrderDetailsUsecase: An instance of the GetOrderDetailsUsecase.
+        """
+        if not self._get_order_details_usecase:
+            self._get_order_details_usecase = GetOrderDetailsUsecase(
+                vtex_io_service=VtexIOService()
+            )
+        return self._get_order_details_usecase
+
+    def get(self, request: Request, project_uuid: str, order_id: str) -> Response:
+        """
+        Handle GET requests to retrieve specific order details from VTEX IO OMS API.
+
+        Args:
+            request (Request): The incoming request object.
+            project_uuid (str): The UUID of the project associated with the order.
+            order_id (str): The ID of the order to retrieve details for.
+
+        Returns:
+            Response: The API response with order details or error message.
+        """
+        error_response = self.validate_lambda(request)
+        if error_response:
+            return error_response
+
+        try:
+            result = self.get_order_details_usecase.execute(
+                project_uuid=str(project_uuid), order_id=order_id
+            )
             return Response(result, status=status.HTTP_200_OK)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
