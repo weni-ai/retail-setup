@@ -8,6 +8,6 @@ from retail.templates.models import Template
 class ReadTemplateUseCase:
     def execute(self, uuid: UUID) -> Template:
         try:
-            return Template.objects.get(uuid=uuid)
+            return Template.objects.get(uuid=uuid, is_active=True)
         except Template.DoesNotExist:
-            raise NotFound()
+            raise NotFound(f"Template not found: {uuid}")

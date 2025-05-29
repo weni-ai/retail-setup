@@ -12,3 +12,4 @@ from .update_library_template import (
     UpdateLibraryTemplateData,
     UpdateLibraryTemplateUseCase,
 )
+from .delete_template import DeleteTemplateUseCase
