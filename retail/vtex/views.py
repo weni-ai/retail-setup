@@ -164,6 +164,10 @@ class OrderDetailsProxyView(BaseVtexProxyView):
         Returns:
             Response: The API response with order details or error message.
         """
+        error_response = self.validate_lambda(request)
+        if error_response:
+            return error_response
+
         try:
             result = self.get_order_details_usecase.execute(
                 project_uuid=str(project_uuid), order_id=order_id
