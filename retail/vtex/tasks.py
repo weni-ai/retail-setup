@@ -3,6 +3,8 @@ import logging
 from rest_framework.exceptions import ValidationError
 
 from celery import shared_task
+from retail.agents.usecases.order_status_update import AgentOrderStatusUpdateUsecase
+from retail.agents.utils import get_integrated_agent_if_exists
 from retail.vtex.usecases.cart_abandonment import CartAbandonmentUseCase
 from retail.webhooks.vtex.usecases.order_status import OrderStatusUseCase
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
@@ -30,8 +32,17 @@ def task_order_status_update(order_update_data: dict):
     """
     try:
         order_status_dto = OrderStatusDTO(**order_update_data)
-        use_case = OrderStatusUseCase(order_status_dto)
-        use_case.process_notification()
+
+        integrated_agent = get_integrated_agent_if_exists(order_status_dto.vtexAccount)
+
+        # TODO: extract project validation from OrderStatusUseCase before calling the usecase
+        if integrated_agent:
+            use_case = AgentOrderStatusUpdateUsecase(integrated_agent)
+            use_case.execute(order_status_dto)
+        else:
+            use_case = OrderStatusUseCase(order_status_dto)
+            use_case.process_notification()
+
         logger.info(
             f"Successfully processed order update for order ID: {order_update_data.get('orderId')}"
         )

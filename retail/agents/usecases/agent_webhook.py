@@ -33,11 +33,11 @@ class AgentWebhookUseCase:
         self.lambda_service = lambda_service or AwsLambdaService()
         self.flows_service = flows_service or FlowsService(FlowsClient())
 
-    def _get_integrated_agent(self, webhook_uuid: UUID):
+    def _get_integrated_agent(self, uuid: UUID):
         try:
-            return IntegratedAgent.objects.get(uuid=webhook_uuid, is_active=True)
+            return IntegratedAgent.objects.get(uuid=uuid, is_active=True)
         except IntegratedAgent.DoesNotExist:
-            raise NotFound(f"Assigned agent no found: {webhook_uuid}")
+            raise NotFound(f"Assigned agent not found: {uuid}")
 
     def _invoke_lambda(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
@@ -68,17 +68,20 @@ class AgentWebhookUseCase:
         return credentials_dict
 
     def execute(
-        self, payload: AgentWebhookData, data: "RequestData"
+        self,
+        integrated_agent_uuid: UUID,
+        data: "RequestData",
+        integrated_agent: Optional[IntegratedAgent] = None,
     ) -> Optional[Dict[str, Any]]:
-        integrated_agent = self._get_integrated_agent(
-            webhook_uuid=payload.get("webhook_uuid")
-        )
+        if not integrated_agent:
+            integrated_agent = self._get_integrated_agent(integrated_agent_uuid)
 
         credentials = self._addapt_credentials(integrated_agent)
 
         data.set_credentials(credentials)
         data.set_ignored_official_rules(integrated_agent.ignore_templates)
 
+        # TODO: Add webhook sender to task celery line 80 to end and return 200
         response = self._invoke_lambda(integrated_agent=integrated_agent, data=data)
 
         payload_raw = response.get("Payload").read().decode()

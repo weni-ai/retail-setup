@@ -15,14 +15,12 @@ from retail.agents.permissions import (
     IsIntegratedAgentFromProject,
 )
 from retail.agents.serializers import (
-    AgentWebhookSerializer,
     PushAgentSerializer,
     ReadAgentSerializer,
     ReadIntegratedAgentSerializer,
 )
 from retail.agents.tasks import validate_pre_approved_templates
 from retail.agents.usecases import (
-    AgentWebhookData,
     AgentWebhookUseCase,
     AssignAgentUseCase,
     ListAgentsUseCase,
@@ -199,17 +197,10 @@ class AgentWebhookView(APIView):
         )
 
     def post(self, request: Request, webhook_uuid: UUID, *args, **kwargs) -> Response:
-        data = AgentWebhookData(
-            webhook_uuid=webhook_uuid,
-        )
-
-        request_serializer = AgentWebhookSerializer(data=data)
-        request_serializer.is_valid(raise_exception=True)
-
         request_data = self._get_data_from_request(request)
 
         use_case = AgentWebhookUseCase()
-        lambda_return = use_case.execute(request_serializer.data, request_data)
+        lambda_return = use_case.execute(webhook_uuid, request_data)
 
         return Response(lambda_return, status=status.HTTP_200_OK)
 
