@@ -7,3 +7,7 @@ from .unassign_agent import UnassignAgentUseCase
 from .agent_webhook import AgentWebhookData, AgentWebhookUseCase
 from .retrieve_integrated_agent import RetrieveIntegratedAgentUseCase
 from .list_integrated_agents import ListIntegratedAgentUseCase
+from .update_integrated_agent import (
+    UpdateIntegratedAgentUseCase,
+    UpdateIntegratedAgentData,
+)

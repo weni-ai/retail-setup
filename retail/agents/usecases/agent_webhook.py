@@ -1,6 +1,11 @@
 import json
+
 import logging
+
+import random
+
 from typing import TYPE_CHECKING, Any, Dict, Optional, TypedDict
+
 from uuid import UUID
 
 from rest_framework.exceptions import NotFound
@@ -67,12 +72,27 @@ class AgentWebhookUseCase:
 
         return credentials_dict
 
+    def _should_send_broadcast(self, integrated_agent: IntegratedAgent) -> bool:
+        percentage = integrated_agent.contact_percentage
+
+        if percentage is None or percentage <= 0:
+            return False
+
+        if percentage >= 100:
+            return True
+
+        random_number = random.randint(1, 100)
+        return random_number <= percentage
+
     def execute(
         self, payload: AgentWebhookData, data: "RequestData"
     ) -> Optional[Dict[str, Any]]:
         integrated_agent = self._get_integrated_agent(
             webhook_uuid=payload.get("webhook_uuid")
         )
+
+        if not self._should_send_broadcast(integrated_agent):
+            return None
 
         credentials = self._addapt_credentials(integrated_agent)
 
