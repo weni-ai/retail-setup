@@ -141,6 +141,9 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
             "Project-Uuid": project_uuid,
         }
 
+        # Log the template data # TODO: remove this
+        print(f"Creating library template with data: {template_data}")
+
         response = self.make_request(
             url,
             method="POST",

@@ -1,5 +1,9 @@
 from django.urls import path
-from retail.vtex.views import AccountIdentifierProxyView, OrdersProxyView
+from retail.vtex.views import (
+    AccountIdentifierProxyView,
+    OrderDetailsProxyView,
+    OrdersProxyView,
+)
 
 
 urlpatterns = [
@@ -8,5 +12,10 @@ urlpatterns = [
         "projects/<uuid:project_uuid>/account-identifier/",
         AccountIdentifierProxyView.as_view(),
         name="vtex-account-identifier",
+    ),
+    path(
+        "projects/<uuid:project_uuid>/orders/<str:order_id>/",
+        OrderDetailsProxyView.as_view(),
+        name="vtex-order-details",
     ),
 ]

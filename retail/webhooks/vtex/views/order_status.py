@@ -20,8 +20,9 @@ class OrderStatusWebhook(APIView):
 
         validated_data = serializer.validated_data
 
-        task_order_status_update.delay(validated_data)
-
+        task_order_status_update.apply_async(
+            args=[validated_data], queue="vtex-io-orders-update-events"
+        )
         return Response(
             {
                 "message": "Order status processing has been queued.",

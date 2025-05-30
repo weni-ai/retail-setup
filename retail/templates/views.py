@@ -17,6 +17,7 @@ from retail.templates.usecases import (
     UpdateTemplateContentUseCase,
     UpdateLibraryTemplateUseCase,
     UpdateLibraryTemplateData,
+    DeleteTemplateUseCase,
 )
 
 from retail.templates.serializers import (
@@ -100,6 +101,12 @@ class TemplateViewSet(ViewSet):
 
         response_serializer = ReadTemplateSerializer(updated_template)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+    def destroy(self, request: Request, pk: UUID) -> Response:
+        use_case = DeleteTemplateUseCase()
+        use_case.execute(pk)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class TemplateLibraryViewSet(ViewSet):
