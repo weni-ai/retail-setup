@@ -41,6 +41,7 @@ class IntegratedAgent(models.Model):
     is_active = models.BooleanField(default=True)
     ignore_templates = ArrayField(models.CharField(), blank=True, default=list)
     contact_percentage = models.PositiveIntegerField(default=10)
+    config = models.JSONField(default=dict)
 
 
 class PreApprovedTemplate(models.Model):
