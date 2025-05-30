@@ -120,6 +120,12 @@ class UpdateTemplateContentUseCase(TemplateBuilderMixin):
         else:
             updated_metadata["buttons"] = translation_payload.get("buttons")
 
+        buttons = updated_metadata.get("buttons")
+
+        if buttons:
+            for button in buttons:
+                button["button_type"] = button.pop("type")
+
         template.metadata = updated_metadata
         template.save(update_fields=["metadata"])
 
