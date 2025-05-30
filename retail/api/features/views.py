@@ -68,11 +68,17 @@ class FeaturesView(BaseServiceView):
                 "store_type": vtex_config.get("vtex_store_type", ""),
             }
 
+            response_data["nexus_agents"] = []
+            response_data["gallery_agents"] = []
+
             if nexus_agents:
                 # List Nexus agents
                 agents_data = self.nexus_service.list_agents(project_uuid)
                 if agents_data:
                     response_data["nexus_agents"] = agents_data
+
+                else:
+                    logger.info(f"Nexus agent listing brought up an empty list")
 
                 # List gallery agents
                 try:
