@@ -56,6 +56,7 @@ class UpdateTemplateContentSerializer(serializers.Serializer):
     template_body = serializers.CharField(required=False)
     template_header = serializers.CharField(required=False)
     template_footer = serializers.CharField(required=False)
+    template_button = serializers.ListField(required=False)
     app_uuid = serializers.CharField(required=True)
     project_uuid = serializers.CharField(required=True)
 
