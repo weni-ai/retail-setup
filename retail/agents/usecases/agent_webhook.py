@@ -68,20 +68,8 @@ class AgentWebhookUseCase:
         return credentials_dict
 
     def execute(
-        self,
-        integrated_agent_uuid: UUID,
-        data: "RequestData",
-        integrated_agent: Optional[IntegratedAgent] = None,
+        self, integrated_agent: IntegratedAgent, data: "RequestData"
     ) -> Optional[Dict[str, Any]]:
-        if not integrated_agent:
-            integrated_agent = self._get_integrated_agent(integrated_agent_uuid)
-
-        credentials = self._addapt_credentials(integrated_agent)
-
-        data.set_credentials(credentials)
-        data.set_ignored_official_rules(integrated_agent.ignore_templates)
-
-        # TODO: Add webhook sender to task celery line 80 to end and return 200
         response = self._invoke_lambda(integrated_agent=integrated_agent, data=data)
 
         payload_raw = response.get("Payload").read().decode()

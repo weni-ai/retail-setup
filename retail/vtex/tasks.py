@@ -3,8 +3,9 @@ import logging
 from rest_framework.exceptions import ValidationError
 
 from celery import shared_task
+from retail.agents.usecases.agent_webhook import AgentWebhookUseCase
 from retail.agents.usecases.order_status_update import AgentOrderStatusUpdateUsecase
-from retail.agents.utils import get_integrated_agent_if_exists
+from retail.interfaces.clients.aws_lambda.client import RequestData
 from retail.vtex.usecases.cart_abandonment import CartAbandonmentUseCase
 from retail.webhooks.vtex.usecases.order_status import OrderStatusUseCase
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
@@ -33,15 +34,15 @@ def task_order_status_update(order_update_data: dict):
     try:
         order_status_dto = OrderStatusDTO(**order_update_data)
 
-        integrated_agent = get_integrated_agent_if_exists(order_status_dto.vtexAccount)
+        use_case = AgentOrderStatusUpdateUsecase()
+        project = use_case.get_project_by_vtex_account(order_status_dto.vtexAccount)
+        integrated_agent = use_case.get_integrated_agent_if_exists(project)
 
-        # TODO: extract project validation from OrderStatusUseCase before calling the usecase
         if integrated_agent:
-            use_case = AgentOrderStatusUpdateUsecase(integrated_agent)
-            use_case.execute(order_status_dto)
+            use_case.execute(integrated_agent, order_status_dto)
         else:
-            use_case = OrderStatusUseCase(order_status_dto)
-            use_case.process_notification()
+            legacy_use_case = OrderStatusUseCase(order_status_dto)
+            legacy_use_case.process_notification(project)
 
         logger.info(
             f"Successfully processed order update for order ID: {order_update_data.get('orderId')}"
@@ -50,3 +51,21 @@ def task_order_status_update(order_update_data: dict):
         pass
     except Exception as e:
         logger.error(f"Unexpected error processing order update: {str(e)}")
+
+
+@shared_task
+def task_order_status_agent_webhook(
+    integrated_agent_uuid: str, payload: dict, params: dict
+):
+    use_case = AgentWebhookUseCase()
+    request_data = RequestData(
+        params=params,
+        payload=payload,
+    )
+    integrated_agent = use_case._get_integrated_agent(integrated_agent_uuid)
+    credentials = use_case._addapt_credentials(integrated_agent)
+
+    request_data.set_credentials(credentials)
+    request_data.set_ignored_official_rules(integrated_agent.ignore_templates)
+
+    use_case.execute(integrated_agent, request_data)

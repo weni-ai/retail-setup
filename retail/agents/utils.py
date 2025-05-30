@@ -1,11 +1,7 @@
 import logging
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-from django.conf import settings
-
-from retail.agents.models import IntegratedAgent
-from retail.projects.models import Project
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
 logger = logging.getLogger(__name__)
@@ -115,48 +111,3 @@ def adapt_order_status_to_webhook_payload(
             "Sender": "Gallery",
         },
     }
-
-
-def get_integrated_agent_if_exists(vtex_account: str) -> Optional[IntegratedAgent]:
-    """
-    Retrieves an active IntegratedAgent for a given VTEX account, if available.
-
-    This checks if there is a single Project linked to the given VTEX account and
-    if there is an active IntegratedAgent associated with the ORDER_STATUS_AGENT_UUID.
-
-    Args:
-        vtex_account (str): The VTEX account identifier.
-
-    Returns:
-        Optional[IntegratedAgent]: An active IntegratedAgent if found, else None.
-    """
-    if not vtex_account:
-        logger.warning("VTEX account is required but not provided.")
-        return None
-
-    if not settings.ORDER_STATUS_AGENT_UUID:
-        logger.warning("ORDER_STATUS_AGENT_UUID is not set in settings.")
-        return None
-
-    try:
-        project = Project.objects.get(vtex_account=vtex_account)
-    except Project.DoesNotExist:
-        logger.warning(f"No project found for VTEX account: {vtex_account}")
-        return None
-    except Project.MultipleObjectsReturned:
-        logger.error(f"Multiple projects found for VTEX account: {vtex_account}")
-        return None
-
-    try:
-        integrated_agent = IntegratedAgent.objects.get(
-            agent__uuid=settings.ORDER_STATUS_AGENT_UUID,
-            project=project,
-            is_active=True,
-        )
-    except IntegratedAgent.DoesNotExist:
-        logger.info(
-            f"No active integrated agent found for VTEX account: {vtex_account}"
-        )
-        return None
-
-    return integrated_agent
