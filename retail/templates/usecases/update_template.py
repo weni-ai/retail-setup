@@ -20,7 +20,6 @@ class UpdateTemplateData(TypedDict):
 
 
 class UpdateTemplateUseCase:
-
     def _get_version(self, version_uuid: str) -> Version:
         try:
             return Version.objects.get(uuid=version_uuid)
@@ -34,6 +33,11 @@ class UpdateTemplateUseCase:
         template.save(update_fields=["current_version"])
         return template
 
+    def _remove_template_from_ignore_templates(self, template: Template) -> None:
+        integrated_agent = template.integrated_agent
+        integrated_agent.ignore_templates.remove(template.parent.slug)
+        integrated_agent.save(update_fields=["ignore_templates"])
+
     def execute(self, payload: UpdateTemplateData) -> Template:
         version = self._get_version(payload.get("version_uuid"))
         template = version.template
@@ -42,6 +46,7 @@ class UpdateTemplateUseCase:
 
         if status == "APPROVED":
             template = self._update_template_current_version(version, template)
+            self._remove_template_from_ignore_templates(template)
 
         version.status = status
         version.save(update_fields=["status"])
