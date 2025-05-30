@@ -15,7 +15,6 @@ from retail.agents.permissions import (
     IsIntegratedAgentFromProject,
 )
 from retail.agents.serializers import (
-    AgentWebhookSerializer,
     PushAgentSerializer,
     ReadAgentSerializer,
     ReadIntegratedAgentSerializer,
@@ -23,8 +22,6 @@ from retail.agents.serializers import (
 )
 from retail.agents.tasks import validate_pre_approved_templates
 from retail.agents.usecases import (
-    AgentWebhookData,
-    AgentWebhookUseCase,
     AssignAgentUseCase,
     ListAgentsUseCase,
     PushAgentData,
@@ -36,7 +33,7 @@ from retail.agents.usecases import (
     UpdateIntegratedAgentUseCase,
     UpdateIntegratedAgentData,
 )
-from retail.interfaces.clients.aws_lambda.client import RequestData
+from retail.vtex.tasks import task_order_status_agent_webhook
 
 
 def get_project_uuid_from_request(request: Request) -> str:
@@ -193,28 +190,13 @@ class UnassignAgentView(GenericIntegratedAgentView):
 class AgentWebhookView(APIView):
     permission_classes = [AllowAny]
 
-    def _get_data_from_request(self, request: Request) -> RequestData:
-        request_params = request.query_params
-
-        return RequestData(
-            params=request_params,
-            payload=request.data,
-        )
-
     def post(self, request: Request, webhook_uuid: UUID, *args, **kwargs) -> Response:
-        data = AgentWebhookData(
-            webhook_uuid=webhook_uuid,
+        task_order_status_agent_webhook.apply_async(
+            args=[webhook_uuid, request.data, request.query_params],
+            queue="vtex-io-orders-update-events",
         )
 
-        request_serializer = AgentWebhookSerializer(data=data)
-        request_serializer.is_valid(raise_exception=True)
-
-        request_data = self._get_data_from_request(request)
-
-        use_case = AgentWebhookUseCase()
-        lambda_return = use_case.execute(request_serializer.data, request_data)
-
-        return Response(lambda_return, status=status.HTTP_200_OK)
+        return Response({"message": "Webhook received"}, status=status.HTTP_200_OK)
 
 
 class IntegratedAgentViewSet(ViewSet):

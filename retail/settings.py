@@ -273,3 +273,5 @@ if USE_META:
     META_API_URL = urllib.parse.urljoin(
         env.str("WHATSAPP_API_URL", default="https://graph.facebook.com/"), META_VERSION
     )
+
+ORDER_STATUS_AGENT_UUID = env.str("ORDER_STATUS_AGENT_UUID", default="")

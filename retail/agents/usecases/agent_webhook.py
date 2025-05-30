@@ -4,7 +4,7 @@ import logging
 
 import random
 
-from typing import TYPE_CHECKING, Any, Dict, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from uuid import UUID
 
@@ -25,10 +25,6 @@ if TYPE_CHECKING:
     from retail.interfaces.clients.aws_lambda.client import RequestData
 
 
-class AgentWebhookData(TypedDict):
-    webhook_uuid: UUID
-
-
 class AgentWebhookUseCase:
     def __init__(
         self,
@@ -38,11 +34,11 @@ class AgentWebhookUseCase:
         self.lambda_service = lambda_service or AwsLambdaService()
         self.flows_service = flows_service or FlowsService(FlowsClient())
 
-    def _get_integrated_agent(self, webhook_uuid: UUID):
+    def _get_integrated_agent(self, uuid: UUID):
         try:
-            return IntegratedAgent.objects.get(uuid=webhook_uuid, is_active=True)
+            return IntegratedAgent.objects.get(uuid=uuid, is_active=True)
         except IntegratedAgent.DoesNotExist:
-            raise NotFound(f"Assigned agent no found: {webhook_uuid}")
+            raise NotFound(f"Assigned agent not found: {uuid}")
 
     def _invoke_lambda(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
@@ -84,26 +80,90 @@ class AgentWebhookUseCase:
         random_number = random.randint(1, 100)
         return random_number <= percentage
 
-    def execute(
-        self, payload: AgentWebhookData, data: "RequestData"
-    ) -> Optional[Dict[str, Any]]:
-        integrated_agent = self._get_integrated_agent(
-            webhook_uuid=payload.get("webhook_uuid")
-        )
+    def _can_send_to_contact(
+        self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
+    ) -> bool:
+        """
+        Validates whether a contact is allowed to receive the broadcast based on phone restrictions.
 
+        If the 'order_status_restriction' config is present and active, only contacts explicitly listed
+        in 'allowed_phone_numbers' will be allowed. If no restriction config exists or is inactive,
+        the broadcast is allowed.
+
+        Args:
+            integrated_agent (IntegratedAgent): The agent that may have restrictions configured.
+            data (Dict[str, Any]): The payload received from the lambda, expected to contain 'contact_urn'.
+
+        Returns:
+            bool: True if the message is allowed to be sent, False if it should be blocked.
+
+        Example of valid config:
+        {
+            "integration_settings": {
+                "order_status_restriction": {
+                    "is_active": true,
+                    "allowed_phone_numbers": [
+                        "whatsapp:5584996765245",
+                        "whatsapp:558498887766"
+                    ]
+                }
+            }
+        }
+        """
+        contact_urn = data.get("contact_urn")
+        if not contact_urn:
+            logger.warning(
+                "No 'contact_urn' found in payload. Skipping restriction check."
+            )
+            return False
+
+        # Step 1: Load config and fallback gracefully
+        config = integrated_agent.config or {}
+        if not config:
+            return True  # No config → no restriction → allow
+
+        # Step 2: Access nested restriction data
+        integration_settings = config.get("integration_settings", {})
+        order_status_restriction = integration_settings.get("order_status_restriction")
+
+        # Step 3: If restriction block is not defined or not active, allow
+        if not order_status_restriction or not order_status_restriction.get(
+            "is_active", False
+        ):
+            return True
+
+        # Step 4: Validate contact against allowed list
+        allowed_numbers = order_status_restriction.get("allowed_phone_numbers")
+        if not allowed_numbers:
+            logger.info(
+                f"Restriction active, but 'allowed_phone_numbers' is missing or empty "
+                f"for agent {integrated_agent.uuid}. Blocking by default."
+            )
+            return False
+
+        if contact_urn not in allowed_numbers:
+            logger.info(
+                f"Blocked contact due to restriction: {contact_urn} not in "
+                f"allowed_phone_numbers for agent {integrated_agent.uuid}."
+            )
+            return False
+
+        return True
+
+    def execute(
+        self, integrated_agent: IntegratedAgent, data: "RequestData"
+    ) -> Optional[Dict[str, Any]]:
         if not self._should_send_broadcast(integrated_agent):
             return None
-
-        credentials = self._addapt_credentials(integrated_agent)
-
-        data.set_credentials(credentials)
-        data.set_ignored_official_rules(integrated_agent.ignore_templates)
 
         response = self._invoke_lambda(integrated_agent=integrated_agent, data=data)
 
         payload_raw = response.get("Payload").read().decode()
         data = json.loads(payload_raw)
         response["payload"] = data
+
+        if not self._can_send_to_contact(integrated_agent, data):
+            return None
 
         try:
             # verify if the lambda returned an error

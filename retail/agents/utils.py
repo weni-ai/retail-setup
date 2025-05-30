@@ -1,5 +1,8 @@
 import logging
+
 from typing import Any, Dict
+
+from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
 logger = logging.getLogger(__name__)
 
@@ -82,3 +85,29 @@ def build_broadcast_template_message(
         ]
 
     return message
+
+
+def adapt_order_status_to_webhook_payload(
+    order_status_dto: OrderStatusDTO,
+) -> Dict[str, Any]:
+    """
+    Adapts an OrderStatusDTO instance to a webhook payload format.
+
+    Args:
+        order_status_dto (OrderStatusDTO): The DTO with order status information.
+
+    Returns:
+        Dict[str, Any]: A dictionary formatted as a webhook payload.
+    """
+    return {
+        "Domain": order_status_dto.domain,
+        "OrderId": order_status_dto.orderId,
+        "State": order_status_dto.currentState,
+        "LastState": order_status_dto.lastState,
+        "LastChange": order_status_dto.lastChangeDate,
+        "CurrentChange": order_status_dto.currentChangeDate,
+        "Origin": {
+            "Account": order_status_dto.vtexAccount,
+            "Sender": "Gallery",
+        },
+    }
