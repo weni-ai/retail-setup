@@ -1,6 +1,11 @@
 import json
+
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional, TypedDict
+
+import random
+
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
 from uuid import UUID
 
 from rest_framework.exceptions import NotFound
@@ -18,10 +23,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from retail.interfaces.clients.aws_lambda.client import RequestData
-
-
-class AgentWebhookData(TypedDict):
-    webhook_uuid: UUID
 
 
 class AgentWebhookUseCase:
@@ -67,9 +68,24 @@ class AgentWebhookUseCase:
 
         return credentials_dict
 
+    def _should_send_broadcast(self, integrated_agent: IntegratedAgent) -> bool:
+        percentage = integrated_agent.contact_percentage
+
+        if percentage is None or percentage <= 0:
+            return False
+
+        if percentage >= 100:
+            return True
+
+        random_number = random.randint(1, 100)
+        return random_number <= percentage
+
     def execute(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
     ) -> Optional[Dict[str, Any]]:
+        if not self._should_send_broadcast(integrated_agent):
+            return None
+
         response = self._invoke_lambda(integrated_agent=integrated_agent, data=data)
 
         payload_raw = response.get("Payload").read().decode()

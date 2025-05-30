@@ -18,6 +18,7 @@ from retail.agents.serializers import (
     PushAgentSerializer,
     ReadAgentSerializer,
     ReadIntegratedAgentSerializer,
+    UpdateIntegratedAgentSerializer,
 )
 from retail.agents.tasks import validate_pre_approved_templates
 from retail.agents.usecases import (
@@ -29,6 +30,8 @@ from retail.agents.usecases import (
     UnassignAgentUseCase,
     RetrieveIntegratedAgentUseCase,
     ListIntegratedAgentUseCase,
+    UpdateIntegratedAgentUseCase,
+    UpdateIntegratedAgentData,
 )
 from retail.vtex.tasks import task_order_status_agent_webhook
 
@@ -219,5 +222,20 @@ class IntegratedAgentViewSet(ViewSet):
         response_serializer = ReadIntegratedAgentSerializer(
             integrated_agents, many=True
         )
+
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+    def partial_update(self, request: Request, pk: UUID, *args, **kwargs) -> Response:
+        get_project_uuid_from_request(request)
+
+        request_serializer = UpdateIntegratedAgentSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        serialized_data: UpdateIntegratedAgentData = request_serializer.data
+
+        use_case = UpdateIntegratedAgentUseCase()
+        integrated_agent = use_case.execute(pk, serialized_data)
+
+        response_serializer = ReadIntegratedAgentSerializer(integrated_agent)
 
         return Response(response_serializer.data, status=status.HTTP_200_OK)

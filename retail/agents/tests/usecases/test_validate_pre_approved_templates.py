@@ -12,7 +12,9 @@ from retail.agents.usecases import ValidatePreApprovedTemplatesUseCase
 class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
     def setUp(self):
         self.project = Project.objects.create(uuid=uuid4(), name="Test Project")
-        self.agent = Agent.objects.create(name="Test Agent", project=self.project)
+        self.agent = Agent.objects.create(
+            name="Test Agent", project=self.project, language="pt_BR"
+        )
 
         self.template_valid = PreApprovedTemplate.objects.create(
             name="valid_template",
@@ -27,28 +29,30 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
         self.agent.templates.set([self.template_valid, self.template_invalid])
 
         self.meta_service_mock = Mock()
-        self.meta_service_mock.get_pre_approved_template.side_effect = lambda name: (
-            {"data": [{"name": "valid_template", "body": "new content"}]}
-            if name == "valid_template"
-            else {"data": []}
+        self.meta_service_mock.get_pre_approved_template.side_effect = (
+            lambda name, language: (
+                {"data": [{"name": "valid_template", "body": "new content"}]}
+                if name == "valid_template"
+                else {"data": []}
+            )
         )
         self.usecase = ValidatePreApprovedTemplatesUseCase(
             meta_service=self.meta_service_mock
         )
 
     def test_get_template_info_returns_info_when_exists(self):
-        info = self.usecase._get_template_info("valid_template")
+        info = self.usecase._get_template_info("valid_template", "pt_BR")
         self.meta_service_mock.get_pre_approved_template.assert_called_with(
-            "valid_template"
+            "valid_template", "pt_BR"
         )
 
         data = {"name": info.get("name"), "content": info.get("content")}
         self.assertEqual(data, {"name": "valid_template", "content": "new content"})
 
     def test_get_template_info_returns_none_when_not_exists(self):
-        info = self.usecase._get_template_info("invalid_template")
+        info = self.usecase._get_template_info("invalid_template", "pt_BR")
         self.meta_service_mock.get_pre_approved_template.assert_called_with(
-            "invalid_template"
+            "invalid_template", "pt_BR"
         )
         self.assertIsNone(info)
 
