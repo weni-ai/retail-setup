@@ -123,6 +123,12 @@ class UpdateTemplateContentUseCase(TemplateBuilderMixin):
         template.metadata = updated_metadata
         template.save(update_fields=["metadata"])
 
+        buttons = updated_metadata.get("buttons")
+
+        if buttons:
+            for button in buttons:
+                button["button_type"] = button.pop("type", None)
+
         version = self._create_version(
             template=template,
             app_uuid=payload["app_uuid"],
