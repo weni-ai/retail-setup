@@ -1,3 +1,21 @@
+# 3.0.1
+
+## *Fix*
+  - fix: remove unique together between agent name and project
+  - fix: update order status webhook to use specific celery queue
+  - fix: project object uuid and add cache to order status retrieval
+  - fix: update project UUID handling in cart abandonment
+  - fix: template shows last version status
+
+## *Feature*
+  - feat: pass language to meta
+  - feat: add soft delete to template
+  - feat: sending the project in lambda invoke
+  - feat: add get account identifier and add base vtex usecase
+  - feat: add percent of contacts to trigger webhook
+  - feat: add proxy order detail
+  - feat: handler button edit in update template
+
 
 # 3.0.1
 
