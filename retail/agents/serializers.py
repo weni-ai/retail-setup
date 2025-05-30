@@ -98,7 +98,7 @@ class GalleryAgentSerializer(ReadAgentSerializer):
 class ReadIntegratedAgentSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
     channel_uuid = serializers.UUIDField()
-    templates = ReadTemplateSerializer(many=True)
+    templates = serializers.SerializerMethodField("get_templates")
     webhook_url = serializers.SerializerMethodField()
     description = serializers.SerializerMethodField("get_description")
 
@@ -108,6 +108,10 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
 
     def get_description(self, obj):
         return obj.agent.description
+
+    def get_templates(self, obj):
+        templates = obj.templates.filter(is_active=True)
+        return ReadTemplateSerializer(templates, many=True).data
 
 
 class AgentWebhookSerializer(serializers.Serializer):
