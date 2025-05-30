@@ -96,31 +96,28 @@ class UpdateTemplateContentUseCase(TemplateBuilderMixin):
             raise ValueError("Template metadata is missing")
 
         category = template.metadata.get("category")
+
         if not category:
             raise ValueError("Missing category in template metadata")
 
         updated_metadata = dict(template.metadata)
 
-        updated_fields = False
-
-        if payload.get("template_body"):
-            updated_metadata["body"] = payload["template_body"]
-            updated_fields = True
-        if payload.get("template_header"):
-            updated_metadata["header"] = payload["template_header"]
-            updated_fields = True
-        if payload.get("template_footer"):
-            updated_metadata["footer"] = payload["template_footer"]
-            updated_fields = True
-        if payload.get("template_button"):
-            updated_metadata["buttons"] = payload["template_button"]
-            updated_fields = True
-
-        if updated_fields:
-            template.metadata = updated_metadata
-            template.save(update_fields=["metadata"])
+        updated_metadata["body"] = payload.get(
+            "template_body", template.metadata.get("body")
+        )
+        updated_metadata["header"] = payload.get(
+            "template_header", template.metadata.get("header")
+        )
+        updated_metadata["footer"] = payload.get(
+            "template_footer", template.metadata.get("footer")
+        )
 
         translation_payload = self.template_adapter.adapt(updated_metadata)
+
+        updated_metadata["buttons"] = translation_payload.get("buttons", [])
+
+        template.metadata = updated_metadata
+        template.save(update_fields=["metadata"])
 
         version = self._create_version(
             template=template,
