@@ -121,13 +121,15 @@ class AssignAgentUseCase:
                     version.template_name, version.uuid, data
                 )
             else:
-                template.current_version = version
                 template.needs_button_edit = True
 
             template.metadata = pre_approved.metadata
             template.parent = pre_approved
             template.integrated_agent = integrated_agent
             template.save()
+
+            integrated_agent.ignore_templates.append(template.parent.slug)
+            integrated_agent.save(update_fields=["ignore_templates"])
 
     def _get_ignore_templates(
         self, agent: Agent, include_templates: List[str]
