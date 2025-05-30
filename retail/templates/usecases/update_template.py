@@ -35,8 +35,9 @@ class UpdateTemplateUseCase:
 
     def _remove_template_from_ignore_templates(self, template: Template) -> None:
         integrated_agent = template.integrated_agent
-        integrated_agent.ignore_templates.remove(template.parent.slug)
-        integrated_agent.save(update_fields=["ignore_templates"])
+        if template.current_version is not None:
+            integrated_agent.ignore_templates.remove(template.parent.slug)
+            integrated_agent.save(update_fields=["ignore_templates"])
 
     def execute(self, payload: UpdateTemplateData) -> Template:
         version = self._get_version(payload.get("version_uuid"))
