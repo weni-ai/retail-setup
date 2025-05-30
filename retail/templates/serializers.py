@@ -23,15 +23,17 @@ class ReadTemplateSerializer(serializers.Serializer):
     needs_button_edit = serializers.BooleanField()
 
     def get_status(self, obj: Template) -> str:
-        if obj.current_version is not None:
-            return obj.current_version.status
+        last_version = obj.versions.order_by("-id").first()
 
-        return "PENDING"
+        if last_version is None:
+            return "PENDING"
 
-    def get_display_name(self, obj):
+        return last_version.status
+
+    def get_display_name(self, obj: Template) -> str:
         return obj.parent.display_name
 
-    def get_start_condition(self, obj):
+    def get_start_condition(self, obj: Template) -> str:
         return obj.parent.start_condition
 
 
