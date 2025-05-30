@@ -104,8 +104,6 @@ def adapt_order_status_to_webhook_payload(
         "OrderId": order_status_dto.orderId,
         "State": order_status_dto.currentState,
         "LastState": order_status_dto.lastState,
-        "LastChange": order_status_dto.lastChangeDate,
-        "CurrentChange": order_status_dto.currentChangeDate,
         "Origin": {
             "Account": order_status_dto.vtexAccount,
             "Sender": "Gallery",

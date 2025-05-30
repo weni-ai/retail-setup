@@ -49,7 +49,7 @@ class AgentOrderStatusUpdateUsecase:
                 agent__uuid=settings.ORDER_STATUS_AGENT_UUID,
                 project=project,
                 is_active=True,
-            ).exclude(uuid="d30bcce8-ce67-4677-8a33-c12b62a51d4f")
+            )
             cache.set(cache_key, integrated_agent, timeout=21600)  # 6 hours
         except IntegratedAgent.DoesNotExist:
             logger.info(
