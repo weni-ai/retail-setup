@@ -80,7 +80,7 @@ class AgentWebhookUseCase:
         random_number = random.randint(1, 100)
         return random_number <= percentage
 
-    def _validate_phone_restrictions(
+    def _can_send_to_contact(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> bool:
         """
@@ -96,6 +96,19 @@ class AgentWebhookUseCase:
 
         Returns:
             bool: True if the message is allowed to be sent, False if it should be blocked.
+
+        Example of valid config:
+        {
+            "integration_settings": {
+                "order_status_restriction": {
+                    "is_active": true,
+                    "allowed_phone_numbers": [
+                        "whatsapp:5584996765245",
+                        "whatsapp:558498887766"
+                    ]
+                }
+            }
+        }
         """
         contact_urn = data.get("contact_urn")
         if not contact_urn:
@@ -104,15 +117,22 @@ class AgentWebhookUseCase:
             )
             return False
 
+        # Step 1: Load config and fallback gracefully
         config = integrated_agent.config or {}
+        if not config:
+            return True  # No config → no restriction → allow
+
+        # Step 2: Access nested restriction data
         integration_settings = config.get("integration_settings", {})
         order_status_restriction = integration_settings.get("order_status_restriction")
 
+        # Step 3: If restriction block is not defined or not active, allow
         if not order_status_restriction or not order_status_restriction.get(
             "is_active", False
         ):
-            return True  # No restrictions configured → allow sending
+            return True
 
+        # Step 4: Validate contact against allowed list
         allowed_numbers = order_status_restriction.get("allowed_phone_numbers")
         if not allowed_numbers:
             logger.info(
@@ -142,7 +162,7 @@ class AgentWebhookUseCase:
         data = json.loads(payload_raw)
         response["payload"] = data
 
-        if not self._validate_phone_restrictions(integrated_agent, data):
+        if not self._can_send_to_contact(integrated_agent, data):
             return None
 
         try:
