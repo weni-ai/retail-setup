@@ -191,10 +191,12 @@ class AgentWebhookView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request: Request, webhook_uuid: UUID, *args, **kwargs) -> Response:
-        task_order_status_agent_webhook.apply_async(
-            args=[webhook_uuid, request.data, request.query_params],
-            queue="vtex-io-orders-update-events",
-        )
+        # Ignoring specific UUID: d30bcce8-ce67-4677-8a33-c12b62a51d4f
+        if str(webhook_uuid) != "d30bcce8-ce67-4677-8a33-c12b62a51d4f":
+            task_order_status_agent_webhook.apply_async(
+                args=[webhook_uuid, request.data, request.query_params],
+                queue="vtex-io-orders-update-events",
+            )
 
         return Response({"message": "Webhook received"}, status=status.HTTP_200_OK)
 

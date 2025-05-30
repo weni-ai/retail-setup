@@ -8,8 +8,6 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from uuid import UUID
 
-from rest_framework.exceptions import NotFound
-
 from retail.agents.models import IntegratedAgent
 from retail.agents.utils import build_broadcast_template_message
 from retail.clients.flows.client import FlowsClient
@@ -35,10 +33,15 @@ class AgentWebhookUseCase:
         self.flows_service = flows_service or FlowsService(FlowsClient())
 
     def _get_integrated_agent(self, uuid: UUID):
+        if str(uuid) == "d30bcce8-ce67-4677-8a33-c12b62a51d4f":
+            logger.info(f"Integrated agent is blocked: {uuid}")
+            return None
+
         try:
             return IntegratedAgent.objects.get(uuid=uuid, is_active=True)
         except IntegratedAgent.DoesNotExist:
-            raise NotFound(f"Assigned agent not found: {uuid}")
+            logger.info(f"Integrated agent not found: {uuid}")
+            return None
 
     def _invoke_lambda(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
