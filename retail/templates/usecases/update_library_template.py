@@ -35,7 +35,7 @@ class UpdateLibraryTemplateUseCase(BaseLibraryTemplateUseCase):
 
                 url_data = button_input["url"]
 
-                button["url"] = url_data["base_url"]
+                button["url"] = url_data["base_url"] + "{{1}}"
 
                 if "url_suffix_example" in url_data:
                     button["example"] = [url_data["url_suffix_example"]]
