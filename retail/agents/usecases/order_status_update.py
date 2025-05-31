@@ -80,16 +80,10 @@ class AgentOrderStatusUpdateUsecase:
             cache.set(cache_key, project, timeout=43200)  # 12 hours
             return project
         except Project.DoesNotExist:
-            error_message = (
-                f"Project not found for VTEX account {vtex_account}. "
-                f"Order id: {self.data.orderId}"
-            )
+            error_message = f"Project not found for VTEX account {vtex_account}."
             raise ValidationError(error_message)
         except Project.MultipleObjectsReturned:
-            error_message = (
-                f"Multiple projects found for VTEX account {vtex_account}. "
-                f"Order id: {self.data.orderId}"
-            )
+            error_message = f"Multiple projects found for VTEX account {vtex_account}."
             logger.error(error_message)
             raise ValidationError(error_message)
 

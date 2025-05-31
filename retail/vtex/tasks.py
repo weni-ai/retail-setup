@@ -50,7 +50,9 @@ def task_order_status_update(order_update_data: dict):
     except ValidationError:
         pass
     except Exception as e:
-        logger.error(f"Unexpected error processing order update: {str(e)}")
+        logger.error(
+            f"Unexpected error processing order update: {str(e)}", exc_info=True
+        )
 
 
 @shared_task
