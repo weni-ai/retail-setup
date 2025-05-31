@@ -45,13 +45,20 @@ def task_order_status_update(order_update_data: dict):
         integrated_agent = use_case.get_integrated_agent_if_exists(project)
 
         if integrated_agent:
+            logger.info(
+                f"Use integrated agent for VTEX account {order_status_dto.vtexAccount}."
+            )
             use_case.execute(integrated_agent, order_status_dto)
         else:
+            logger.info(
+                f"Use legacy use case for VTEX account {order_status_dto.vtexAccount}."
+            )
             legacy_use_case = OrderStatusUseCase(order_status_dto)
             legacy_use_case.process_notification(project)
 
         logger.info(
-            f"Successfully processed order update for order ID: {order_update_data.get('orderId')}"
+            f"Successfully processed order update for order ID: {order_update_data.get('orderId')} "
+            f"VTEX account: {order_status_dto.vtexAccount}"
         )
     except ValidationError:
         pass
