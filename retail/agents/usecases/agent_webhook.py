@@ -158,7 +158,10 @@ class AgentWebhookUseCase:
     def execute(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
     ) -> Optional[Dict[str, Any]]:
+        logger.info(f"Executing broadcast for agent: {integrated_agent.uuid}")
+
         if not self._should_send_broadcast(integrated_agent):
+            logger.info("Broadcast not allowed for this agent.")
             return None
 
         response = self._invoke_lambda(integrated_agent=integrated_agent, data=data)
@@ -166,11 +169,13 @@ class AgentWebhookUseCase:
         data = json.loads(response.get("Payload").read().decode())
 
         if data.get("error") and data.get("error") == self.MISSING_TEMPLATE_ERROR:
+            logger.info("Missing template error encountered.")
             return None
 
         response["payload"] = data
 
         if not self._can_send_to_contact(integrated_agent, data):
+            logger.info("Contact is not allowed to receive the broadcast.")
             return None
 
         try:
@@ -179,17 +184,20 @@ class AgentWebhookUseCase:
                 logger.error(f"Lambda execution error: {data.get('errorMessage')}")
                 return
 
+            logger.info("Retrieving current template name.")
             template_name = self._get_current_template_name(integrated_agent, data)
             if not template_name:
                 logger.error(f"Template not found: {template_name}")
                 return response
 
+            logger.info("Building broadcast template message.")
             message = build_broadcast_template_message(
                 data=data,
                 channel_uuid=str(integrated_agent.channel_uuid),
                 project_uuid=str(integrated_agent.project.uuid),
                 template_name=template_name,
             )
+            logger.info(f"Broadcast template message built: {message}")
 
         except json.JSONDecodeError as e:
             logger.error(f"Error decoding JSON payload: {e}")

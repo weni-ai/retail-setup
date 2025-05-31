@@ -88,9 +88,16 @@ class AgentOrderStatusUpdateUsecase:
     def execute(
         self, integrated_agent: IntegratedAgent, order_status_dto: OrderStatusDTO
     ) -> None:
+        logger.info(
+            f"Starting execution for integrated agent: {integrated_agent.uuid} "
+            f"and order ID: {order_status_dto.orderId}"
+        )
+
         webhook_payload: Dict[str, Any] = adapt_order_status_to_webhook_payload(
             order_status_dto
         )
+        logger.info(f"Adapted order status to webhook payload: {webhook_payload}")
+
         request_data = RequestData(
             params={},
             payload=webhook_payload,
@@ -103,3 +110,7 @@ class AgentOrderStatusUpdateUsecase:
         request_data.set_ignored_official_rules(integrated_agent.ignore_templates)
 
         agent_webhook_use_case.execute(integrated_agent, request_data)
+        logger.info(
+            f"Execution completed for integrated agent: {integrated_agent.uuid} "
+            f"and order ID: {order_status_dto.orderId}"
+        )
