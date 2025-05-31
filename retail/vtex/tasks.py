@@ -36,6 +36,12 @@ def task_order_status_update(order_update_data: dict):
 
         use_case = AgentOrderStatusUpdateUsecase()
         project = use_case.get_project_by_vtex_account(order_status_dto.vtexAccount)
+        if not project:
+            logger.info(
+                f"Project not found for VTEX account {order_status_dto.vtexAccount}."
+            )
+            return
+
         integrated_agent = use_case.get_integrated_agent_if_exists(project)
 
         if integrated_agent:
