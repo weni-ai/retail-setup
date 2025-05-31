@@ -71,6 +71,10 @@ def task_order_status_agent_webhook(
         payload=payload,
     )
     integrated_agent = use_case._get_integrated_agent(integrated_agent_uuid)
+    if not integrated_agent:
+        logger.info(f"Integrated agent not found for UUID {integrated_agent_uuid}.")
+        return
+
     credentials = use_case._addapt_credentials(integrated_agent)
 
     request_data.set_credentials(credentials)

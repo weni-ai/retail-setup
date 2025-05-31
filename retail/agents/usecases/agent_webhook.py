@@ -118,7 +118,7 @@ class AgentWebhookUseCase:
         contact_urn = data.get("contact_urn")
         if not contact_urn:
             logger.warning(
-                "No 'contact_urn' found in payload. Skipping restriction check."
+                f"No 'contact_urn' found in payload {data}. Skipping restriction check."
             )
             return False
 
