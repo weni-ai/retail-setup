@@ -31,6 +31,7 @@ class AgentWebhookUseCase:
     ):
         self.lambda_service = lambda_service or AwsLambdaService()
         self.flows_service = flows_service or FlowsService(FlowsClient())
+        self.MISSING_TEMPLATE_ERROR = "Missing template"
 
     def _get_integrated_agent(self, uuid: UUID):
         if str(uuid) == "d30bcce8-ce67-4677-8a33-c12b62a51d4f":
@@ -55,6 +56,7 @@ class AgentWebhookUseCase:
                 "params": data.params,
                 "payload": data.payload,
                 "credentials": data.credentials,
+                "ignore_official_rules": integrated_agent.ignore_templates,
                 "project": {
                     "uuid": str(project.uuid),
                     "vtex_account": project.vtex_account,
@@ -161,8 +163,11 @@ class AgentWebhookUseCase:
 
         response = self._invoke_lambda(integrated_agent=integrated_agent, data=data)
 
-        payload_raw = response.get("Payload").read().decode()
-        data = json.loads(payload_raw)
+        data = json.loads(response.get("Payload").read().decode())
+
+        if data.get("error") and data.get("error") == self.MISSING_TEMPLATE_ERROR:
+            return None
+
         response["payload"] = data
 
         if not self._can_send_to_contact(integrated_agent, data):
