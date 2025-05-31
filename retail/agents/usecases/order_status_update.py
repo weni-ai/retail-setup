@@ -4,7 +4,6 @@ from typing import Dict, Any, Optional
 
 from django.core.cache import cache
 from django.conf import settings
-from django.forms import ValidationError
 
 from retail.agents.models import IntegratedAgent
 from retail.agents.usecases.agent_webhook import (
@@ -63,9 +62,6 @@ class AgentOrderStatusUpdateUsecase:
         """
         Get the project by VTEX account, with caching.
 
-        Raises:
-            ValidationError: If no project is found or if multiple projects are found.
-
         Returns:
             Project: The project associated with the VTEX account.
         """
@@ -80,12 +76,14 @@ class AgentOrderStatusUpdateUsecase:
             cache.set(cache_key, project, timeout=43200)  # 12 hours
             return project
         except Project.DoesNotExist:
-            error_message = f"Project not found for VTEX account {vtex_account}."
-            raise ValidationError(error_message)
+            logger.info(f"Project not found for VTEX account {vtex_account}.")
+            return None
         except Project.MultipleObjectsReturned:
-            error_message = f"Multiple projects found for VTEX account {vtex_account}."
-            logger.error(error_message)
-            raise ValidationError(error_message)
+            logger.error(
+                f"Multiple projects found for VTEX account {vtex_account}.",
+                exc_info=True,
+            )
+            return None
 
     def execute(
         self, integrated_agent: IntegratedAgent, order_status_dto: OrderStatusDTO
