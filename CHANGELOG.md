@@ -1,3 +1,13 @@
+# 3.2.12
+
+## *Feature*
+  - feat: implement rejection handling for template creation tasks
+  - feat: add indexes to Project model for uuid and vtex_account fields
+  - feat: filter features to return only abandoned cart for new integrations
+
+## *Fix*
+  - fix: improve logging for missing integrated features in cart and orde
+
 # 3.2.11
 
 ## *Feature*
