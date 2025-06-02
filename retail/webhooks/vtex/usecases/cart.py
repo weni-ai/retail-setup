@@ -77,7 +77,7 @@ class CartUseCase:
         except IntegratedFeature.DoesNotExist:
             logger.info(
                 f"IntegratedFeature for project '{self.project}' and feature "
-                f"'{feature}' not found. This installation is optional."
+                f"'{feature}' not found."
             )
         except Exception as e:
             error_message = (

@@ -63,7 +63,7 @@ class OrderStatusUseCase:
         if not integrated_feature:
             logger.info(
                 f"Order status integration not found for project {project.name}. "
-                f"Order id: {self.data.orderId}. Integration might still be pending."
+                f"Order id: {self.data.orderId}."
             )
 
         return integrated_feature
