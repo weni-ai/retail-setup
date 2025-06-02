@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.cache import cache
 
 
 class Project(models.Model):
@@ -10,3 +11,19 @@ class Project(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["uuid"]),
+            models.Index(fields=["vtex_account"]),
+        ]
+
+    def clear_cache(self) -> None:
+        """
+        Clears all cache entries related to this project.
+        Should be called after updates to VTEX account or related fields.
+        """
+        if self.uuid:
+            cache.delete(f"project_domain_{self.uuid}")
+        if self.vtex_account:
+            cache.delete(f"project_by_vtex_account_{self.vtex_account}")
