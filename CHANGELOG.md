@@ -1,3 +1,27 @@
+# 3.2.11
+
+## *Feature*
+  - Feature/redirect update events webhook to agent
+  - feat: add config field to IntegratedAgent and implement phone restric…
+  - feat: implement cache clearing for unassigning agents and add logging
+  - feat: block specific UUID in agent webhook processing and enhance log…
+  - feat: add caching for project domain retrieval and implement cache cl…
+
+## *Fix*
+  - fix: edit template button not working
+  - fix: add pending templates to ignore list
+  - fix: saving none button in metadata
+  - fix: pass button to integrations
+  - refactor: remove unused fields from order status webhook payload and …
+  - fix: verify current version before remove template
+  - refactor: simplify error messages in order status update use case and…
+  - fix: remove slug correctly
+  - refactor: simplify error handling in order status update use case and…
+  - fix: check project is not None to update order status
+  - fix: pass ignored templates to webhook
+  - fix: improve logging for missing contact_urn and handle missing integ…
+  - fix: enhance logging in agent webhook and order status update use cases
+
 # 3.0.1
 
 ## *Fix*
@@ -15,11 +39,6 @@
   - feat: add percent of contacts to trigger webhook
   - feat: add proxy order detail
   - feat: handler button edit in update template
-
-
-# 3.0.1
-
-## *Feature*
   - feat: feat: add VtexAccountLookupView
 
 # 3.0.0
