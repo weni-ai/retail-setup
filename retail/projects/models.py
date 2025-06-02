@@ -12,12 +12,11 @@ class Project(models.Model):
     def __str__(self) -> str:
         return self.name
 
-    # TODO: Uncomment this when we have a way to create indexes in production
-    # class Meta:
-    #     indexes = [
-    #         models.Index(fields=["uuid"]),
-    #         models.Index(fields=["vtex_account"]),
-    #     ]
+    class Meta:
+        indexes = [
+            models.Index(fields=["uuid"]),
+            models.Index(fields=["vtex_account"]),
+        ]
 
     def clear_cache(self) -> None:
         """
