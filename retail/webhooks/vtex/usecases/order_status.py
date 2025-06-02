@@ -61,15 +61,9 @@ class OrderStatusUseCase:
         ).first()
 
         if not integrated_feature:
-            error_message = (
+            logger.info(
                 f"Order status integration not found for project {project.name}. "
-                f"Order id: {self.data.orderId}"
-            )
-            capture_message(error_message)
-
-            raise ValidationError(
-                {"error": "Order status integration not found"},
-                code="order_status_integration_not_found",
+                f"Order id: {self.data.orderId}."
             )
 
         return integrated_feature
