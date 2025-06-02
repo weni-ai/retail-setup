@@ -7,6 +7,8 @@ from retail.services.integrations.service import IntegrationsService
 
 from typing import Optional, List, Dict, Any
 
+from retail.templates.usecases.update_template import UpdateTemplateUseCase
+
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,12 @@ def task_create_template(
         logger.error(
             f"Error creating template: {template_name} for App: {app_uuid} - {category} - version: {version_uuid} {e}"
         )
-        # TODO: on exception, delete the template on integrations
+        payload = {"version_uuid": version_uuid, "status": "REJECTED"}
+        update_template_use_case = UpdateTemplateUseCase()
+        update_template_use_case.execute(payload=payload)
+        logger.info(
+            f"Template {template_name}, Version {version_uuid} has been marked as REJECTED."
+        )
 
 
 @shared_task
@@ -79,4 +86,10 @@ def task_create_library_template(
             f"Error creating library template: {library_template_name} "
             f"for App: {app_uuid} - {category} - version: {gallery_version} {e}"
             f"Error: {traceback.format_exc()}"
+        )
+        payload = {"version_uuid": gallery_version, "status": "REJECTED"}
+        update_template_use_case = UpdateTemplateUseCase()
+        update_template_use_case.execute(payload=payload)
+        logger.info(
+            f"Library Template {library_template_name}, Version {gallery_version} has been marked as REJECTED."
         )
