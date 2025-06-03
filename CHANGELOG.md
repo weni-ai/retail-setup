@@ -1,3 +1,8 @@
+# 3.2.13
+
+## *Fix*
+  - fix: enhance logging and handle missing integrated features in cart a
+
 # 3.2.12
 
 ## *Feature*
