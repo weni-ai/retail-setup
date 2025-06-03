@@ -42,6 +42,7 @@ class IntegratedAgent(models.Model):
     ignore_templates = ArrayField(models.CharField(), blank=True, default=list)
     contact_percentage = models.PositiveIntegerField(default=10)
     config = models.JSONField(default=dict)
+    is_published = models.BooleanField(default=False)
 
 
 class PreApprovedTemplate(models.Model):
