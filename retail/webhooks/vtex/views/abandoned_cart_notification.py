@@ -23,7 +23,20 @@ class AbandonedCartNotification(APIView):
         order_form_id = validated_data["cart_id"]
         phone = PhoneNumberNormalizer.normalize(validated_data["phone"])
         name = validated_data["name"]
+
+        # Instantiate the use case with the given account
         cart_use_case = CartUseCase(account=validated_data["account"])
+
+        # Check if the abandoned cart feature is integrated for the project
+        if not cart_use_case.integrated_feature:
+            return Response(
+                {
+                    "message": "Abandoned cart integration not configured for this account."
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+
+        # Proceed with cart notification processing
         result = cart_use_case.process_cart_notification(order_form_id, phone, name)
 
         return Response(
