@@ -13,6 +13,7 @@ class AwsLambdaClient(AwsLambdaClientInterface):
         self.role_arn = settings.LAMBDA_ROLE_ARN
         self.runtime = settings.LAMBDA_RUNTIME
         self.handler = settings.LAMBDA_HANDLER
+        self.timeout = settings.LAMBDA_TIMEOUT
 
     def create_function(self, function_name: str, zip_bytes: bytes) -> Dict[str, Any]:
         kwargs = {
@@ -21,6 +22,7 @@ class AwsLambdaClient(AwsLambdaClientInterface):
             "Role": self.role_arn,
             "Handler": self.handler,
             "Code": {"ZipFile": zip_bytes},
+            "Timeout": self.timeout,
             "Publish": True,
         }
 
