@@ -65,6 +65,7 @@ class OrderStatusUseCase:
                 f"Order status integration not found for project {project.name}. "
                 f"Order id: {self.data.orderId}."
             )
+            return None
 
         return integrated_feature
 
@@ -117,7 +118,16 @@ class OrderStatusUseCase:
             self.data.vtexAccount
         )
 
+        # Retrieve the integrated feature for the given project
         integrated_feature = self._get_integrated_feature_by_project(project)
+
+        # Validate that the feature exists before proceeding
+        if not integrated_feature:
+            logger.info(
+                f"Order status integration not found for project {project.name}. "
+                f"Order id: {self.data.orderId}."
+            )
+            return
 
         # Check if templates are synchronized before proceeding
         sync_status = integrated_feature.config.get(

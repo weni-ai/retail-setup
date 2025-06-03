@@ -77,8 +77,9 @@ class CartUseCase:
         except IntegratedFeature.DoesNotExist:
             logger.info(
                 f"IntegratedFeature for project '{self.project}' and feature "
-                f"'{feature}' not found."
+                f"'{feature}' not found. Returning None."
             )
+            return None
         except Exception as e:
             error_message = (
                 f"An unexpected error occurred while retrieving the feature: {str(e)}"
