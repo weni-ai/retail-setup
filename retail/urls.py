@@ -11,6 +11,8 @@ from retail.webhooks import urls as webhooks_urls
 from retail.projects import urls as project_urls
 from retail.vtex import urls as vtex_urls
 
+from retail.swagger import view as swagger_view
+
 urlpatterns = [
     path("", lambda _: redirect("admin/", permanent=True)),
     path("admin/", admin.site.urls),
@@ -21,6 +23,7 @@ urlpatterns = [
     path("api/v3/templates/", include("retail.templates.urls")),
     path("api/v3/agents/", include("retail.agents.urls")),
     path("vtex/", include(vtex_urls)),
+    path("docs/", swagger_view, name="swagger"),
 ]
 
 urlpatterns.append(
