@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import TypedDict, Optional
 
 from rest_framework.exceptions import NotFound, ValidationError
 
@@ -8,7 +8,8 @@ from retail.agents.models import IntegratedAgent
 
 
 class UpdateIntegratedAgentData(TypedDict):
-    contact_percentage: int
+    contact_percentage: Optional[int]
+    is_published: Optional[bool]
 
 
 class UpdateIntegratedAgentUseCase:
@@ -20,17 +21,31 @@ class UpdateIntegratedAgentUseCase:
         except IntegratedAgent.DoesNotExist:
             raise NotFound(f"Integrated agent not found {integrated_agent_uuid}")
 
-    def _is_valid_percentage(self, percentage: int) -> bool:
-        return 0 <= percentage <= 100
+    def _update_contact_percentage(
+        self, integrated_agent: IntegratedAgent, contact_percentage: int
+    ) -> None:
+        if not 0 <= contact_percentage <= 100:
+            raise ValidationError({"contact_percentage": "Invalid percentage"})
+
+        integrated_agent.contact_percentage = contact_percentage
+
+    def _update_is_published(
+        self, integrated_agent: IntegratedAgent, is_published: bool
+    ) -> None:
+        integrated_agent.is_published = is_published
 
     def execute(
         self, integrated_agent_uuid: UUID, data: UpdateIntegratedAgentData
     ) -> IntegratedAgent:
         integrated_agent = self._get_integrated_agent(integrated_agent_uuid)
+        contact_percentage = data.get("contact_percentage", None)
+        is_published = data.get("is_published", None)
 
-        if not self._is_valid_percentage(data["contact_percentage"]):
-            raise ValidationError({"contact_percentage": "Invalid percentage"})
+        if contact_percentage is not None:
+            self._update_contact_percentage(integrated_agent, contact_percentage)
 
-        integrated_agent.contact_percentage = data["contact_percentage"]
+        if is_published is not None:
+            self._update_is_published(integrated_agent, is_published)
+
         integrated_agent.save()
         return integrated_agent

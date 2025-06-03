@@ -164,6 +164,10 @@ class AgentWebhookUseCase:
             logger.info("Broadcast not allowed for this agent.")
             return None
 
+        if not integrated_agent.is_published:
+            logger.info("Agent is not published.")
+            return None
+
         response = self._invoke_lambda(integrated_agent=integrated_agent, data=data)
 
         data = json.loads(response.get("Payload").read().decode())
