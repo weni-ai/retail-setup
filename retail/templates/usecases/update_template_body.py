@@ -111,14 +111,13 @@ class UpdateTemplateContentUseCase(TemplateBuilderMixin):
         updated_metadata["footer"] = payload.get(
             "template_footer", template.metadata.get("footer")
         )
-        updated_metadata["buttons"] = payload.get("template_button", None)
+        updated_metadata["buttons"] = payload.get(
+            "template_button", template.metadata.get("buttons")
+        )
 
         translation_payload = self.template_adapter.adapt(updated_metadata)
 
-        if translation_payload.get("buttons") is None:
-            updated_metadata["buttons"] = template.metadata.get("buttons")
-        else:
-            updated_metadata["buttons"] = translation_payload.get("buttons")
+        updated_metadata["buttons"] = translation_payload.get("buttons")
 
         template.metadata = updated_metadata
         template.save(update_fields=["metadata"])
