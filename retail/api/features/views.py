@@ -48,7 +48,10 @@ class FeaturesView(BaseServiceView):
                 features = features.filter(category=category)
 
             if can_vtex_integrate is not None:
-                features = features.filter(can_vtex_integrate=can_vtex_integrate)
+                # Return only abandoned cart feature for new integrations
+                features = features.filter(
+                    can_vtex_integrate=can_vtex_integrate, code="abandoned_cart"
+                )
 
             serializer = FeaturesSerializer(features, many=True)
 

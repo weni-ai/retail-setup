@@ -264,6 +264,7 @@ if USE_LAMBDA:
     LAMBDA_RUNTIME = env.str("LAMBDA_RUNTIME")
     LAMBDA_HANDLER = env.str("LAMBDA_HANDLER")
     LAMBDA_REGION = env.str("LAMBDA_REGION")
+    LAMBDA_TIMEOUT = env.int("LAMBDA_TIMEOUT", default=60)
 
 USE_META = env.bool("USE_LAMBDA", default=False)
 
@@ -273,3 +274,5 @@ if USE_META:
     META_API_URL = urllib.parse.urljoin(
         env.str("WHATSAPP_API_URL", default="https://graph.facebook.com/"), META_VERSION
     )
+
+ORDER_STATUS_AGENT_UUID = env.str("ORDER_STATUS_AGENT_UUID", default="")

@@ -1,7 +1,59 @@
+# 3.2.13
+
+## *Fix*
+  - fix: enhance logging and handle missing integrated features in cart a
+
+# 3.2.12
+
+## *Feature*
+  - feat: implement rejection handling for template creation tasks
+  - feat: add indexes to Project model for uuid and vtex_account fields
+  - feat: filter features to return only abandoned cart for new integrations
+
+## *Fix*
+  - fix: improve logging for missing integrated features in cart and orde
+
+# 3.2.11
+
+## *Feature*
+  - Feature/redirect update events webhook to agent
+  - feat: add config field to IntegratedAgent and implement phone restric…
+  - feat: implement cache clearing for unassigning agents and add logging
+  - feat: block specific UUID in agent webhook processing and enhance log…
+  - feat: add caching for project domain retrieval and implement cache cl…
+
+## *Fix*
+  - fix: edit template button not working
+  - fix: add pending templates to ignore list
+  - fix: saving none button in metadata
+  - fix: pass button to integrations
+  - refactor: remove unused fields from order status webhook payload and …
+  - fix: verify current version before remove template
+  - refactor: simplify error messages in order status update use case and…
+  - fix: remove slug correctly
+  - refactor: simplify error handling in order status update use case and…
+  - fix: check project is not None to update order status
+  - fix: pass ignored templates to webhook
+  - fix: improve logging for missing contact_urn and handle missing integ…
+  - fix: enhance logging in agent webhook and order status update use cases
 
 # 3.0.1
 
+## *Fix*
+  - fix: remove unique together between agent name and project
+  - fix: update order status webhook to use specific celery queue
+  - fix: project object uuid and add cache to order status retrieval
+  - fix: update project UUID handling in cart abandonment
+  - fix: template shows last version status
+
 ## *Feature*
+  - feat: pass language to meta
+  - feat: add soft delete to template
+  - feat: sending the project in lambda invoke
+  - feat: add get account identifier and add base vtex usecase
+  - feat: add percent of contacts to trigger webhook
+  - feat: add proxy order detail
+  - feat: handler button edit in update template
   - feat: feat: add VtexAccountLookupView
 
 # 3.0.0

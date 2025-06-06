@@ -41,6 +41,8 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
         if gallery_version:
             payload["gallery_version"] = gallery_version
 
+        # Log the template data # TODO: remove this
+        print(f"Creating template with data: {payload}")
         response = self.make_request(
             url,
             method="POST",
@@ -58,6 +60,8 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
 
         url = f"{self.base_url}/api/v1/apps/{app_uuid}/templates/{template_uuid}/translations/"
 
+        # Log the template data # TODO: remove this
+        print(f"Creating template translation with data: {payload}")
         response = self.make_request(
             url,
             method="POST",

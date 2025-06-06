@@ -1,5 +1,5 @@
 from uuid import UUID
-from typing import Optional, TypedDict
+from typing import Optional, TypedDict, List, Dict, Any
 
 from rest_framework.exceptions import NotFound
 
@@ -8,7 +8,7 @@ from retail.templates.tasks import task_create_template
 from retail.interfaces.services.integrations import IntegrationsServiceInterface
 from retail.services.integrations.service import IntegrationsService
 from retail.templates.adapters.template_library_to_custom_adapter import (
-    adapt_library_template_to_translation,
+    TemplateTranslationAdapter,
 )
 from ._base_template_creator import TemplateBuilderMixin
 
@@ -18,6 +18,7 @@ class UpdateTemplateContentData(TypedDict):
     template_body: str
     template_header: str
     template_footer: str
+    template_button: List[Dict[str, Any]]
     app_uuid: str
     project_uuid: str
 
@@ -25,10 +26,31 @@ class UpdateTemplateContentData(TypedDict):
 class UpdateTemplateContentUseCase(TemplateBuilderMixin):
     """
     Updates the body of a template using its metadata and triggers a new version with integrations.
+
+    Example of using custom transformers for specific business logic:
+
+    # Custom transformer example
+    class CustomBodyTransformer(ComponentTransformer):
+        def transform(self, template_data: Dict) -> Dict:
+            # Custom business logic for body transformation
+            body_data = {"type": "BODY", "text": template_data["body"]}
+            # Add custom validation or formatting here
+            return body_data
+
+    # Usage with custom transformers
+    custom_adapter = TemplateTranslationAdapter(
+        body_transformer=CustomBodyTransformer()
+    )
+    use_case = UpdateTemplateContentUseCase(template_adapter=custom_adapter)
     """
 
-    def __init__(self, service: Optional[IntegrationsServiceInterface] = None):
+    def __init__(
+        self,
+        service: Optional[IntegrationsServiceInterface] = None,
+        template_adapter: Optional[TemplateTranslationAdapter] = None,
+    ):
         self.service = service or IntegrationsService()
+        self.template_adapter = template_adapter or TemplateTranslationAdapter()
 
     def _get_template(self, uuid: str) -> Template:
         try:
@@ -59,7 +81,7 @@ class UpdateTemplateContentUseCase(TemplateBuilderMixin):
 
     def execute(self, payload: UpdateTemplateContentData) -> Template:
         """
-        Updates template content fields (body, header, footer) based on metadata and creates a new version.
+        Updates template content fields (body, header, footer, buttons) based on metadata and creates a new version.
 
         Args:
             payload (UpdateTemplateContentData): The update input including optional content fields
@@ -74,29 +96,38 @@ class UpdateTemplateContentUseCase(TemplateBuilderMixin):
             raise ValueError("Template metadata is missing")
 
         category = template.metadata.get("category")
+
         if not category:
             raise ValueError("Missing category in template metadata")
 
         updated_metadata = dict(template.metadata)
 
-        updated_fields = False
+        updated_metadata["body"] = payload.get(
+            "template_body", template.metadata.get("body")
+        )
+        updated_metadata["header"] = payload.get(
+            "template_header", template.metadata.get("header")
+        )
+        updated_metadata["footer"] = payload.get(
+            "template_footer", template.metadata.get("footer")
+        )
+        updated_metadata["buttons"] = payload.get("template_button", None)
 
-        if payload.get("template_body"):
-            updated_metadata["body"] = payload["template_body"]
-            updated_fields = True
-        if payload.get("template_header"):
-            updated_metadata["header"] = payload["template_header"]
-            updated_fields = True
-        if payload.get("template_footer"):
-            updated_metadata["footer"] = payload["template_footer"]
-            updated_fields = True
+        translation_payload = self.template_adapter.adapt(updated_metadata)
 
-        if updated_fields:
-            # Persist changes into the Template.metadata
-            template.metadata = updated_metadata
-            template.save(update_fields=["metadata"])
+        if translation_payload.get("buttons") is None:
+            updated_metadata["buttons"] = template.metadata.get("buttons")
+        else:
+            updated_metadata["buttons"] = translation_payload.get("buttons")
 
-        translation_payload = adapt_library_template_to_translation(updated_metadata)
+        template.metadata = updated_metadata
+        template.save(update_fields=["metadata"])
+
+        buttons = updated_metadata.get("buttons")
+
+        if buttons:
+            for button in buttons:
+                button["button_type"] = button.pop("type", None)
 
         version = self._create_version(
             template=template,

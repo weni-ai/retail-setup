@@ -2,7 +2,8 @@ from typing import TypedDict, List, Dict, Any
 
 from rest_framework.exceptions import NotFound
 
-from retail.templates.models import Template
+from retail.templates.models import Template, Version
+
 from ._base_library_template import LibraryTemplateData, BaseLibraryTemplateUseCase
 
 
@@ -60,10 +61,13 @@ class UpdateLibraryTemplateUseCase(BaseLibraryTemplateUseCase):
             ),
         }
 
+    def _get_last_version(self, template: Template) -> Version:
+        return template.versions.order_by("-id").first()
+
     def execute(self, payload: UpdateLibraryTemplateData) -> None:
         template = self._get_template(payload["template_uuid"])
         template.needs_button_edit = False
-        version = template.current_version
+        version = self._get_last_version(template)
         payload = self._build_payload(template, payload)
         self._update_template_metadata(template, payload)
         self.notify_integrations(version.template_name, version.uuid, payload)

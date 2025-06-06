@@ -8,8 +8,6 @@ from rest_framework.exceptions import ValidationError
 
 from sentry_sdk import capture_message
 
-from django.core.cache import cache
-
 from retail.clients.exceptions import CustomAPIException
 from retail.clients.vtex_io.client import VtexIOClient
 from retail.features.models import IntegratedFeature
@@ -53,40 +51,6 @@ class OrderStatusUseCase:
         """
         return f"{account}.myvtex.com"
 
-    def _get_project_by_vtex_account(self) -> Project:
-        """
-        Get the project by VTEX account, with caching.
-
-        Raises:
-            ValidationError: If no project is found or if multiple projects are found.
-
-        Returns:
-            Project: The project associated with the VTEX account.
-        """
-        cache_key = f"project_by_vtex_account_{self.data.vtexAccount}"
-        project = cache.get(cache_key)
-
-        if project:
-            return project
-
-        try:
-            project = Project.objects.get(vtex_account=self.data.vtexAccount)
-            cache.set(cache_key, project, timeout=43200)  # 12 hours
-            return project
-        except Project.DoesNotExist:
-            error_message = (
-                f"Project not found for VTEX account {self.data.vtexAccount}. "
-                f"Order id: {self.data.orderId}"
-            )
-            raise ValidationError(error_message)
-        except Project.MultipleObjectsReturned:
-            error_message = (
-                f"Multiple projects found for VTEX account {self.data.vtexAccount}. "
-                f"Order id: {self.data.orderId}"
-            )
-            logger.error(error_message)
-            raise ValidationError(error_message)
-
     def _get_integrated_feature_by_project(self, project: Project) -> IntegratedFeature:
         """
         Get the integrated feature by project.
@@ -97,16 +61,11 @@ class OrderStatusUseCase:
         ).first()
 
         if not integrated_feature:
-            error_message = (
+            logger.info(
                 f"Order status integration not found for project {project.name}. "
-                f"Order id: {self.data.orderId}"
+                f"Order id: {self.data.orderId}."
             )
-            capture_message(error_message)
-
-            raise ValidationError(
-                {"error": "Order status integration not found"},
-                code="order_status_integration_not_found",
-            )
+            return None
 
         return integrated_feature
 
@@ -151,16 +110,24 @@ class OrderStatusUseCase:
         """
         return integrated_feature.project.uuid
 
-    def process_notification(self):
+    def process_notification(self, project: Project):
         """
         Process the order status notification.
         """
-        project = self._get_project_by_vtex_account()
         account_domain = OrderStatusUseCase._get_domain_by_account(
             self.data.vtexAccount
         )
 
+        # Retrieve the integrated feature for the given project
         integrated_feature = self._get_integrated_feature_by_project(project)
+
+        # Validate that the feature exists before proceeding
+        if not integrated_feature:
+            logger.info(
+                f"Order status integration not found for project {project.name}. "
+                f"Order id: {self.data.orderId}."
+            )
+            return
 
         # Check if templates are synchronized before proceeding
         sync_status = integrated_feature.config.get(
