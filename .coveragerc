@@ -1,0 +1,17 @@
+[run]
+omit =
+    *migrations/*
+    debug_*.py
+    *site-packages/*
+    manage.py
+    retail/settings.py
+    *tests/*
+    retail/interfaces/*
+    retail/clients/*
+    retail/admin/*
+    retail/event_driven/*
+    retail/healthcheck/*
+    *urls.py*
+
+[report]
+fail_under = 75
