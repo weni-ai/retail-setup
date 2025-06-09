@@ -11,7 +11,7 @@ from django.core.management.utils import get_random_secret_key
 def dict_to_config_string(data: dict) -> str:
     config_string = ""
     for key, value in data.items():
-        config_string += f"{key}=\"{value}\"\n"
+        config_string += f'{key}="{value}"\n'
 
     return config_string.strip()
 
@@ -36,6 +36,7 @@ def generate_env():
         "INTEGRATIONS_REST_ENDPOINT": "",
         "FLOWS_REST_ENDPOINT": "",
         "EMAILS_CAN_TESTING": "",
+        "DOMAIN": "http://localhost:8000",
     }
 
     with open(env_path, "w") as configfile:
