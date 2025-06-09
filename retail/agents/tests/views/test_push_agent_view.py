@@ -127,7 +127,7 @@ class PushAgentViewE2ETest(APITestCase):
             self.url, data=data, files=files, format="multipart"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
         mock_push_agent_usecase.assert_not_called()
         mock_validate_task.assert_not_called()
