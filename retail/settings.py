@@ -80,6 +80,7 @@ INSTALLED_APPS = [
     "retail.healthcheck",
     "retail.internal",
     "rest_framework",
+    "drf_yasg",
     "retail.vtex",
     "retail.templates",
     "retail.agents",
