@@ -1,5 +1,5 @@
 """
-RemoveGlobalsKeysUsecase is responsible for removing specific global keys 
+RemoveGlobalsKeysUsecase is responsible for removing specific global keys
 from the feature's globals list based on data fetched from external services.
 
 Attributes:
