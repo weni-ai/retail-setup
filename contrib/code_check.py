@@ -7,6 +7,7 @@ from typing import Optional
 
 class LogStyle:
     """ANSI color codes for terminal output formatting."""
+
     OK = "\033[92m"
     HEADER = "\033[95m"
     WARNING = "\033[93m"
@@ -17,7 +18,7 @@ class LogStyle:
 
 def log(output: str, log_style: str) -> None:
     """Print formatted log message.
-    
+
     Args:
         output: Message to display
         log_style: ANSI color code for styling
@@ -27,14 +28,14 @@ def log(output: str, log_style: str) -> None:
 
 def execute(cmd: str, cmd_output: bool = False) -> Optional[str]:
     """Execute shell command and handle output.
-    
+
     Args:
         cmd: Command to execute
         cmd_output: Whether to return command output
-        
+
     Returns:
         Command output if cmd_output is True, None otherwise
-        
+
     Raises:
         SystemExit: If command execution fails
     """
@@ -49,7 +50,8 @@ def execute(cmd: str, cmd_output: bool = False) -> Optional[str]:
             return output
 
     except subprocess.CalledProcessError as e:
-        print(f"{LogStyle.FAIL}{e.stdout.replace('\n', '\n ').strip()}")
+        error_output = e.stdout.replace("\n", "\n ").strip()
+        print(f"{LogStyle.FAIL}{error_output}")
         log("Fail", LogStyle.FAIL)
         exit(1)
 
@@ -60,7 +62,7 @@ def main() -> None:
         raise Exception("The command need be executed in retail-setup")
 
     log("Make any missing migrations", LogStyle.BOLD)
-    
+
     execute("python manage.py makemigrations")
     execute("flake8 retail/")
     execute("coverage run manage.py test --verbosity=2 --noinput")
