@@ -1,3 +1,11 @@
+# 3.2.14
+
+## *Feature*
+  - feat: add Swagger documentation for Gallery API
+
+## *Fix*
+  - fix: update order endpoint URL in VtexIOClient
+
 # 3.2.13
 
 ## *Fix*

@@ -148,7 +148,7 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         Returns:
             dict: Orders data from VTEX IO.
         """
-        url = self._get_url(account_domain, "/orders")
+        url = self._get_url(account_domain, "/get-orders")
 
         data = {
             "raw_query": query_params,
