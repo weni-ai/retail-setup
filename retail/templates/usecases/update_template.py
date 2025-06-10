@@ -49,7 +49,9 @@ class UpdateTemplateUseCase:
 
         if status == "APPROVED":
             template = self._update_template_current_version(version, template)
-            self._remove_template_from_ignore_templates(template)
+
+            if template.parent is not None:
+                self._remove_template_from_ignore_templates(template)
 
         version.status = status
         version.save(update_fields=["status"])

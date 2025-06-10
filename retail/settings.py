@@ -266,6 +266,7 @@ if USE_LAMBDA:
     LAMBDA_HANDLER = env.str("LAMBDA_HANDLER")
     LAMBDA_REGION = env.str("LAMBDA_REGION")
     LAMBDA_TIMEOUT = env.int("LAMBDA_TIMEOUT", default=60)
+    LAMBDA_CODE_GENERATOR = env.str("LAMBDA_CODE_GENERATOR")
 
 USE_META = env.bool("USE_LAMBDA", default=False)
 
