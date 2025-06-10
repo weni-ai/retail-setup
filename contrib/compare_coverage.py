@@ -34,7 +34,7 @@ class GitService:
 class CoverageService:
     """Service for coverage operations."""
 
-    BASE_URL = "https://api.codecov.io/api/v2/gh/weni-ai/repos/weni-integrations-engine/commits/"
+    BASE_URL = "https://api.codecov.io/api/v2/gh/weni-ai/repos/retail-setup/commits/"
 
     @staticmethod
     def get_local_misses() -> int:
