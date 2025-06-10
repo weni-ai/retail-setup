@@ -8,6 +8,8 @@ from uuid import UUID
 
 from django.conf import settings
 
+from rest_framework.exceptions import NotFound
+
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
 from retail.templates.usecases import CreateTemplateData
@@ -21,6 +23,7 @@ from retail.templates.exceptions import (
     CodeGeneratorBadRequest,
     CodeGeneratorUnprocessableEntity,
 )
+from retail.agents.models import IntegratedAgent
 
 
 class LambdaResponsePayload(TypedDict):
@@ -37,6 +40,7 @@ class LambdaResponseStatusCode(Enum):
 class CreateCustomTemplateData(CreateTemplateData):
     rule_code: str
     category: str
+    integrated_agent_uuid: UUID
 
 
 class CreateCustomTemplateUseCase(TemplateBuilderMixin):
@@ -98,6 +102,12 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         project_uuid: str,
         category: str,
     ) -> None:
+        buttons = translation_payload.get("buttons")
+
+        if buttons:
+            for button in buttons:
+                button["button_type"] = button.pop("type", None)
+
         task_create_template.delay(
             template_name=version_name,
             app_uuid=app_uuid,
@@ -108,12 +118,23 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         )
 
     def _update_template(
-        self, template: Template, body: Dict[str, Any], translation: Dict[str, Any]
+        self,
+        template: Template,
+        body: Dict[str, Any],
+        translation: Dict[str, Any],
+        integrated_agent: IntegratedAgent,
     ) -> Template:
+        template.integrated_agent = integrated_agent
         template.metadata = translation
         template.rule_code = body.get("generated_code")
         template.save()
         return template
+
+    def _get_integrated_agent(self, integrated_agent_uuid: UUID):
+        try:
+            return IntegratedAgent.objects.get(id=integrated_agent_uuid, is_active=True)
+        except IntegratedAgent.DoesNotExist:
+            raise NotFound(f"Assigned agent not found: {integrated_agent_uuid}")
 
     def execute(self, payload: CreateCustomTemplateData) -> Template:
         """
@@ -130,7 +151,12 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         if status_code == LambdaResponseStatusCode.OK:
             template, version = self.build_template_and_version()
             translation = self._adapt_translation(payload.get("template_translation"))
-            template = self._update_template(template, body, translation)
+            integrated_agent = self._get_integrated_agent(
+                payload.get("integrated_agent_uuid")
+            )
+            template = self._update_template(
+                template, body, translation, integrated_agent
+            )
             self._notify_integrations(
                 version.template_name,
                 version.uuid,
