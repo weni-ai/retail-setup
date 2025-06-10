@@ -114,7 +114,7 @@ class TemplateViewSet(ViewSet):
 
     @action(detail=False, methods=["post"])
     def custom(self, request: Request, *args, **kwargs) -> Response:
-        integrated_agent_uuid = request.query_params.pop("integrated_agent_uuid")
+        integrated_agent_uuid = request.query_params.get("integrated_agent_uuid")
 
         if integrated_agent_uuid is None:
             raise ValidationError(
