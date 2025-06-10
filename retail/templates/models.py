@@ -28,6 +28,10 @@ class Template(models.Model):
     needs_button_edit = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
 
+    @property
+    def is_custom(self) -> bool:
+        return self.parent is None
+
 
 class Version(models.Model):
     STATUS_CHOICES = (
