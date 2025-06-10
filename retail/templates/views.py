@@ -121,7 +121,7 @@ class TemplateViewSet(ViewSet):
                 detail={"missing_fields": "integrate_agent_uuid param missing."}
             )
 
-        request_serializer = CreateCustomTemplateSerializer(request.data)
+        request_serializer = CreateCustomTemplateSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
 
         data: CreateCustomTemplateData = cast(
