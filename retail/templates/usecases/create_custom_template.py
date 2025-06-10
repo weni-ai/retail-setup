@@ -91,7 +91,14 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
     def _adapt_translation(
         self, template_translation: Dict[str, Any]
     ) -> Dict[str, Any]:
-        return self.template_adapter.adapt(template_translation)
+        return self.template_adapter.adapt(
+            {
+                "body": template_translation.get("template_body"),
+                "header": template_translation.get("template_header"),
+                "footer": template_translation.get("template_footer"),
+                "buttons": template_translation.get("template_button"),
+            }
+        )
 
     def _notify_integrations(
         self,
