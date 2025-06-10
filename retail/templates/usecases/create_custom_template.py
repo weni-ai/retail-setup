@@ -84,7 +84,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             function_name=self.lambda_code_generator, payload=payload
         )
 
-        response_payload = json.load(response["Payload"])
+        response_payload = json.loads(response["Payload"].read().decode("utf-8"))
 
         return response_payload["statusCode"], response_payload["body"]
 
@@ -157,14 +157,14 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             template = self._update_template(
                 template, body, translation, integrated_agent
             )
-            self._notify_integrations(
-                version.template_name,
-                version.uuid,
-                translation,
-                payload.get("app_uuid"),
-                payload.get("project_uuid"),
-                payload.get("category"),
-            )
+            # self._notify_integrations(
+            #    version.template_name,
+            #    version.uuid,
+            #     translation,
+            #    payload.get("app_uuid"),
+            #    payload.get("project_uuid"),
+            #    payload.get("category"),
+            # )
             return template
 
         if status_code == LambdaResponseStatusCode.BAD_REQUEST:
