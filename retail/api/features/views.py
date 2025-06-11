@@ -71,6 +71,8 @@ class FeaturesView(BaseServiceView):
                 "store_type": vtex_config.get("vtex_store_type", ""),
             }
 
+            response_data["nexus_agents"] = []
+
             if nexus_agents:
                 # List Nexus agents
                 agents_data = self.nexus_service.list_agents(project_uuid)
