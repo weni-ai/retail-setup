@@ -70,7 +70,7 @@ class UpdateTemplateContentUseCase(TemplateBuilderMixin):
         if not all([version_name, app_uuid, project_uuid, version_uuid]):
             raise ValueError("Missing required data to notify integrations")
 
-        task_create_template(
+        task_create_template.delay(
             template_name=version_name,
             app_uuid=app_uuid,
             project_uuid=project_uuid,
