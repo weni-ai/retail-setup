@@ -90,7 +90,11 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
 
         response_payload = json.loads(response["Payload"].read())
 
-        return response_payload["statusCode"], response_payload["body"]
+        return (
+            response_payload,
+            response_payload["statusCode"],
+            response_payload["body"],
+        )
 
     def _adapt_translation(
         self, template_translation: Dict[str, Any]
@@ -159,7 +163,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         """
         print(f"PAYLOAD DE ENTRADA: {payload}")
         logger.debug(f"PAYLOAD DE ENTRADA: {payload}")
-        status_code, body = self._invoke_code_generator(payload["rule_code"])
+        response, status_code, body = self._invoke_code_generator(payload["rule_code"])
 
         if status_code == LambdaResponseStatusCode.OK:
             print("200 NA LAMBDA")
@@ -197,4 +201,9 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             logger.debug("422 NA LAMBDA")
             raise CodeGeneratorUnprocessableEntity(detail=body)
 
-        raise APIException("Unknown error processing lambda.")
+        raise APIException(
+            detail={
+                "message": "Unknown error processing lambda.",
+                "debug": {"lambda_response": response},
+            }
+        )
