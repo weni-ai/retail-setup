@@ -6,9 +6,11 @@ from enum import Enum
 
 from uuid import UUID
 
+import logging
+
 from django.conf import settings
 
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, APIException
 
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
@@ -24,6 +26,8 @@ from retail.templates.exceptions import (
     CodeGeneratorUnprocessableEntity,
 )
 from retail.agents.models import IntegratedAgent
+
+logger = logging.getLogger(__name__)
 
 
 class LambdaResponsePayload(TypedDict):
@@ -84,7 +88,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             function_name=self.lambda_code_generator, payload=payload
         )
 
-        response_payload = json.load(response["Payload"])
+        response_payload = json.loads(response["Payload"].read())
 
         return response_payload["statusCode"], response_payload["body"]
 
@@ -153,14 +157,23 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         Returns:
             Template: The created template instance.
         """
+        print(f"PAYLOAD DE ENTRADA: {payload}")
+        logger.debug(f"PAYLOAD DE ENTRADA: {payload}")
         status_code, body = self._invoke_code_generator(payload["rule_code"])
 
         if status_code == LambdaResponseStatusCode.OK:
+            print("200 NA LAMBDA")
+            logger.debug("200 NA LAMBDA")
+
             template, version = self.build_template_and_version()
             translation = self._adapt_translation(payload.get("template_translation"))
+            print(f"A TRANSLATION: {translation}")
+            logger.debug(f"A TRANSLATION: {translation}")
             integrated_agent = self._get_integrated_agent(
                 payload.get("integrated_agent_uuid")
             )
+            print(f"AGENTE INTEGRADO: {integrated_agent}")
+            logger.debug(f"AGENTE INTEGRADO: {integrated_agent}")
             template = self._update_template(
                 template, body, translation, integrated_agent
             )
@@ -175,7 +188,13 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             return template
 
         if status_code == LambdaResponseStatusCode.BAD_REQUEST:
+            print("400 NA LAMBDA")
+            logger.debug("400 NA LAMBDA")
             raise CodeGeneratorBadRequest(detail=body)
 
         if status_code == LambdaResponseStatusCode.UNPROCESSABLE_ENTITY:
+            print("422 NA LAMBDA")
+            logger.debug("422 NA LAMBDA")
             raise CodeGeneratorUnprocessableEntity(detail=body)
+
+        raise APIException("Unknown error processing lambda.")
