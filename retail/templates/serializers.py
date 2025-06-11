@@ -20,6 +20,7 @@ class ReadTemplateSerializer(serializers.Serializer):
     status = serializers.SerializerMethodField()
     rule_code = serializers.CharField()
     metadata = serializers.JSONField()
+    is_custom = serializers.BooleanField()
     needs_button_edit = serializers.BooleanField()
 
     def get_status(self, obj: Template) -> str:
@@ -83,3 +84,8 @@ class UpdateLibraryTemplateButtonSerializer(serializers.Serializer):
 
 class UpdateLibraryTemplateSerializer(serializers.Serializer):
     library_template_button_inputs = UpdateLibraryTemplateButtonSerializer(many=True)
+
+
+class CreateCustomTemplateSerializer(UpdateTemplateContentSerializer):
+    rule_code = serializers.CharField()
+    category = serializers.CharField()
