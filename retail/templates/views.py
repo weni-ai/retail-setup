@@ -114,14 +114,14 @@ class TemplateViewSet(ViewSet):
 
     @action(detail=False, methods=["post"])
     def custom(self, request: Request, *args, **kwargs) -> Response:
-        integrated_agent_uuid = request.query_params.pop("integrated_agent_uuid")
+        integrated_agent_uuid = request.query_params.get("integrated_agent_uuid")
 
         if integrated_agent_uuid is None:
             raise ValidationError(
                 detail={"missing_fields": "integrate_agent_uuid param missing."}
             )
 
-        request_serializer = CreateCustomTemplateSerializer(request.data)
+        request_serializer = CreateCustomTemplateSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
 
         data: CreateCustomTemplateData = cast(
