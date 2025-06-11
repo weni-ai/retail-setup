@@ -49,5 +49,5 @@ class FunctionForm(forms.ModelForm):
         fields = ["name", "description", "category", "status"]
 
     def __init__(self, *args, **kwargs):
-        feature = kwargs.get("instance", None)
+        feature = kwargs.get("instance", None)  # noqa: F841
         super().__init__(*args, **kwargs)

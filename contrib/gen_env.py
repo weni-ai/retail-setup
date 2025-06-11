@@ -11,7 +11,7 @@ from django.core.management.utils import get_random_secret_key
 def dict_to_config_string(data: dict) -> str:
     config_string = ""
     for key, value in data.items():
-        config_string += f"{key}=\"{value}\"\n"
+        config_string += f'{key}="{value}"\n'
 
     return config_string.strip()
 
@@ -32,10 +32,18 @@ def generate_env():
         "DATABASE_URL": "postgres://retail:retail@localhost:5432/retail",
         "CELERY_BROKER_URL": "redis://redis:6379/1",
         "REDIS_CHANNEL_URL": "redis://redis:6379/1",
-        "USE_OIDC": False,
         "INTEGRATIONS_REST_ENDPOINT": "",
         "FLOWS_REST_ENDPOINT": "",
         "EMAILS_CAN_TESTING": "",
+        "DOMAIN": "http://localhost:8000",
+        "USE_OIDC": True,
+        "OIDC_RP_CLIENT_ID": "",
+        "OIDC_RP_CLIENT_SECRET": "",
+        "OIDC_OP_AUTHORIZATION_ENDPOINT": "",
+        "OIDC_OP_TOKEN_ENDPOINT": "",
+        "OIDC_OP_USER_ENDPOINT": "",
+        "OIDC_OP_JWKS_ENDPOINT": "",
+        "OIDC_RP_SIGN_ALGO": "",
     }
 
     with open(env_path, "w") as configfile:

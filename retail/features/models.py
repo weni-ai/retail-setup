@@ -8,7 +8,6 @@ from retail.projects.models import Project
 
 
 class Feature(models.Model):
-
     features_types_choices = [("FEATURE", "Feature"), ("FUNCTION", "Function")]
     categories_choices = [("ACTIVE", "Active"), ("PASSIVE", "Passive")]
     STATUS_CHOICES = [
@@ -114,7 +113,7 @@ class FeatureVersion(models.Model):
         return settings.ACTION_TYPES
 
     def save(self, *args) -> None:
-        if self.action_types != "PERSONALIZADO" and self.action_types != None:
+        if self.action_types != "PERSONALIZADO" and self.action_types is not None:
             for action_type in self.get_action_types:
                 if self.action_types.lower() == action_type.get("name").lower():
                     self.action_name = action_type.get("name")
