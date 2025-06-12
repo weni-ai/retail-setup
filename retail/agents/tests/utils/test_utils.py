@@ -1,5 +1,9 @@
 from unittest import TestCase
-from retail.agents.utils import build_broadcast_template_message
+from retail.agents.utils import (
+    build_broadcast_template_message,
+    adapt_order_status_to_webhook_payload,
+)
+from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
 
 class TestBuildBroadcastTemplateMessage(TestCase):
@@ -144,3 +148,212 @@ class TestBuildBroadcastTemplateMessage(TestCase):
             data, self.channel_uuid, self.project_uuid, "test"
         )
         self.assertEqual(result, {})
+
+    def test_missing_template_name_returns_empty_dict(self):
+        data = {
+            "template_variables": {"1": "value"},
+            "contact_urn": "whatsapp:123",
+        }
+
+        result = build_broadcast_template_message(
+            data, self.channel_uuid, self.project_uuid, ""
+        )
+        self.assertEqual(result, {})
+
+    def test_missing_contact_urn_returns_empty_dict(self):
+        data = {
+            "template_variables": {"1": "value"},
+            "language": "pt-BR",
+        }
+
+        result = build_broadcast_template_message(
+            data, self.channel_uuid, self.project_uuid, "test_template"
+        )
+        self.assertEqual(result, {})
+
+    def test_none_contact_urn_returns_empty_dict(self):
+        data = {
+            "template_variables": {"1": "value"},
+            "contact_urn": None,
+            "language": "pt-BR",
+        }
+
+        result = build_broadcast_template_message(
+            data, self.channel_uuid, self.project_uuid, "test_template"
+        )
+        self.assertEqual(result, {})
+
+    def test_none_template_name_returns_empty_dict(self):
+        data = {
+            "template_variables": {"1": "value"},
+            "contact_urn": "whatsapp:123",
+            "language": "pt-BR",
+        }
+
+        result = build_broadcast_template_message(
+            data, self.channel_uuid, self.project_uuid, None
+        )
+        self.assertEqual(result, {})
+
+    def test_button_with_empty_string_is_ignored(self):
+        data = {
+            "template_variables": {
+                "1": "test",
+                "button": "",
+            },
+            "contact_urn": "whatsapp:123",
+            "language": "pt-BR",
+        }
+
+        result = build_broadcast_template_message(
+            data, self.channel_uuid, self.project_uuid, "test_template"
+        )
+        self.assertNotIn("buttons", result["msg"])
+
+    def test_button_with_none_is_ignored(self):
+        data = {
+            "template_variables": {
+                "1": "test",
+                "button": None,
+            },
+            "contact_urn": "whatsapp:123",
+            "language": "pt-BR",
+        }
+
+        result = build_broadcast_template_message(
+            data, self.channel_uuid, self.project_uuid, "test_template"
+        )
+        self.assertNotIn("buttons", result["msg"])
+
+    def test_mixed_numeric_and_non_numeric_keys(self):
+        data = {
+            "template_variables": {
+                "1": "first",
+                "invalid": "ignored",
+                "3": "third",
+                "another_invalid": "also_ignored",
+                "2": "second",
+            },
+            "contact_urn": "whatsapp:123",
+            "language": "pt-BR",
+        }
+
+        result = build_broadcast_template_message(
+            data, self.channel_uuid, self.project_uuid, "test_template"
+        )
+        self.assertEqual(
+            result["msg"]["template"]["variables"], ["first", "second", "third"]
+        )
+
+    def test_numeric_keys_with_gaps(self):
+        data = {
+            "template_variables": {
+                "1": "first",
+                "5": "fifth",
+                "3": "third",
+            },
+            "contact_urn": "whatsapp:123",
+            "language": "pt-BR",
+        }
+
+        result = build_broadcast_template_message(
+            data, self.channel_uuid, self.project_uuid, "test_template"
+        )
+        self.assertEqual(
+            result["msg"]["template"]["variables"], ["first", "third", "fifth"]
+        )
+
+
+class TestAdaptOrderStatusToWebhookPayload(TestCase):
+    def test_adapt_order_status_to_webhook_payload(self):
+        order_status_dto = OrderStatusDTO(
+            domain="test.domain.com",
+            orderId="12345",
+            currentState="invoiced",
+            lastState="payment-approved",
+            vtexAccount="testaccount",
+            recorder="test_recorder",
+            currentChangeDate="2023-01-01T00:00:00Z",
+            lastChangeDate="2023-01-01T00:00:00Z",
+        )
+
+        expected = {
+            "Domain": "test.domain.com",
+            "OrderId": "12345",
+            "State": "invoiced",
+            "LastState": "payment-approved",
+            "Origin": {
+                "Account": "testaccount",
+                "Sender": "Gallery",
+            },
+        }
+
+        result = adapt_order_status_to_webhook_payload(order_status_dto)
+        self.assertEqual(result, expected)
+
+    def test_adapt_order_status_with_empty_values(self):
+        order_status_dto = OrderStatusDTO(
+            domain="",
+            orderId="",
+            currentState="",
+            lastState="",
+            vtexAccount="",
+            recorder="",
+            currentChangeDate="",
+            lastChangeDate="",
+        )
+
+        expected = {
+            "Domain": "",
+            "OrderId": "",
+            "State": "",
+            "LastState": "",
+            "Origin": {
+                "Account": "",
+                "Sender": "Gallery",
+            },
+        }
+
+        result = adapt_order_status_to_webhook_payload(order_status_dto)
+        self.assertEqual(result, expected)
+
+    def test_adapt_order_status_with_none_values(self):
+        order_status_dto = OrderStatusDTO(
+            domain=None,
+            orderId=None,
+            currentState=None,
+            lastState=None,
+            vtexAccount=None,
+            recorder=None,
+            currentChangeDate=None,
+            lastChangeDate=None,
+        )
+
+        expected = {
+            "Domain": None,
+            "OrderId": None,
+            "State": None,
+            "LastState": None,
+            "Origin": {
+                "Account": None,
+                "Sender": "Gallery",
+            },
+        }
+
+        result = adapt_order_status_to_webhook_payload(order_status_dto)
+        self.assertEqual(result, expected)
+
+    def test_adapt_order_status_sender_is_always_gallery(self):
+        order_status_dto = OrderStatusDTO(
+            domain="test.domain.com",
+            orderId="12345",
+            currentState="invoiced",
+            lastState="payment-approved",
+            vtexAccount="testaccount",
+            recorder="test_recorder",
+            currentChangeDate="2023-01-01T00:00:00Z",
+            lastChangeDate="2023-01-01T00:00:00Z",
+        )
+
+        result = adapt_order_status_to_webhook_payload(order_status_dto)
+        self.assertEqual(result["Origin"]["Sender"], "Gallery")
