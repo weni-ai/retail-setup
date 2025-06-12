@@ -69,8 +69,8 @@ class TestCodeActionsService(TestCase):
         self.assertEqual(result, expected_response)
 
     @patch("builtins.open", new_callable=mock_open, read_data="template content")
-    @patch("os.path.join")
-    @patch("os.path.dirname")
+    @patch("retail.services.code_actions.service.os.path.join")
+    @patch("retail.services.code_actions.service.os.path.dirname")
     def test_load_action_code_template_success(
         self, mock_dirname, mock_join, mock_file
     ):
@@ -88,8 +88,8 @@ class TestCodeActionsService(TestCase):
         self.assertEqual(result, "template content")
 
     @patch("builtins.open", side_effect=FileNotFoundError())
-    @patch("os.path.join")
-    @patch("os.path.dirname")
+    @patch("retail.services.code_actions.service.os.path.join")
+    @patch("retail.services.code_actions.service.os.path.dirname")
     @patch("retail.services.code_actions.service.logger")
     def test_load_action_code_template_file_not_found(
         self, mock_logger, mock_dirname, mock_join, mock_file
@@ -110,8 +110,8 @@ class TestCodeActionsService(TestCase):
         )
 
     @patch("builtins.open", side_effect=Exception("Permission denied"))
-    @patch("os.path.join")
-    @patch("os.path.dirname")
+    @patch("retail.services.code_actions.service.os.path.join")
+    @patch("retail.services.code_actions.service.os.path.dirname")
     @patch("retail.services.code_actions.service.logger")
     def test_load_action_code_template_other_exception(
         self, mock_logger, mock_dirname, mock_join, mock_file
