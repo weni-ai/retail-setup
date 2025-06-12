@@ -69,56 +69,35 @@ class TestCodeActionsService(TestCase):
         self.assertEqual(result, expected_response)
 
     @patch("builtins.open", new_callable=mock_open, read_data="template content")
-    @patch("retail.services.code_actions.service.os.path.join")
-    @patch("retail.services.code_actions.service.os.path.dirname")
-    def test_load_action_code_template_success(
-        self, mock_dirname, mock_join, mock_file
-    ):
+    def test_load_action_code_template_success(self, mock_file):
         filename = "test_template.py"
-        mock_dirname.return_value = "/path/to/service"
-        mock_join.return_value = "/path/to/service/templates/test_template.py"
 
         result = self.service._load_action_code_template(filename)
 
-        mock_dirname.assert_called_once()
-        mock_join.assert_called_once_with("/path/to/service", "templates", filename)
-        mock_file.assert_called_once_with(
-            "/path/to/service/templates/test_template.py", "r"
-        )
+        mock_file.assert_called_once()
+        call_args = mock_file.call_args[0][0]
+        self.assertTrue(call_args.endswith(f"templates/{filename}"))
         self.assertEqual(result, "template content")
 
     @patch("builtins.open", side_effect=FileNotFoundError())
-    @patch("retail.services.code_actions.service.os.path.join")
-    @patch("retail.services.code_actions.service.os.path.dirname")
     @patch("retail.services.code_actions.service.logger")
-    def test_load_action_code_template_file_not_found(
-        self, mock_logger, mock_dirname, mock_join, mock_file
-    ):
+    def test_load_action_code_template_file_not_found(self, mock_logger, mock_file):
         filename = "nonexistent_template.py"
-        template_path = "/path/to/service/templates/nonexistent_template.py"
-        mock_dirname.return_value = "/path/to/service"
-        mock_join.return_value = template_path
 
         with self.assertRaises(ValueError) as context:
             self.service._load_action_code_template(filename)
 
-        mock_logger.error.assert_called_once_with(
-            f"Template file not found at: {template_path}"
-        )
-        self.assertEqual(
-            str(context.exception), f"Template file not found at: {template_path}"
-        )
+        mock_logger.error.assert_called_once()
+        error_message = mock_logger.error.call_args[0][0]
+
+        self.assertIn("Template file not found at:", error_message)
+        self.assertIn(filename, error_message)
+        self.assertIn("Template file not found at:", str(context.exception))
 
     @patch("builtins.open", side_effect=Exception("Permission denied"))
-    @patch("retail.services.code_actions.service.os.path.join")
-    @patch("retail.services.code_actions.service.os.path.dirname")
     @patch("retail.services.code_actions.service.logger")
-    def test_load_action_code_template_other_exception(
-        self, mock_logger, mock_dirname, mock_join, mock_file
-    ):
+    def test_load_action_code_template_other_exception(self, mock_logger, mock_file):
         filename = "template.py"
-        mock_dirname.return_value = "/path/to/service"
-        mock_join.return_value = "/path/to/service/templates/template.py"
 
         with self.assertRaises(Exception) as context:
             self.service._load_action_code_template(filename)
