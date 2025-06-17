@@ -105,12 +105,11 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.mock_lambda_service.invoke.return_value = {"Payload": mock_payload}
         self.mock_template_adapter.adapt.return_value = self.adapted_translation
 
-    @patch(
-        "retail.templates.usecases.create_custom_template.task_create_template.delay"
-    )
-    def test_execute_successful_creation(self, mock_task_delay):
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_execute_successful_creation(self, mock_task_create_template):
         """Test successful custom template creation"""
         self._setup_mocks_for_successful_execution()
+        mock_task_create_template.delay.return_value = Mock()
 
         result = self.use_case.execute(self.valid_payload)
 
@@ -133,16 +132,15 @@ class CreateCustomTemplateUseCaseTest(TestCase):
 
         self.mock_template_adapter.adapt.assert_called_once()
 
-        mock_task_delay.assert_called_once()
+        mock_task_create_template.delay.assert_called_once()
 
-    @patch(
-        "retail.templates.usecases.create_custom_template.task_create_template.delay"
-    )
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
     def test_execute_with_buttons_modification_in_notify_integrations(
-        self, mock_task_delay
+        self, mock_task_create_template
     ):
         """Test that buttons are correctly modified for integrations notification"""
         self._setup_mocks_for_successful_execution()
+        mock_task_create_template.delay.return_value = Mock()
 
         translation_with_buttons = copy.deepcopy(self.adapted_translation)
         translation_with_buttons["buttons"] = [{"type": "URL", "text": "Test Button"}]
@@ -153,14 +151,14 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertIn("buttons", result.metadata)
         self.assertEqual(result.metadata["buttons"][0]["type"], "URL")
 
-        mock_task_delay.assert_called_once()
-        task_call_args = mock_task_delay.call_args.kwargs
-        self.assertIn("template_translation", task_call_args)
+        mock_task_create_template.delay.assert_called_once()
+        call_args = mock_task_create_template.delay.call_args.kwargs
+        self.assertIn("template_translation", call_args)
 
-        task_translation = task_call_args["template_translation"]
-        if "buttons" in task_translation:
-            self.assertEqual(task_translation["buttons"][0]["button_type"], "URL")
-            self.assertNotIn("type", task_translation["buttons"][0])
+        notify_translation = call_args["template_translation"]
+        if "buttons" in notify_translation:
+            self.assertEqual(notify_translation["buttons"][0]["button_type"], "URL")
+            self.assertNotIn("type", notify_translation["buttons"][0])
 
     def test_execute_integrated_agent_not_found(self):
         """Test error when integrated agent is not found"""
@@ -252,7 +250,11 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         modified_payload = copy.deepcopy(self.valid_payload)
         modified_payload["parameters"][1]["value"] = "custom start condition"
 
-        result = self.use_case.execute(modified_payload)
+        with patch(
+            "retail.templates.usecases.create_custom_template.task_create_template"
+        ) as mock_task:
+            mock_task.delay.return_value = Mock()
+            result = self.use_case.execute(modified_payload)
 
         self.assertEqual(result.start_condition, "custom start condition")
 
@@ -267,16 +269,21 @@ class CreateCustomTemplateUseCaseTest(TestCase):
             if param["name"] != "start_condition"
         ]
 
-        result = self.use_case.execute(modified_payload)
+        with patch(
+            "retail.templates.usecases.create_custom_template.task_create_template"
+        ) as mock_task:
+            mock_task.delay.return_value = Mock()
+            result = self.use_case.execute(modified_payload)
 
         self.assertIsNone(result.start_condition)
 
-    @patch(
-        "retail.templates.usecases.create_custom_template.task_create_template.delay"
-    )
-    def test_execute_creates_template_and_version_relationship(self, mock_task_delay):
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_execute_creates_template_and_version_relationship(
+        self, mock_task_create_template
+    ):
         """Test that template and version are properly linked"""
         self._setup_mocks_for_successful_execution()
+        mock_task_create_template.delay.return_value = Mock()
 
         result = self.use_case.execute(self.valid_payload)
 
@@ -286,7 +293,10 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertEqual(version.template, result)
         self.assertEqual(version.project, self.project)
 
-    def test_invoke_code_generator_with_correct_payload(self):
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_invoke_code_generator_with_correct_payload(
+        self, mock_task_create_template
+    ):
         """Test that lambda is invoked with correct payload structure"""
         mock_payload = Mock()
         mock_payload.read.return_value = json.dumps(
@@ -294,6 +304,7 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         ).encode()
         self.mock_lambda_service.invoke.return_value = {"Payload": mock_payload}
         self.mock_template_adapter.adapt.return_value = self.adapted_translation
+        mock_task_create_template.delay.return_value = Mock()
 
         self.use_case.execute(self.valid_payload)
 
@@ -303,9 +314,13 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         expected_payload = {"parameters": self.valid_payload["parameters"]}
         self.assertEqual(call_args[1]["payload"], expected_payload)
 
-    def test_adapt_translation_called_with_correct_data(self):
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_adapt_translation_called_with_correct_data(
+        self, mock_task_create_template
+    ):
         """Test that template adapter is called with correct data structure"""
         self._setup_mocks_for_successful_execution()
+        mock_task_create_template.delay.return_value = Mock()
 
         self.use_case.execute(self.valid_payload)
 
