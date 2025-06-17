@@ -86,9 +86,14 @@ class UpdateLibraryTemplateSerializer(serializers.Serializer):
     library_template_button_inputs = UpdateLibraryTemplateButtonSerializer(many=True)
 
 
+class ParameterSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    value = serializers.JSONField()
+
+
 class CreateCustomTemplateSerializer(UpdateTemplateContentSerializer):
-    rule_code = serializers.CharField()
     category = serializers.CharField()
+    parameters = ParameterSerializer(many=True, required=True)
 
 
 class TemplateMetricsRequestSerializer(serializers.Serializer):

@@ -12,3 +12,7 @@ class CodeGeneratorBadRequest(APIException):
 
 class CodeGeneratorUnprocessableEntity(APIException):
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+class CodeGeneratorInternalServerError(APIException):
+    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
