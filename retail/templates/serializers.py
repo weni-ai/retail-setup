@@ -83,3 +83,9 @@ class UpdateLibraryTemplateButtonSerializer(serializers.Serializer):
 
 class UpdateLibraryTemplateSerializer(serializers.Serializer):
     library_template_button_inputs = UpdateLibraryTemplateButtonSerializer(many=True)
+
+
+class TemplateMetricsRequestSerializer(serializers.Serializer):
+    template_uuid = serializers.UUIDField(required=True)
+    start = serializers.CharField(required=True)
+    end = serializers.CharField(required=True)
