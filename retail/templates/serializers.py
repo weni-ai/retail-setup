@@ -32,9 +32,15 @@ class ReadTemplateSerializer(serializers.Serializer):
         return last_version.status
 
     def get_display_name(self, obj: Template) -> str:
+        if obj.parent is None:
+            return None
+
         return obj.parent.display_name
 
     def get_start_condition(self, obj: Template) -> str:
+        if obj.parent is None:
+            return None
+
         return obj.parent.start_condition
 
 
