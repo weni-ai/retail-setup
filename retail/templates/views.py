@@ -7,6 +7,7 @@ from rest_framework.request import Request
 from rest_framework import status
 
 from retail.internal.permissions import CanCommunicateInternally
+from retail.templates.permissions import IsTemplateFromUserProject
 from retail.templates.usecases import (
     CreateTemplateUseCase,
     ReadTemplateUseCase,
@@ -32,7 +33,7 @@ from uuid import UUID
 
 
 class TemplateViewSet(ViewSet):
-    permission_classes = [CanCommunicateInternally]
+    permission_classes = [CanCommunicateInternally, IsTemplateFromUserProject]
 
     def create(self, request: Request) -> Response:
         request_serializer = CreateTemplateSerializer(data=request.data)
@@ -48,6 +49,8 @@ class TemplateViewSet(ViewSet):
     def retrieve(self, request: Request, pk: UUID) -> Response:
         use_case = ReadTemplateUseCase()
         template = use_case.execute(pk)
+
+        self.check_object_permissions(request, template)
 
         response_serializer = ReadTemplateSerializer(template)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
@@ -92,25 +95,32 @@ class TemplateViewSet(ViewSet):
             UpdateTemplateContentData,
             {
                 **request_serializer.validated_data,
-                "template_uuid": str(pk),
             },
         )
 
         use_case = UpdateTemplateContentUseCase()
-        updated_template = use_case.execute(data)
+
+        template = use_case.get_template(pk)
+        self.check_object_permissions(request, template)
+
+        updated_template = use_case.execute(data, template)
 
         response_serializer = ReadTemplateSerializer(updated_template)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     def destroy(self, request: Request, pk: UUID) -> Response:
         use_case = DeleteTemplateUseCase()
-        use_case.execute(pk)
+
+        template = use_case.get_template(pk)
+        self.check_object_permissions(request, template)
+
+        use_case.execute(template)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class TemplateLibraryViewSet(ViewSet):
-    permission_classes = [CanCommunicateInternally]
+    permission_classes = [CanCommunicateInternally, IsTemplateFromUserProject]
 
     def partial_update(self, request: Request, pk: UUID) -> Response:
         request_serializer = UpdateLibraryTemplateSerializer(data=request.data)
@@ -125,6 +135,11 @@ class TemplateLibraryViewSet(ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        use_case = UpdateLibraryTemplateUseCase()
+
+        template = use_case.get_template(pk)
+        self.check_object_permissions(request, template)
+
         data: UpdateLibraryTemplateData = {
             "template_uuid": str(pk),
             "app_uuid": app_uuid,
@@ -133,9 +148,7 @@ class TemplateLibraryViewSet(ViewSet):
                 "library_template_button_inputs"
             ),
         }
-
-        use_case = UpdateLibraryTemplateUseCase()
-        template = use_case.execute(data)
+        template = use_case.execute(data, template)
 
         response_serializer = ReadTemplateSerializer(template)
         return Response(response_serializer.data, status=status.HTTP_200_OK)

@@ -15,7 +15,7 @@ class UpdateLibraryTemplateData(TypedDict):
 
 
 class UpdateLibraryTemplateUseCase(BaseLibraryTemplateUseCase):
-    def _get_template(self, template_uuid: str) -> Template:
+    def get_template(self, template_uuid: str) -> Template:
         try:
             return Template.objects.get(uuid=template_uuid)
         except Template.DoesNotExist:
@@ -64,8 +64,7 @@ class UpdateLibraryTemplateUseCase(BaseLibraryTemplateUseCase):
     def _get_last_version(self, template: Template) -> Version:
         return template.versions.order_by("-id").first()
 
-    def execute(self, payload: UpdateLibraryTemplateData) -> None:
-        template = self._get_template(payload["template_uuid"])
+    def execute(self, payload: UpdateLibraryTemplateData, template: Template) -> None:
         template.needs_button_edit = False
         version = self._get_last_version(template)
         payload = self._build_payload(template, payload)

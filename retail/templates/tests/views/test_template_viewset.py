@@ -11,7 +11,7 @@ from rest_framework.test import APITestCase, APIClient
 from rest_framework.exceptions import NotFound
 from rest_framework import status
 
-from retail.agents.models import PreApprovedTemplate, Agent
+from retail.agents.models import PreApprovedTemplate, Agent, IntegratedAgent
 from retail.templates.models import Template, Version
 from retail.templates.usecases import (
     CreateTemplateUseCase,
@@ -54,6 +54,15 @@ class TemplateViewSetTest(APITestCase):
             lambda_arn=None,
             project=self.project,
             credentials={},
+        )
+
+        self.integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(),
+            agent=self.agent,
+            project=self.project,
+            is_active=True,
+            contact_percentage=10,
+            config={},
         )
 
         self.parent = PreApprovedTemplate.objects.create(
@@ -144,6 +153,7 @@ class TemplateViewSetTest(APITestCase):
             uuid=uuid4(),
             name="test_template",
             parent=self.parent,
+            integrated_agent=self.integrated_agent,
         )
         version = Version.objects.create(
             template=template,
@@ -158,7 +168,10 @@ class TemplateViewSetTest(APITestCase):
         self.read_usecase.execute = lambda uuid: template
 
         template_uuid = str(template.uuid)
-        response = self.client.get(reverse("template-detail", args=[template_uuid]))
+        response = self.client.get(
+            reverse("template-detail", args=[template_uuid]),
+            headers={"PROJECT_UUID": str(self.project.uuid)},
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["name"], "test_template")
@@ -170,9 +183,85 @@ class TemplateViewSetTest(APITestCase):
         )
 
         template_uuid = str(uuid4())
-        response = self.client.get(reverse("template-detail", args=[template_uuid]))
+        response = self.client.get(
+            reverse("template-detail", args=[template_uuid]),
+            headers={"PROJECT_UUID": str(self.project.uuid)},
+        )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_read_template_permission_denied_no_project_header(self):
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="test_template",
+            parent=self.parent,
+            integrated_agent=self.integrated_agent,
+        )
+
+        self.read_usecase.execute = lambda uuid: template
+
+        template_uuid = str(template.uuid)
+        response = self.client.get(reverse("template-detail", args=[template_uuid]))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_read_template_permission_denied_no_integrated_agent(self):
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="test_template",
+            parent=self.parent,
+            integrated_agent=None,
+        )
+
+        self.read_usecase.execute = lambda uuid: template
+
+        template_uuid = str(template.uuid)
+        response = self.client.get(
+            reverse("template-detail", args=[template_uuid]),
+            headers={"PROJECT_UUID": str(self.project.uuid)},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_read_template_permission_denied_different_project(self):
+        other_project = Project.objects.create(
+            uuid=uuid4(),
+            name="Other Project",
+        )
+        other_agent = Agent.objects.create(
+            uuid=uuid4(),
+            name="Other Agent",
+            slug="other-agent",
+            description="Other agent",
+            is_oficial=True,
+            lambda_arn=None,
+            project=other_project,
+            credentials={},
+        )
+        other_integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(),
+            agent=other_agent,
+            project=other_project,
+            is_active=True,
+            contact_percentage=10,
+            config={},
+        )
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="test_template",
+            parent=self.parent,
+            integrated_agent=other_integrated_agent,
+        )
+
+        self.read_usecase.execute = lambda uuid: template
+
+        template_uuid = str(template.uuid)
+        response = self.client.get(
+            reverse("template-detail", args=[template_uuid]),
+            headers={"PROJECT_UUID": str(self.project.uuid)},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_patch_status(self):
         template = Template.objects.create(
@@ -234,6 +323,7 @@ class TemplateViewSetTest(APITestCase):
             uuid=uuid4(),
             name="test_template",
             parent=self.parent,
+            integrated_agent=self.integrated_agent,
         )
         version = Version.objects.create(
             template=template,
@@ -249,9 +339,11 @@ class TemplateViewSetTest(APITestCase):
             uuid=uuid4(),
             name="test_template",
             parent=self.parent,
+            integrated_agent=self.integrated_agent,
         )
 
-        self.update_content_usecase.execute = lambda data: updated_template
+        self.update_content_usecase.get_template = lambda uuid: template
+        self.update_content_usecase.execute = lambda data, template: updated_template
 
         payload = {
             "template_body": "Updated template body with {{placeholder}}",
@@ -261,7 +353,10 @@ class TemplateViewSetTest(APITestCase):
 
         template_uuid = str(template.uuid)
         response = self.client.patch(
-            reverse("template-detail", args=[template_uuid]), payload, format="json"
+            reverse("template-detail", args=[template_uuid]),
+            payload,
+            format="json",
+            headers={"PROJECT_UUID": str(self.project.uuid)},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -275,13 +370,16 @@ class TemplateViewSetTest(APITestCase):
         }
 
         response = self.client.patch(
-            reverse("template-detail", args=[template_uuid]), payload, format="json"
+            reverse("template-detail", args=[template_uuid]),
+            payload,
+            format="json",
+            headers={"PROJECT_UUID": str(self.project.uuid)},
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_partial_update_template_content_not_found(self):
-        self.update_content_usecase.execute = lambda data: (_ for _ in ()).throw(
+        self.update_content_usecase.get_template = lambda uuid: (_ for _ in ()).throw(
             NotFound("Template not found")
         )
 
@@ -293,35 +391,84 @@ class TemplateViewSetTest(APITestCase):
 
         template_uuid = str(uuid4())
         response = self.client.patch(
-            reverse("template-detail", args=[template_uuid]), payload, format="json"
+            reverse("template-detail", args=[template_uuid]),
+            payload,
+            format="json",
+            headers={"PROJECT_UUID": str(self.project.uuid)},
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_partial_update_template_content_permission_denied(self):
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="test_template",
+            parent=self.parent,
+            integrated_agent=self.integrated_agent,
+        )
+
+        self.update_content_usecase.get_template = lambda uuid: template
+
+        payload = {
+            "template_body": "Updated template body",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+        }
+
+        template_uuid = str(template.uuid)
+        response = self.client.patch(
+            reverse("template-detail", args=[template_uuid]), payload, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_delete_template(self):
         template = Template.objects.create(
             uuid=uuid4(),
             name="test_template",
             parent=self.parent,
+            integrated_agent=self.integrated_agent,
         )
 
+        self.delete_usecase.get_template = lambda uuid: template
         self.delete_usecase.execute = MagicMock()
 
         template_uuid = str(template.uuid)
-        response = self.client.delete(reverse("template-detail", args=[template_uuid]))
+        response = self.client.delete(
+            reverse("template-detail", args=[template_uuid]),
+            headers={"PROJECT_UUID": str(self.project.uuid)},
+        )
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.delete_usecase.execute.assert_called_once_with(template_uuid)
+        self.delete_usecase.execute.assert_called_once_with(template)
 
     def test_delete_template_not_found(self):
-        self.delete_usecase.execute = lambda uuid: (_ for _ in ()).throw(
+        self.delete_usecase.get_template = lambda uuid: (_ for _ in ()).throw(
             NotFound("Template not found")
         )
 
         template_uuid = str(uuid4())
-        response = self.client.delete(reverse("template-detail", args=[template_uuid]))
+        response = self.client.delete(
+            reverse("template-detail", args=[template_uuid]),
+            headers={"PROJECT_UUID": str(self.project.uuid)},
+        )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_delete_template_permission_denied(self):
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="test_template",
+            parent=self.parent,
+            integrated_agent=self.integrated_agent,
+        )
+
+        self.delete_usecase.get_template = lambda uuid: template
+
+        template_uuid = str(template.uuid)
+        response = self.client.delete(reverse("template-detail", args=[template_uuid]))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_unauthorized_access(self):
         client = APIClient()

@@ -16,7 +16,7 @@ class TestDeleteTemplateUseCase(TestCase):
         mock_template = MagicMock()
         mock_template_model.objects.get.return_value = mock_template
 
-        result = self.use_case._get_template(self.template_uuid)
+        result = self.use_case.get_template(self.template_uuid)
 
         mock_template_model.objects.get.assert_called_once_with(
             uuid=self.template_uuid, is_active=True
@@ -29,7 +29,7 @@ class TestDeleteTemplateUseCase(TestCase):
         mock_template_model.objects.get.side_effect = mock_template_model.DoesNotExist()
 
         with self.assertRaises(NotFound) as context:
-            self.use_case._get_template(self.template_uuid)
+            self.use_case.get_template(self.template_uuid)
 
         mock_template_model.objects.get.assert_called_once_with(
             uuid=self.template_uuid, is_active=True
@@ -50,27 +50,13 @@ class TestDeleteTemplateUseCase(TestCase):
         self.assertIn("test-template-slug", mock_integrated_agent.ignore_templates)
         mock_integrated_agent.save.assert_called_once()
 
-    @patch.object(DeleteTemplateUseCase, "_get_template")
     @patch.object(DeleteTemplateUseCase, "_add_template_to_ignore_list")
-    def test_execute_success(self, mock_add_to_ignore_list, mock_get_template):
+    def test_execute_success(self, mock_add_to_ignore_list):
         mock_template = MagicMock()
         mock_template.is_active = True
-        mock_get_template.return_value = mock_template
 
-        self.use_case.execute(self.template_uuid)
+        self.use_case.execute(mock_template)
 
-        mock_get_template.assert_called_once_with(self.template_uuid)
         mock_add_to_ignore_list.assert_called_once_with(mock_template)
         self.assertFalse(mock_template.is_active)
         mock_template.save.assert_called_once()
-
-    @patch.object(DeleteTemplateUseCase, "_get_template")
-    def test_execute_template_not_found(self, mock_get_template):
-        mock_get_template.side_effect = NotFound(
-            f"Template not found: {self.template_uuid}"
-        )
-
-        with self.assertRaises(NotFound):
-            self.use_case.execute(self.template_uuid)
-
-        mock_get_template.assert_called_once_with(self.template_uuid)

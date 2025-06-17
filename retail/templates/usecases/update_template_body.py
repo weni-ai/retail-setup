@@ -52,7 +52,7 @@ class UpdateTemplateContentUseCase(TemplateBuilderMixin):
         self.service = service or IntegrationsService()
         self.template_adapter = template_adapter or TemplateTranslationAdapter()
 
-    def _get_template(self, uuid: str) -> Template:
+    def get_template(self, uuid: str) -> Template:
         try:
             return Template.objects.get(uuid=uuid)
         except Template.DoesNotExist:
@@ -79,7 +79,9 @@ class UpdateTemplateContentUseCase(TemplateBuilderMixin):
             template_translation=translation_payload,
         )
 
-    def execute(self, payload: UpdateTemplateContentData) -> Template:
+    def execute(
+        self, payload: UpdateTemplateContentData, template: Template
+    ) -> Template:
         """
         Updates template content fields (body, header, footer, buttons) based on metadata and creates a new version.
 
@@ -90,8 +92,6 @@ class UpdateTemplateContentUseCase(TemplateBuilderMixin):
         Returns:
             Template: The template instance with a new version propagated to integrations.
         """
-        template = self._get_template(payload["template_uuid"])
-
         if not template.metadata:
             raise ValueError("Template metadata is missing")
 

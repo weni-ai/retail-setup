@@ -38,7 +38,7 @@ class TestUpdateLibraryTemplateUseCase(TestCase):
         mock_template = MagicMock()
         mock_template_model.objects.get.return_value = mock_template
 
-        result = self.use_case._get_template(self.template_uuid)
+        result = self.use_case.get_template(self.template_uuid)
 
         mock_template_model.objects.get.assert_called_once_with(uuid=self.template_uuid)
         self.assertEqual(result, mock_template)
@@ -49,7 +49,7 @@ class TestUpdateLibraryTemplateUseCase(TestCase):
         mock_template_model.objects.get.side_effect = mock_template_model.DoesNotExist()
 
         with self.assertRaises(NotFound) as context:
-            self.use_case._get_template(self.template_uuid)
+            self.use_case.get_template(self.template_uuid)
 
         mock_template_model.objects.get.assert_called_once_with(uuid=self.template_uuid)
         self.assertEqual(
@@ -213,7 +213,6 @@ class TestUpdateLibraryTemplateUseCase(TestCase):
         mock_template.versions.order_by.return_value.first.assert_called_once()
         self.assertEqual(result, mock_version)
 
-    @patch.object(UpdateLibraryTemplateUseCase, "_get_template")
     @patch.object(UpdateLibraryTemplateUseCase, "_get_last_version")
     @patch.object(UpdateLibraryTemplateUseCase, "_build_payload")
     @patch.object(UpdateLibraryTemplateUseCase, "_update_template_metadata")
@@ -224,11 +223,9 @@ class TestUpdateLibraryTemplateUseCase(TestCase):
         mock_update_metadata,
         mock_build_payload,
         mock_get_last_version,
-        mock_get_template,
     ):
         mock_template = MagicMock()
         mock_template.needs_button_edit = True
-        mock_get_template.return_value = mock_template
 
         mock_version = MagicMock()
         mock_version.template_name = "Test Template"
@@ -247,9 +244,8 @@ class TestUpdateLibraryTemplateUseCase(TestCase):
         }
         mock_build_payload.return_value = built_payload
 
-        result = self.use_case.execute(self.payload)
+        result = self.use_case.execute(self.payload, mock_template)
 
-        mock_get_template.assert_called_once_with(self.template_uuid)
         self.assertFalse(mock_template.needs_button_edit)
 
         mock_get_last_version.assert_called_once_with(mock_template)
@@ -260,14 +256,3 @@ class TestUpdateLibraryTemplateUseCase(TestCase):
         )
 
         self.assertEqual(result, mock_template)
-
-    @patch.object(UpdateLibraryTemplateUseCase, "_get_template")
-    def test_execute_template_not_found(self, mock_get_template):
-        mock_get_template.side_effect = NotFound(
-            f"Template not found: {self.template_uuid}"
-        )
-
-        with self.assertRaises(NotFound):
-            self.use_case.execute(self.payload)
-
-        mock_get_template.assert_called_once_with(self.template_uuid)
