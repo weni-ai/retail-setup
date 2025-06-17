@@ -126,7 +126,9 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
 
     def _get_integrated_agent(self, integrated_agent_uuid: UUID):
         try:
-            return IntegratedAgent.objects.get(id=integrated_agent_uuid, is_active=True)
+            return IntegratedAgent.objects.get(
+                uuid=integrated_agent_uuid, is_active=True
+            )
         except IntegratedAgent.DoesNotExist:
             raise NotFound(f"Assigned agent not found: {integrated_agent_uuid}")
 
