@@ -1,5 +1,7 @@
 import json
 
+import copy
+
 from typing import Optional, Dict, Any, TypedDict, List
 
 from enum import IntEnum
@@ -165,7 +167,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         self._notify_integrations(
             version.template_name,
             version.uuid,
-            translation,
+            copy.deepcopy(translation),
             payload.get("app_uuid"),
             payload.get("project_uuid"),
             payload.get("category"),
