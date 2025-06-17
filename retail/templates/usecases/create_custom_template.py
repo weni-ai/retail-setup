@@ -1,7 +1,5 @@
 import json
 
-import logging
-
 from typing import Optional, Dict, Any, TypedDict, List
 
 from enum import IntEnum
@@ -47,11 +45,7 @@ class ParameterData(TypedDict):
 
 class CreateCustomTemplateData(CreateTemplateData):
     parameters: List[ParameterData]
-    category: str
     integrated_agent_uuid: UUID
-
-
-logger = logging.getLogger(__name__)
 
 
 class CreateCustomTemplateUseCase(TemplateBuilderMixin):
@@ -77,7 +71,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             function_name=self.lambda_code_generator, payload=payload
         )
 
-        response_payload = json.load(response["Payload"])
+        response_payload = json.loads(response["Payload"].read())
 
         return response_payload
 
@@ -132,14 +126,16 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
 
     def _get_integrated_agent(self, integrated_agent_uuid: UUID):
         try:
-            return IntegratedAgent.objects.get(id=integrated_agent_uuid, is_active=True)
+            return IntegratedAgent.objects.get(
+                uuid=integrated_agent_uuid, is_active=True
+            )
         except IntegratedAgent.DoesNotExist:
             raise NotFound(f"Assigned agent not found: {integrated_agent_uuid}")
 
     def _handle_successful_code_generation(
         self, payload: CreateCustomTemplateData, body: Dict[str, Any]
     ) -> Template:
-        template, version = self.build_template_and_version()
+        template, version = self.build_template_and_version(payload)
         translation = self._adapt_translation(payload.get("template_translation"))
         integrated_agent = self._get_integrated_agent(
             payload.get("integrated_agent_uuid")
@@ -180,8 +176,6 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
 
                 case LambdaResponseStatusCode.UNPROCESSABLE_ENTITY:
                     raise CodeGeneratorUnprocessableEntity(detail=body)
-
-        logger.error(f"Unknown error from lambda: {body}")
 
         raise CodeGeneratorInternalServerError(
             detail={"message": "Unknown error from lambda.", "error": response_payload}
