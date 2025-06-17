@@ -117,10 +117,14 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         body: Dict[str, Any],
         translation: Dict[str, Any],
         integrated_agent: IntegratedAgent,
+        display_name: str,
+        start_condition: str,
     ) -> Template:
         template.integrated_agent = integrated_agent
         template.metadata = translation
         template.rule_code = body.get("generated_code")
+        template.display_name = display_name
+        template.start_condition = start_condition
         template.save()
         return template
 
@@ -140,7 +144,24 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         integrated_agent = self._get_integrated_agent(
             payload.get("integrated_agent_uuid")
         )
-        template = self._update_template(template, body, translation, integrated_agent)
+
+        start_condition = next(
+            (
+                param.get("value")
+                for param in payload.get("parameters")
+                if param.get("name") == "start_condition"
+            ),
+            None,
+        )
+
+        template = self._update_template(
+            template,
+            body,
+            translation,
+            integrated_agent,
+            payload.get("display_name"),
+            start_condition,
+        )
         self._notify_integrations(
             version.template_name,
             version.uuid,

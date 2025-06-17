@@ -7,6 +7,8 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
 
+from uuid import UUID
+
 from retail.internal.permissions import CanCommunicateInternally
 from retail.templates.usecases import (
     CreateTemplateUseCase,
@@ -32,8 +34,6 @@ from retail.templates.serializers import (
     UpdateLibraryTemplateSerializer,
     CreateCustomTemplateSerializer,
 )
-
-from uuid import UUID
 
 from retail.templates.usecases.template_metrics import FetchTemplateMetricsUseCase
 
