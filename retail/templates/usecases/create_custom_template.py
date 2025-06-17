@@ -141,11 +141,11 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
     def _handle_successful_code_generation(
         self, payload: CreateCustomTemplateData, body: Dict[str, Any]
     ) -> Template:
-        template, version = self.build_template_and_version(payload)
-        translation = self._adapt_translation(payload.get("template_translation"))
         integrated_agent = self._get_integrated_agent(
             payload.get("integrated_agent_uuid")
         )
+        template, version = self.build_template_and_version(payload, integrated_agent)
+        translation = self._adapt_translation(payload.get("template_translation"))
 
         start_condition = next(
             (
