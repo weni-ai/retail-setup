@@ -45,7 +45,6 @@ class ParameterData(TypedDict):
 
 class CreateCustomTemplateData(CreateTemplateData):
     parameters: List[ParameterData]
-    category: str
     integrated_agent_uuid: UUID
 
 

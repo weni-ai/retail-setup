@@ -91,8 +91,13 @@ class ParameterSerializer(serializers.Serializer):
     value = serializers.JSONField()
 
 
-class CreateCustomTemplateSerializer(UpdateTemplateContentSerializer):
+class CreateCustomTemplateSerializer(serializers.Serializer):
+    template_translation = serializers.JSONField(required=True)
+    template_name = serializers.CharField()
     category = serializers.CharField()
+    app_uuid = serializers.CharField(required=True)
+    project_uuid = serializers.CharField(required=True)
+    integrated_agent_uuid = serializers.CharField(required=True)
     parameters = ParameterSerializer(many=True, required=True)
 
 
