@@ -1,7 +1,5 @@
 import json
 
-import logging
-
 from typing import Optional, Dict, Any, TypedDict, List
 
 from enum import IntEnum
@@ -28,8 +26,6 @@ from retail.templates.exceptions import (
 )
 from retail.agents.models import IntegratedAgent
 
-logger = logging.getLogger(__name__)
-
 
 class LambdaResponsePayload(TypedDict):
     statusCode: int
@@ -51,9 +47,6 @@ class CreateCustomTemplateData(CreateTemplateData):
     parameters: List[ParameterData]
     category: str
     integrated_agent_uuid: UUID
-
-
-logger = logging.getLogger(__name__)
 
 
 class CreateCustomTemplateUseCase(TemplateBuilderMixin):
@@ -182,8 +175,6 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
 
                 case LambdaResponseStatusCode.UNPROCESSABLE_ENTITY:
                     raise CodeGeneratorUnprocessableEntity(detail=body)
-
-        logger.error(f"Unknown error from lambda: {body}")
 
         raise CodeGeneratorInternalServerError(
             detail={"message": "Unknown error from lambda.", "error": response_payload}
