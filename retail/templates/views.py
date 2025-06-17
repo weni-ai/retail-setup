@@ -1,6 +1,7 @@
 from typing import cast
 
 from rest_framework.viewsets import ViewSet
+from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.request import Request
@@ -23,12 +24,15 @@ from retail.templates.usecases import (
 from retail.templates.serializers import (
     CreateTemplateSerializer,
     ReadTemplateSerializer,
+    TemplateMetricsRequestSerializer,
     UpdateTemplateContentSerializer,
     UpdateTemplateSerializer,
     UpdateLibraryTemplateSerializer,
 )
 
 from uuid import UUID
+
+from retail.templates.usecases.template_metrics import FetchTemplateMetricsUseCase
 
 
 class TemplateViewSet(ViewSet):
@@ -139,3 +143,25 @@ class TemplateLibraryViewSet(ViewSet):
 
         response_serializer = ReadTemplateSerializer(template)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
+class TemplateMetricsView(APIView):
+    permission_classes = [CanCommunicateInternally]
+
+    def post(self, request, *args, **kwargs):
+        serializer = TemplateMetricsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        data = serializer.validated_data
+        template_uuid = data["template_uuid"]
+        start = data["start"]
+        end = data["end"]
+
+        try:
+            use_case = FetchTemplateMetricsUseCase()
+            metrics = use_case.execute(
+                template_uuid=template_uuid, start=start, end=end
+            )
+            return Response(metrics, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
