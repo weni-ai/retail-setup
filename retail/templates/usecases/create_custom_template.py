@@ -159,7 +159,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         template = self._update_template(
             template,
             body,
-            copy.deepcopy(translation),
+            translation,
             integrated_agent,
             payload.get("display_name"),
             start_condition,
@@ -167,7 +167,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         self._notify_integrations(
             version.template_name,
             version.uuid,
-            translation,
+            copy.deepcopy(translation),
             payload.get("app_uuid"),
             payload.get("project_uuid"),
             payload.get("category"),
