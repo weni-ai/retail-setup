@@ -42,13 +42,21 @@ class FooterTransformer(ComponentTransformer):
 class ButtonTransformer(ComponentTransformer):
     """Transforms buttons component from library to translation format."""
 
+    def _is_button_format_already_translated(self, button: Dict) -> bool:
+        return button.get("type") == "URL" and isinstance(button.get("url"), str)
+
     def transform(self, template_data: Dict) -> Optional[List[Dict]]:
-        if not template_data.get("buttons"):
+        buttons = template_data.get("buttons")
+
+        if buttons is None:
             return None
 
         buttons_data = []
 
-        for btn in template_data.get("buttons", []):
+        for btn in buttons:
+            if self._is_button_format_already_translated(btn):
+                continue
+
             button = {"type": btn["type"], "text": btn["text"]}
 
             if btn["type"] == "URL":

@@ -77,8 +77,8 @@ class AgentViewSetE2ETest(APITestCase):
         response = self.client.get(
             self.list_url, HTTP_PROJECT_UUID=str(self.project1.uuid)
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         response = self.client.get(
             self.detail_url1, HTTP_PROJECT_UUID=str(self.project1.uuid)
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
