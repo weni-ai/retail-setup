@@ -27,11 +27,11 @@ if TYPE_CHECKING:
 class LambdaResponseStatus(IntEnum):
     """Enum for possible Lambda response statuses."""
 
-    SUCCESS = 200
-    ERROR = 400
-    MISSING_TEMPLATE = 404
-    INVALID_PAYLOAD = 400
-    EXECUTION_ERROR = 500
+    RULE_MATCHED = 0
+    RULE_NOT_MATCHED = 1
+    PRE_PROCESSING_FAILED = 2
+    CUSTOM_RULE_FAILED = 3
+    OFFICIAL_RULE_FAILED = 4
 
 
 class LambdaHandler:
@@ -70,16 +70,35 @@ class LambdaHandler:
             return None
 
     def validate_response(self, data: Dict[str, Any]) -> bool:
-        """Validate lambda response for errors."""
-        if data.get("error") and data.get("error") == self.MISSING_TEMPLATE_ERROR:
-            logger.info("Missing template error encountered.")
-            return False
+        """Validate lambda response for errors based on status codes."""
+        status_code = data.get("status")
+        error = data.get("error")
+
+        if status_code is not None:
+            match status_code:
+                case LambdaResponseStatus.RULE_MATCHED:
+                    return True
+                case LambdaResponseStatus.RULE_NOT_MATCHED:
+                    logger.info(f"Rule not matched: {error}")
+                    return False
+                case LambdaResponseStatus.PRE_PROCESSING_FAILED:
+                    logger.info(f"Pre-processing failed: {error}")
+                    return False
+                case LambdaResponseStatus.CUSTOM_RULE_FAILED:
+                    logger.info(f"Custom rule failed: {error}")
+                    return False
+                case LambdaResponseStatus.OFFICIAL_RULE_FAILED:
+                    logger.info(f"Official rule failed: {error}")
+                    return False
+                case _:
+                    logger.warning(f"Unknown status code: {status_code}")
+                    return False
 
         if isinstance(data, dict) and "errorMessage" in data:
             logger.error(f"Lambda execution error: {data.get('errorMessage')}")
             return False
 
-        return True
+        return False
 
 
 class BroadcastHandler:

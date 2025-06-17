@@ -9,6 +9,7 @@ from retail.agents.usecases.agent_webhook import (
     AgentWebhookUseCase,
     LambdaHandler,
     BroadcastHandler,
+    LambdaResponseStatus,
 )
 from retail.templates.models import Template
 
@@ -274,8 +275,55 @@ class LambdaHandlerTest(TestCase):
 
         self.assertIsNone(result)
 
-    def test_validate_response_missing_template_error(self):
-        data = {"error": "Missing template"}
+    def test_validate_response_rule_matched(self):
+        data = {"status": LambdaResponseStatus.RULE_MATCHED}
+
+        result = self.handler.validate_response(data)
+
+        self.assertTrue(result)
+
+    def test_validate_response_rule_not_matched(self):
+        data = {
+            "status": LambdaResponseStatus.RULE_NOT_MATCHED,
+            "error": "No rule matched",
+        }
+
+        result = self.handler.validate_response(data)
+
+        self.assertFalse(result)
+
+    def test_validate_response_pre_processing_failed(self):
+        data = {
+            "status": LambdaResponseStatus.PRE_PROCESSING_FAILED,
+            "error": "Pre-processing error",
+        }
+
+        result = self.handler.validate_response(data)
+
+        self.assertFalse(result)
+
+    def test_validate_response_custom_rule_failed(self):
+        data = {
+            "status": LambdaResponseStatus.CUSTOM_RULE_FAILED,
+            "error": "Custom rule error",
+        }
+
+        result = self.handler.validate_response(data)
+
+        self.assertFalse(result)
+
+    def test_validate_response_official_rule_failed(self):
+        data = {
+            "status": LambdaResponseStatus.OFFICIAL_RULE_FAILED,
+            "error": "Official rule error",
+        }
+
+        result = self.handler.validate_response(data)
+
+        self.assertFalse(result)
+
+    def test_validate_response_unknown_status_code(self):
+        data = {"status": 999, "error": "Unknown error"}
 
         result = self.handler.validate_response(data)
 
@@ -288,12 +336,12 @@ class LambdaHandlerTest(TestCase):
 
         self.assertFalse(result)
 
-    def test_validate_response_success(self):
+    def test_validate_response_no_status_no_error_message(self):
         data = {"template": "order_update", "contact_urn": "whatsapp:123"}
 
         result = self.handler.validate_response(data)
 
-        self.assertTrue(result)
+        self.assertFalse(result)
 
 
 class BroadcastHandlerTest(TestCase):
