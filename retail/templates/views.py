@@ -146,6 +146,31 @@ class TemplateLibraryViewSet(ViewSet):
 
 
 class TemplateMetricsView(APIView):
+    """
+    Endpoint for retrieving aggregated metrics of all template versions
+    associated with a given template UUID, within a specified date range.
+
+    Permissions:
+        - Only internal services with appropriate permissions can access this endpoint.
+
+    Request body (application/json):
+        {
+            "template_uuid": "<uuid>",
+            "start": "YYYY-MM-DD",
+            "end": "YYYY-MM-DD"
+        }
+
+    Returns:
+        200 OK:
+            {
+                ...  # JSON with template metrics data
+            }
+        400 Bad Request:
+            {
+                "error": "<description of error>"
+            }
+    """
+
     permission_classes = [CanCommunicateInternally]
 
     def post(self, request, *args, **kwargs):
