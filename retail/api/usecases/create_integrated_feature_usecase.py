@@ -1,5 +1,4 @@
 from rest_framework.exceptions import ValidationError, NotFound
-from django.conf import settings
 
 from retail.api.integrated_feature.serializers import IntegratedFeatureSerializer
 from retail.api.integrated_feature.tasks import execute_install_actions_task

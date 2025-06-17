@@ -1,3 +1,18 @@
+# 3.3.0
+
+## *Feature*
+  - feat: add missing agents usecases tests
+  - feat: async notify integrations
+  - feat: CI tests & coverage
+
+## *Fix*
+  - fix: removed button never was set to none
+
+# 3.2.15
+
+## *Feature*
+  - feat: add lambda timeout variable
+
 # 3.2.14
 
 ## *Feature*

@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from typing import Optional, Dict, Any
+from typing import List, Optional, Dict, Any
 
 
 class IntegrationsClientInterface(ABC):
@@ -39,4 +39,10 @@ class IntegrationsClientInterface(ABC):
     def create_library_template(
         self, app_uuid: str, project_uuid: str, template_data: Dict[str, Any]
     ) -> str:
+        pass
+
+    @abstractmethod
+    def fetch_template_metrics(
+        self, app_uuid: str, template_versions: List[str], start: str, end: str
+    ) -> Dict:
         pass

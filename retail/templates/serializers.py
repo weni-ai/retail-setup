@@ -89,3 +89,9 @@ class UpdateLibraryTemplateSerializer(serializers.Serializer):
 class CreateCustomTemplateSerializer(UpdateTemplateContentSerializer):
     rule_code = serializers.CharField()
     category = serializers.CharField()
+
+
+class TemplateMetricsRequestSerializer(serializers.Serializer):
+    template_uuid = serializers.UUIDField(required=True)
+    start = serializers.CharField(required=True)
+    end = serializers.CharField(required=True)

@@ -1,5 +1,5 @@
 """
-PopulateGlobalsValuesUsecase is responsible for filling in specific global keys 
+PopulateGlobalsValuesUsecase is responsible for filling in specific global keys
 in the globals_values dictionary using data fetched from external services.
 
 Attributes:

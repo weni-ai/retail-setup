@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import Any, Dict, Optional
 
 from botocore.exceptions import ClientError
 from django.core.files.uploadedfile import UploadedFile
@@ -10,10 +10,6 @@ from retail.interfaces.clients.aws_lambda.client import AwsLambdaClientInterface
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 
 logger = logging.getLogger(__name__)
-
-
-if TYPE_CHECKING:
-    from retail.interfaces.clients.aws_lambda.client import RequestData
 
 
 class AwsLambdaService(AwsLambdaServiceInterface):

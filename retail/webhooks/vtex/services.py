@@ -210,7 +210,7 @@ class CartTimeRestrictionService:
         saturdays_period = periods.get("saturdays", {})
 
         if not weekdays_period or not saturdays_period:
-            error_message = f"Invalid message time restriction settings for abandoned cart feature (Integrated feature UUID: {self.integrated_feature.uuid})"
+            error_message = f"Invalid message time restriction settings for abandoned cart feature (Integrated feature UUID: {self.integrated_feature.uuid})"  # noqa: E501
             logger.error(error_message, exc_info=True)
             capture_message(error_message)
             return self.default_abandoned_countdown
@@ -224,7 +224,7 @@ class CartTimeRestrictionService:
                 saturdays_period=saturdays_period,
             )
         except Exception as e:
-            error_message = f"Could not calculate the next available time for the integrated feature with UUID {self.integrated_feature.uuid}. Error: {str(e)}"
+            error_message = f"Could not calculate the next available time for the integrated feature with UUID {self.integrated_feature.uuid}. Error: {str(e)}"  # noqa: E501
             logger.error(error_message, exc_info=True)
             capture_exception(e)
             return self.default_abandoned_countdown
