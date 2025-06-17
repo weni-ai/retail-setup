@@ -27,6 +27,8 @@ class Template(models.Model):
     metadata = models.JSONField(default=dict, blank=True)
     needs_button_edit = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    start_condition = models.TextField(null=True, blank=True)
+    display_name = models.TextField(null=True, blank=True)
 
     @property
     def is_custom(self) -> bool:
