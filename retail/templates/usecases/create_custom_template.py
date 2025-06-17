@@ -70,8 +70,6 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
 
     def _invoke_code_generator(self, params: List[ParameterData]) -> Dict[str, Any]:
         payload = {
-            "actionGroup": "MyGroup",
-            "function": "MyFunction",
             "parameters": params,
         }
 
