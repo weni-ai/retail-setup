@@ -1,5 +1,7 @@
 import json
 
+import copy
+
 from typing import Optional, Dict, Any, TypedDict, List
 
 from enum import IntEnum
@@ -157,7 +159,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         template = self._update_template(
             template,
             body,
-            translation,
+            copy.deepcopy(translation),
             integrated_agent,
             payload.get("display_name"),
             start_condition,
