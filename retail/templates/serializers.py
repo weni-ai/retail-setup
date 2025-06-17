@@ -32,9 +32,15 @@ class ReadTemplateSerializer(serializers.Serializer):
         return last_version.status
 
     def get_display_name(self, obj: Template) -> str:
+        if obj.parent is None:
+            return None
+
         return obj.parent.display_name
 
     def get_start_condition(self, obj: Template) -> str:
+        if obj.parent is None:
+            return None
+
         return obj.parent.start_condition
 
 
@@ -91,6 +97,17 @@ class ParameterSerializer(serializers.Serializer):
     value = serializers.JSONField()
 
 
-class CreateCustomTemplateSerializer(UpdateTemplateContentSerializer):
+class CreateCustomTemplateSerializer(serializers.Serializer):
+    template_translation = serializers.JSONField(required=True)
+    template_name = serializers.CharField()
     category = serializers.CharField()
+    app_uuid = serializers.CharField(required=True)
+    project_uuid = serializers.CharField(required=True)
+    integrated_agent_uuid = serializers.CharField(required=True)
     parameters = ParameterSerializer(many=True, required=True)
+
+
+class TemplateMetricsRequestSerializer(serializers.Serializer):
+    template_uuid = serializers.UUIDField(required=True)
+    start = serializers.CharField(required=True)
+    end = serializers.CharField(required=True)

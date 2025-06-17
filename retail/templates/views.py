@@ -4,8 +4,9 @@ from rest_framework.viewsets import ViewSet
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.request import Request
-from rest_framework.exceptions import ValidationError
 from rest_framework import status
+
+from uuid import UUID
 
 from retail.internal.permissions import CanCommunicateInternally
 from retail.templates.usecases import (
@@ -31,8 +32,6 @@ from retail.templates.serializers import (
     UpdateLibraryTemplateSerializer,
     CreateCustomTemplateSerializer,
 )
-
-from uuid import UUID
 
 
 class TemplateViewSet(ViewSet):
@@ -114,22 +113,11 @@ class TemplateViewSet(ViewSet):
 
     @action(detail=False, methods=["post"])
     def custom(self, request: Request, *args, **kwargs) -> Response:
-        integrated_agent_uuid = request.query_params.get("integrated_agent_uuid")
-
-        if integrated_agent_uuid is None:
-            raise ValidationError(
-                detail={"missing_fields": "integrate_agent_uuid param missing."}
-            )
-
         request_serializer = CreateCustomTemplateSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
 
         data: CreateCustomTemplateData = cast(
-            CreateCustomTemplateData,
-            {
-                **request_serializer.data,
-                "integrated_agent_uuid": integrated_agent_uuid,
-            },
+            CreateCustomTemplateData, request_serializer.validated_data
         )
         use_case = CreateCustomTemplateUseCase()
         template = use_case.execute(data)
