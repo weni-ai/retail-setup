@@ -1,4 +1,4 @@
-from typing import TypedDict, Dict, Any
+from typing import TypedDict, Dict, Any, Optional
 from uuid import UUID
 
 from retail.templates.models import Template
@@ -10,10 +10,10 @@ from ._base_template_creator import TemplateBuilderMixin
 class CreateTemplateData(TypedDict):
     template_translation: Dict[str, Any]
     template_name: str
-    start_condition: str
     category: str
     app_uuid: str
     project_uuid: str
+    start_condition: Optional[str]
 
 
 class CreateTemplateUseCase(TemplateBuilderMixin):

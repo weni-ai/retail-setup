@@ -52,9 +52,25 @@ class TestDeleteTemplateUseCase(TestCase):
 
     @patch.object(DeleteTemplateUseCase, "_get_template")
     @patch.object(DeleteTemplateUseCase, "_add_template_to_ignore_list")
-    def test_execute_success(self, mock_add_to_ignore_list, mock_get_template):
+    def test_execute_custom_template(self, mock_add_to_ignore_list, mock_get_template):
         mock_template = MagicMock()
-        mock_template.is_active = True
+        mock_template.is_custom = True
+        mock_get_template.return_value = mock_template
+
+        self.use_case.execute(self.template_uuid)
+
+        mock_get_template.assert_called_once_with(self.template_uuid)
+        mock_add_to_ignore_list.assert_not_called()
+        self.assertFalse(mock_template.is_active)
+        mock_template.save.assert_called_once()
+
+    @patch.object(DeleteTemplateUseCase, "_get_template")
+    @patch.object(DeleteTemplateUseCase, "_add_template_to_ignore_list")
+    def test_execute_non_custom_template(
+        self, mock_add_to_ignore_list, mock_get_template
+    ):
+        mock_template = MagicMock()
+        mock_template.is_custom = False
         mock_get_template.return_value = mock_template
 
         self.use_case.execute(self.template_uuid)

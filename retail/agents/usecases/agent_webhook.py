@@ -4,7 +4,7 @@ import logging
 
 import random
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional, List
 
 from uuid import UUID
 
@@ -44,6 +44,15 @@ class AgentWebhookUseCase:
             logger.info(f"Integrated agent not found: {uuid}")
             return None
 
+    def _get_project_rules_payload(
+        self, integrated_agent: IntegratedAgent
+    ) -> List[Dict[str, str]]:
+        rule_codes = integrated_agent.templates.filter(
+            is_active=True, is_custom=True
+        ).values_list("rule_code", flat=True)
+
+        return [{"source": rule_code} for rule_code in rule_codes if rule_code]
+
     def _invoke_lambda(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
     ) -> Dict[str, Any]:
@@ -57,6 +66,7 @@ class AgentWebhookUseCase:
                 "payload": data.payload,
                 "credentials": data.credentials,
                 "ignore_official_rules": integrated_agent.ignore_templates,
+                "project_rules": self._get_project_rules_payload(integrated_agent),
                 "project": {
                     "uuid": str(project.uuid),
                     "vtex_account": project.vtex_account,

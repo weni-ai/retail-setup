@@ -194,6 +194,7 @@ class AgentWebhookUseCaseTest(TestCase):
             "payload": mock_data.payload,
             "credentials": mock_data.credentials,
             "ignore_official_rules": self.mock_agent.ignore_templates,
+            "project_rules": [],
             "project": {
                 "uuid": str(self.mock_agent.project.uuid),
                 "vtex_account": self.mock_agent.project.vtex_account,
