@@ -106,3 +106,9 @@ class CreateCustomTemplateSerializer(serializers.Serializer):
     integrated_agent_uuid = serializers.CharField(required=True)
     parameters = ParameterSerializer(many=True, required=True)
     display_name = serializers.CharField(required=True)
+
+
+class TemplateMetricsRequestSerializer(serializers.Serializer):
+    template_uuid = serializers.UUIDField(required=True)
+    start = serializers.CharField(required=True)
+    end = serializers.CharField(required=True)
