@@ -19,6 +19,9 @@ class DeleteTemplateUseCase:
 
     def execute(self, template_uuid: UUID) -> None:
         template = self._get_template(template_uuid)
-        self._add_template_to_ignore_list(template)
+
+        if not template.is_custom:
+            self._add_template_to_ignore_list(template)
+
         template.is_active = False
         template.save()
