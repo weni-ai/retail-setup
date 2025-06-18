@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 
 from rest_framework.exceptions import NotFound
 
-from retail.agents.models import IntegratedAgent
+from retail.agents.assign.models import IntegratedAgent
 from retail.templates.models import Template, Version
 from retail.projects.models import Project
 

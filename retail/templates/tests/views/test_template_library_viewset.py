@@ -8,7 +8,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from retail.templates.models import Template, Version
-from retail.agents.models import PreApprovedTemplate, Agent
+from retail.agents.push.models import PreApprovedTemplate, Agent
 from retail.projects.models import Project
 
 
