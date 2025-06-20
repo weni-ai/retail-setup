@@ -28,6 +28,9 @@ flake8 = "^7.1.0"
 black = "^24.4.2"
 coverage = "^7.8.2"
 
+[tool.pyright]
+typeCheckingMode = "off"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

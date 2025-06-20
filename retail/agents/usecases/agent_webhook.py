@@ -43,7 +43,7 @@ class LambdaHandler:
         self, integrated_agent: IntegratedAgent
     ) -> List[Dict[str, str]]:
         rule_codes = integrated_agent.templates.filter(
-            is_active=True, is_custom=True
+            is_active=True, parent__isnull=True
         ).values_list("rule_code", flat=True)
 
         return [{"source": rule_code} for rule_code in rule_codes if rule_code]
