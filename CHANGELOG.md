@@ -1,3 +1,8 @@
+# 3.4.0
+
+## *Feature*
+  - feat: implement fetch_template_metrics functionality
+
 # 3.3.0
 
 ## *Feature*
