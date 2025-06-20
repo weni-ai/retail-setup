@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import List, Optional, Dict, Any
 
 from datetime import datetime
 
@@ -330,4 +330,15 @@ class IntegrationsService:
     ) -> str:
         return self.client.create_library_template(
             app_uuid, project_uuid, template_data
+        )
+
+    def fetch_template_metrics(
+        self,
+        app_uuid: str,
+        template_versions: List[str],
+        start: str,
+        end: str,
+    ) -> dict:
+        return self.client.fetch_template_metrics(
+            app_uuid, template_versions, start, end
         )
