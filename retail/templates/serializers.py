@@ -99,7 +99,6 @@ class ParameterSerializer(serializers.Serializer):
 
 class CreateCustomTemplateSerializer(serializers.Serializer):
     template_translation = serializers.JSONField(required=True)
-    template_name = serializers.CharField()
     category = serializers.CharField()
     app_uuid = serializers.CharField(required=True)
     project_uuid = serializers.CharField(required=True)

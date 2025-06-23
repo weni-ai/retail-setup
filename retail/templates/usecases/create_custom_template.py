@@ -14,7 +14,6 @@ from rest_framework.exceptions import NotFound
 
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
-from retail.templates.usecases import CreateTemplateData
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
@@ -45,9 +44,16 @@ class ParameterData(TypedDict):
     value: Any
 
 
-class CreateCustomTemplateData(CreateTemplateData):
+class CreateCustomTemplateData(TypedDict):
+    template_translation: Dict[str, Any]
+    category: str
+    app_uuid: str
+    project_uuid: str
+    display_name: str
+    start_condition: Optional[str]
     parameters: List[ParameterData]
     integrated_agent_uuid: UUID
+    template_name: Optional[str] = None
 
 
 class CreateCustomTemplateUseCase(TemplateBuilderMixin):
@@ -144,6 +150,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         integrated_agent = self._get_integrated_agent(
             payload.get("integrated_agent_uuid")
         )
+        payload["template_name"] = payload.get("display_name").replace(" ", "_").lower()
         template, version = self.build_template_and_version(payload, integrated_agent)
         translation = self._adapt_translation(payload.get("template_translation"))
 
