@@ -9,12 +9,16 @@ class RequestData:
     payload: Mapping[Any, Any]
     ignored_official_rules: Optional[List[str]] = None
     credentials: Optional[Mapping[str, str]] = None
+    project_rules: Optional[List[Dict[str, str]]] = None
 
     def set_credentials(self, credentials: Mapping[str, str]):
         self.credentials = credentials
 
     def set_ignored_official_rules(self, ignored_official_rules: List[str]):
         self.ignored_official_rules = ignored_official_rules
+
+    def set_project_rules(self, project_rules: List[Dict[str, str]]):
+        self.project_rules = project_rules
 
 
 class AwsLambdaClientInterface(Protocol):

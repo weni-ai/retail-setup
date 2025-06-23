@@ -239,6 +239,7 @@ class LambdaHandlerTest(TestCase):
         mock_data.params = {"param1": "value1"}
         mock_data.payload = {"payload_key": "payload_value"}
         mock_data.credentials = {"cred_key": "cred_value"}
+        mock_data.project_rules = []
 
         expected_payload = {
             "params": mock_data.params,

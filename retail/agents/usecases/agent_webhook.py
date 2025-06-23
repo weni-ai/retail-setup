@@ -6,7 +6,7 @@ import random
 
 from enum import IntEnum
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from uuid import UUID
 
@@ -39,15 +39,6 @@ class LambdaHandler:
         self.lambda_service = lambda_service or AwsLambdaService()
         self.MISSING_TEMPLATE_ERROR = "Missing template"
 
-    def _get_project_rules_payload(
-        self, integrated_agent: IntegratedAgent
-    ) -> List[Dict[str, str]]:
-        rule_codes = integrated_agent.templates.filter(
-            is_active=True, is_custom=True
-        ).values_list("rule_code", flat=True)
-
-        return [{"source": rule_code} for rule_code in rule_codes if rule_code]
-
     def invoke(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
     ) -> Dict[str, Any]:
@@ -62,7 +53,7 @@ class LambdaHandler:
                 "payload": data.payload,
                 "credentials": data.credentials,
                 "ignore_official_rules": integrated_agent.ignore_templates,
-                "project_rules": self._get_project_rules_payload(integrated_agent),
+                "project_rules": data.project_rules,
                 "project": {
                     "uuid": str(project.uuid),
                     "vtex_account": project.vtex_account,
@@ -263,6 +254,15 @@ class AgentWebhookUseCase:
         random_number = random.randint(1, 100)
         return random_number <= percentage
 
+    def _set_project_rules(
+        self, integrated_agent: IntegratedAgent, data: "RequestData"
+    ) -> None:
+        rule_codes = integrated_agent.templates.filter(
+            is_active=True, parent__isnull=True
+        ).values_list("rule_code", flat=True)
+        project_rules = [{"source": rule_code} for rule_code in rule_codes if rule_code]
+        data.set_project_rules(project_rules)
+
     def _process_lambda_response(
         self, integrated_agent: IntegratedAgent, response: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
@@ -304,6 +304,8 @@ class AgentWebhookUseCase:
         if not self._should_send_broadcast(integrated_agent):
             logger.info("Broadcast not allowed for this agent.")
             return None
+
+        self._set_project_rules(integrated_agent, data)
 
         response = self.lambda_handler.invoke(
             integrated_agent=integrated_agent, data=data
