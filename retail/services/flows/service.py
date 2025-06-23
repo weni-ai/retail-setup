@@ -1,10 +1,13 @@
+from typing import Optional
+
 from retail.clients.exceptions import CustomAPIException
 from retail.interfaces.clients.flows.interface import FlowsClientInterface
+from retail.clients.flows.client import FlowsClient
 
 
 class FlowsService:
-    def __init__(self, client: FlowsClientInterface):
-        self.client = client
+    def __init__(self, client: Optional[FlowsClientInterface] = None):
+        self.client = client or FlowsClient()
 
     def get_user_api_token(self, user_email: str, project_uuid: str) -> dict:
         """
