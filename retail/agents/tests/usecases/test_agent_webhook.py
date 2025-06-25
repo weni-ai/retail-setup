@@ -456,6 +456,17 @@ class BroadcastHandlerTest(TestCase):
 
         self.assertIsNone(result)
 
+    def test_get_current_template_name_no_current_version(self):
+        data = {"template": "order_update"}
+        mock_template = MagicMock()
+        mock_template.current_version = None
+        self.mock_agent.templates.get.return_value = mock_template
+
+        result = self.handler.get_current_template_name(self.mock_agent, data)
+
+        self.assertIsNone(result)
+        self.mock_agent.templates.get.assert_called_once_with(name="order_update")
+
     def test_send_message(self):
         message = {"template": "test", "contact": "whatsapp:123"}
 
