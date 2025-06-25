@@ -24,6 +24,7 @@ from retail.templates.exceptions import (
     CodeGeneratorBadRequest,
     CodeGeneratorUnprocessableEntity,
     CodeGeneratorInternalServerError,
+    CustomTemplateAlreadyExists,
 )
 from retail.agents.models import IntegratedAgent
 
@@ -150,6 +151,15 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         integrated_agent = self._get_integrated_agent(
             payload.get("integrated_agent_uuid")
         )
+
+        if Template.objects.filter(
+            integrated_agent=integrated_agent,
+            display_name=payload.get("display_name"),
+        ).exists():
+            raise CustomTemplateAlreadyExists(
+                detail="Custom template with this display name already exists"
+            )
+
         payload["template_name"] = payload.get("display_name").replace(" ", "_").lower()
         template, version = self.build_template_and_version(payload, integrated_agent)
         translation = self._adapt_translation(payload.get("template_translation"))

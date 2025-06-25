@@ -59,6 +59,11 @@ class CreateLibraryTemplateSerializer(serializers.Serializer):
     library_template_button_inputs = serializers.ListField(required=False)
 
 
+class ParameterSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    value = serializers.JSONField()
+
+
 class UpdateTemplateContentSerializer(serializers.Serializer):
     template_body = serializers.CharField(required=False)
     template_header = serializers.CharField(required=False)
@@ -66,6 +71,7 @@ class UpdateTemplateContentSerializer(serializers.Serializer):
     template_button = serializers.ListField(required=False)
     app_uuid = serializers.CharField(required=True)
     project_uuid = serializers.CharField(required=True)
+    parameters = ParameterSerializer(many=True, required=False, allow_null=True)
 
     def validate(self, attrs):
         if not any(
@@ -90,11 +96,6 @@ class UpdateLibraryTemplateButtonSerializer(serializers.Serializer):
 
 class UpdateLibraryTemplateSerializer(serializers.Serializer):
     library_template_button_inputs = UpdateLibraryTemplateButtonSerializer(many=True)
-
-
-class ParameterSerializer(serializers.Serializer):
-    name = serializers.CharField()
-    value = serializers.JSONField()
 
 
 class CreateCustomTemplateSerializer(serializers.Serializer):

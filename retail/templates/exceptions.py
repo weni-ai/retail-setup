@@ -16,3 +16,7 @@ class CodeGeneratorUnprocessableEntity(APIException):
 
 class CodeGeneratorInternalServerError(APIException):
     status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+
+
+class CustomTemplateAlreadyExists(APIException):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY

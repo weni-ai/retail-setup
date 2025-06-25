@@ -274,6 +274,7 @@ class TemplateViewSetTest(APITestCase):
             "template_body": "Updated template body with {{placeholder}}",
             "app_uuid": str(uuid4()),
             "project_uuid": str(self.project.uuid),
+            "parameters": None,
         }
 
         template_uuid = str(template.uuid)
@@ -284,11 +285,57 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["name"], "test_template")
 
+    def test_partial_update_template_content_with_custom_template_parameters(self):
+        custom_template = Template.objects.create(
+            uuid=uuid4(),
+            name="custom_template",
+            integrated_agent=self.integrated_agent,
+        )
+        version = Version.objects.create(
+            template=custom_template,
+            template_name="custom_template",
+            integrations_app_uuid=uuid4(),
+            project=self.project,
+            status="APPROVED",
+        )
+        custom_template.current_version = version
+        custom_template.save()
+
+        updated_template = Template.objects.create(
+            uuid=uuid4(),
+            name="custom_template",
+            integrated_agent=self.integrated_agent,
+        )
+
+        self.update_content_usecase.execute = lambda data: updated_template
+
+        payload = {
+            "template_body": "Updated custom template body",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+            "parameters": [
+                {"name": "start_condition", "value": "user.is_active == true"},
+                {
+                    "name": "custom_logic",
+                    "value": "if user.premium: send_premium_template()",
+                },
+            ],
+        }
+
+        template_uuid = str(custom_template.uuid)
+        response = self.client.patch(
+            reverse("template-detail", args=[template_uuid]), payload, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["name"], "custom_template")
+
     def test_partial_update_template_content_invalid_data(self):
         template_uuid = str(uuid4())
         payload = {
             "template_body": "",
             "app_uuid": str(uuid4()),
+            "parameters": None,
         }
 
         response = self.client.patch(
@@ -306,6 +353,7 @@ class TemplateViewSetTest(APITestCase):
             "template_body": "Updated template body",
             "app_uuid": str(uuid4()),
             "project_uuid": str(self.project.uuid),
+            "parameters": None,
         }
 
         template_uuid = str(uuid4())
@@ -353,9 +401,7 @@ class TemplateViewSetTest(APITestCase):
         response = client.get(reverse("template-detail", args=[template_uuid]))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    # Tests for custom action
     def test_create_custom_template_success(self):
-        """Test successful creation of custom template"""
         template = Template.objects.create(
             uuid=uuid4(),
             name="custom_template",
@@ -398,10 +444,8 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.data["is_custom"], True)
 
     def test_create_custom_template_invalid_data(self):
-        """Test custom template creation with invalid data"""
         payload = {
             "template_translation": {"template_body": "Test Body"},
-            # Missing required fields
             "category": "custom",
         }
 
@@ -411,14 +455,12 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_custom_template_missing_required_fields(self):
-        """Test custom template creation with missing required fields"""
         payload = {
             "template_translation": {"template_body": "Test Body"},
             "template_name": "test_template",
             "category": "custom",
             "app_uuid": str(uuid4()),
             "project_uuid": str(self.project.uuid),
-            # Missing integrated_agent_uuid and parameters
         }
 
         url = reverse("template-custom")
@@ -427,7 +469,6 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_custom_template_integrated_agent_not_found(self):
-        """Test custom template creation when integrated agent is not found"""
         self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
             NotFound("Assigned agent not found")
         )
@@ -442,7 +483,7 @@ class TemplateViewSetTest(APITestCase):
             "category": "custom",
             "app_uuid": str(uuid4()),
             "project_uuid": str(self.project.uuid),
-            "integrated_agent_uuid": str(uuid4()),  # Non-existent agent
+            "integrated_agent_uuid": str(uuid4()),
             "parameters": [{"name": "start_condition", "value": "test condition"}],
             "display_name": "Custom Template",
         }
@@ -453,7 +494,6 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_create_custom_template_code_generator_bad_request(self):
-        """Test custom template creation with lambda bad request error"""
         self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
             CodeGeneratorBadRequest(detail={"error": "Invalid parameters"})
         )
@@ -475,7 +515,6 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_custom_template_code_generator_unprocessable_entity(self):
-        """Test custom template creation with lambda unprocessable entity error"""
         self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
             CodeGeneratorUnprocessableEntity(detail={"error": "Cannot process request"})
         )
@@ -497,7 +536,6 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
     def test_create_custom_template_code_generator_internal_server_error(self):
-        """Test custom template creation with lambda internal server error"""
         self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
             CodeGeneratorInternalServerError(
                 detail={"message": "Internal lambda error"}
@@ -521,7 +559,6 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def test_create_custom_template_with_buttons(self):
-        """Test custom template creation with buttons in translation"""
         template = Template.objects.create(
             uuid=uuid4(),
             name="custom_template_with_buttons",
@@ -553,12 +590,10 @@ class TemplateViewSetTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIn("metadata", response.data)
-        # Verify that metadata buttons still have 'type' field (not 'button_type')
         if "buttons" in response.data["metadata"]:
             self.assertIn("type", response.data["metadata"]["buttons"][0])
 
     def test_create_custom_template_unauthorized(self):
-        """Test custom template creation without authentication"""
         client = APIClient()
 
         payload = {
@@ -578,7 +613,6 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_create_custom_template_without_permission(self):
-        """Test custom template creation without proper permissions"""
         user_without_permission = User.objects.create_user(
             username="nopermuser", password="testpass"
         )
