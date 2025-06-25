@@ -1,3 +1,11 @@
+# 3.5.0
+
+## *Feature*
+  - feat: refactor agent webhook usecase and add lambda status handle
+
+## *Fix*
+  - fix: check current version before triggering template
+
 # 3.4.0
 
 ## *Feature*
