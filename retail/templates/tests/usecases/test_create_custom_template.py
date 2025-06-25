@@ -20,6 +20,7 @@ from retail.templates.exceptions import (
     CodeGeneratorBadRequest,
     CodeGeneratorUnprocessableEntity,
     CodeGeneratorInternalServerError,
+    CustomTemplateAlreadyExists,
 )
 from retail.projects.models import Project
 from retail.agents.models import Agent, IntegratedAgent
@@ -334,3 +335,152 @@ class CreateCustomTemplateUseCaseTest(TestCase):
             "buttons": self.valid_payload["template_translation"]["template_button"],
         }
         self.assertEqual(call_args, expected_structure)
+
+    def test_execute_custom_template_already_exists(self):
+        self._setup_mocks_for_successful_execution()
+
+        Template.objects.create(
+            uuid=uuid4(),
+            name="existing_template",
+            display_name="Test Display Name",
+            integrated_agent=self.integrated_agent,
+            rule_code="def existing_rule(): return True",
+            metadata={"test": "data"},
+        )
+
+        with self.assertRaises(CustomTemplateAlreadyExists) as context:
+            self.use_case.execute(self.valid_payload)
+
+        self.assertIn(
+            "Custom template with this display name already exists",
+            str(context.exception),
+        )
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_execute_with_empty_parameters_list(self, mock_task_create_template):
+        self._setup_mocks_for_successful_execution()
+        mock_task_create_template.delay.return_value = Mock()
+
+        modified_payload = copy.deepcopy(self.valid_payload)
+        modified_payload["parameters"] = []
+
+        result = self.use_case.execute(modified_payload)
+
+        self.assertIsInstance(result, Template)
+        self.assertIsNone(result.start_condition)
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_execute_with_missing_translation_fields(self, mock_task_create_template):
+        self._setup_mocks_for_successful_execution()
+        mock_task_create_template.delay.return_value = Mock()
+
+        modified_payload = copy.deepcopy(self.valid_payload)
+        modified_payload["template_translation"] = {
+            "template_body": "Only body content",
+        }
+
+        self.mock_template_adapter.adapt.return_value = {
+            "header": None,
+            "body": {"type": "BODY", "text": "Only body content"},
+            "footer": None,
+            "buttons": None,
+        }
+
+        result = self.use_case.execute(modified_payload)
+
+        self.assertIsInstance(result, Template)
+        self.mock_template_adapter.adapt.assert_called_once()
+        call_args = self.mock_template_adapter.adapt.call_args[0][0]
+        self.assertEqual(call_args["body"], "Only body content")
+        self.assertIsNone(call_args["header"])
+        self.assertIsNone(call_args["footer"])
+        self.assertIsNone(call_args["buttons"])
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_execute_with_none_generated_code(self, mock_task_create_template):
+        mock_payload = Mock()
+        response_with_none_code = {
+            "statusCode": LambdaResponseStatusCode.OK,
+            "body": {"generated_code": None},
+        }
+        mock_payload.read.return_value = json.dumps(response_with_none_code).encode()
+        self.mock_lambda_service.invoke.return_value = {"Payload": mock_payload}
+        self.mock_template_adapter.adapt.return_value = self.adapted_translation
+        mock_task_create_template.delay.return_value = Mock()
+
+        result = self.use_case.execute(self.valid_payload)
+
+        self.assertIsInstance(result, Template)
+        self.assertIsNone(result.rule_code)
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_execute_template_name_generation_from_display_name(
+        self, mock_task_create_template
+    ):
+        self._setup_mocks_for_successful_execution()
+        mock_task_create_template.delay.return_value = Mock()
+
+        modified_payload = copy.deepcopy(self.valid_payload)
+        modified_payload["display_name"] = "My Custom Template Name"
+
+        result = self.use_case.execute(modified_payload)
+
+        self.assertIsInstance(result, Template)
+        version = Version.objects.get(template=result)
+        self.assertIn("my_custom_template_name", version.template_name)
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_execute_notify_integrations_without_buttons(
+        self, mock_task_create_template
+    ):
+        self._setup_mocks_for_successful_execution()
+        mock_task_create_template.delay.return_value = Mock()
+
+        translation_without_buttons = copy.deepcopy(self.adapted_translation)
+        del translation_without_buttons["buttons"]
+        self.mock_template_adapter.adapt.return_value = translation_without_buttons
+
+        result = self.use_case.execute(self.valid_payload)
+
+        self.assertIsInstance(result, Template)
+        self.assertNotIn("buttons", result.metadata)
+
+        mock_task_create_template.delay.assert_called_once()
+        call_args = mock_task_create_template.delay.call_args.kwargs
+        notify_translation = call_args["template_translation"]
+        self.assertNotIn("buttons", notify_translation)
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_execute_multiple_parameters_with_same_name(
+        self, mock_task_create_template
+    ):
+        self._setup_mocks_for_successful_execution()
+        mock_task_create_template.delay.return_value = Mock()
+
+        modified_payload = copy.deepcopy(self.valid_payload)
+        modified_payload["parameters"] = [
+            {"name": "start_condition", "value": "first condition"},
+            {"name": "start_condition", "value": "second condition"},
+            {"name": "other_param", "value": "other value"},
+        ]
+
+        result = self.use_case.execute(modified_payload)
+
+        self.assertIsInstance(result, Template)
+        self.assertEqual(result.start_condition, "first condition")
+
+    def test_execute_lambda_service_exception(self):
+        self.mock_lambda_service.invoke.side_effect = Exception("Lambda service error")
+
+        with self.assertRaises(Exception) as context:
+            self.use_case.execute(self.valid_payload)
+
+        self.assertEqual(str(context.exception), "Lambda service error")
+
+    def test_execute_json_decode_error_in_lambda_response(self):
+        mock_payload = Mock()
+        mock_payload.read.return_value = b"invalid json response"
+        self.mock_lambda_service.invoke.return_value = {"Payload": mock_payload}
+
+        with self.assertRaises(json.JSONDecodeError):
+            self.use_case.execute(self.valid_payload)
