@@ -184,7 +184,7 @@ class BroadcastHandler:
         try:
             template = integrated_agent.templates.get(name=template_name)
             if template.current_version is None:
-                logger.error(f"Template {template_name} has no current version.")
+                logger.info(f"Template {template_name} has no current version.")
                 return None
             return template.current_version.template_name
         except Template.DoesNotExist:
