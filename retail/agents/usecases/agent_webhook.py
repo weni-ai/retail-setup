@@ -81,6 +81,7 @@ class LambdaHandler:
 
     def validate_response(self, data: Dict[str, Any]) -> bool:
         """Validate lambda response for errors based on status codes."""
+        logger.info(f"Validating lambda response: {data}")
         status_code = data.get("status")
         error = data.get("error")
 
