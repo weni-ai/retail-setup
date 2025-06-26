@@ -38,7 +38,7 @@ class AgentSerializer(serializers.Serializer):
     name = serializers.CharField()
     description = serializers.CharField()
     rules = serializers.DictField(child=RuleSerializer())
-    pre_processing = PreProcessingSerializer(source="pre-processing", required=False)
+    pre_processing = PreProcessingSerializer(required=False)
     credentials = PushAgentsCredentialSerializer(many=True)
     language = serializers.CharField()
 
