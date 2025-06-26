@@ -239,12 +239,14 @@ class LambdaHandlerTest(TestCase):
         mock_data.params = {"param1": "value1"}
         mock_data.payload = {"payload_key": "payload_value"}
         mock_data.credentials = {"cred_key": "cred_value"}
+        mock_data.project_rules = []
 
         expected_payload = {
             "params": mock_data.params,
             "payload": mock_data.payload,
             "credentials": mock_data.credentials,
             "ignore_official_rules": self.mock_agent.ignore_templates,
+            "project_rules": [],
             "project": {
                 "uuid": str(self.mock_agent.project.uuid),
                 "vtex_account": self.mock_agent.project.vtex_account,

@@ -1,5 +1,7 @@
 from typing import cast
 
+from uuid import UUID
+
 from rest_framework.viewsets import ViewSet
 from rest_framework.views import APIView
 from rest_framework.decorators import action
@@ -19,6 +21,8 @@ from retail.templates.usecases import (
     UpdateLibraryTemplateUseCase,
     UpdateLibraryTemplateData,
     DeleteTemplateUseCase,
+    CreateCustomTemplateUseCase,
+    CreateCustomTemplateData,
 )
 
 from retail.templates.serializers import (
@@ -28,9 +32,8 @@ from retail.templates.serializers import (
     UpdateTemplateContentSerializer,
     UpdateTemplateSerializer,
     UpdateLibraryTemplateSerializer,
+    CreateCustomTemplateSerializer,
 )
-
-from uuid import UUID
 
 from retail.templates.usecases.template_metrics import FetchTemplateMetricsUseCase
 
@@ -111,6 +114,20 @@ class TemplateViewSet(ViewSet):
         use_case.execute(pk)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=["post"])
+    def custom(self, request: Request, *args, **kwargs) -> Response:
+        request_serializer = CreateCustomTemplateSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        data: CreateCustomTemplateData = cast(
+            CreateCustomTemplateData, request_serializer.validated_data
+        )
+        use_case = CreateCustomTemplateUseCase()
+        template = use_case.execute(data)
+
+        response_serializer = ReadTemplateSerializer(template)
+        return Response(data=response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class TemplateLibraryViewSet(ViewSet):
