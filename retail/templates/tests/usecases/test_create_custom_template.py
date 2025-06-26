@@ -311,7 +311,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
     def test_adapt_translation_called_with_correct_data(
         self, mock_task_create_template
     ):
-        """Test that template adapter is called with correct data structure"""
         self._setup_mocks_for_successful_execution()
         mock_task_create_template.delay.return_value = Mock()
 
@@ -320,7 +319,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.mock_template_adapter.adapt.assert_called_once()
         call_args = self.mock_template_adapter.adapt.call_args[0][0]
 
-        # O _adapt_translation agora passa o metadata diretamente para o adapter
         expected_structure = {
             "header": self.valid_payload["template_translation"]["template_header"],
             "body": self.valid_payload["template_translation"]["template_body"],
@@ -384,7 +382,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertIsInstance(result, Template)
         self.mock_template_adapter.adapt.assert_called_once()
         call_args = self.mock_template_adapter.adapt.call_args[0][0]
-        # O metadata é construído com base no template_translation, então body tem o valor correto
         self.assertEqual(call_args["body"], "Only body content")
         self.assertIsNone(call_args["header"])
         self.assertIsNone(call_args["footer"])
