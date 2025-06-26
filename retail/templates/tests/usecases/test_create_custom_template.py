@@ -96,8 +96,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         }
 
     def _setup_mocks_for_successful_execution(self):
-        """Helper method to set up mocks for successful execution"""
-
         mock_payload = Mock()
         mock_payload.read.return_value = json.dumps(
             self.successful_lambda_response
@@ -108,7 +106,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
 
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
     def test_execute_successful_creation(self, mock_task_create_template):
-        """Test successful custom template creation"""
         self._setup_mocks_for_successful_execution()
         mock_task_create_template.delay.return_value = Mock()
 
@@ -120,7 +117,13 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertEqual(result.rule_code, "def test_rule(): return True")
         self.assertEqual(result.integrated_agent, self.integrated_agent)
 
-        self.assertEqual(result.metadata, self.adapted_translation)
+        expected_metadata = {
+            "body": "Test Body",
+            "header": "Test Header",
+            "footer": "Test Footer",
+            "buttons": [{"type": "URL", "text": "Click here"}],
+        }
+        self.assertEqual(result.metadata, expected_metadata)
 
         version = Version.objects.get(template=result)
         self.assertIsNotNone(version)
@@ -139,7 +142,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
     def test_execute_with_buttons_modification_in_notify_integrations(
         self, mock_task_create_template
     ):
-        """Test that buttons are correctly modified for integrations notification"""
         self._setup_mocks_for_successful_execution()
         mock_task_create_template.delay.return_value = Mock()
 
@@ -162,7 +164,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
             self.assertNotIn("type", notify_translation["buttons"][0])
 
     def test_execute_integrated_agent_not_found(self):
-        """Test error when integrated agent is not found"""
         self._setup_mocks_for_successful_execution()
 
         invalid_payload = copy.deepcopy(self.valid_payload)
@@ -174,7 +175,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertIn("Assigned agent not found", str(context.exception))
 
     def test_execute_integrated_agent_inactive(self):
-        """Test error when integrated agent is inactive"""
         self._setup_mocks_for_successful_execution()
 
         self.integrated_agent.is_active = False
@@ -186,7 +186,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertIn("Assigned agent not found", str(context.exception))
 
     def test_execute_lambda_bad_request_error(self):
-        """Test error handling for lambda bad request"""
         mock_payload = Mock()
         error_response = {
             "statusCode": LambdaResponseStatusCode.BAD_REQUEST,
@@ -201,7 +200,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertEqual(context.exception.detail, {"error": "Invalid parameters"})
 
     def test_execute_lambda_unprocessable_entity_error(self):
-        """Test error handling for lambda unprocessable entity"""
         mock_payload = Mock()
         error_response = {
             "statusCode": LambdaResponseStatusCode.UNPROCESSABLE_ENTITY,
@@ -216,7 +214,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertEqual(context.exception.detail, {"error": "Cannot process request"})
 
     def test_execute_lambda_unknown_error(self):
-        """Test error handling for unknown lambda error"""
         mock_payload = Mock()
         error_response = {"statusCode": 500, "body": {"error": "Internal server error"}}
         mock_payload.read.return_value = json.dumps(error_response).encode()
@@ -231,7 +228,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertEqual(str(detail["error"]["body"]["error"]), "Internal server error")
 
     def test_execute_lambda_no_status_code(self):
-        """Test error handling when lambda response has no status code"""
         mock_payload = Mock()
         error_response = {"body": {"error": "No status code"}}
         mock_payload.read.return_value = json.dumps(error_response).encode()
@@ -245,7 +241,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertEqual(str(detail["error"]["body"]["error"]), "No status code")
 
     def test_get_start_condition_from_parameters(self):
-        """Test extraction of start_condition from parameters"""
         self._setup_mocks_for_successful_execution()
 
         modified_payload = copy.deepcopy(self.valid_payload)
@@ -260,7 +255,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertEqual(result.start_condition, "custom start condition")
 
     def test_get_start_condition_not_found_in_parameters(self):
-        """Test when start_condition is not found in parameters"""
         self._setup_mocks_for_successful_execution()
 
         modified_payload = copy.deepcopy(self.valid_payload)
@@ -282,7 +276,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
     def test_execute_creates_template_and_version_relationship(
         self, mock_task_create_template
     ):
-        """Test that template and version are properly linked"""
         self._setup_mocks_for_successful_execution()
         mock_task_create_template.delay.return_value = Mock()
 
@@ -298,7 +291,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
     def test_invoke_code_generator_with_correct_payload(
         self, mock_task_create_template
     ):
-        """Test that lambda is invoked with correct payload structure"""
         mock_payload = Mock()
         mock_payload.read.return_value = json.dumps(
             self.successful_lambda_response
@@ -328,6 +320,7 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.mock_template_adapter.adapt.assert_called_once()
         call_args = self.mock_template_adapter.adapt.call_args[0][0]
 
+        # O _adapt_translation agora passa o metadata diretamente para o adapter
         expected_structure = {
             "header": self.valid_payload["template_translation"]["template_header"],
             "body": self.valid_payload["template_translation"]["template_body"],
@@ -391,6 +384,7 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertIsInstance(result, Template)
         self.mock_template_adapter.adapt.assert_called_once()
         call_args = self.mock_template_adapter.adapt.call_args[0][0]
+        # O metadata é construído com base no template_translation, então body tem o valor correto
         self.assertEqual(call_args["body"], "Only body content")
         self.assertIsNone(call_args["header"])
         self.assertIsNone(call_args["footer"])
@@ -437,18 +431,20 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         mock_task_create_template.delay.return_value = Mock()
 
         translation_without_buttons = copy.deepcopy(self.adapted_translation)
-        del translation_without_buttons["buttons"]
+        translation_without_buttons["buttons"] = None
         self.mock_template_adapter.adapt.return_value = translation_without_buttons
 
         result = self.use_case.execute(self.valid_payload)
 
         self.assertIsInstance(result, Template)
-        self.assertNotIn("buttons", result.metadata)
+        self.assertIn("buttons", result.metadata)
+        self.assertIsNone(result.metadata["buttons"])
 
         mock_task_create_template.delay.assert_called_once()
         call_args = mock_task_create_template.delay.call_args.kwargs
         notify_translation = call_args["template_translation"]
-        self.assertNotIn("buttons", notify_translation)
+        self.assertIn("buttons", notify_translation)
+        self.assertIsNone(notify_translation["buttons"])
 
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
     def test_execute_multiple_parameters_with_same_name(

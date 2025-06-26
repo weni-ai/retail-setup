@@ -87,14 +87,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
     def _adapt_translation(
         self, template_translation: Dict[str, Any]
     ) -> Dict[str, Any]:
-        return self.template_adapter.adapt(
-            {
-                "header": template_translation.get("template_header"),
-                "body": template_translation.get("template_body"),
-                "footer": template_translation.get("template_footer"),
-                "buttons": template_translation.get("template_button"),
-            }
-        )
+        return self.template_adapter.adapt(template_translation)
 
     def _notify_integrations(
         self,
@@ -161,8 +154,18 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             )
 
         payload["template_name"] = payload.get("display_name").replace(" ", "_").lower()
+
         template, version = self.build_template_and_version(payload, integrated_agent)
-        translation = self._adapt_translation(payload.get("template_translation"))
+
+        metadata = {
+            "body": payload.get("template_translation", {}).get("template_body"),
+            "header": payload.get("template_translation", {}).get("template_header"),
+            "footer": payload.get("template_translation", {}).get("template_footer"),
+            "buttons": payload.get("template_translation", {}).get("template_button"),
+        }
+
+        translation_payload = self._adapt_translation(metadata)
+        metadata["buttons"] = translation_payload.get("buttons")
 
         start_condition = next(
             (
@@ -176,7 +179,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         template = self._update_template(
             template,
             body,
-            translation,
+            metadata,
             integrated_agent,
             payload.get("display_name"),
             start_condition,
@@ -184,7 +187,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         self._notify_integrations(
             version.template_name,
             version.uuid,
-            copy.deepcopy(translation),
+            copy.deepcopy(translation_payload),
             payload.get("app_uuid"),
             payload.get("project_uuid"),
             payload.get("category"),
