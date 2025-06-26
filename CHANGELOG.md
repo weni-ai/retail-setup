@@ -1,3 +1,8 @@
+# 3.6.0
+
+## *Feature*
+  - feat: custom templates creation
+
 # 3.5.0
 
 ## *Feature*
