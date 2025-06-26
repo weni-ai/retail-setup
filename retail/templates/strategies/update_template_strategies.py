@@ -133,7 +133,9 @@ class UpdateCustomTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
         lambda_service: Optional[AwsLambdaServiceInterface] = None,
     ):
         super().__init__(template_adapter)
-        self.lambda_service = lambda_service or AwsLambdaService()
+        self.lambda_service = lambda_service or AwsLambdaService(
+            region_name=settings.LAMBDA_CODE_GENERATOR_REGION
+        )
         self.lambda_code_generator = getattr(
             settings,
             "LAMBDA_CODE_GENERATOR",

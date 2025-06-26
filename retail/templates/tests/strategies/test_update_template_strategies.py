@@ -435,7 +435,7 @@ class UpdateCustomTemplateStrategyTest(TestCase):
         self.assertEqual(result, {"statusCode": 200, "body": {}})
 
 
-@override_settings(LAMBDA_REGION="us-east-1")
+@override_settings(LAMBDA_REGION="us-east-1", LAMBDA_CODE_GENERATOR_REGION="us-east-1")
 class UpdateTemplateStrategyFactoryTest(TestCase):
     def test_create_strategy_for_normal_template(self):
         template = Mock()

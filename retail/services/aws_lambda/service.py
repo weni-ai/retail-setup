@@ -13,8 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 class AwsLambdaService(AwsLambdaServiceInterface):
-    def __init__(self, client: Optional[AwsLambdaClientInterface] = None):
-        self.client = client or AwsLambdaClient()
+    def __init__(
+        self,
+        client: Optional[AwsLambdaClientInterface] = None,
+        region_name: Optional[str] = None,
+    ):
+        self.client = client or AwsLambdaClient(region_name=region_name)
 
     def send_file(self, file_obj: UploadedFile, function_name: str) -> str:
         zip_bytes = file_obj.read()

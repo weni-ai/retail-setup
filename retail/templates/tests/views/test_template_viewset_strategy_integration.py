@@ -17,7 +17,7 @@ from retail.projects.models import Project
 User = get_user_model()
 
 
-@override_settings(LAMBDA_REGION="us-east-1")
+@override_settings(LAMBDA_REGION="us-east-1", LAMBDA_CODE_GENERATOR_REGION="us-east-1")
 class TemplateViewSetStrategyIntegrationTest(APITestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="testuser", password="testpass")
