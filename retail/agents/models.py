@@ -27,6 +27,7 @@ class Agent(models.Model):
     )
     credentials = models.JSONField(null=True, default=dict)
     language = models.CharField(max_length=5, default="pt_BR")
+    examples = models.JSONField(null=True, default=list)
 
 
 class IntegratedAgent(models.Model):

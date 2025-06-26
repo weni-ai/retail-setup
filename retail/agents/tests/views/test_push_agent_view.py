@@ -85,6 +85,7 @@ class PushAgentViewE2ETest(APITestCase):
             lambda_arn="arn:aws:lambda:region:123:function:test",
             is_oficial=False,
             templates=mock_templates_manager,
+            examples=[{"name": "example1", "value": "value1"}],
         )
 
         mock_push_agent_instance = mock_push_agent_usecase.return_value

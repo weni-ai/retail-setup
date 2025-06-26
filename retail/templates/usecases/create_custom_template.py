@@ -71,7 +71,15 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         )
         self.template_adapter = template_adapter or TemplateTranslationAdapter()
 
-    def _invoke_code_generator(self, params: List[ParameterData]) -> Dict[str, Any]:
+    def _invoke_code_generator(
+        self, params: List[ParameterData], integrated_agent: IntegratedAgent
+    ) -> Dict[str, Any]:
+        example_parameter = {
+            "name": "examples",
+            "value": integrated_agent.agent.examples,
+        }
+        params.append(example_parameter)
+
         payload = {
             "parameters": params,
         }
@@ -130,7 +138,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         template.save()
         return template
 
-    def _get_integrated_agent(self, integrated_agent_uuid: UUID):
+    def _get_integrated_agent(self, integrated_agent_uuid: UUID) -> IntegratedAgent:
         try:
             return IntegratedAgent.objects.get(
                 uuid=integrated_agent_uuid, is_active=True
@@ -139,12 +147,11 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             raise NotFound(f"Assigned agent not found: {integrated_agent_uuid}")
 
     def _handle_successful_code_generation(
-        self, payload: CreateCustomTemplateData, body: Dict[str, Any]
+        self,
+        payload: CreateCustomTemplateData,
+        body: Dict[str, Any],
+        integrated_agent: IntegratedAgent,
     ) -> Template:
-        integrated_agent = self._get_integrated_agent(
-            payload.get("integrated_agent_uuid")
-        )
-
         if Template.objects.filter(
             integrated_agent=integrated_agent,
             display_name=payload.get("display_name"),
@@ -204,7 +211,12 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         Returns:
             Template: The created template instance.
         """
-        response_payload = self._invoke_code_generator(payload["parameters"])
+        integrated_agent = self._get_integrated_agent(
+            payload.get("integrated_agent_uuid")
+        )
+        response_payload = self._invoke_code_generator(
+            payload["parameters"], integrated_agent
+        )
 
         status_code = response_payload.get("statusCode")
         body = response_payload.get("body")
@@ -212,7 +224,9 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         if status_code is not None:
             match status_code:
                 case LambdaResponseStatusCode.OK:
-                    return self._handle_successful_code_generation(payload, body)
+                    return self._handle_successful_code_generation(
+                        payload, body, integrated_agent
+                    )
 
                 case LambdaResponseStatusCode.BAD_REQUEST:
                     raise CodeGeneratorBadRequest(detail=body)
