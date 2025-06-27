@@ -96,11 +96,17 @@ class GalleryAgentSerializer(ReadAgentSerializer):
         return str(assigned.uuid)
 
 
+class RetrieveIntegratedAgentQueryParamsSerializer(serializers.Serializer):
+    show_all = serializers.BooleanField(required=False, default=False)
+    start = serializers.DateField(required=False, default=None)
+    end = serializers.DateField(required=False, default=None)
+
+
 class ReadIntegratedAgentSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
     channel_uuid = serializers.UUIDField()
     templates = serializers.SerializerMethodField("get_templates")
-    webhook_url = serializers.SerializerMethodField()
+    webhook_url = serializers.SerializerMethodField("get_webhook_url")
     description = serializers.SerializerMethodField("get_description")
     contact_percentage = serializers.IntegerField()
 
@@ -112,8 +118,7 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
         return obj.agent.description
 
     def get_templates(self, obj):
-        templates = obj.templates.filter(is_active=True)
-        return ReadTemplateSerializer(templates, many=True).data
+        return ReadTemplateSerializer(obj.templates.all(), many=True).data
 
 
 class AgentWebhookSerializer(serializers.Serializer):
