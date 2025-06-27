@@ -35,6 +35,13 @@ class Cart(models.Model):
     abandoned = models.BooleanField(default=False)
     error_message = models.TextField(blank=True, null=True)
 
+    whatsapp_click_id = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        unique=True,
+    )
+
     def __str__(self):
         status = "Abandoned" if self.abandoned else self.status.capitalize()
         return f"Cart: {self.phone_number}, Status: {status}, Last Modified: {self.modified_on:%Y-%m-%d %H:%M:%S}"
