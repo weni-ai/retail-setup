@@ -20,6 +20,7 @@ class ReadTemplateSerializer(serializers.Serializer):
     status = serializers.SerializerMethodField()
     rule_code = serializers.CharField()
     metadata = serializers.JSONField()
+    is_custom = serializers.BooleanField()
     needs_button_edit = serializers.BooleanField()
     deleted_at = serializers.DateTimeField()
     is_active = serializers.BooleanField()
@@ -33,9 +34,15 @@ class ReadTemplateSerializer(serializers.Serializer):
         return last_version.status
 
     def get_display_name(self, obj: Template) -> str:
+        if obj.parent is None:
+            return obj.display_name
+
         return obj.parent.display_name
 
     def get_start_condition(self, obj: Template) -> str:
+        if obj.parent is None:
+            return obj.start_condition
+
         return obj.parent.start_condition
 
 
@@ -54,6 +61,11 @@ class CreateLibraryTemplateSerializer(serializers.Serializer):
     library_template_button_inputs = serializers.ListField(required=False)
 
 
+class ParameterSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    value = serializers.JSONField()
+
+
 class UpdateTemplateContentSerializer(serializers.Serializer):
     template_body = serializers.CharField(required=False)
     template_header = serializers.CharField(required=False)
@@ -61,6 +73,7 @@ class UpdateTemplateContentSerializer(serializers.Serializer):
     template_button = serializers.ListField(required=False)
     app_uuid = serializers.CharField(required=True)
     project_uuid = serializers.CharField(required=True)
+    parameters = ParameterSerializer(many=True, required=False, allow_null=True)
 
     def validate(self, attrs):
         if not any(
@@ -85,6 +98,16 @@ class UpdateLibraryTemplateButtonSerializer(serializers.Serializer):
 
 class UpdateLibraryTemplateSerializer(serializers.Serializer):
     library_template_button_inputs = UpdateLibraryTemplateButtonSerializer(many=True)
+
+
+class CreateCustomTemplateSerializer(serializers.Serializer):
+    template_translation = serializers.JSONField(required=True)
+    category = serializers.CharField()
+    app_uuid = serializers.CharField(required=True)
+    project_uuid = serializers.CharField(required=True)
+    integrated_agent_uuid = serializers.CharField(required=True)
+    parameters = ParameterSerializer(many=True, required=True)
+    display_name = serializers.CharField(required=True)
 
 
 class TemplateMetricsRequestSerializer(serializers.Serializer):

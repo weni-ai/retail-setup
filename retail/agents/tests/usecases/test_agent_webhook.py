@@ -5,18 +5,23 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from retail.agents.models import IntegratedAgent
-from retail.agents.usecases.agent_webhook import AgentWebhookUseCase
+from retail.agents.usecases.agent_webhook import (
+    AgentWebhookUseCase,
+    LambdaHandler,
+    BroadcastHandler,
+    LambdaResponseStatus,
+)
 from retail.templates.models import Template
 
 
 class AgentWebhookUseCaseTest(TestCase):
     def setUp(self):
-        # Mock services
-        self.mock_lambda_service = MagicMock()
-        self.mock_flows_service = MagicMock()
+        # Mock handlers
+        self.mock_lambda_handler = MagicMock()
+        self.mock_broadcast_handler = MagicMock()
         self.usecase = AgentWebhookUseCase(
-            lambda_service=self.mock_lambda_service,
-            flows_service=self.mock_flows_service,
+            lambda_handler=self.mock_lambda_handler,
+            broadcast_handler=self.mock_broadcast_handler,
         )
         # Mock agent
         self.mock_agent = MagicMock()
@@ -74,89 +79,6 @@ class AgentWebhookUseCaseTest(TestCase):
         creds = self.usecase._addapt_credentials(self.mock_agent)
         self.assertEqual(creds, {})
 
-    def test_can_send_to_contact_no_config(self):
-        self.mock_agent.config = None
-        data = {"contact_urn": "whatsapp:123"}
-        self.assertTrue(self.usecase._can_send_to_contact(self.mock_agent, data))
-
-    def test_can_send_to_contact_empty_config(self):
-        self.mock_agent.config = {}
-        data = {"contact_urn": "whatsapp:123"}
-        self.assertTrue(self.usecase._can_send_to_contact(self.mock_agent, data))
-
-    def test_can_send_to_contact_no_contact_urn(self):
-        data = {}
-        self.assertFalse(self.usecase._can_send_to_contact(self.mock_agent, data))
-
-    def test_can_send_to_contact_no_integration_settings(self):
-        self.mock_agent.config = {"other_settings": {}}
-        data = {"contact_urn": "whatsapp:123"}
-        self.assertTrue(self.usecase._can_send_to_contact(self.mock_agent, data))
-
-    def test_can_send_to_contact_no_order_status_restriction(self):
-        self.mock_agent.config = {"integration_settings": {"other_restriction": {}}}
-        data = {"contact_urn": "whatsapp:123"}
-        self.assertTrue(self.usecase._can_send_to_contact(self.mock_agent, data))
-
-    def test_can_send_to_contact_restriction_inactive(self):
-        self.mock_agent.config = {
-            "integration_settings": {
-                "order_status_restriction": {
-                    "is_active": False,
-                    "allowed_phone_numbers": ["whatsapp:123"],
-                }
-            }
-        }
-        data = {"contact_urn": "whatsapp:123"}
-        self.assertTrue(self.usecase._can_send_to_contact(self.mock_agent, data))
-
-    def test_can_send_to_contact_restriction_active_allowed(self):
-        self.mock_agent.config = {
-            "integration_settings": {
-                "order_status_restriction": {
-                    "is_active": True,
-                    "allowed_phone_numbers": ["whatsapp:123"],
-                }
-            }
-        }
-        data = {"contact_urn": "whatsapp:123"}
-        self.assertTrue(self.usecase._can_send_to_contact(self.mock_agent, data))
-
-    def test_can_send_to_contact_restriction_active_blocked(self):
-        self.mock_agent.config = {
-            "integration_settings": {
-                "order_status_restriction": {
-                    "is_active": True,
-                    "allowed_phone_numbers": ["whatsapp:999"],
-                }
-            }
-        }
-        data = {"contact_urn": "whatsapp:123"}
-        self.assertFalse(self.usecase._can_send_to_contact(self.mock_agent, data))
-
-    def test_can_send_to_contact_restriction_active_no_allowed_numbers(self):
-        self.mock_agent.config = {
-            "integration_settings": {
-                "order_status_restriction": {
-                    "is_active": True,
-                    "allowed_phone_numbers": [],
-                }
-            }
-        }
-        data = {"contact_urn": "whatsapp:123"}
-        self.assertFalse(self.usecase._can_send_to_contact(self.mock_agent, data))
-
-    def test_can_send_to_contact_restriction_active_missing_allowed_numbers(self):
-        self.mock_agent.config = {
-            "integration_settings": {
-                "order_status_restriction": {
-                    "is_active": True,
-                }
-            }
-        }
-        data = {"contact_urn": "whatsapp:123"}
-        self.assertFalse(self.usecase._can_send_to_contact(self.mock_agent, data))
-
     def test_get_integrated_agent_blocked_uuid(self):
         blocked_uuid = "d30bcce8-ce67-4677-8a33-c12b62a51d4f"
         result = self.usecase._get_integrated_agent(blocked_uuid)
@@ -183,81 +105,21 @@ class AgentWebhookUseCaseTest(TestCase):
         self.assertIsNone(result)
         mock_get.assert_called_once_with(uuid=test_uuid, is_active=True)
 
-    def test_invoke_lambda(self):
-        mock_data = MagicMock()
-        mock_data.params = {"param1": "value1"}
-        mock_data.payload = {"payload_key": "payload_value"}
-        mock_data.credentials = {"cred_key": "cred_value"}
-
-        expected_payload = {
-            "params": mock_data.params,
-            "payload": mock_data.payload,
-            "credentials": mock_data.credentials,
-            "ignore_official_rules": self.mock_agent.ignore_templates,
-            "project": {
-                "uuid": str(self.mock_agent.project.uuid),
-                "vtex_account": self.mock_agent.project.vtex_account,
-            },
-        }
-
-        self.usecase._invoke_lambda(self.mock_agent, mock_data)
-
-        self.mock_lambda_service.invoke.assert_called_once_with(
-            self.mock_agent.agent.lambda_arn, expected_payload
-        )
-
-    def test_get_current_template_name_success(self):
-        data = {"template": "order_update"}
-        mock_template = MagicMock()
-        mock_template.current_version.template_name = "order_update_v2"
-        self.mock_agent.templates.get.return_value = mock_template
-
-        result = self.usecase._get_current_template_name(self.mock_agent, data)
-
-        self.assertEqual(result, "order_update_v2")
-        self.mock_agent.templates.get.assert_called_once_with(name="order_update")
-
-    def test_get_current_template_name_not_found(self):
-        data = {"template": "non_existent_template"}
-        self.mock_agent.templates.get.side_effect = Template.DoesNotExist()
-
-        result = self.usecase._get_current_template_name(self.mock_agent, data)
-
-        self.assertIsNone(result)
-
-    def test_get_current_template_name_no_template_in_data(self):
-        data = {}
-
-        result = self.usecase._get_current_template_name(self.mock_agent, data)
-
-        # When template is None, the method will try to get a template with name=None
-        # and since we have a mock that returns template_v1, we need to adjust the test
-        self.mock_agent.templates.get.assert_called_once_with(name=None)
-        self.assertEqual(result, "template_v1")
-
-    def test_send_broadcast_message(self):
-        message = {"template": "test", "contact": "whatsapp:123"}
-
-        self.usecase._send_broadcast_message(message)
-
-        self.mock_flows_service.send_whatsapp_broadcast.assert_called_once_with(message)
-
     def test_execute_successful(self):
-        payload_json = MagicMock()
-        payload_json.read.return_value = (
-            b'{"template": "order_update", "contact_urn": "whatsapp:123"}'
-        )
-        self.mock_lambda_service.invoke.return_value = {"Payload": payload_json}
-        self.mock_agent.config = None
-        self.mock_flows_service.send_whatsapp_broadcast.return_value = {"status": "ok"}
+        mock_response = {"Payload": MagicMock()}
+        self.mock_lambda_handler.invoke.return_value = mock_response
+        self.mock_lambda_handler.parse_response.return_value = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:123",
+        }
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
 
-        with patch(
-            "retail.agents.usecases.agent_webhook.build_broadcast_template_message",
-            return_value={"msg": "ok"},
-        ):
-            result = self.usecase.execute(self.mock_agent, MagicMock())
-            self.assertIsInstance(result, dict)
-            self.mock_flows_service.send_whatsapp_broadcast.assert_called_once()
+        result = self.usecase.execute(self.mock_agent, MagicMock())
+
+        self.assertIsInstance(result, dict)
+        self.mock_broadcast_handler.send_message.assert_called_once()
 
     def test_execute_should_not_send_broadcast(self):
         self.mock_agent.contact_percentage = 0
@@ -265,19 +127,284 @@ class AgentWebhookUseCaseTest(TestCase):
         self.assertIsNone(result)
 
     def test_execute_missing_template_error(self):
-        payload_json = MagicMock()
-        payload_json.read.return_value = b'{"error": "Missing template"}'
-        self.mock_lambda_service.invoke.return_value = {"Payload": payload_json}
-        self.mock_agent.config = None
+        mock_response = {"Payload": MagicMock()}
+        self.mock_lambda_handler.invoke.return_value = mock_response
+        self.mock_lambda_handler.parse_response.return_value = {
+            "error": "Missing template"
+        }
+        self.mock_lambda_handler.validate_response.return_value = False
+
         result = self.usecase.execute(self.mock_agent, MagicMock())
         self.assertIsNone(result)
 
     def test_execute_contact_not_allowed(self):
-        payload_json = MagicMock()
-        payload_json.read.return_value = (
-            b'{"template": "order_update", "contact_urn": "whatsapp:123"}'
+        mock_response = {"Payload": MagicMock()}
+        self.mock_lambda_handler.invoke.return_value = mock_response
+        self.mock_lambda_handler.parse_response.return_value = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:123",
+        }
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = False
+
+        result = self.usecase.execute(self.mock_agent, MagicMock())
+        self.assertIsNone(result)
+
+    def test_execute_lambda_error_message(self):
+        mock_response = {"Payload": MagicMock()}
+        self.mock_lambda_handler.invoke.return_value = mock_response
+        self.mock_lambda_handler.parse_response.return_value = {
+            "errorMessage": "Some error"
+        }
+        self.mock_lambda_handler.validate_response.return_value = False
+
+        result = self.usecase.execute(self.mock_agent, MagicMock())
+        self.assertIsNone(result)
+
+    def test_execute_template_not_found(self):
+        mock_response = {"Payload": MagicMock()}
+        self.mock_lambda_handler.invoke.return_value = mock_response
+        self.mock_lambda_handler.parse_response.return_value = {
+            "template": "not_found",
+            "contact_urn": "whatsapp:123",
+        }
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = None
+
+        result = self.usecase.execute(self.mock_agent, MagicMock())
+        self.assertIsInstance(result, dict)
+
+    def test_execute_build_message_exception(self):
+        mock_response = {"Payload": MagicMock()}
+        self.mock_lambda_handler.invoke.return_value = mock_response
+        self.mock_lambda_handler.parse_response.return_value = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:123",
+        }
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.side_effect = Exception(
+            "Build message error"
         )
-        self.mock_lambda_service.invoke.return_value = {"Payload": payload_json}
+
+        result = self.usecase.execute(self.mock_agent, MagicMock())
+        self.assertIsInstance(result, dict)
+
+    def test_execute_build_message_returns_none(self):
+        mock_response = {"Payload": MagicMock()}
+        self.mock_lambda_handler.invoke.return_value = mock_response
+        self.mock_lambda_handler.parse_response.return_value = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:123",
+        }
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = None
+
+        result = self.usecase.execute(self.mock_agent, MagicMock())
+        self.assertIsInstance(result, dict)
+        self.mock_broadcast_handler.send_message.assert_not_called()
+
+    def test_execute_build_message_returns_empty_dict(self):
+        mock_response = {"Payload": MagicMock()}
+        self.mock_lambda_handler.invoke.return_value = mock_response
+        self.mock_lambda_handler.parse_response.return_value = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:123",
+        }
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {}
+
+        result = self.usecase.execute(self.mock_agent, MagicMock())
+        self.assertIsInstance(result, dict)
+        self.mock_broadcast_handler.send_message.assert_not_called()
+
+
+class LambdaHandlerTest(TestCase):
+    def setUp(self):
+        self.mock_lambda_service = MagicMock()
+        self.handler = LambdaHandler(lambda_service=self.mock_lambda_service)
+        self.mock_agent = MagicMock()
+        self.mock_agent.agent.lambda_arn = (
+            "arn:aws:lambda:region:account-id:function:function-name"
+        )
+        self.mock_agent.project.uuid = uuid4()
+        self.mock_agent.project.vtex_account = "test_account"
+        self.mock_agent.ignore_templates = False
+
+    def test_invoke_lambda(self):
+        mock_data = MagicMock()
+        mock_data.params = {"param1": "value1"}
+        mock_data.payload = {"payload_key": "payload_value"}
+        mock_data.credentials = {"cred_key": "cred_value"}
+        mock_data.project_rules = []
+
+        expected_payload = {
+            "params": mock_data.params,
+            "payload": mock_data.payload,
+            "credentials": mock_data.credentials,
+            "ignore_official_rules": self.mock_agent.ignore_templates,
+            "project_rules": [],
+            "project": {
+                "uuid": str(self.mock_agent.project.uuid),
+                "vtex_account": self.mock_agent.project.vtex_account,
+            },
+        }
+
+        self.handler.invoke(self.mock_agent, mock_data)
+
+        self.mock_lambda_service.invoke.assert_called_once_with(
+            self.mock_agent.agent.lambda_arn, expected_payload
+        )
+
+    def test_parse_response_success(self):
+        payload_json = MagicMock()
+        payload_json.read.return_value = b'{"template": "order_update"}'
+        response = {"Payload": payload_json}
+
+        result = self.handler.parse_response(response)
+
+        self.assertEqual(result, {"template": "order_update"})
+
+    def test_parse_response_json_decode_error(self):
+        payload_json = MagicMock()
+        payload_json.read.return_value = b"invalid json"
+        response = {"Payload": payload_json}
+
+        result = self.handler.parse_response(response)
+
+        self.assertIsNone(result)
+
+    def test_validate_response_rule_matched(self):
+        data = {"status": LambdaResponseStatus.RULE_MATCHED}
+
+        result = self.handler.validate_response(data)
+
+        self.assertTrue(result)
+
+    def test_validate_response_rule_not_matched(self):
+        data = {
+            "status": LambdaResponseStatus.RULE_NOT_MATCHED,
+            "error": "No rule matched",
+        }
+
+        result = self.handler.validate_response(data)
+
+        self.assertFalse(result)
+
+    def test_validate_response_pre_processing_failed(self):
+        data = {
+            "status": LambdaResponseStatus.PRE_PROCESSING_FAILED,
+            "error": "Pre-processing error",
+        }
+
+        result = self.handler.validate_response(data)
+
+        self.assertFalse(result)
+
+    def test_validate_response_custom_rule_failed(self):
+        data = {
+            "status": LambdaResponseStatus.CUSTOM_RULE_FAILED,
+            "error": "Custom rule error",
+        }
+
+        result = self.handler.validate_response(data)
+
+        self.assertFalse(result)
+
+    def test_validate_response_official_rule_failed(self):
+        data = {
+            "status": LambdaResponseStatus.OFFICIAL_RULE_FAILED,
+            "error": "Official rule error",
+        }
+
+        result = self.handler.validate_response(data)
+
+        self.assertFalse(result)
+
+    def test_validate_response_unknown_status_code(self):
+        data = {"status": 999, "error": "Unknown error"}
+
+        result = self.handler.validate_response(data)
+
+        self.assertFalse(result)
+
+    def test_validate_response_error_message(self):
+        data = {"errorMessage": "Some error"}
+
+        result = self.handler.validate_response(data)
+
+        self.assertFalse(result)
+
+    def test_validate_response_no_status_no_error_message(self):
+        data = {"template": "order_update", "contact_urn": "whatsapp:123"}
+
+        result = self.handler.validate_response(data)
+
+        self.assertFalse(result)
+
+
+class BroadcastHandlerTest(TestCase):
+    def setUp(self):
+        self.mock_flows_service = MagicMock()
+        self.handler = BroadcastHandler(flows_service=self.mock_flows_service)
+        self.mock_agent = MagicMock()
+        self.mock_agent.uuid = uuid4()
+        self.mock_agent.channel_uuid = uuid4()
+        self.mock_agent.project.uuid = uuid4()
+        self.mock_agent.config = None
+
+    def test_can_send_to_contact_no_config(self):
+        self.mock_agent.config = None
+        data = {"contact_urn": "whatsapp:123"}
+        self.assertTrue(self.handler.can_send_to_contact(self.mock_agent, data))
+
+    def test_can_send_to_contact_empty_config(self):
+        self.mock_agent.config = {}
+        data = {"contact_urn": "whatsapp:123"}
+        self.assertTrue(self.handler.can_send_to_contact(self.mock_agent, data))
+
+    def test_can_send_to_contact_no_contact_urn(self):
+        data = {}
+        self.assertFalse(self.handler.can_send_to_contact(self.mock_agent, data))
+
+    def test_can_send_to_contact_no_integration_settings(self):
+        self.mock_agent.config = {"other_settings": {}}
+        data = {"contact_urn": "whatsapp:123"}
+        self.assertTrue(self.handler.can_send_to_contact(self.mock_agent, data))
+
+    def test_can_send_to_contact_no_order_status_restriction(self):
+        self.mock_agent.config = {"integration_settings": {"other_restriction": {}}}
+        data = {"contact_urn": "whatsapp:123"}
+        self.assertTrue(self.handler.can_send_to_contact(self.mock_agent, data))
+
+    def test_can_send_to_contact_restriction_inactive(self):
+        self.mock_agent.config = {
+            "integration_settings": {
+                "order_status_restriction": {
+                    "is_active": False,
+                    "allowed_phone_numbers": ["whatsapp:123"],
+                }
+            }
+        }
+        data = {"contact_urn": "whatsapp:123"}
+        self.assertTrue(self.handler.can_send_to_contact(self.mock_agent, data))
+
+    def test_can_send_to_contact_restriction_active_allowed(self):
+        self.mock_agent.config = {
+            "integration_settings": {
+                "order_status_restriction": {
+                    "is_active": True,
+                    "allowed_phone_numbers": ["whatsapp:123"],
+                }
+            }
+        }
+        data = {"contact_urn": "whatsapp:123"}
+        self.assertTrue(self.handler.can_send_to_contact(self.mock_agent, data))
+
+    def test_can_send_to_contact_restriction_active_blocked(self):
         self.mock_agent.config = {
             "integration_settings": {
                 "order_status_restriction": {
@@ -286,77 +413,93 @@ class AgentWebhookUseCaseTest(TestCase):
                 }
             }
         }
-        result = self.usecase.execute(self.mock_agent, MagicMock())
+        data = {"contact_urn": "whatsapp:123"}
+        self.assertFalse(self.handler.can_send_to_contact(self.mock_agent, data))
+
+    def test_can_send_to_contact_restriction_active_no_allowed_numbers(self):
+        self.mock_agent.config = {
+            "integration_settings": {
+                "order_status_restriction": {
+                    "is_active": True,
+                    "allowed_phone_numbers": [],
+                }
+            }
+        }
+        data = {"contact_urn": "whatsapp:123"}
+        self.assertFalse(self.handler.can_send_to_contact(self.mock_agent, data))
+
+    def test_can_send_to_contact_restriction_active_missing_allowed_numbers(self):
+        self.mock_agent.config = {
+            "integration_settings": {
+                "order_status_restriction": {
+                    "is_active": True,
+                }
+            }
+        }
+        data = {"contact_urn": "whatsapp:123"}
+        self.assertFalse(self.handler.can_send_to_contact(self.mock_agent, data))
+
+    def test_get_current_template_name_success(self):
+        data = {"template": "order_update"}
+        mock_template = MagicMock()
+        mock_template.current_version.template_name = "order_update_v2"
+        self.mock_agent.templates.get.return_value = mock_template
+
+        result = self.handler.get_current_template_name(self.mock_agent, data)
+
+        self.assertEqual(result, "order_update_v2")
+        self.mock_agent.templates.get.assert_called_once_with(name="order_update")
+
+    def test_get_current_template_name_not_found(self):
+        data = {"template": "non_existent_template"}
+        self.mock_agent.templates.get.side_effect = Template.DoesNotExist()
+
+        result = self.handler.get_current_template_name(self.mock_agent, data)
+
         self.assertIsNone(result)
 
-    def test_execute_lambda_error_message(self):
-        payload_json = MagicMock()
-        payload_json.read.return_value = b'{"errorMessage": "Some error"}'
-        self.mock_lambda_service.invoke.return_value = {"Payload": payload_json}
-        self.mock_agent.config = None
-        with patch(
-            "retail.agents.usecases.agent_webhook.build_broadcast_template_message"
-        ):
-            result = self.usecase.execute(self.mock_agent, MagicMock())
-            self.assertIsNone(result)
+    def test_get_current_template_name_no_current_version(self):
+        data = {"template": "order_update"}
+        mock_template = MagicMock()
+        mock_template.current_version = None
+        self.mock_agent.templates.get.return_value = mock_template
 
-    def test_execute_template_not_found(self):
-        payload_json = MagicMock()
-        payload_json.read.return_value = (
-            b'{"template": "not_found", "contact_urn": "whatsapp:123"}'
-        )
-        self.mock_lambda_service.invoke.return_value = {"Payload": payload_json}
-        self.mock_agent.config = None
+        result = self.handler.get_current_template_name(self.mock_agent, data)
+
+        self.assertIsNone(result)
+        self.mock_agent.templates.get.assert_called_once_with(name="order_update")
+
+    def test_send_message(self):
+        message = {"template": "test", "contact": "whatsapp:123"}
+
+        self.handler.send_message(message)
+
+        self.mock_flows_service.send_whatsapp_broadcast.assert_called_once_with(message)
+
+    def test_build_message_success(self):
+        data = {"template": "order_update", "contact_urn": "whatsapp:123"}
+        mock_template = MagicMock()
+        mock_template.current_version.template_name = "order_update_v2"
+        self.mock_agent.templates.get.return_value = mock_template
+
+        with patch(
+            "retail.agents.usecases.agent_webhook.build_broadcast_template_message",
+            return_value={"msg": "ok"},
+        ) as mock_build:
+            result = self.handler.build_message(self.mock_agent, data)
+
+            self.assertEqual(result, {"msg": "ok"})
+            mock_build.assert_called_once_with(
+                data=data,
+                channel_uuid=str(self.mock_agent.channel_uuid),
+                project_uuid=str(self.mock_agent.project.uuid),
+                template_name="order_update_v2",
+            )
+
+    def test_build_message_template_not_found(self):
+        data = {"template": "non_existent_template"}
         self.mock_agent.templates.get.side_effect = Template.DoesNotExist()
-        with patch(
-            "retail.agents.usecases.agent_webhook.build_broadcast_template_message"
-        ):
-            result = self.usecase.execute(self.mock_agent, MagicMock())
-            self.assertIsInstance(result, dict)
 
-    def test_execute_build_message_exception(self):
-        payload_json = MagicMock()
-        payload_json.read.return_value = (
-            b'{"template": "order_update", "contact_urn": "whatsapp:123"}'
-        )
-        self.mock_lambda_service.invoke.return_value = {"Payload": payload_json}
-        self.mock_agent.config = None
+        result = self.handler.build_message(self.mock_agent, data)
 
-        with patch(
-            "retail.agents.usecases.agent_webhook.build_broadcast_template_message",
-            side_effect=Exception("Build message error"),
-        ):
-            result = self.usecase.execute(self.mock_agent, MagicMock())
-            self.assertIsInstance(result, dict)
-
-    def test_execute_build_message_returns_none(self):
-        payload_json = MagicMock()
-        payload_json.read.return_value = (
-            b'{"template": "order_update", "contact_urn": "whatsapp:123"}'
-        )
-        self.mock_lambda_service.invoke.return_value = {"Payload": payload_json}
-        self.mock_agent.config = None
-
-        with patch(
-            "retail.agents.usecases.agent_webhook.build_broadcast_template_message",
-            return_value=None,
-        ):
-            result = self.usecase.execute(self.mock_agent, MagicMock())
-            self.assertIsInstance(result, dict)
-            self.mock_flows_service.send_whatsapp_broadcast.assert_not_called()
-
-    def test_execute_build_message_returns_empty_dict(self):
-        payload_json = MagicMock()
-        payload_json.read.return_value = (
-            b'{"template": "order_update", "contact_urn": "whatsapp:123"}'
-        )
-        self.mock_lambda_service.invoke.return_value = {"Payload": payload_json}
-        self.mock_agent.config = None
-
-        with patch(
-            "retail.agents.usecases.agent_webhook.build_broadcast_template_message",
-            return_value={},
-        ):
-            result = self.usecase.execute(self.mock_agent, MagicMock())
-            self.assertIsInstance(result, dict)
-            self.mock_flows_service.send_whatsapp_broadcast.assert_not_called()
+        self.assertIsNone(result)

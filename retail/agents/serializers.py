@@ -24,7 +24,7 @@ class RuleSerializer(serializers.Serializer):
 class PreProcessingSerializer(serializers.Serializer):
     source = SourceSerializer(required=False)
     result_examples_file = serializers.CharField(required=False, allow_blank=True)
-    pre_result_examples_file = serializers.CharField(required=False, allow_blank=True)
+    result_example = serializers.JSONField(required=False, allow_null=True)
 
 
 class PushAgentsCredentialSerializer(serializers.Serializer):
@@ -38,7 +38,7 @@ class AgentSerializer(serializers.Serializer):
     name = serializers.CharField()
     description = serializers.CharField()
     rules = serializers.DictField(child=RuleSerializer())
-    pre_processing = PreProcessingSerializer(source="pre-processing", required=False)
+    pre_processing = PreProcessingSerializer(required=False)
     credentials = PushAgentsCredentialSerializer(many=True)
     language = serializers.CharField()
 
@@ -66,6 +66,7 @@ class ReadAgentSerializer(serializers.Serializer):
     language = serializers.CharField()
     is_oficial = serializers.BooleanField()
     templates = serializers.SerializerMethodField()
+    examples = serializers.JSONField()
 
     def get_templates(self, obj):
         templates = obj.templates.all()

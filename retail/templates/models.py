@@ -28,6 +28,12 @@ class Template(models.Model):
     needs_button_edit = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    start_condition = models.TextField(null=True, blank=True)
+    display_name = models.TextField(null=True, blank=True)
+
+    @property
+    def is_custom(self) -> bool:
+        return self.parent is None
 
 
 class Version(models.Model):

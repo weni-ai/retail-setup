@@ -53,12 +53,32 @@ class TestDeleteTemplateUseCase(TestCase):
     @patch("retail.templates.usecases.delete_template.timezone")
     @patch.object(DeleteTemplateUseCase, "_get_template")
     @patch.object(DeleteTemplateUseCase, "_add_template_to_ignore_list")
-    def test_execute_success(
+    def test_execute_custom_template(
         self, mock_add_to_ignore_list, mock_get_template, mock_timezone
     ):
         mock_template = MagicMock()
-        mock_template.is_active = True
-        mock_template.deleted_at = None
+        mock_template.is_custom = True
+        mock_get_template.return_value = mock_template
+
+        mock_now = MagicMock()
+        mock_timezone.now.return_value = mock_now
+
+        self.use_case.execute(self.template_uuid)
+
+        mock_get_template.assert_called_once_with(self.template_uuid)
+        mock_add_to_ignore_list.assert_not_called()
+        self.assertFalse(mock_template.is_active)
+        self.assertEqual(mock_template.deleted_at, mock_now)
+        mock_template.save.assert_called_once()
+
+    @patch("retail.templates.usecases.delete_template.timezone")
+    @patch.object(DeleteTemplateUseCase, "_get_template")
+    @patch.object(DeleteTemplateUseCase, "_add_template_to_ignore_list")
+    def test_execute_non_custom_template(
+        self, mock_add_to_ignore_list, mock_get_template, mock_timezone
+    ):
+        mock_template = MagicMock()
+        mock_template.is_custom = False
         mock_get_template.return_value = mock_template
 
         mock_now = MagicMock()
