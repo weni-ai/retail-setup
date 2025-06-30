@@ -3,12 +3,14 @@ from uuid import uuid4
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
 
+from retail.agents.push.models import Agent
+
 
 class IntegratedAgent(models.Model):
     uuid = models.UUIDField(primary_key=True, blank=True, default=uuid4)
     channel_uuid = models.UUIDField(null=True)
     agent = models.ForeignKey(
-        "Agent", on_delete=models.CASCADE, related_name="integrateds"
+        Agent, on_delete=models.CASCADE, related_name="integrateds"
     )
     project = models.ForeignKey(
         "projects.Project", on_delete=models.CASCADE, related_name="integrated_agents"
