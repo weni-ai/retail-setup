@@ -19,7 +19,8 @@ from retail.templates.exceptions import (
     CodeGeneratorUnprocessableEntity,
     CodeGeneratorInternalServerError,
 )
-from retail.agents.models import IntegratedAgent, Agent
+from retail.agents.assign.models import IntegratedAgent
+from retail.agents.push.models import Agent
 from retail.projects.models import Project
 
 

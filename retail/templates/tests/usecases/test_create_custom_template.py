@@ -23,7 +23,8 @@ from retail.templates.exceptions import (
     CustomTemplateAlreadyExists,
 )
 from retail.projects.models import Project
-from retail.agents.models import Agent, IntegratedAgent
+from retail.agents.assign.models import IntegratedAgent
+from retail.agents.push.models import Agent
 
 
 class CreateCustomTemplateUseCaseTest(TestCase):

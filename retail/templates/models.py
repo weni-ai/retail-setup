@@ -2,12 +2,15 @@ from django.db import models
 
 from uuid import uuid4
 
+from retail.agents.assign.models import IntegratedAgent
+from retail.agents.push.models import PreApprovedTemplate
+
 
 class Template(models.Model):
     uuid = models.UUIDField(blank=True, editable=False, primary_key=True, default=uuid4)
     name = models.CharField()
     parent = models.ForeignKey(
-        "agents.PreApprovedTemplate", on_delete=models.PROTECT, null=True, blank=True
+        PreApprovedTemplate, on_delete=models.PROTECT, null=True, blank=True
     )
     current_version = models.OneToOneField(
         "Version",
@@ -18,7 +21,7 @@ class Template(models.Model):
     )
     rule_code = models.TextField(null=True, blank=True)
     integrated_agent = models.ForeignKey(
-        "agents.IntegratedAgent",
+        IntegratedAgent,
         on_delete=models.PROTECT,
         null=True,
         blank=True,

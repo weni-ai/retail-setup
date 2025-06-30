@@ -11,7 +11,8 @@ from rest_framework.test import APITestCase, APIClient
 from rest_framework.exceptions import NotFound
 from rest_framework import status
 
-from retail.agents.models import PreApprovedTemplate, Agent, IntegratedAgent
+from retail.agents.push.models import PreApprovedTemplate, Agent
+from retail.agents.assign.models import IntegratedAgent
 from retail.templates.models import Template, Version
 from retail.templates.usecases import (
     CreateTemplateUseCase,

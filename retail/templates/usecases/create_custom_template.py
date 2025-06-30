@@ -26,7 +26,7 @@ from retail.templates.exceptions import (
     CodeGeneratorInternalServerError,
     CustomTemplateAlreadyExists,
 )
-from retail.agents.models import IntegratedAgent
+from retail.agents.assign.models import IntegratedAgent
 
 
 class LambdaResponsePayload(TypedDict):

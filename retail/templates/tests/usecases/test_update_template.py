@@ -4,7 +4,8 @@ from rest_framework.exceptions import NotFound
 from retail.templates.models import Template, Version
 from retail.projects.models import Project
 from retail.templates.usecases import UpdateTemplateUseCase
-from retail.agents.models import IntegratedAgent, PreApprovedTemplate
+from retail.agents.push.models import PreApprovedTemplate
+from retail.agents.assign.models import IntegratedAgent
 
 from datetime import datetime
 
@@ -32,7 +33,7 @@ class UpdateTemplateUseCaseTest(TestCase):
         self.use_case = UpdateTemplateUseCase()
 
     def test_execute_updates_template_and_version_status(self):
-        from retail.agents.models import Agent
+        from retail.agents.push.models import Agent
 
         agent = Agent.objects.create(
             uuid=uuid4(),

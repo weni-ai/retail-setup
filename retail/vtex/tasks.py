@@ -3,8 +3,10 @@ import logging
 from rest_framework.exceptions import ValidationError
 
 from celery import shared_task
-from retail.agents.usecases.agent_webhook import AgentWebhookUseCase
-from retail.agents.usecases.order_status_update import AgentOrderStatusUpdateUsecase
+from retail.agents.webhooks.usecases.agent_webhook import AgentWebhookUseCase
+from retail.agents.webhooks.usecases.order_status_update import (
+    AgentOrderStatusUpdateUsecase,
+)
 from retail.interfaces.clients.aws_lambda.client import RequestData
 from retail.vtex.usecases.cart_abandonment import CartAbandonmentUseCase
 from retail.webhooks.vtex.usecases.order_status import OrderStatusUseCase

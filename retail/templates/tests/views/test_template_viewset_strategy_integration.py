@@ -10,7 +10,8 @@ from django.test import override_settings
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 
-from retail.agents.models import PreApprovedTemplate, Agent, IntegratedAgent
+from retail.agents.assign.models import IntegratedAgent
+from retail.agents.push.models import PreApprovedTemplate, Agent
 from retail.templates.models import Template
 from retail.projects.models import Project
 
