@@ -12,6 +12,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework import status
 
 from retail.agents.push.models import PreApprovedTemplate, Agent
+from retail.agents.assign.models import IntegratedAgent
 from retail.templates.models import Template, Version
 from retail.templates.usecases import (
     CreateTemplateUseCase,
@@ -19,6 +20,12 @@ from retail.templates.usecases import (
     UpdateTemplateUseCase,
     UpdateTemplateContentUseCase,
     DeleteTemplateUseCase,
+    CreateCustomTemplateUseCase,
+)
+from retail.templates.exceptions import (
+    CodeGeneratorBadRequest,
+    CodeGeneratorUnprocessableEntity,
+    CodeGeneratorInternalServerError,
 )
 from retail.projects.models import Project
 
@@ -67,11 +74,16 @@ class TemplateViewSetTest(APITestCase):
             metadata={},
         )
 
+        self.integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(), agent=self.agent, project=self.project, is_active=True
+        )
+
         self.create_usecase = CreateTemplateUseCase()
         self.read_usecase = ReadTemplateUseCase()
         self.update_usecase = UpdateTemplateUseCase()
         self.update_content_usecase = UpdateTemplateContentUseCase()
         self.delete_usecase = DeleteTemplateUseCase()
+        self.create_custom_usecase = MagicMock(spec=CreateCustomTemplateUseCase)
 
         self.create_usecase_patch = patch(
             "retail.templates.views.CreateTemplateUseCase",
@@ -93,18 +105,24 @@ class TemplateViewSetTest(APITestCase):
             "retail.templates.views.DeleteTemplateUseCase",
             return_value=self.delete_usecase,
         )
+        self.create_custom_usecase_patch = patch(
+            "retail.templates.views.CreateCustomTemplateUseCase",
+            return_value=self.create_custom_usecase,
+        )
 
         self.create_usecase_patch.start()
         self.read_usecase_patch.start()
         self.update_usecase_patch.start()
         self.update_content_usecase_patch.start()
         self.delete_usecase_patch.start()
+        self.create_custom_usecase_patch.start()
 
         self.addCleanup(self.create_usecase_patch.stop)
         self.addCleanup(self.read_usecase_patch.stop)
         self.addCleanup(self.update_usecase_patch.stop)
         self.addCleanup(self.update_content_usecase_patch.stop)
         self.addCleanup(self.delete_usecase_patch.stop)
+        self.addCleanup(self.create_custom_usecase_patch.stop)
 
     def test_create_template(self):
         template = Template.objects.create(
@@ -257,6 +275,7 @@ class TemplateViewSetTest(APITestCase):
             "template_body": "Updated template body with {{placeholder}}",
             "app_uuid": str(uuid4()),
             "project_uuid": str(self.project.uuid),
+            "parameters": None,
         }
 
         template_uuid = str(template.uuid)
@@ -267,11 +286,57 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["name"], "test_template")
 
+    def test_partial_update_template_content_with_custom_template_parameters(self):
+        custom_template = Template.objects.create(
+            uuid=uuid4(),
+            name="custom_template",
+            integrated_agent=self.integrated_agent,
+        )
+        version = Version.objects.create(
+            template=custom_template,
+            template_name="custom_template",
+            integrations_app_uuid=uuid4(),
+            project=self.project,
+            status="APPROVED",
+        )
+        custom_template.current_version = version
+        custom_template.save()
+
+        updated_template = Template.objects.create(
+            uuid=uuid4(),
+            name="custom_template",
+            integrated_agent=self.integrated_agent,
+        )
+
+        self.update_content_usecase.execute = lambda data: updated_template
+
+        payload = {
+            "template_body": "Updated custom template body",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+            "parameters": [
+                {"name": "start_condition", "value": "user.is_active == true"},
+                {
+                    "name": "custom_logic",
+                    "value": "if user.premium: send_premium_template()",
+                },
+            ],
+        }
+
+        template_uuid = str(custom_template.uuid)
+        response = self.client.patch(
+            reverse("template-detail", args=[template_uuid]), payload, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["name"], "custom_template")
+
     def test_partial_update_template_content_invalid_data(self):
         template_uuid = str(uuid4())
         payload = {
             "template_body": "",
             "app_uuid": str(uuid4()),
+            "parameters": None,
         }
 
         response = self.client.patch(
@@ -289,6 +354,7 @@ class TemplateViewSetTest(APITestCase):
             "template_body": "Updated template body",
             "app_uuid": str(uuid4()),
             "project_uuid": str(self.project.uuid),
+            "parameters": None,
         }
 
         template_uuid = str(uuid4())
@@ -336,12 +402,238 @@ class TemplateViewSetTest(APITestCase):
         response = client.get(reverse("template-detail", args=[template_uuid]))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        response = client.patch(
-            reverse("template-detail", args=[template_uuid]), {}, format="json"
+    def test_create_custom_template_success(self):
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="custom_template",
+            display_name="Custom Template",
+            integrated_agent=self.integrated_agent,
+            rule_code="def custom_rule(): return True",
+            metadata={"test": "data"},
         )
+
+        self.create_custom_usecase.execute = lambda payload: template
+
+        payload = {
+            "template_translation": {
+                "template_header": "Test Header",
+                "template_body": "Test Body {{name}}",
+                "template_footer": "Test Footer",
+                "template_button": [{"type": "URL", "text": "Click here"}],
+            },
+            "template_name": "custom_template",
+            "category": "custom",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+            "integrated_agent_uuid": str(self.integrated_agent.uuid),
+            "parameters": [
+                {
+                    "name": "variables",
+                    "value": '[{"definition": "name", "fallback": "User"}]',
+                },
+                {"name": "start_condition", "value": "always true"},
+            ],
+            "display_name": "Custom Template Display",
+        }
+
+        url = reverse("template-custom")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], "custom_template")
+        self.assertEqual(response.data["display_name"], "Custom Template")
+        self.assertEqual(response.data["is_custom"], True)
+
+    def test_create_custom_template_invalid_data(self):
+        payload = {
+            "template_translation": {"template_body": "Test Body"},
+            "category": "custom",
+        }
+
+        url = reverse("template-custom")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_custom_template_missing_required_fields(self):
+        payload = {
+            "template_translation": {"template_body": "Test Body"},
+            "template_name": "test_template",
+            "category": "custom",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+        }
+
+        url = reverse("template-custom")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_custom_template_integrated_agent_not_found(self):
+        self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
+            NotFound("Assigned agent not found")
+        )
+
+        payload = {
+            "template_translation": {
+                "template_header": "Test Header",
+                "template_body": "Test Body",
+                "template_footer": "Test Footer",
+            },
+            "template_name": "custom_template",
+            "category": "custom",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+            "integrated_agent_uuid": str(uuid4()),
+            "parameters": [{"name": "start_condition", "value": "test condition"}],
+            "display_name": "Custom Template",
+        }
+
+        url = reverse("template-custom")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_create_custom_template_code_generator_bad_request(self):
+        self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
+            CodeGeneratorBadRequest(detail={"error": "Invalid parameters"})
+        )
+
+        payload = {
+            "template_translation": {"template_body": "Test Body"},
+            "template_name": "custom_template",
+            "category": "custom",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+            "integrated_agent_uuid": str(self.integrated_agent.uuid),
+            "parameters": [{"name": "invalid_param", "value": "invalid_value"}],
+            "display_name": "Custom Template",
+        }
+
+        url = reverse("template-custom")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_custom_template_code_generator_unprocessable_entity(self):
+        self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
+            CodeGeneratorUnprocessableEntity(detail={"error": "Cannot process request"})
+        )
+
+        payload = {
+            "template_translation": {"template_body": "Test Body"},
+            "template_name": "custom_template",
+            "category": "custom",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+            "integrated_agent_uuid": str(self.integrated_agent.uuid),
+            "parameters": [{"name": "complex_param", "value": "unprocessable_value"}],
+            "display_name": "Custom Template",
+        }
+
+        url = reverse("template-custom")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    def test_create_custom_template_code_generator_internal_server_error(self):
+        self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
+            CodeGeneratorInternalServerError(
+                detail={"message": "Internal lambda error"}
+            )
+        )
+
+        payload = {
+            "template_translation": {"template_body": "Test Body"},
+            "template_name": "custom_template",
+            "category": "custom",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+            "integrated_agent_uuid": str(self.integrated_agent.uuid),
+            "parameters": [{"name": "start_condition", "value": "test condition"}],
+            "display_name": "Custom Template",
+        }
+
+        url = reverse("template-custom")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def test_create_custom_template_with_buttons(self):
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="custom_template_with_buttons",
+            display_name="Custom Template with Buttons",
+            integrated_agent=self.integrated_agent,
+            metadata={"buttons": [{"type": "URL", "text": "Visit Site"}]},
+        )
+
+        self.create_custom_usecase.execute = lambda payload: template
+
+        payload = {
+            "template_translation": {
+                "template_body": "Check out our site!",
+                "template_button": [
+                    {"type": "URL", "text": "Visit Site", "url": "https://example.com"}
+                ],
+            },
+            "template_name": "custom_template_with_buttons",
+            "category": "marketing",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+            "integrated_agent_uuid": str(self.integrated_agent.uuid),
+            "parameters": [{"name": "start_condition", "value": "user_interested"}],
+            "display_name": "Marketing Template",
+        }
+
+        url = reverse("template-custom")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("metadata", response.data)
+        if "buttons" in response.data["metadata"]:
+            self.assertIn("type", response.data["metadata"]["buttons"][0])
+
+    def test_create_custom_template_unauthorized(self):
+        client = APIClient()
+
+        payload = {
+            "template_translation": {"template_body": "Test Body"},
+            "template_name": "custom_template",
+            "category": "custom",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+            "integrated_agent_uuid": str(self.integrated_agent.uuid),
+            "parameters": [],
+            "display_name": "Custom Template",
+        }
+
+        url = reverse("template-custom")
+        response = client.post(url, payload, format="json")
+
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        response = client.delete(reverse("template-detail", args=[template_uuid]))
+    def test_create_custom_template_without_permission(self):
+        user_without_permission = User.objects.create_user(
+            username="nopermuser", password="testpass"
+        )
+        client = APIClient()
+        client.force_authenticate(user=user_without_permission)
+
+        payload = {
+            "template_translation": {"template_body": "Test Body"},
+            "template_name": "custom_template",
+            "category": "custom",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+            "integrated_agent_uuid": str(self.integrated_agent.uuid),
+            "parameters": [],
+            "display_name": "Custom Template",
+        }
+
+        url = reverse("template-custom")
+        response = client.post(url, payload, format="json")
+
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_forbidden_access_without_permission(self):

@@ -7,6 +7,10 @@ from retail.templates.usecases.update_template_body import (
     UpdateTemplateContentUseCase,
     UpdateTemplateContentData,
 )
+from retail.templates.strategies.update_template_strategies import (
+    UpdateNormalTemplateStrategy,
+    UpdateCustomTemplateStrategy,
+)
 
 
 class TestUpdateTemplateContentUseCase(TestCase):
@@ -25,6 +29,7 @@ class TestUpdateTemplateContentUseCase(TestCase):
             template_button=[{"type": "QUICK_REPLY", "text": "Button 1"}],
             app_uuid=self.app_uuid,
             project_uuid=self.project_uuid,
+            parameters=None,
         )
 
     @patch("retail.templates.usecases.update_template_body.Template")
@@ -50,221 +55,147 @@ class TestUpdateTemplateContentUseCase(TestCase):
             str(context.exception), f"Template not found: {self.template_uuid}"
         )
 
-    @patch("retail.templates.usecases.update_template_body.task_create_template")
-    def test_notify_integrations_success(self, mock_task):
-        version_name = "Test Template"
-        translation_payload = {"body": {"type": "BODY", "text": "Test body"}}
-        category = "marketing"
-
-        self.use_case._notify_integrations(
-            version_name=version_name,
-            version_uuid=self.version_uuid,
-            translation_payload=translation_payload,
-            app_uuid=self.app_uuid,
-            project_uuid=self.project_uuid,
-            category=category,
-        )
-
-        mock_task.delay.assert_called_once_with(
-            template_name=version_name,
-            app_uuid=self.app_uuid,
-            project_uuid=self.project_uuid,
-            category=category,
-            version_uuid=str(self.version_uuid),
-            template_translation=translation_payload,
-        )
-
-    def test_notify_integrations_missing_data(self):
-        with self.assertRaises(ValueError) as context:
-            self.use_case._notify_integrations(
-                version_name="",
-                version_uuid=self.version_uuid,
-                translation_payload={},
-                app_uuid=self.app_uuid,
-                project_uuid=self.project_uuid,
-                category="marketing",
-            )
-
-        self.assertEqual(
-            str(context.exception), "Missing required data to notify integrations"
-        )
-
+    @patch(
+        "retail.templates.strategies.update_template_strategies.UpdateTemplateStrategyFactory.create_strategy"
+    )
     @patch.object(UpdateTemplateContentUseCase, "_get_template")
-    @patch.object(UpdateTemplateContentUseCase, "_create_version")
-    @patch.object(UpdateTemplateContentUseCase, "_notify_integrations")
-    def test_execute_success(self, mock_notify, mock_create_version, mock_get_template):
+    def test_execute_with_normal_template_uses_normal_strategy(
+        self, mock_get_template, mock_factory
+    ):
+        """Test that normal templates use UpdateNormalTemplateStrategy"""
         mock_template = MagicMock()
-        mock_template.metadata = {
-            "category": "marketing",
-            "body": "Original body",
-            "header": "Original header",
-            "footer": "Original footer",
-            "buttons": [{"type": "QUICK_REPLY", "text": "Original Button"}],
-        }
+        mock_template.is_custom = False
         mock_get_template.return_value = mock_template
 
-        mock_version = MagicMock()
-        mock_version.template_name = "Test Template"
-        mock_version.uuid = self.version_uuid
-        mock_create_version.return_value = mock_version
-
-        mock_adapter = MagicMock()
-        mock_adapter.adapt.return_value = {
-            "body": {"type": "BODY", "text": "Updated body"},
-            "buttons": [{"text": "Button 1", "type": "QUICK_REPLY"}],
-        }
-        self.use_case.template_adapter = mock_adapter
+        mock_strategy = MagicMock(spec=UpdateNormalTemplateStrategy)
+        mock_strategy.update_template.return_value = mock_template
+        mock_factory.return_value = mock_strategy
 
         result = self.use_case.execute(self.payload)
 
-        mock_get_template.assert_called_once_with(self.template_uuid)
-
-        expected_metadata = {
-            "category": "marketing",
-            "body": "Updated body",
-            "header": "Updated header",
-            "footer": "Updated footer",
-            "buttons": [{"text": "Button 1", "button_type": "QUICK_REPLY"}],
-        }
-
-        mock_adapter.adapt.assert_called_once_with(expected_metadata)
-        mock_template.save.assert_called_once_with(update_fields=["metadata"])
-
-        mock_create_version.assert_called_once_with(
+        mock_factory.assert_called_once_with(
             template=mock_template,
-            app_uuid=self.app_uuid,
-            project_uuid=self.project_uuid,
+            template_adapter=None,
+            lambda_service=None,
         )
 
-        mock_notify.assert_called_once_with(
-            version_name="Test Template",
-            version_uuid=self.version_uuid,
-            translation_payload={
-                "body": {"type": "BODY", "text": "Updated body"},
-                "buttons": [{"text": "Button 1", "button_type": "QUICK_REPLY"}],
-            },
+        mock_strategy.update_template.assert_called_once_with(
+            mock_template, self.payload
+        )
+        self.assertEqual(result, mock_template)
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.UpdateTemplateStrategyFactory.create_strategy"
+    )
+    @patch.object(UpdateTemplateContentUseCase, "_get_template")
+    def test_execute_with_custom_template_uses_custom_strategy(
+        self, mock_get_template, mock_factory
+    ):
+        """Test that custom templates use UpdateCustomTemplateStrategy"""
+        mock_template = MagicMock()
+        mock_template.is_custom = True
+        mock_get_template.return_value = mock_template
+
+        custom_payload = UpdateTemplateContentData(
+            template_uuid=self.template_uuid,
+            template_body="Updated body",
+            template_header="Updated header",
+            template_footer="Updated footer",
+            template_button=[{"type": "QUICK_REPLY", "text": "Button 1"}],
             app_uuid=self.app_uuid,
             project_uuid=self.project_uuid,
-            category="marketing",
+            parameters=[{"name": "param1", "value": "value1"}],
+        )
+
+        mock_strategy = MagicMock(spec=UpdateCustomTemplateStrategy)
+        mock_strategy.update_template.return_value = mock_template
+        mock_factory.return_value = mock_strategy
+
+        result = self.use_case.execute(custom_payload)
+
+        mock_factory.assert_called_once_with(
+            template=mock_template,
+            template_adapter=None,
+            lambda_service=None,
+        )
+
+        mock_strategy.update_template.assert_called_once_with(
+            mock_template, custom_payload
+        )
+        self.assertEqual(result, mock_template)
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.UpdateTemplateStrategyFactory.create_strategy"
+    )
+    @patch.object(UpdateTemplateContentUseCase, "_get_template")
+    def test_execute_passes_dependencies_to_factory(
+        self, mock_get_template, mock_factory
+    ):
+        """Test that injected dependencies are passed to factory"""
+        mock_template = MagicMock()
+        mock_template.is_custom = False
+        mock_get_template.return_value = mock_template
+
+        mock_lambda_service = MagicMock()
+        mock_template_adapter = MagicMock()
+
+        mock_strategy = MagicMock()
+        mock_strategy.update_template.return_value = mock_template
+        mock_factory.return_value = mock_strategy
+
+        use_case = UpdateTemplateContentUseCase(
+            lambda_service=mock_lambda_service,
+            template_adapter=mock_template_adapter,
+        )
+
+        result = use_case.execute(self.payload)
+
+        mock_factory.assert_called_once_with(
+            template=mock_template,
+            template_adapter=mock_template_adapter,
+            lambda_service=mock_lambda_service,
         )
 
         self.assertEqual(result, mock_template)
 
     @patch.object(UpdateTemplateContentUseCase, "_get_template")
-    def test_execute_missing_metadata(self, mock_get_template):
+    def test_execute_template_not_found_raises_not_found(self, mock_get_template):
+        mock_get_template.side_effect = NotFound("Template not found")
+
+        with self.assertRaises(NotFound):
+            self.use_case.execute(self.payload)
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.UpdateTemplateStrategyFactory.create_strategy"
+    )
+    @patch.object(UpdateTemplateContentUseCase, "_get_template")
+    def test_execute_strategy_error_propagates(self, mock_get_template, mock_factory):
         mock_template = MagicMock()
-        mock_template.metadata = None
         mock_get_template.return_value = mock_template
+
+        mock_strategy = MagicMock()
+        mock_strategy.update_template.side_effect = ValueError("Strategy error")
+        mock_factory.return_value = mock_strategy
 
         with self.assertRaises(ValueError) as context:
             self.use_case.execute(self.payload)
 
-        self.assertEqual(str(context.exception), "Template metadata is missing")
-
-    @patch.object(UpdateTemplateContentUseCase, "_get_template")
-    def test_execute_missing_category(self, mock_get_template):
-        mock_template = MagicMock()
-        mock_template.metadata = {"body": "Test body"}
-        mock_get_template.return_value = mock_template
-
-        with self.assertRaises(ValueError) as context:
-            self.use_case.execute(self.payload)
-
-        self.assertEqual(
-            str(context.exception), "Missing category in template metadata"
-        )
-
-    @patch.object(UpdateTemplateContentUseCase, "_get_template")
-    @patch.object(UpdateTemplateContentUseCase, "_create_version")
-    @patch.object(UpdateTemplateContentUseCase, "_notify_integrations")
-    def test_execute_with_button_type_transformation(
-        self, mock_notify, mock_create_version, mock_get_template
-    ):
-        mock_template = MagicMock()
-        mock_template.metadata = {
-            "category": "marketing",
-            "body": "Original body",
-            "buttons": [{"type": "QUICK_REPLY", "text": "Button 1"}],
-        }
-        mock_get_template.return_value = mock_template
-
-        mock_version = MagicMock()
-        mock_version.template_name = "Test Template"
-        mock_version.uuid = self.version_uuid
-        mock_create_version.return_value = mock_version
-
-        mock_adapter = MagicMock()
-        mock_adapter.adapt.return_value = {
-            "buttons": [{"type": "QUICK_REPLY", "text": "Button 1"}],
-        }
-        self.use_case.template_adapter = mock_adapter
-
-        self.use_case.execute(self.payload)
-
-        expected_buttons = [{"text": "Button 1", "button_type": "QUICK_REPLY"}]
-        self.assertEqual(mock_template.metadata["buttons"], expected_buttons)
-
-    @patch.object(UpdateTemplateContentUseCase, "_get_template")
-    @patch.object(UpdateTemplateContentUseCase, "_create_version")
-    @patch.object(UpdateTemplateContentUseCase, "_notify_integrations")
-    def test_execute_uses_existing_values_when_not_provided(
-        self, mock_notify, mock_create_version, mock_get_template
-    ):
-        mock_template = MagicMock()
-        mock_template.metadata = {
-            "category": "marketing",
-            "body": "Original body",
-            "header": "Original header",
-            "footer": "Original footer",
-            "buttons": [{"type": "QUICK_REPLY", "text": "Original Button"}],
-        }
-        mock_get_template.return_value = mock_template
-
-        mock_version = MagicMock()
-        mock_version.template_name = "Test Template"
-        mock_version.uuid = self.version_uuid
-        mock_create_version.return_value = mock_version
-
-        mock_adapter = MagicMock()
-        mock_adapter.adapt.return_value = {"buttons": []}
-        self.use_case.template_adapter = mock_adapter
-
-        partial_payload = UpdateTemplateContentData(
-            template_uuid=self.template_uuid,
-            template_body="Updated body only",
-            template_header="",
-            template_footer="",
-            template_button=[],
-            app_uuid=self.app_uuid,
-            project_uuid=self.project_uuid,
-        )
-
-        self.use_case.execute(partial_payload)
-
-        expected_metadata = {
-            "category": "marketing",
-            "body": "Updated body only",
-            "header": "",
-            "footer": "",
-            "buttons": [],
-        }
-
-        mock_adapter.adapt.assert_called_once_with(expected_metadata)
+        self.assertEqual(str(context.exception), "Strategy error")
 
     def test_init_with_custom_dependencies(self):
-        mock_service = MagicMock()
-        mock_adapter = MagicMock()
+        mock_lambda_service = MagicMock()
+        mock_template_adapter = MagicMock()
 
         use_case = UpdateTemplateContentUseCase(
-            service=mock_service,
-            template_adapter=mock_adapter,
+            lambda_service=mock_lambda_service,
+            template_adapter=mock_template_adapter,
         )
 
-        self.assertEqual(use_case.service, mock_service)
-        self.assertEqual(use_case.template_adapter, mock_adapter)
+        self.assertEqual(use_case.lambda_service, mock_lambda_service)
+        self.assertEqual(use_case.template_adapter, mock_template_adapter)
 
     def test_init_with_default_dependencies(self):
         use_case = UpdateTemplateContentUseCase()
 
-        self.assertIsNotNone(use_case.service)
-        self.assertIsNotNone(use_case.template_adapter)
+        self.assertIsNone(use_case.lambda_service)
+        self.assertIsNone(use_case.template_adapter)

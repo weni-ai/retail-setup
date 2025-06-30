@@ -4,13 +4,14 @@ import logging
 
 import random
 
+from enum import IntEnum
+
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from uuid import UUID
 
 from retail.agents.assign.models import IntegratedAgent
 from retail.agents.webhooks.utils import build_broadcast_template_message
-from retail.clients.flows.client import FlowsClient
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
 from retail.services.flows.service import FlowsService
@@ -23,30 +24,25 @@ if TYPE_CHECKING:
     from retail.interfaces.clients.aws_lambda.client import RequestData
 
 
-class AgentWebhookUseCase:
-    def __init__(
-        self,
-        lambda_service: Optional[AwsLambdaServiceInterface] = None,
-        flows_service: Optional[FlowsService] = None,
-    ):
+class LambdaResponseStatus(IntEnum):
+    """Enum for possible Lambda response statuses."""
+
+    RULE_MATCHED = 0
+    RULE_NOT_MATCHED = 1
+    PRE_PROCESSING_FAILED = 2
+    CUSTOM_RULE_FAILED = 3
+    OFFICIAL_RULE_FAILED = 4
+
+
+class LambdaHandler:
+    def __init__(self, lambda_service: Optional[AwsLambdaServiceInterface] = None):
         self.lambda_service = lambda_service or AwsLambdaService()
-        self.flows_service = flows_service or FlowsService(FlowsClient())
         self.MISSING_TEMPLATE_ERROR = "Missing template"
 
-    def _get_integrated_agent(self, uuid: UUID):
-        if str(uuid) == "d30bcce8-ce67-4677-8a33-c12b62a51d4f":
-            logger.info(f"Integrated agent is blocked: {uuid}")
-            return None
-
-        try:
-            return IntegratedAgent.objects.get(uuid=uuid, is_active=True)
-        except IntegratedAgent.DoesNotExist:
-            logger.info(f"Integrated agent not found: {uuid}")
-            return None
-
-    def _invoke_lambda(
+    def invoke(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
     ) -> Dict[str, Any]:
+        """Invoke lambda function with agent and request data."""
         function_name = integrated_agent.agent.lambda_arn
         project = integrated_agent.project
 
@@ -57,6 +53,7 @@ class AgentWebhookUseCase:
                 "payload": data.payload,
                 "credentials": data.credentials,
                 "ignore_official_rules": integrated_agent.ignore_templates,
+                "project_rules": data.project_rules,
                 "project": {
                     "uuid": str(project.uuid),
                     "vtex_account": project.vtex_account,
@@ -64,28 +61,52 @@ class AgentWebhookUseCase:
             },
         )
 
-    def _addapt_credentials(self, integrated_agent: IntegratedAgent) -> Dict[str, str]:
-        credentials = integrated_agent.credentials.all()
+    def parse_response(self, response: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Parse lambda response and extract payload data."""
+        try:
+            data = json.loads(response.get("Payload").read().decode())
+            return data
+        except json.JSONDecodeError as e:
+            logger.error(f"Error decoding JSON payload: {e}")
+            return None
 
-        credentials_dict = {}
-        for credential in credentials:
-            credentials_dict[credential.key] = credential.value
+    def validate_response(self, data: Dict[str, Any]) -> bool:
+        """Validate lambda response for errors based on status codes."""
+        status_code = data.get("status")
+        error = data.get("error")
 
-        return credentials_dict
+        if status_code is not None:
+            match status_code:
+                case LambdaResponseStatus.RULE_MATCHED:
+                    return True
+                case LambdaResponseStatus.RULE_NOT_MATCHED:
+                    logger.info(f"Rule not matched: {error}")
+                    return False
+                case LambdaResponseStatus.PRE_PROCESSING_FAILED:
+                    logger.info(f"Pre-processing failed: {error}")
+                    return False
+                case LambdaResponseStatus.CUSTOM_RULE_FAILED:
+                    logger.info(f"Custom rule failed: {error}")
+                    return False
+                case LambdaResponseStatus.OFFICIAL_RULE_FAILED:
+                    logger.info(f"Official rule failed: {error}")
+                    return False
+                case _:
+                    logger.warning(f"Unknown status code: {status_code}")
+                    return False
 
-    def _should_send_broadcast(self, integrated_agent: IntegratedAgent) -> bool:
-        percentage = integrated_agent.contact_percentage
-
-        if percentage is None or percentage <= 0:
+        if isinstance(data, dict) and "errorMessage" in data:
+            logger.error(f"Lambda execution error: {data.get('errorMessage')}")
             return False
 
-        if percentage >= 100:
-            return True
+        return False
 
-        random_number = random.randint(1, 100)
-        return random_number <= percentage
 
-    def _can_send_to_contact(
+class BroadcastHandler:
+    def __init__(self, flows_service: Optional[FlowsService] = None):
+        self.flows_service = flows_service or FlowsService()
+
+    def can_send_to_contact(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> bool:
         """
@@ -122,22 +143,18 @@ class AgentWebhookUseCase:
             )
             return False
 
-        # Step 1: Load config and fallback gracefully
         config = integrated_agent.config or {}
         if not config:
-            return True  # No config → no restriction → allow
+            return True
 
-        # Step 2: Access nested restriction data
         integration_settings = config.get("integration_settings", {})
         order_status_restriction = integration_settings.get("order_status_restriction")
 
-        # Step 3: If restriction block is not defined or not active, allow
         if not order_status_restriction or not order_status_restriction.get(
             "is_active", False
         ):
             return True
 
-        # Step 4: Validate contact against allowed list
         allowed_numbers = order_status_restriction.get("allowed_phone_numbers")
         if not allowed_numbers:
             logger.info(
@@ -155,78 +172,152 @@ class AgentWebhookUseCase:
 
         return True
 
-    def execute(
-        self, integrated_agent: IntegratedAgent, data: "RequestData"
+    def send_message(self, message: Dict[str, Any]):
+        """Send broadcast message via flows service."""
+        response = self.flows_service.send_whatsapp_broadcast(message)
+        logger.info(f"Broadcast message sent: {response}")
+
+    def get_current_template_name(
+        self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
+    ) -> str:
+        """Get current template name from integrated agent templates."""
+        template_name = data.get("template")
+        try:
+            template = integrated_agent.templates.get(name=template_name)
+            if template.current_version is None:
+                logger.info(f"Template {template_name} has no current version.")
+                return None
+            return template.current_version.template_name
+        except Template.DoesNotExist:
+            return None
+
+    def build_message(
+        self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        logger.info(f"Executing broadcast for agent: {integrated_agent.uuid}")
-
-        if not self._should_send_broadcast(integrated_agent):
-            logger.info("Broadcast not allowed for this agent.")
+        """Build broadcast message from lambda response data."""
+        logger.info("Retrieving current template name.")
+        template_name = self.get_current_template_name(integrated_agent, data)
+        if not template_name:
+            logger.error(f"Template not found: {template_name}")
             return None
 
-        response = self._invoke_lambda(integrated_agent=integrated_agent, data=data)
+        logger.info("Building broadcast template message.")
+        message = build_broadcast_template_message(
+            data=data,
+            channel_uuid=str(integrated_agent.channel_uuid),
+            project_uuid=str(integrated_agent.project.uuid),
+            template_name=template_name,
+        )
+        logger.info(f"Broadcast template message built: {message}")
+        return message
 
-        data = json.loads(response.get("Payload").read().decode())
 
-        if data.get("error") and data.get("error") == self.MISSING_TEMPLATE_ERROR:
-            logger.info("Missing template error encountered.")
+class AgentWebhookUseCase:
+    def __init__(
+        self,
+        lambda_handler: Optional[LambdaHandler] = None,
+        broadcast_handler: Optional[BroadcastHandler] = None,
+    ):
+        self.lambda_handler = lambda_handler or LambdaHandler()
+        self.broadcast_handler = broadcast_handler or BroadcastHandler()
+        self.IGNORE_INTEGRATED_AGENT_UUID = "d30bcce8-ce67-4677-8a33-c12b62a51d4f"
+
+    def _get_integrated_agent(self, uuid: UUID):
+        """Get integrated agent by UUID if active and not blocked."""
+        if str(uuid) == self.IGNORE_INTEGRATED_AGENT_UUID:
+            logger.info(f"Integrated agent is blocked: {uuid}")
             return None
+
+        try:
+            return IntegratedAgent.objects.get(uuid=uuid, is_active=True)
+        except IntegratedAgent.DoesNotExist:
+            logger.info(f"Integrated agent not found: {uuid}")
+            return None
+
+    def _addapt_credentials(self, integrated_agent: IntegratedAgent) -> Dict[str, str]:
+        """Convert integrated agent credentials to dictionary format."""
+        credentials = integrated_agent.credentials.all()
+
+        credentials_dict = {}
+        for credential in credentials:
+            credentials_dict[credential.key] = credential.value
+
+        return credentials_dict
+
+    def _should_send_broadcast(self, integrated_agent: IntegratedAgent) -> bool:
+        """Determine if broadcast should be sent based on contact percentage."""
+        percentage = integrated_agent.contact_percentage
+
+        if percentage is None or percentage <= 0:
+            return False
+
+        if percentage >= 100:
+            return True
+
+        random_number = random.randint(1, 100)
+        return random_number <= percentage
+
+    def _set_project_rules(
+        self, integrated_agent: IntegratedAgent, data: "RequestData"
+    ) -> None:
+        rule_codes = integrated_agent.templates.filter(
+            is_active=True, parent__isnull=True
+        ).values_list("rule_code", flat=True)
+        project_rules = [{"source": rule_code} for rule_code in rule_codes if rule_code]
+        data.set_project_rules(project_rules)
+
+    def _process_lambda_response(
+        self, integrated_agent: IntegratedAgent, response: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Process lambda response and build broadcast message."""
+        data = self.lambda_handler.parse_response(response)
+        if not data:
+            return response
 
         response["payload"] = data
 
-        if not self._can_send_to_contact(integrated_agent, data):
+        if not self.lambda_handler.validate_response(data):
+            return None
+
+        if not self.broadcast_handler.can_send_to_contact(integrated_agent, data):
             logger.info("Contact is not allowed to receive the broadcast.")
             return None
 
         try:
-            # verify if the lambda returned an error
-            if isinstance(data, dict) and "errorMessage" in data:
-                logger.error(f"Lambda execution error: {data.get('errorMessage')}")
-                return
-
-            logger.info("Retrieving current template name.")
-            template_name = self._get_current_template_name(integrated_agent, data)
-            if not template_name:
-                logger.error(f"Template not found: {template_name}")
+            message = self.broadcast_handler.build_message(integrated_agent, data)
+            if not message:
+                logger.error(
+                    f"Failed to build broadcast message from payload data: {data}"
+                )
                 return response
 
-            logger.info("Building broadcast template message.")
-            message = build_broadcast_template_message(
-                data=data,
-                channel_uuid=str(integrated_agent.channel_uuid),
-                project_uuid=str(integrated_agent.project.uuid),
-                template_name=template_name,
-            )
-            logger.info(f"Broadcast template message built: {message}")
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Error decoding JSON payload: {e}")
+            self.broadcast_handler.send_message(message)
             return response
 
         except Exception as e:
             logger.exception(f"Unexpected error while building broadcast message: {e}")
             return response
 
-        if not message:
-            logger.error(f"Failed to build broadcast message from payload data: {data}")
-            return response
+    def execute(
+        self, integrated_agent: IntegratedAgent, data: "RequestData"
+    ) -> Optional[Dict[str, Any]]:
+        """Execute agent webhook broadcast process."""
+        logger.info(f"Executing broadcast for agent: {integrated_agent.uuid}")
 
-        self._send_broadcast_message(message)
-        logger.info(
-            f"Successfully executed broadcast for agent: {integrated_agent.uuid}"
-        )
-        return response
-
-    def _send_broadcast_message(self, message: Dict[str, Any]):
-        response = self.flows_service.send_whatsapp_broadcast(message)
-        logger.info(f"Broadcast message sent: {response}")
-
-    def _get_current_template_name(
-        self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
-    ) -> str:
-        template_name = data.get("template")
-        try:
-            template = integrated_agent.templates.get(name=template_name)
-            return template.current_version.template_name
-        except Template.DoesNotExist:
+        if not self._should_send_broadcast(integrated_agent):
+            logger.info("Broadcast not allowed for this agent.")
             return None
+
+        self._set_project_rules(integrated_agent, data)
+
+        response = self.lambda_handler.invoke(
+            integrated_agent=integrated_agent, data=data
+        )
+        result = self._process_lambda_response(integrated_agent, response)
+
+        if result:
+            logger.info(
+                f"Successfully executed broadcast for agent: {integrated_agent.uuid}"
+            )
+
+        return result

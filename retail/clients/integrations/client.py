@@ -2,7 +2,7 @@
 
 from django.conf import settings
 
-from typing import Optional
+from typing import Dict, List, Optional
 
 from retail.clients.base import RequestClient, InternalAuthentication
 from retail.interfaces.clients.integrations.interface import IntegrationsClientInterface
@@ -154,4 +154,22 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
             json=template_data,
             headers=headers,
         )
+        return response.json()
+
+    def fetch_template_metrics(
+        self, app_uuid: str, template_versions: List[str], start: str, end: str
+    ) -> Dict:
+        url = f"{self.base_url}/api/v1/apptypes/wpp-cloud/apps/{app_uuid}/template-metrics/"
+        payload = {
+            "template_versions": template_versions,
+            "start": start,
+            "end": end,
+        }
+        response = self.make_request(
+            url,
+            method="POST",
+            json=payload,
+            headers=self.authentication_instance.headers,
+        )
+
         return response.json()

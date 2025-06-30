@@ -1,6 +1,6 @@
 import logging
 
-from typing import Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 from uuid import UUID
 
@@ -35,7 +35,7 @@ RuleData = Dict[str, RuleItemsData]
 class PreProcessingData(TypedDict, total=False):
     source: SourceData
     result_examples_file: str
-    pre_result_examples_file: str
+    result_example: List[Dict[str, Any]]
 
 
 class AgentItemsData(TypedDict):
@@ -77,6 +77,7 @@ class PushAgentUseCase:
                 "description": payload.get("description"),
                 "credentials": credentials,
                 "language": payload.get("language"),
+                "examples": payload.get("pre_processing", {}).get("result_example", []),
             },
         )
 

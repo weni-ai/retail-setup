@@ -1,3 +1,21 @@
+# 3.6.0
+
+## *Feature*
+  - feat: custom templates creation
+
+# 3.5.0
+
+## *Feature*
+  - feat: refactor agent webhook usecase and add lambda status handle
+
+## *Fix*
+  - fix: check current version before triggering template
+
+# 3.4.0
+
+## *Feature*
+  - feat: implement fetch_template_metrics functionality
+
 # 3.3.0
 
 ## *Feature*
