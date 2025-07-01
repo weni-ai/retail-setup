@@ -122,6 +122,7 @@ class CreateCustomTemplateUseCaseTest(TestCase):
             "header": "Test Header",
             "footer": "Test Footer",
             "buttons": [{"type": "URL", "text": "Click here"}],
+            "category": "test",
         }
         self.assertEqual(result.metadata, expected_metadata)
 
@@ -324,6 +325,7 @@ class CreateCustomTemplateUseCaseTest(TestCase):
             "body": self.valid_payload["template_translation"]["template_body"],
             "footer": self.valid_payload["template_translation"]["template_footer"],
             "buttons": self.valid_payload["template_translation"]["template_button"],
+            "category": "test",
         }
         self.assertEqual(call_args, expected_structure)
 
