@@ -13,7 +13,17 @@ from retail.agents.usecases.update_integrated_agent import (
 
 class UpdateIntegratedAgentUseCaseTest(TestCase):
     def setUp(self):
-        self.usecase = UpdateIntegratedAgentUseCase()
+        self.mock_global_rule_handler = MagicMock()
+        self.mock_global_rule_handler.generate.return_value = (
+            self.mock_global_rule_handler
+        )
+        self.mock_global_rule_handler.validate.return_value = (
+            self.mock_global_rule_handler
+        )
+        self.mock_global_rule_handler.get_global_rule.return_value = "mocked_rule_code"
+        self.usecase = UpdateIntegratedAgentUseCase(
+            global_rule_handler=self.mock_global_rule_handler
+        )
         self.mock_integrated_agent = MagicMock()
         self.mock_integrated_agent.uuid = uuid4()
         self.mock_integrated_agent.is_active = True
@@ -34,6 +44,7 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         self.assertEqual(result, self.mock_integrated_agent)
         self.assertEqual(self.mock_integrated_agent.contact_percentage, 50)
         self.mock_integrated_agent.save.assert_called_once()
+        self.mock_global_rule_handler.generate.assert_not_called()
 
     @patch("retail.agents.usecases.update_integrated_agent.IntegratedAgent")
     def test_execute_raises_not_found_when_integrated_agent_does_not_exist(
@@ -79,3 +90,20 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         self.assertIn(
             "Invalid percentage", str(context.exception.detail["contact_percentage"])
         )
+
+    @patch("retail.agents.usecases.update_integrated_agent.IntegratedAgent")
+    def test_execute_updates_global_rule(self, mock_integrated_agent_cls):
+        mock_integrated_agent_cls.objects.get.return_value = self.mock_integrated_agent
+        data = {"global_rule": "some rule"}
+
+        self.usecase.execute(self.mock_integrated_agent.uuid, data)
+
+        self.mock_global_rule_handler.generate.assert_called_once_with(
+            self.mock_integrated_agent, "some rule"
+        )
+        self.mock_global_rule_handler.validate.assert_called_once()
+        self.mock_global_rule_handler.get_global_rule.assert_called_once()
+        self.assertEqual(
+            self.mock_integrated_agent.integrated_agent, "mocked_rule_code"
+        )
+        self.mock_integrated_agent.save.assert_called_once()

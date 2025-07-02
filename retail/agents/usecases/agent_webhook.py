@@ -32,12 +32,13 @@ class LambdaResponseStatus(IntEnum):
     PRE_PROCESSING_FAILED = 2
     CUSTOM_RULE_FAILED = 3
     OFFICIAL_RULE_FAILED = 4
+    GLOBAL_RULE_FAILED = 5
+    GLOBAL_RULE_NOT_MATCHED = 6
 
 
 class LambdaHandler:
     def __init__(self, lambda_service: Optional[AwsLambdaServiceInterface] = None):
         self.lambda_service = lambda_service or AwsLambdaService()
-        self.MISSING_TEMPLATE_ERROR = "Missing template"
 
     def invoke(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
@@ -54,6 +55,7 @@ class LambdaHandler:
                 "credentials": data.credentials,
                 "ignore_official_rules": integrated_agent.ignore_templates,
                 "project_rules": data.project_rules,
+                "global_rule": integrated_agent.global_rule,
                 "project": {
                     "uuid": str(project.uuid),
                     "vtex_account": project.vtex_account,
@@ -90,6 +92,12 @@ class LambdaHandler:
                     return False
                 case LambdaResponseStatus.OFFICIAL_RULE_FAILED:
                     logger.info(f"Official rule failed: {error}")
+                    return False
+                case LambdaResponseStatus.GLOBAL_RULE_FAILED:
+                    logger.info(f"Global rule failed: {error}")
+                    return False
+                case LambdaResponseStatus.GLOBAL_RULE_NOT_MATCHED:
+                    logger.info(f"Global rule not matched: {error}")
                     return False
                 case _:
                     logger.warning(f"Unknown status code: {status_code}")
