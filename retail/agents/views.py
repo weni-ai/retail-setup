@@ -1,4 +1,7 @@
 import json
+
+from typing import cast
+
 from uuid import UUID
 
 from rest_framework import status
@@ -19,6 +22,7 @@ from retail.agents.serializers import (
     ReadAgentSerializer,
     ReadIntegratedAgentSerializer,
     UpdateIntegratedAgentSerializer,
+    RetrieveIntegratedAgentQueryParamsSerializer,
 )
 from retail.agents.tasks import validate_pre_approved_templates
 from retail.agents.usecases import (
@@ -29,6 +33,7 @@ from retail.agents.usecases import (
     RetrieveAgentUseCase,
     UnassignAgentUseCase,
     RetrieveIntegratedAgentUseCase,
+    RetrieveIntegratedAgentQueryParams,
     ListIntegratedAgentUseCase,
     UpdateIntegratedAgentUseCase,
     UpdateIntegratedAgentData,
@@ -206,8 +211,17 @@ class IntegratedAgentViewSet(ViewSet):
 
     def retrieve(self, request: Request, pk: UUID, *args, **kwargs) -> Response:
         get_project_uuid_from_request(request)
+
+        query_params_serializer = RetrieveIntegratedAgentQueryParamsSerializer(
+            data=request.query_params
+        )
+        query_params_serializer.is_valid(raise_exception=True)
+        query_params_data = cast(
+            RetrieveIntegratedAgentQueryParams, query_params_serializer.data
+        )
+
         use_case = RetrieveIntegratedAgentUseCase()
-        integrated_agent = use_case.execute(pk)
+        integrated_agent = use_case.execute(pk, query_params_data)
 
         self.check_object_permissions(request, integrated_agent)
 
