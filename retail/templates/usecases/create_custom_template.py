@@ -128,12 +128,14 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         template: Template,
         body: Dict[str, Any],
         translation: Dict[str, Any],
+        category: str,
         integrated_agent: IntegratedAgent,
         display_name: str,
         start_condition: str,
     ) -> Template:
         template.integrated_agent = integrated_agent
         template.metadata = translation
+        template.metadata["category"] = category
         template.rule_code = body.get("generated_code")
         template.display_name = display_name
         template.start_condition = start_condition
@@ -189,6 +191,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             template,
             body,
             metadata,
+            payload.get("category"),
             integrated_agent,
             payload.get("display_name"),
             start_condition,
