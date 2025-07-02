@@ -1,3 +1,11 @@
+# 3.7.0
+
+## *Feature*
+  - feat: query params to filter templates from integrated agent
+
+## *Fix*
+  - fix: update custom templat not finding category
+
 # 3.6.0
 
 ## *Feature*
