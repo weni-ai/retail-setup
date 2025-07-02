@@ -27,6 +27,7 @@ from retail.templates.exceptions import (
     CodeGeneratorInternalServerError,
 )
 from retail.projects.models import Project
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -651,3 +652,147 @@ class TemplateViewSetTest(APITestCase):
         template_uuid = str(uuid4())
         response = client.get(reverse("template-detail", args=[template_uuid]))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_integration_delete_template_successfully(self):
+        integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(),
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=uuid4(),
+            is_active=True,
+            ignore_templates=[],
+        )
+
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="Test Template",
+            integrated_agent=integrated_agent,
+            parent=self.parent,
+            is_active=True,
+            deleted_at=None,
+        )
+
+        with patch("retail.templates.views.DeleteTemplateUseCase") as mock_delete_class:
+            real_delete_usecase = DeleteTemplateUseCase()
+            mock_delete_class.return_value = real_delete_usecase
+
+            before_execution = timezone.now()
+            response = self.client.delete(
+                reverse("template-detail", args=[str(template.uuid)])
+            )
+            after_execution = timezone.now()
+
+            self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+            template.refresh_from_db()
+
+            self.assertFalse(template.is_active)
+
+            self.assertIsNotNone(template.deleted_at)
+            self.assertGreaterEqual(template.deleted_at, before_execution)
+            self.assertLessEqual(template.deleted_at, after_execution)
+
+            integrated_agent.refresh_from_db()
+            self.assertIn(self.parent.slug, integrated_agent.ignore_templates)
+
+    def test_integration_delete_nonexistent_template_returns_not_found(self):
+        with patch("retail.templates.views.DeleteTemplateUseCase") as mock_delete_class:
+            real_delete_usecase = DeleteTemplateUseCase()
+            mock_delete_class.return_value = real_delete_usecase
+
+            fake_uuid = str(uuid4())
+            response = self.client.delete(reverse("template-detail", args=[fake_uuid]))
+
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_integration_delete_inactive_template_returns_not_found(self):
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="Inactive Template",
+            parent=self.parent,
+            is_active=False,
+        )
+
+        with patch("retail.templates.views.DeleteTemplateUseCase") as mock_delete_class:
+            real_delete_usecase = DeleteTemplateUseCase()
+            mock_delete_class.return_value = real_delete_usecase
+
+            response = self.client.delete(
+                reverse("template-detail", args=[str(template.uuid)])
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_integration_delete_template_updates_ignore_list(self):
+        integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(),
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=uuid4(),
+            is_active=True,
+            ignore_templates=["existing-template"],
+        )
+
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="Test Template",
+            integrated_agent=integrated_agent,
+            parent=self.parent,
+            is_active=True,
+        )
+
+        with patch("retail.templates.views.DeleteTemplateUseCase") as mock_delete_class:
+            real_delete_usecase = DeleteTemplateUseCase()
+            mock_delete_class.return_value = real_delete_usecase
+
+            initial_ignore_count = len(integrated_agent.ignore_templates)
+
+            response = self.client.delete(
+                reverse("template-detail", args=[str(template.uuid)])
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+            integrated_agent.refresh_from_db()
+            self.assertEqual(
+                len(integrated_agent.ignore_templates), initial_ignore_count + 1
+            )
+            self.assertIn(self.parent.slug, integrated_agent.ignore_templates)
+            self.assertIn("existing-template", integrated_agent.ignore_templates)
+
+    def test_integration_delete_preserves_other_template_fields(self):
+        integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(),
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=uuid4(),
+            is_active=True,
+            ignore_templates=[],
+        )
+
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="Test Template",
+            integrated_agent=integrated_agent,
+            parent=self.parent,
+            is_active=True,
+        )
+
+        original_name = template.name
+        original_uuid = template.uuid
+
+        with patch("retail.templates.views.DeleteTemplateUseCase") as mock_delete_class:
+            real_delete_usecase = DeleteTemplateUseCase()
+            mock_delete_class.return_value = real_delete_usecase
+
+            response = self.client.delete(
+                reverse("template-detail", args=[str(template.uuid)])
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+            template.refresh_from_db()
+            self.assertEqual(template.name, original_name)
+            self.assertEqual(template.uuid, original_uuid)
+            self.assertFalse(template.is_active)
+            self.assertIsNotNone(template.deleted_at)

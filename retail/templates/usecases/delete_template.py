@@ -1,3 +1,5 @@
+from django.utils import timezone
+
 from rest_framework.exceptions import NotFound
 
 from uuid import UUID
@@ -24,4 +26,5 @@ class DeleteTemplateUseCase:
             self._add_template_to_ignore_list(template)
 
         template.is_active = False
+        template.deleted_at = timezone.now()
         template.save()
