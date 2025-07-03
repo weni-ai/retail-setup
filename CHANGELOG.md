@@ -1,3 +1,8 @@
+# 3.7.1
+
+## *Fix*
+  - fix: templates with variables were not using examples
+
 # 3.7.0
 
 ## *Feature*
