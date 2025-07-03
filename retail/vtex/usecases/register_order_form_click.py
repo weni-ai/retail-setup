@@ -7,6 +7,9 @@ from typing import Optional, TYPE_CHECKING
 
 from retail.vtex.dtos.register_order_form_click_dto import RegisterOrderFormClickDTO
 from retail.vtex.repositories.cart_repository import CartRepository
+from retail.projects.models import Project
+
+from rest_framework.exceptions import ValidationError
 
 
 if TYPE_CHECKING:  # only for static type checking
@@ -16,14 +19,20 @@ if TYPE_CHECKING:  # only for static type checking
 class RegisterOrderFormClickUseCase:
     """Link a WhatsApp click-ID to the corresponding cart."""
 
-    def __init__(self, repository: Optional[CartRepository] = None) -> None:
+    def __init__(
+        self,
+        project_uuid: str,
+        repository: Optional[CartRepository] = None,
+    ) -> None:
         """
         Initialize the use case.
 
         Args:
+            project_uuid: The UUID of the project.
             repository: Concrete implementation responsible for persistence.
         """
         self._repo: CartRepository = repository or CartRepository()
+        self._project_uuid = project_uuid
 
     def execute(self, dto: RegisterOrderFormClickDTO) -> "Cart":
         """
@@ -38,15 +47,19 @@ class RegisterOrderFormClickUseCase:
             The persisted :class:`Cart` instance.
 
         Raises:
-            ValueError: If the click-ID is already linked to another cart.
+            ValidationError: If the click-ID is already linked to another cart.
+            ValidationError: If the project does not exist.
         """
-        self._ensure_click_is_unique(dto.whatsapp_click_id)
+        project = self._validate_project_exists()
+
+        self._ensure_click_is_unique(dto.whatsapp_click_id, project)
 
         cart = self._repo.find_by_order_form(dto.order_form_id)
         if cart is None:
             cart = self._repo.create(
                 order_form_id=dto.order_form_id,
                 whatsapp_click_id=dto.whatsapp_click_id,
+                project=project,
             )
         elif cart.whatsapp_click_id != dto.whatsapp_click_id:
             cart.whatsapp_click_id = dto.whatsapp_click_id
@@ -57,7 +70,7 @@ class RegisterOrderFormClickUseCase:
     # ------------------------------------------------------------------ #
     # Private helpers
     # ------------------------------------------------------------------ #
-    def _ensure_click_is_unique(self, click_id: str) -> None:
+    def _ensure_click_is_unique(self, click_id: str, project: Project) -> None:
         """
         Ensure no other cart is using the same click-ID.
 
@@ -65,10 +78,28 @@ class RegisterOrderFormClickUseCase:
             click_id: The Meta click-ID coming from WhatsApp.
 
         Raises:
-            ValueError: If the click-ID is already present in another cart.
+            ValidationError: If the click-ID is already present in another cart.
         """
-        existing = self._repo.find_by_click_id(click_id)
+        existing = self._repo.find_by_click_id(click_id, project)
         if existing is not None:
-            raise ValueError(
+            raise ValidationError(
                 f"Click-ID '{click_id}' is already linked to cart {existing.uuid}."
+            )
+
+    def _validate_project_exists(self) -> Project:
+        """
+        Validate if the project exists and is unique.
+
+        Raises:
+            ValidationError: If the project does not exist or if there are duplicate projects.
+        """
+        try:
+            return Project.objects.get(uuid=self._project_uuid)
+        except Project.DoesNotExist:
+            raise ValidationError(
+                f"Project with UUID '{self._project_uuid}' not found."
+            )
+        except Project.MultipleObjectsReturned:
+            raise ValidationError(
+                f"Duplicate projects found with UUID '{self._project_uuid}'."
             )

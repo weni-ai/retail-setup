@@ -187,12 +187,12 @@ class CartClickTrackingView(APIView):
 
     permission_classes = [AllowAny]
 
-    def post(self, request):
+    def post(self, request, project_uuid: str):
         serializer = CartClickSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         dto = RegisterOrderFormClickDTO(**serializer.validated_data)
-        use_case = RegisterOrderFormClickUseCase()
+        use_case = RegisterOrderFormClickUseCase(project_uuid=project_uuid)
 
         cart = use_case.execute(dto)
 

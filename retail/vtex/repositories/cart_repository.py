@@ -1,4 +1,6 @@
 from typing import Optional
+
+from retail.projects.models import Project
 from ..models import Cart
 
 
@@ -19,17 +21,17 @@ class CartRepository:
         return Cart.objects.filter(order_form_id=order_form_id).first()
 
     @staticmethod
-    def find_by_click_id(click_id: str) -> Optional[Cart]:
+    def find_by_click_id(click_id: str, project: Project) -> Optional[Cart]:
         """
         Retrieve a cart by its WhatsApp click identifier.
 
         Args:
             click_id: The Meta click-ID.
-
+            project: The project instance.
         Returns:
             The matching :class:`Cart` instance or ``None`` if not found.
         """
-        return Cart.objects.filter(whatsapp_click_id=click_id).first()
+        return Cart.objects.filter(whatsapp_click_id=click_id, project=project).first()
 
     @staticmethod
     def save(cart: Cart) -> Cart:
@@ -52,18 +54,19 @@ class CartRepository:
         return cart
 
     @staticmethod
-    def create(order_form_id: str, whatsapp_click_id: str) -> Cart:
+    def create(order_form_id: str, whatsapp_click_id: str, project: Project) -> Cart:
         """
         Create and persist a new cart with the required fields.
 
         Args:
             order_form_id: The VTEX order-form ID.
             whatsapp_click_id: The Meta click-ID.
-
+            project: The project instance.
         Returns:
             The newly created :class:`Cart` instance.
         """
         return Cart.objects.create(
             order_form_id=order_form_id,
             whatsapp_click_id=whatsapp_click_id,
+            project=project,
         )

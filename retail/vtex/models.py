@@ -30,7 +30,11 @@ class Cart(models.Model):
         Project, on_delete=models.CASCADE, related_name="carts_by_project"
     )
     integrated_feature = models.ForeignKey(
-        IntegratedFeature, on_delete=models.CASCADE, related_name="carts_by_feature"
+        IntegratedFeature,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="carts_by_feature",
     )
     abandoned = models.BooleanField(default=False)
     error_message = models.TextField(blank=True, null=True)
