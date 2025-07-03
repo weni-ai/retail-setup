@@ -74,10 +74,10 @@ class CreateCustomTemplateUseCaseTest(TestCase):
             "parameters": [
                 {
                     "name": "variables",
-                    "value": '[{"definition": "test", "fallback": "default"}]',
+                    "value": [{"definition": "test", "fallback": "default"}],
                 },
                 {"name": "start_condition", "value": "test condition"},
-                {"name": "examples", "value": '[{"input": "example"}]'},
+                {"name": "examples", "value": [{"input": "example"}]},
                 {"name": "template_content", "value": "some template text"},
             ],
             "display_name": "Test Display Name",

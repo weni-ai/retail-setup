@@ -107,12 +107,16 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         app_uuid: str,
         project_uuid: str,
         category: str,
+        variables: Optional[List[str]],
     ) -> None:
         buttons = translation_payload.get("buttons")
 
         if buttons:
             for button in buttons:
                 button["button_type"] = button.pop("type", None)
+
+        if variables:
+            translation_payload["body"]["example"] = {"body_text": [variables]}
 
         task_create_template.delay(
             template_name=version_name,
@@ -187,6 +191,18 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             None,
         )
 
+        variables = [
+            variable.get("fallback")
+            for variable in next(
+                (
+                    param.get("value")
+                    for param in payload.get("parameters")
+                    if param.get("name") == "variables"
+                ),
+                [],
+            )
+        ]
+
         template = self._update_template(
             template,
             body,
@@ -203,6 +219,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             payload.get("app_uuid"),
             payload.get("project_uuid"),
             payload.get("category"),
+            variables,
         )
         return template
 
