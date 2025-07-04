@@ -57,7 +57,7 @@ class FlowsClient(RequestClient, FlowsClientInterface):
         """
         Send a purchase event to the Flows API.
         """
-        url = f"{self.base_url}/conversion"
+        url = f"{self.base_url}/conversion/"
         response = self.make_request(
             url,
             method="POST",
