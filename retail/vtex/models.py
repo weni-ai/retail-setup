@@ -38,13 +38,6 @@ class Cart(models.Model):
     )
     abandoned = models.BooleanField(default=False)
     error_message = models.TextField(blank=True, null=True)
-
-    whatsapp_click_id = models.CharField(
-        max_length=128,
-        null=True,
-        blank=True,
-        unique=True,
-    )
     flows_channel_uuid = models.UUIDField(default=uuid4, editable=False)
 
     def __str__(self):

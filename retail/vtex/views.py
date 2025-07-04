@@ -5,13 +5,16 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 
 from retail.utils.aws.lambda_validator import LambdaURLValidator
-from retail.vtex.dtos.register_order_form_click_dto import RegisterOrderFormClickDTO
-from retail.vtex.serializers import CartClickSerializer, OrdersQueryParamsSerializer
+from retail.vtex.dtos.register_order_form_dto import RegisterOrderFormDTO
+from retail.vtex.serializers import (
+    OrderFormTrackingSerializer,
+    OrdersQueryParamsSerializer,
+)
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.usecases.get_account_identifier import GetAccountIdentifierUsecase
 from retail.vtex.usecases.get_order_detail import GetOrderDetailsUsecase
 from retail.vtex.usecases.get_orders import GetOrdersUsecase
-from retail.vtex.usecases.register_order_form_click import RegisterOrderFormClickUseCase
+from retail.vtex.usecases.register_order_form import RegisterOrderFormUseCase
 
 
 class BaseVtexProxyView(APIView, LambdaURLValidator):
@@ -180,19 +183,19 @@ class OrderDetailsProxyView(BaseVtexProxyView):
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class CartClickTrackingView(APIView):
+class OrderFormTrackingView(APIView):
     """
-    Link a VTEX order-form ID with the WhatsApp click-ID produced by Meta.
+    Link a VTEX order-form ID with the WhatsApp channel.
     """
 
     permission_classes = [AllowAny]
 
     def post(self, request, project_uuid: str):
-        serializer = CartClickSerializer(data=request.data)
+        serializer = OrderFormTrackingSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        dto = RegisterOrderFormClickDTO(**serializer.validated_data)
-        use_case = RegisterOrderFormClickUseCase(project_uuid=project_uuid)
+        dto = RegisterOrderFormDTO(**serializer.validated_data)
+        use_case = RegisterOrderFormUseCase(project_uuid=project_uuid)
 
         cart = use_case.execute(dto)
 
@@ -201,7 +204,6 @@ class CartClickTrackingView(APIView):
                 "message": "Click-ID linked successfully.",
                 "cart_uuid": str(cart.uuid),
                 "order_form_id": cart.order_form_id,
-                "whatsapp_click_id": cart.whatsapp_click_id,
                 "flows_channel_uuid": str(cart.flows_channel_uuid),
             },
             status=status.HTTP_200_OK,
