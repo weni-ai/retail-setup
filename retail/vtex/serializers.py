@@ -11,3 +11,11 @@ class OrdersQueryParamsSerializer(serializers.Serializer):
 
     project_uuid = serializers.UUIDField(required=True)
     raw_query = serializers.CharField(required=True)
+
+
+class CartClickSerializer(serializers.Serializer):
+    """Input payload for linking a VTEX order-form to a Meta click-ID."""
+
+    order_form_id = serializers.CharField(max_length=128, required=True)
+    whatsapp_click_id = serializers.CharField(max_length=128, required=True)
+    channel_uuid = serializers.UUIDField(required=True)

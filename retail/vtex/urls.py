@@ -1,6 +1,7 @@
 from django.urls import path
 from retail.vtex.views import (
     AccountIdentifierProxyView,
+    CartClickTrackingView,
     OrderDetailsProxyView,
     OrdersProxyView,
 )
@@ -17,5 +18,10 @@ urlpatterns = [
         "projects/<uuid:project_uuid>/orders/<str:order_id>/",
         OrderDetailsProxyView.as_view(),
         name="vtex-order-details",
+    ),
+    path(
+        "projects/<uuid:project_uuid>/cart-click-tracking/",
+        CartClickTrackingView.as_view(),
+        name="vtex-cart-click-tracking",
     ),
 ]

@@ -1,4 +1,4 @@
-import uuid
+from uuid import uuid4
 
 from django.db import models
 from retail.projects.models import Project
@@ -14,7 +14,7 @@ class Cart(models.Model):
         ("empty", "Empty"),
     ]
 
-    uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
     order_form_id = models.CharField(null=True, blank=True)
     created_on = models.DateTimeField(auto_now_add=True)
     modified_on = models.DateTimeField(auto_now=True)
@@ -30,10 +30,22 @@ class Cart(models.Model):
         Project, on_delete=models.CASCADE, related_name="carts_by_project"
     )
     integrated_feature = models.ForeignKey(
-        IntegratedFeature, on_delete=models.CASCADE, related_name="carts_by_feature"
+        IntegratedFeature,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="carts_by_feature",
     )
     abandoned = models.BooleanField(default=False)
     error_message = models.TextField(blank=True, null=True)
+
+    whatsapp_click_id = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        unique=True,
+    )
+    flows_channel_uuid = models.UUIDField(default=uuid4, editable=False)
 
     def __str__(self):
         status = "Abandoned" if self.abandoned else self.status.capitalize()
