@@ -1,6 +1,5 @@
 """
-Use case for registering (or attaching) a WhatsApp click-ID to a VTEX
-order-form stored in the Cart model.
+Use case for registering (or attaching) a VTEX order-form stored in the Cart model.
 """
 
 from typing import Optional, TYPE_CHECKING
@@ -16,8 +15,8 @@ if TYPE_CHECKING:  # only for static type checking
     from ..models import Cart
 
 
-class RegisterOrderFormClickUseCase:
-    """Link a WhatsApp click-ID to the corresponding cart."""
+class RegisterOrderFormUseCase:
+    """Link a VTEX order-form with a new cart instance."""
 
     def __init__(
         self,
@@ -47,7 +46,6 @@ class RegisterOrderFormClickUseCase:
             The persisted :class:`Cart` instance.
 
         Raises:
-            ValidationError: If the click-ID is already linked to another cart.
             ValidationError: If the project does not exist.
         """
         project = self._validate_project_exists()
