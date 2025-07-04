@@ -220,8 +220,5 @@ class HandlePurchaseEventUseCase:
         Returns:
             None
         """
-        try:
-            self.flows_service.send_purchase_event(payload)
-            logger.info("Successfully sent purchase event to Flows.")
-        except Exception as exc:
-            logger.error(f"Failed to send event to Flows: {exc}", exc_info=True)
+        self.flows_service.send_purchase_event(payload)
+        logger.info("Successfully sent purchase event to Flows.")
