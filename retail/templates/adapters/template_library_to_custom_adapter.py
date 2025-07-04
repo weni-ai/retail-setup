@@ -15,9 +15,11 @@ class HeaderTransformer(ComponentTransformer):
     """Transforms header component from library to translation format."""
 
     def _is_base_64(self, header: str) -> bool:
+        if header.startswith("data:"):
+            header = header.split(",", 1)[1]
+
         try:
-            b = header.encode("utf-8")
-            base64.b64decode(b, validate=True)
+            base64.b64decode(header, validate=True)
             return True
         except Exception:
             return False
