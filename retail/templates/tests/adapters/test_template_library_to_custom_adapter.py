@@ -1,3 +1,5 @@
+import base64
+
 from django.test import TestCase
 from unittest.mock import Mock
 
@@ -29,6 +31,13 @@ class TestHeaderTransformer(TestCase):
         template_data = {"header": ""}
         result = self.transformer.transform(template_data)
         self.assertIsNone(result)
+
+    def test_transform_with_image_header(self):
+        base_64_header = base64.b64encode("teste".encode("utf-8")).decode("utf-8")
+        template_data = {"header": base_64_header}
+        result = self.transformer.transform(template_data)
+        expected = {"header_type": "IMAGE", "example": base_64_header}
+        self.assertEqual(result, expected)
 
 
 class TestBodyTransformer(TestCase):
