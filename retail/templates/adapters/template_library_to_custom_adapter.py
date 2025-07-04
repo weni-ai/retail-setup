@@ -1,3 +1,5 @@
+import base64
+
 from typing import Dict, Optional, List, Protocol
 
 
@@ -12,9 +14,21 @@ class ComponentTransformer(Protocol):
 class HeaderTransformer(ComponentTransformer):
     """Transforms header component from library to translation format."""
 
+    def _is_base_64(self, header: str) -> bool:
+        try:
+            b = header.encode("utf-8")
+            base64.b64decode(b, validate=True)
+            return True
+        except Exception:
+            return False
+
     def transform(self, template_data: Dict) -> Optional[Dict]:
         if not template_data.get("header"):
             return None
+
+        if self._is_base_64(template_data["header"]):
+            return {"header_type": "IMAGE", "example": template_data["header"]}
+
         return {"header_type": "TEXT", "text": template_data["header"]}
 
 
