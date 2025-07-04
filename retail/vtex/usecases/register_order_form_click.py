@@ -54,12 +54,13 @@ class RegisterOrderFormClickUseCase:
 
         self._ensure_click_is_unique(dto.whatsapp_click_id, project)
 
-        cart = self._repo.find_by_order_form(dto.order_form_id)
+        cart = self._repo.find_by_order_form(dto.order_form_id, project)
         if cart is None:
             cart = self._repo.create(
                 order_form_id=dto.order_form_id,
                 whatsapp_click_id=dto.whatsapp_click_id,
                 project=project,
+                flows_channel_uuid=dto.channel_uuid,
             )
         elif cart.whatsapp_click_id != dto.whatsapp_click_id:
             cart.whatsapp_click_id = dto.whatsapp_click_id

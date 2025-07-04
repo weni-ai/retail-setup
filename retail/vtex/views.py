@@ -202,6 +202,7 @@ class CartClickTrackingView(APIView):
                 "cart_uuid": str(cart.uuid),
                 "order_form_id": cart.order_form_id,
                 "whatsapp_click_id": cart.whatsapp_click_id,
+                "flows_channel_uuid": str(cart.flows_channel_uuid),
             },
             status=status.HTTP_200_OK,
         )

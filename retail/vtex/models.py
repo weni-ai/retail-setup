@@ -1,4 +1,4 @@
-import uuid
+from uuid import uuid4
 
 from django.db import models
 from retail.projects.models import Project
@@ -14,7 +14,7 @@ class Cart(models.Model):
         ("empty", "Empty"),
     ]
 
-    uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
     order_form_id = models.CharField(null=True, blank=True)
     created_on = models.DateTimeField(auto_now_add=True)
     modified_on = models.DateTimeField(auto_now=True)
@@ -45,6 +45,7 @@ class Cart(models.Model):
         blank=True,
         unique=True,
     )
+    flows_channel_uuid = models.UUIDField(default=uuid4, editable=False)
 
     def __str__(self):
         status = "Abandoned" if self.abandoned else self.status.capitalize()

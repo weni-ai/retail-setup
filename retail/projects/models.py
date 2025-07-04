@@ -25,5 +25,6 @@ class Project(models.Model):
         """
         if self.uuid:
             cache.delete(f"project_domain_{self.uuid}")
+            cache.delete(f"project_by_uuid_{self.uuid}")
         if self.vtex_account:
             cache.delete(f"project_by_vtex_account_{self.vtex_account}")
