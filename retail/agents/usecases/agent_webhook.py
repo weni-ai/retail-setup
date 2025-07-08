@@ -179,14 +179,14 @@ class BroadcastHandler:
 
     def get_current_template_name(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
-    ) -> str:
+    ) -> Optional[str | bool]:
         """Get current template name from integrated agent templates."""
         template_name = data.get("template")
         try:
             template = integrated_agent.templates.get(name=template_name)
             if template.current_version is None:
                 logger.info(f"Template {template_name} has no current version.")
-                return None
+                return False
             return template.current_version.template_name
         except Template.DoesNotExist:
             return None
@@ -197,9 +197,16 @@ class BroadcastHandler:
         """Build broadcast message from lambda response data."""
         logger.info("Retrieving current template name.")
         template_name = self.get_current_template_name(integrated_agent, data)
-        if not template_name:
+
+        if template_name is False:
+            logger.info(
+                "Could not build message because template has no current version."
+            )
+            return
+
+        if template_name is None:
             logger.error(f"Template not found: {template_name}")
-            return None
+            return
 
         logger.info("Building broadcast template message.")
         message = build_broadcast_template_message(
@@ -286,7 +293,7 @@ class AgentWebhookUseCase:
         try:
             message = self.broadcast_handler.build_message(integrated_agent, data)
             if not message:
-                logger.error(
+                logger.info(
                     f"Failed to build broadcast message from payload data: {data}"
                 )
                 return response

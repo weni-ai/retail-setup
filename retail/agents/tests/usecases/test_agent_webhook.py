@@ -466,7 +466,7 @@ class BroadcastHandlerTest(TestCase):
 
         result = self.handler.get_current_template_name(self.mock_agent, data)
 
-        self.assertIsNone(result)
+        self.assertFalse(result)
         self.mock_agent.templates.get.assert_called_once_with(name="order_update")
 
     def test_send_message(self):
