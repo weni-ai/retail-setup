@@ -16,6 +16,16 @@ class TestHeaderTransformer(TestCase):
     def setUp(self):
         self.transformer = HeaderTransformer()
 
+    def test_is_not_base_64(self):
+        no_base_64_header = "test"
+        result = self.transformer._is_base_64(no_base_64_header)
+        self.assertFalse(result)
+
+    def test_is_base_64(self):
+        base_64_header = base64.b64encode("teste".encode("utf-8")).decode("utf-8")
+        result = self.transformer._is_base_64(base_64_header)
+        self.assertTrue(result)
+
     def test_transform_with_header(self):
         template_data = {"header": "Test Header"}
         result = self.transformer.transform(template_data)
