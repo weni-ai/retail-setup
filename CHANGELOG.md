@@ -1,3 +1,8 @@
+# 3.8.2
+
+## *Fix*
+  - fix: temporarily disable OrderFormTrackingView due to authorization issues
+
 # 3.8.1
 
 ## *Feature*
