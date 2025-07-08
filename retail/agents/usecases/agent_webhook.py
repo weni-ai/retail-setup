@@ -6,7 +6,7 @@ import random
 
 from enum import IntEnum
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from uuid import UUID
 
@@ -16,6 +16,8 @@ from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
 from retail.services.flows.service import FlowsService
 from retail.templates.models import Template
+from weni_datalake_sdk.clients.client import send_data
+
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +105,11 @@ class LambdaHandler:
 
 
 class BroadcastHandler:
-    def __init__(self, flows_service: Optional[FlowsService] = None):
+    def __init__(
+        self, flows_service: Optional[FlowsService] = None, audit_func: Callable = None
+    ):
         self.flows_service = flows_service or FlowsService()
+        self.audit_func = audit_func or send_data
 
     def can_send_to_contact(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
@@ -172,9 +177,10 @@ class BroadcastHandler:
 
         return True
 
-    def send_message(self, message: Dict[str, Any]):
+    def send_message(self, message: Dict[str, Any], integrated_agent: IntegratedAgent):
         """Send broadcast message via flows service."""
         response = self.flows_service.send_whatsapp_broadcast(message)
+        self._register_broadcast_event(message, response, integrated_agent)
         logger.info(f"Broadcast message sent: {response}")
 
     def get_current_template_name(
@@ -210,6 +216,22 @@ class BroadcastHandler:
         )
         logger.info(f"Broadcast template message built: {message}")
         return message
+
+    def _register_broadcast_event(
+        self,
+        message: Dict[str, Any],
+        response: Dict[str, Any],
+        integrated_agent: IntegratedAgent,
+    ):
+        data = {
+            "event": "broadcast_sent",
+            "agent_uuid": str(integrated_agent.agent.uuid),
+            "project_uuid": str(integrated_agent.project.uuid),
+            "integrated_agent_uuid": str(integrated_agent.uuid),
+            "message": message,
+            "response": response,
+        }
+        self.audit_func("AuditPath", data)
 
 
 class AgentWebhookUseCase:
@@ -291,7 +313,7 @@ class AgentWebhookUseCase:
                 )
                 return response
 
-            self.broadcast_handler.send_message(message)
+            self.broadcast_handler.send_message(message, integrated_agent)
             return response
 
         except Exception as e:
