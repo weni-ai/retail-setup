@@ -35,9 +35,8 @@ class FlowsService:
         response = self.client.send_whatsapp_broadcast(payload=payload)
         return response.status_code == 200
 
-    def send_purchase_event(self, payload: dict) -> bool:
+    def send_purchase_event(self, payload: dict) -> dict:
         """
         Send a purchase event to the Flows service.
         """
-        response = self.client.send_purchase_event(payload=payload)
-        return response.status_code == 200
+        return self.client.send_purchase_event(payload=payload)

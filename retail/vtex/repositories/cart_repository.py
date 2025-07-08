@@ -16,15 +16,34 @@ class CartRepository:
     @staticmethod
     def find_by_order_form(order_form_id: str, project: Project) -> Optional[Cart]:
         """
-        Retrieve a cart by its VTEX order-form identifier.
+        Retrieve a cart by its VTEX order-form identifier, only if it is linked to a flows channel.
+
+        This method fetches a cart based on the provided VTEX order-form ID and project.
+        It only returns the cart instance if it is explicitly linked to a flows channel
+        via the `flows_channel_uuid` field. If the cart does not exist or is not linked
+        to a flows channel, returns None.
 
         Args:
             order_form_id: The VTEX order-form ID.
             project: The project instance.
+
         Returns:
-            The matching :class:`Cart` instance or ``None`` if not found.
+            The matching :class:`Cart` instance if linked to a flows channel, or ``None`` if not found or not linked.
         """
-        return Cart.objects.filter(order_form_id=order_form_id, project=project).first()
+        cart = Cart.objects.filter(order_form_id=order_form_id, project=project).first()
+        if cart:
+            # Check if flows_channel_uuid exists and is not None
+            if cart.flows_channel_uuid:
+                logger.info(
+                    f"Cart found with order_form_id={order_form_id} and flows_channel_uuid={cart.flows_channel_uuid}."
+                )
+                return cart
+            else:
+                logger.info(
+                    f"Cart found with order_form_id={order_form_id} but does not have flows_channel_uuid set."
+                )
+
+        return None
 
     @staticmethod
     def create(

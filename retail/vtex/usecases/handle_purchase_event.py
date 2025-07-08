@@ -210,7 +210,7 @@ class HandlePurchaseEventUseCase:
             },
         }
 
-    def _send_to_flows(self, payload: dict) -> None:
+    def _send_to_flows(self, payload: dict) -> bool:
         """
         Sends the constructed event payload to the Flows system.
 
@@ -218,7 +218,18 @@ class HandlePurchaseEventUseCase:
             payload: The purchase event data to send.
 
         Returns:
-            None
+            True if the request was successful, False otherwise.
         """
-        self.flows_service.send_purchase_event(payload)
-        logger.info("Successfully sent purchase event to Flows.")
+        response = self.flows_service.send_purchase_event(payload)
+
+        if response.status_code == 200:
+            logger.info(
+                f"Successfully sent purchase event to Flows. " f"Payload: {payload}"
+            )
+            return True
+        else:
+            logger.error(
+                f"Failed to send purchase event to Flows. "
+                f"Payload: {payload} | Status: {response.status_code}"
+            )
+            return False
