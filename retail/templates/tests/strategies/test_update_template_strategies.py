@@ -324,7 +324,7 @@ class UpdateCustomTemplateStrategyTest(TestCase):
         result = self.strategy.update_template(self.template, self.payload)
 
         self.mock_rule_generator.generate_code.assert_called_once_with(
-            self.payload["parameters"]
+            self.payload["parameters"], self.template.integrated_agent
         )
 
         self.template.refresh_from_db()

@@ -143,7 +143,9 @@ class UpdateCustomTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
         )
 
         if "parameters" in payload:
-            generated_code = self.rule_generator.generate_code(payload["parameters"])
+            generated_code = self.rule_generator.generate_code(
+                payload["parameters"], template.integrated_agent
+            )
             template.rule_code = generated_code
 
             start_condition = next(
