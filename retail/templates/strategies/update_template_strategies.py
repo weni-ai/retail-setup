@@ -70,6 +70,9 @@ class UpdateTemplateStrategy(ABC):
         updated_metadata["body"] = payload.get(
             "template_body", template.metadata.get("body")
         )
+        updated_metadata["body_params"] = payload.get(
+            "template_body_params", template.metadata.get("body_params")
+        )
         updated_metadata["header"] = payload.get(
             "template_header", template.metadata.get("header")
         )

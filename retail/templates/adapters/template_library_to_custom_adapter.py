@@ -28,7 +28,7 @@ class BodyTransformer(ComponentTransformer):
 
         body_data = {"type": "BODY", "text": template_data["body"]}
 
-        if "body_params" in template_data:
+        if template_data.get("body_params"):
             body_data["example"] = {"body_text": [template_data["body_params"]]}
 
         return body_data
