@@ -29,6 +29,9 @@ class Agent(models.Model):
     language = models.CharField(max_length=5, default="pt_BR")
     examples = models.JSONField(null=True, default=list)
 
+    def __str__(self):
+        return f"{self.name}/{self.slug}"
+
 
 class IntegratedAgent(models.Model):
     uuid = models.UUIDField(primary_key=True, blank=True, default=uuid4)
@@ -43,6 +46,9 @@ class IntegratedAgent(models.Model):
     ignore_templates = ArrayField(models.CharField(), blank=True, default=list)
     contact_percentage = models.PositiveIntegerField(default=10)
     config = models.JSONField(default=dict)
+
+    def __str__(self):
+        return f"{self.agent} - {self.project}"
 
 
 class PreApprovedTemplate(models.Model):
@@ -66,6 +72,9 @@ class PreApprovedTemplate(models.Model):
     is_valid = models.BooleanField(blank=True, null=True)
     start_condition = models.TextField()
     metadata = models.JSONField(null=True)
+
+    def __str__(self):
+        return f"{self.display_name}/{self.slug}"
 
 
 class Credential(models.Model):

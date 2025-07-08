@@ -35,6 +35,9 @@ class Template(models.Model):
     def is_custom(self) -> bool:
         return self.parent is None
 
+    def __str__(self):
+        return f"{self.display_name}/{self.name} [Version] {self.current_version}"
+
 
 class Version(models.Model):
     STATUS_CHOICES = (
@@ -59,3 +62,6 @@ class Version(models.Model):
     status = models.CharField(choices=STATUS_CHOICES, blank=True, default="PENDING")
     created_at = models.DateTimeField(auto_now_add=True)
     uuid = models.UUIDField(blank=True, editable=False, default=uuid4)
+
+    def __str__(self):
+        return f"{self.template_name} [Version] {self.uuid} [Status] {self.status}"
