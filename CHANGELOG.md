@@ -1,3 +1,11 @@
+# 3.8.1
+
+## *Feature*
+  - feat: add __str__ to ORMs
+
+## *Fix*
+  - fix: sentry error in retrieving template name without current version
+
 # 3.8.0
 
 ## *Feature*
