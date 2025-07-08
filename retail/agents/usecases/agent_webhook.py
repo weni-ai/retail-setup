@@ -202,10 +202,11 @@ class BroadcastHandler:
             logger.info(
                 "Could not build message because template has no current version."
             )
+            return
 
         if template_name is None:
             logger.error(f"Template not found: {template_name}")
-            return None
+            return
 
         logger.info("Building broadcast template message.")
         message = build_broadcast_template_message(
@@ -292,7 +293,7 @@ class AgentWebhookUseCase:
         try:
             message = self.broadcast_handler.build_message(integrated_agent, data)
             if not message:
-                logger.error(
+                logger.info(
                     f"Failed to build broadcast message from payload data: {data}"
                 )
                 return response
