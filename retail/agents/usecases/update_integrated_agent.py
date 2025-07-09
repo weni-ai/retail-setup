@@ -53,12 +53,8 @@ class GlobalRuleHandler:
                     "name": "examples",
                     "value": integrated_agent.agent.examples,
                 },
-                {
-                    "name": "start_condition",
-                    "value": global_rule,
-                },
             ],
-            "is_global_rule": True,
+            "global_rule": global_rule,
         }
 
         response = self.lambda_service.invoke(
@@ -81,7 +77,9 @@ class GlobalRuleHandler:
         if status_code is not None:
             match status_code:
                 case LambdaResponseStatusCode.OK:
-                    self.global_rule_code = body.get("generated_code")
+                    self.global_rule_code = body.get("global_rule").get(
+                        "generated_code"
+                    )
                     return self
                 case LambdaResponseStatusCode.BAD_REQUEST:
                     raise GlobalRuleBadRequest(detail=body)
