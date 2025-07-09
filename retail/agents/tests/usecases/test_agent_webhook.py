@@ -233,7 +233,7 @@ class LambdaHandlerTest(TestCase):
         self.mock_agent.project.uuid = uuid4()
         self.mock_agent.project.vtex_account = "test_account"
         self.mock_agent.ignore_templates = False
-        self.mock_agent.global_rule = ""
+        self.mock_agent.global_rule_code = ""
 
     def test_invoke_lambda(self):
         mock_data = MagicMock()
@@ -249,7 +249,7 @@ class LambdaHandlerTest(TestCase):
             "payload": mock_data.payload,
             "credentials": mock_data.credentials,
             "ignore_official_rules": self.mock_agent.ignore_templates,
-            "global_rule": self.mock_agent.global_rule,
+            "global_rule": self.mock_agent.global_rule_code,
             "project_rules": [],
             "project": {
                 "uuid": str(self.mock_agent.project.uuid),
