@@ -39,6 +39,7 @@ from retail.agents.usecases import (
     UpdateIntegratedAgentData,
 )
 from retail.vtex.tasks import task_order_status_agent_webhook
+from retail.internal.permissions import HasProjectPermission
 
 
 def get_project_uuid_from_request(request: Request) -> str:
@@ -136,7 +137,11 @@ class GenericIntegratedAgentView(APIView):
 
 
 class AssignAgentView(GenericIntegratedAgentView):
-    permission_classes = [IsAuthenticated, IsAgentOficialOrFromProjet]
+    permission_classes = [
+        IsAuthenticated,
+        HasProjectPermission,
+        IsAgentOficialOrFromProjet,
+    ]
 
     def post(self, request: Request, agent_uuid: UUID) -> Response:
         """
@@ -178,7 +183,11 @@ class AssignAgentView(GenericIntegratedAgentView):
 
 
 class UnassignAgentView(GenericIntegratedAgentView):
-    permission_classes = [IsAuthenticated, IsAgentOficialOrFromProjet]
+    permission_classes = [
+        IsAuthenticated,
+        HasProjectPermission,
+        IsAgentOficialOrFromProjet,
+    ]
 
     def post(self, request: Request, agent_uuid: UUID) -> Response:
         project_uuid = get_project_uuid_from_request(request)
