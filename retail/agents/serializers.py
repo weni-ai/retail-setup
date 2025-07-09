@@ -109,6 +109,7 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
     webhook_url = serializers.SerializerMethodField("get_webhook_url")
     description = serializers.SerializerMethodField("get_description")
     contact_percentage = serializers.IntegerField()
+    global_rule_prompt = serializers.CharField()
 
     def get_webhook_url(self, obj):
         domain_url = settings.DOMAIN
