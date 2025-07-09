@@ -12,9 +12,15 @@ class ComponentTransformer(Protocol):
 class HeaderTransformer(ComponentTransformer):
     """Transforms header component from library to translation format."""
 
+    def _is_header_format_already_translated(self, header) -> bool:
+        return isinstance(header, dict) and "header_type" in header and "text" in header
+
     def transform(self, template_data: Dict) -> Optional[Dict]:
         if not template_data.get("header"):
             return None
+
+        if self._is_header_format_already_translated(template_data["header"]):
+            return template_data["header"]
 
         return {"header_type": "TEXT", "text": template_data["header"]}
 
