@@ -44,6 +44,7 @@ class IntegratedAgent(models.Model):
     contact_percentage = models.PositiveIntegerField(default=10)
     config = models.JSONField(default=dict)
     global_rule_code = models.TextField(null=True)
+    global_rule_prompt = models.TextField(null=True)
 
 
 class PreApprovedTemplate(models.Model):

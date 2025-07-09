@@ -103,7 +103,5 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         )
         self.mock_global_rule_handler.validate.assert_called_once()
         self.mock_global_rule_handler.get_global_rule.assert_called_once()
-        self.assertEqual(
-            self.mock_integrated_agent.integrated_agent, "mocked_rule_code"
-        )
+        self.assertEqual(self.mock_integrated_agent.global_rule_prompt, "some rule")
         self.mock_integrated_agent.save.assert_called_once()

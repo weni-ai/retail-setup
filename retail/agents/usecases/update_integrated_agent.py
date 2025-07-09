@@ -128,7 +128,8 @@ class UpdateIntegratedAgentUseCase:
                 .validate()
                 .get_global_rule()
             )
-            integrated_agent.integrated_agent = global_rule_code
+            integrated_agent.global_rule_code = global_rule_code
+            integrated_agent.global_rule_prompt = global_rule
 
         integrated_agent.save()
         return integrated_agent
