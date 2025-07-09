@@ -34,6 +34,7 @@ def generate_env():
         "REDIS_CHANNEL_URL": "redis://redis:6379/1",
         "INTEGRATIONS_REST_ENDPOINT": "",
         "FLOWS_REST_ENDPOINT": "",
+        "CONNECT_REST_ENDPOINT": "",
         "EMAILS_CAN_TESTING": "",
         "DOMAIN": "http://localhost:8000",
         "USE_OIDC": True,
