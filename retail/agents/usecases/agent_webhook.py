@@ -55,7 +55,7 @@ class LambdaHandler:
                 "credentials": data.credentials,
                 "ignore_official_rules": integrated_agent.ignore_templates,
                 "project_rules": data.project_rules,
-                "global_rule": integrated_agent.global_rule,
+                "global_rule": integrated_agent.global_rule_code,
                 "project": {
                     "uuid": str(project.uuid),
                     "vtex_account": project.vtex_account,
