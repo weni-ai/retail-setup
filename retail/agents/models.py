@@ -46,6 +46,7 @@ class IntegratedAgent(models.Model):
     ignore_templates = ArrayField(models.CharField(), blank=True, default=list)
     contact_percentage = models.PositiveIntegerField(default=10)
     config = models.JSONField(default=dict)
+    global_rule_code = models.TextField(null=True)
 
     def __str__(self):
         return f"{self.agent} - {self.project}"
