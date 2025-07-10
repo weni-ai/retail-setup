@@ -1,3 +1,8 @@
+# 3.9.0
+
+## *Feature*
+  - feature: global rule
+
 # 3.8.2
 
 ## *Fix*
