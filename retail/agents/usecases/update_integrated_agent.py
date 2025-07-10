@@ -35,7 +35,9 @@ class GlobalRuleHandler:
     def __init__(
         self, lambda_service: Optional[AwsLambdaServiceInterface] = None
     ) -> None:
-        self.lambda_service = lambda_service or AwsLambdaService()
+        self.lambda_service = lambda_service or AwsLambdaService(
+            region_name=getattr(settings, "LAMBDA_CODE_GENERATOR_REGION", "us-east-1"),
+        )
         self.lambda_code_generator = getattr(
             settings,
             "LAMBDA_CODE_GENERATOR",
