@@ -1,5 +1,3 @@
-import json
-
 import copy
 
 from unittest.mock import patch, Mock
@@ -13,17 +11,17 @@ from rest_framework.exceptions import NotFound
 from retail.templates.usecases.create_custom_template import (
     CreateCustomTemplateUseCase,
     CreateCustomTemplateData,
-    LambdaResponseStatusCode,
 )
 from retail.templates.models import Template, Version
-from retail.templates.exceptions import (
-    CodeGeneratorBadRequest,
-    CodeGeneratorUnprocessableEntity,
-    CodeGeneratorInternalServerError,
-    CustomTemplateAlreadyExists,
-)
+from retail.templates.exceptions import CustomTemplateAlreadyExists
 from retail.projects.models import Project
 from retail.agents.models import Agent, IntegratedAgent
+from retail.services.rule_generator import (
+    RuleGenerator,
+    RuleGeneratorBadRequest,
+    RuleGeneratorUnprocessableEntity,
+    RuleGeneratorInternalServerError,
+)
 
 
 class CreateCustomTemplateUseCaseTest(TestCase):
@@ -51,11 +49,11 @@ class CreateCustomTemplateUseCaseTest(TestCase):
             is_active=True,
         )
 
-        self.mock_lambda_service = Mock()
+        self.mock_rule_generator = Mock(spec=RuleGenerator)
         self.mock_template_adapter = Mock()
 
         self.use_case = CreateCustomTemplateUseCase(
-            lambda_service=self.mock_lambda_service,
+            rule_generator=self.mock_rule_generator,
             template_adapter=self.mock_template_adapter,
         )
 
@@ -83,11 +81,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
             "display_name": "Test Display Name",
         }
 
-        self.successful_lambda_response = {
-            "statusCode": LambdaResponseStatusCode.OK,
-            "body": {"generated_code": "def test_rule(): return True"},
-        }
-
         self.adapted_translation = {
             "header": {"header_type": "TEXT", "text": "Test Header"},
             "body": {"type": "BODY", "text": "Test Body"},
@@ -96,12 +89,9 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         }
 
     def _setup_mocks_for_successful_execution(self):
-        mock_payload = Mock()
-        mock_payload.read.return_value = json.dumps(
-            self.successful_lambda_response
-        ).encode()
-
-        self.mock_lambda_service.invoke.return_value = {"Payload": mock_payload}
+        self.mock_rule_generator.generate_code.return_value = (
+            "def test_rule(): return True"
+        )
         self.mock_template_adapter.adapt.return_value = self.adapted_translation
 
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
@@ -119,7 +109,8 @@ class CreateCustomTemplateUseCaseTest(TestCase):
 
         expected_metadata = {
             "body": "Test Body",
-            "header": "Test Header",
+            "body_params": None,
+            "header": {"header_type": "TEXT", "text": "Test Header"},
             "footer": "Test Footer",
             "buttons": [{"type": "URL", "text": "Click here"}],
             "category": "test",
@@ -129,10 +120,8 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         version = Version.objects.get(template=result)
         self.assertIsNotNone(version)
 
-        self.mock_lambda_service.invoke.assert_called_once()
-        call_args = self.mock_lambda_service.invoke.call_args
-        self.assertEqual(
-            call_args[1]["payload"]["parameters"], self.valid_payload["parameters"]
+        self.mock_rule_generator.generate_code.assert_called_once_with(
+            self.valid_payload["parameters"], self.integrated_agent
         )
 
         self.mock_template_adapter.adapt.assert_called_once()
@@ -186,60 +175,43 @@ class CreateCustomTemplateUseCaseTest(TestCase):
 
         self.assertIn("Assigned agent not found", str(context.exception))
 
-    def test_execute_lambda_bad_request_error(self):
-        mock_payload = Mock()
-        error_response = {
-            "statusCode": LambdaResponseStatusCode.BAD_REQUEST,
-            "body": {"error": "Invalid parameters"},
-        }
-        mock_payload.read.return_value = json.dumps(error_response).encode()
-        self.mock_lambda_service.invoke.return_value = {"Payload": mock_payload}
+    def test_execute_rule_generator_bad_request_error(self):
+        self.mock_rule_generator.generate_code.side_effect = RuleGeneratorBadRequest(
+            detail={"error": "Invalid parameters"}
+        )
 
-        with self.assertRaises(CodeGeneratorBadRequest) as context:
+        with self.assertRaises(RuleGeneratorBadRequest) as context:
             self.use_case.execute(self.valid_payload)
 
         self.assertEqual(context.exception.detail, {"error": "Invalid parameters"})
 
-    def test_execute_lambda_unprocessable_entity_error(self):
-        mock_payload = Mock()
-        error_response = {
-            "statusCode": LambdaResponseStatusCode.UNPROCESSABLE_ENTITY,
-            "body": {"error": "Cannot process request"},
-        }
-        mock_payload.read.return_value = json.dumps(error_response).encode()
-        self.mock_lambda_service.invoke.return_value = {"Payload": mock_payload}
+    def test_execute_rule_generator_unprocessable_entity_error(self):
+        self.mock_rule_generator.generate_code.side_effect = (
+            RuleGeneratorUnprocessableEntity(detail={"error": "Cannot process request"})
+        )
 
-        with self.assertRaises(CodeGeneratorUnprocessableEntity) as context:
+        with self.assertRaises(RuleGeneratorUnprocessableEntity) as context:
             self.use_case.execute(self.valid_payload)
 
         self.assertEqual(context.exception.detail, {"error": "Cannot process request"})
 
-    def test_execute_lambda_unknown_error(self):
-        mock_payload = Mock()
-        error_response = {"statusCode": 500, "body": {"error": "Internal server error"}}
-        mock_payload.read.return_value = json.dumps(error_response).encode()
-        self.mock_lambda_service.invoke.return_value = {"Payload": mock_payload}
+    def test_execute_rule_generator_internal_server_error(self):
+        self.mock_rule_generator.generate_code.side_effect = (
+            RuleGeneratorInternalServerError(
+                detail={
+                    "message": "Unknown error from lambda.",
+                    "error": {"statusCode": 500},
+                }
+            )
+        )
 
-        with self.assertRaises(CodeGeneratorInternalServerError) as context:
+        with self.assertRaises(RuleGeneratorInternalServerError) as context:
             self.use_case.execute(self.valid_payload)
 
         detail = context.exception.detail
-        self.assertEqual(str(detail["message"]), "Unknown error from lambda.")
-        self.assertEqual(str(detail["error"]["statusCode"]), "500")
-        self.assertEqual(str(detail["error"]["body"]["error"]), "Internal server error")
-
-    def test_execute_lambda_no_status_code(self):
-        mock_payload = Mock()
-        error_response = {"body": {"error": "No status code"}}
-        mock_payload.read.return_value = json.dumps(error_response).encode()
-        self.mock_lambda_service.invoke.return_value = {"Payload": mock_payload}
-
-        with self.assertRaises(CodeGeneratorInternalServerError) as context:
-            self.use_case.execute(self.valid_payload)
-
-        detail = context.exception.detail
-        self.assertEqual(str(detail["message"]), "Unknown error from lambda.")
-        self.assertEqual(str(detail["error"]["body"]["error"]), "No status code")
+        self.assertEqual(detail["message"], "Unknown error from lambda.")
+        self.assertIn("statusCode", detail["error"])
+        self.assertTrue(str(detail["error"]["statusCode"]) == "500")
 
     def test_get_start_condition_from_parameters(self):
         self._setup_mocks_for_successful_execution()
@@ -289,24 +261,17 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertEqual(version.project, self.project)
 
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
-    def test_invoke_code_generator_with_correct_payload(
+    def test_rule_generator_called_with_correct_parameters(
         self, mock_task_create_template
     ):
-        mock_payload = Mock()
-        mock_payload.read.return_value = json.dumps(
-            self.successful_lambda_response
-        ).encode()
-        self.mock_lambda_service.invoke.return_value = {"Payload": mock_payload}
-        self.mock_template_adapter.adapt.return_value = self.adapted_translation
+        self._setup_mocks_for_successful_execution()
         mock_task_create_template.delay.return_value = Mock()
 
         self.use_case.execute(self.valid_payload)
 
-        self.mock_lambda_service.invoke.assert_called_once()
-        call_args = self.mock_lambda_service.invoke.call_args
-
-        expected_payload = {"parameters": self.valid_payload["parameters"]}
-        self.assertEqual(call_args[1]["payload"], expected_payload)
+        self.mock_rule_generator.generate_code.assert_called_once_with(
+            self.valid_payload["parameters"], self.integrated_agent
+        )
 
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
     def test_adapt_translation_called_with_correct_data(
@@ -321,11 +286,17 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         call_args = self.mock_template_adapter.adapt.call_args[0][0]
 
         expected_structure = {
-            "header": self.valid_payload["template_translation"]["template_header"],
+            "header": {
+                "header_type": "TEXT",
+                "text": self.valid_payload["template_translation"]["template_header"],
+            },
             "body": self.valid_payload["template_translation"]["template_body"],
+            "body_params": self.valid_payload["template_translation"].get(
+                "template_body_params"
+            ),
             "footer": self.valid_payload["template_translation"]["template_footer"],
             "buttons": self.valid_payload["template_translation"]["template_button"],
-            "category": "test",
+            "category": self.valid_payload["category"],
         }
         self.assertEqual(call_args, expected_structure)
 
@@ -391,13 +362,7 @@ class CreateCustomTemplateUseCaseTest(TestCase):
 
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
     def test_execute_with_none_generated_code(self, mock_task_create_template):
-        mock_payload = Mock()
-        response_with_none_code = {
-            "statusCode": LambdaResponseStatusCode.OK,
-            "body": {"generated_code": None},
-        }
-        mock_payload.read.return_value = json.dumps(response_with_none_code).encode()
-        self.mock_lambda_service.invoke.return_value = {"Payload": mock_payload}
+        self.mock_rule_generator.generate_code.return_value = None
         self.mock_template_adapter.adapt.return_value = self.adapted_translation
         mock_task_create_template.delay.return_value = Mock()
 
@@ -464,18 +429,12 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertIsInstance(result, Template)
         self.assertEqual(result.start_condition, "first condition")
 
-    def test_execute_lambda_service_exception(self):
-        self.mock_lambda_service.invoke.side_effect = Exception("Lambda service error")
+    def test_execute_rule_generator_exception(self):
+        self.mock_rule_generator.generate_code.side_effect = Exception(
+            "Rule generator error"
+        )
 
         with self.assertRaises(Exception) as context:
             self.use_case.execute(self.valid_payload)
 
-        self.assertEqual(str(context.exception), "Lambda service error")
-
-    def test_execute_json_decode_error_in_lambda_response(self):
-        mock_payload = Mock()
-        mock_payload.read.return_value = b"invalid json response"
-        self.mock_lambda_service.invoke.return_value = {"Payload": mock_payload}
-
-        with self.assertRaises(json.JSONDecodeError):
-            self.use_case.execute(self.valid_payload)
+        self.assertEqual(str(context.exception), "Rule generator error")

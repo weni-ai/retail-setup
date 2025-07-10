@@ -5,7 +5,6 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.urls import reverse
-from django.test import override_settings
 
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
@@ -17,7 +16,6 @@ from retail.projects.models import Project
 User = get_user_model()
 
 
-@override_settings(LAMBDA_REGION="us-east-1", LAMBDA_CODE_GENERATOR_REGION="us-east-1")
 class TemplateViewSetStrategyIntegrationTest(APITestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="testuser", password="testpass")
@@ -97,12 +95,12 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
             call_args[0][1]["template_body"], "Updated body for normal template"
         )
 
-    @patch("retail.templates.strategies.update_template_strategies.AwsLambdaService")
+    @patch("retail.templates.strategies.update_template_strategies.RuleGenerator")
     @patch(
         "retail.templates.strategies.update_template_strategies.UpdateCustomTemplateStrategy.update_template"
     )
     def test_custom_template_update_uses_custom_strategy(
-        self, mock_update_method, mock_lambda_service
+        self, mock_update_method, mock_rule_generator_class
     ):
         template = Template.objects.create(
             uuid=uuid4(),
@@ -142,10 +140,13 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
         self.assertEqual(len(call_args[0][1]["parameters"]), 2)
         self.assertEqual(call_args[0][1]["parameters"][0]["name"], "start_condition")
 
+    @patch("retail.templates.strategies.update_template_strategies.RuleGenerator")
     @patch(
         "retail.templates.strategies.update_template_strategies.UpdateTemplateStrategyFactory.create_strategy"
     )
-    def test_strategy_factory_is_called_correctly(self, mock_create_strategy):
+    def test_strategy_factory_is_called_correctly(
+        self, mock_create_strategy, mock_rule_generator_class
+    ):
         template = Template.objects.create(
             uuid=uuid4(),
             name="test_template",
@@ -174,7 +175,7 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
         call_args = mock_create_strategy.call_args
         self.assertEqual(call_args[1]["template"], template)
         self.assertIn("template_adapter", call_args[1])
-        self.assertIn("lambda_service", call_args[1])
+        self.assertIn("rule_generator", call_args[1])
 
         mock_strategy.update_template.assert_called_once()
 
@@ -206,8 +207,10 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_update_method.assert_called_once()
 
-    @patch("retail.templates.strategies.update_template_strategies.AwsLambdaService")
-    def test_custom_template_with_parameters_is_allowed(self, mock_lambda_service):
+    @patch("retail.templates.strategies.update_template_strategies.RuleGenerator")
+    def test_custom_template_with_parameters_is_allowed(
+        self, mock_rule_generator_class
+    ):
         template = Template.objects.create(
             uuid=uuid4(),
             name="custom_template",
@@ -234,6 +237,5 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
                 reverse("template-detail", args=[template_uuid]), payload, format="json"
             )
 
-            # Should be successful
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             mock_update.assert_called_once()

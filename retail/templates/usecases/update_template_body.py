@@ -3,13 +3,13 @@ from typing import Optional, TypedDict, List, Dict, Any
 from rest_framework.exceptions import NotFound
 
 from retail.templates.models import Template
-from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
 from retail.templates.strategies.update_template_strategies import (
     UpdateTemplateStrategyFactory,
 )
+from retail.services.rule_generator import RuleGenerator
 
 
 class UpdateTemplateContentData(TypedDict):
@@ -58,10 +58,10 @@ class UpdateTemplateContentUseCase:
 
     def __init__(
         self,
-        lambda_service: Optional[AwsLambdaServiceInterface] = None,
+        rule_generator: Optional[RuleGenerator] = None,
         template_adapter: Optional[TemplateTranslationAdapter] = None,
     ):
-        self.lambda_service = lambda_service
+        self.rule_generator = rule_generator
         self.template_adapter = template_adapter
 
     def _get_template(self, uuid: str) -> Template:
@@ -87,7 +87,7 @@ class UpdateTemplateContentUseCase:
         strategy = UpdateTemplateStrategyFactory.create_strategy(
             template=template,
             template_adapter=self.template_adapter,
-            lambda_service=self.lambda_service,
+            rule_generator=self.rule_generator,
         )
 
         return strategy.update_template(template, payload)

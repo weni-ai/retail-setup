@@ -76,7 +76,7 @@ class TestUpdateTemplateContentUseCase(TestCase):
         mock_factory.assert_called_once_with(
             template=mock_template,
             template_adapter=None,
-            lambda_service=None,
+            rule_generator=None,
         )
 
         mock_strategy.update_template.assert_called_once_with(
@@ -116,7 +116,7 @@ class TestUpdateTemplateContentUseCase(TestCase):
         mock_factory.assert_called_once_with(
             template=mock_template,
             template_adapter=None,
-            lambda_service=None,
+            rule_generator=None,
         )
 
         mock_strategy.update_template.assert_called_once_with(
@@ -136,7 +136,7 @@ class TestUpdateTemplateContentUseCase(TestCase):
         mock_template.is_custom = False
         mock_get_template.return_value = mock_template
 
-        mock_lambda_service = MagicMock()
+        mock_rule_generator = MagicMock()
         mock_template_adapter = MagicMock()
 
         mock_strategy = MagicMock()
@@ -144,7 +144,7 @@ class TestUpdateTemplateContentUseCase(TestCase):
         mock_factory.return_value = mock_strategy
 
         use_case = UpdateTemplateContentUseCase(
-            lambda_service=mock_lambda_service,
+            rule_generator=mock_rule_generator,
             template_adapter=mock_template_adapter,
         )
 
@@ -153,7 +153,7 @@ class TestUpdateTemplateContentUseCase(TestCase):
         mock_factory.assert_called_once_with(
             template=mock_template,
             template_adapter=mock_template_adapter,
-            lambda_service=mock_lambda_service,
+            rule_generator=mock_rule_generator,
         )
 
         self.assertEqual(result, mock_template)
@@ -183,19 +183,19 @@ class TestUpdateTemplateContentUseCase(TestCase):
         self.assertEqual(str(context.exception), "Strategy error")
 
     def test_init_with_custom_dependencies(self):
-        mock_lambda_service = MagicMock()
+        mock_rule_generator = MagicMock()
         mock_template_adapter = MagicMock()
 
         use_case = UpdateTemplateContentUseCase(
-            lambda_service=mock_lambda_service,
+            rule_generator=mock_rule_generator,
             template_adapter=mock_template_adapter,
         )
 
-        self.assertEqual(use_case.lambda_service, mock_lambda_service)
+        self.assertEqual(use_case.rule_generator, mock_rule_generator)
         self.assertEqual(use_case.template_adapter, mock_template_adapter)
 
     def test_init_with_default_dependencies(self):
         use_case = UpdateTemplateContentUseCase()
 
-        self.assertIsNone(use_case.lambda_service)
+        self.assertIsNone(use_case.rule_generator)
         self.assertIsNone(use_case.template_adapter)

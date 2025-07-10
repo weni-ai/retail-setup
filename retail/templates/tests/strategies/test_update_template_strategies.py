@@ -1,7 +1,7 @@
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from retail.templates.models import Template
 from retail.templates.strategies.update_template_strategies import (
@@ -9,18 +9,13 @@ from retail.templates.strategies.update_template_strategies import (
     UpdateNormalTemplateStrategy,
     UpdateCustomTemplateStrategy,
     UpdateTemplateStrategyFactory,
-    LambdaResponseStatusCode,
 )
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
-from retail.templates.exceptions import (
-    CodeGeneratorBadRequest,
-    CodeGeneratorUnprocessableEntity,
-    CodeGeneratorInternalServerError,
-)
 from retail.agents.models import IntegratedAgent, Agent
 from retail.projects.models import Project
+from retail.services.rule_generator import RuleGenerator
 
 
 class UpdateTemplateStrategyTest(TestCase):
@@ -168,7 +163,6 @@ class UpdateNormalTemplateStrategyTest(TestCase):
             metadata={},
         )
         template.save()
-        template.metadata = None
 
         with self.assertRaises(ValueError) as context:
             self.strategy.update_template(template, self.payload)
@@ -200,6 +194,7 @@ class UpdateNormalTemplateStrategyTest(TestCase):
         mock_adapter.adapt.return_value = {
             "body": {"type": "BODY", "text": "Updated body"},
             "buttons": [{"type": "URL", "text": "Updated Button"}],
+            "header": {"type": "TEXT", "text": "Updated header"},
         }
         self.strategy.template_adapter = mock_adapter
 
@@ -207,7 +202,9 @@ class UpdateNormalTemplateStrategyTest(TestCase):
 
         self.template.refresh_from_db()
         self.assertEqual(self.template.metadata["body"], "Updated body")
-        self.assertEqual(self.template.metadata["header"], "Updated header")
+        self.assertEqual(
+            self.template.metadata["header"], {"type": "TEXT", "text": "Updated header"}
+        )
         self.assertEqual(self.template.metadata["footer"], "Updated footer")
 
         mock_create_version.assert_called_once_with(
@@ -233,7 +230,10 @@ class UpdateNormalTemplateStrategyTest(TestCase):
         mock_create_version.return_value = mock_version
 
         mock_adapter = Mock()
-        mock_adapter.adapt.return_value = {"buttons": []}
+        mock_adapter.adapt.return_value = {
+            "buttons": [],
+            "header": "Original header",
+        }
         self.strategy.template_adapter = mock_adapter
 
         partial_payload = {
@@ -250,7 +250,6 @@ class UpdateNormalTemplateStrategyTest(TestCase):
         self.assertEqual(self.template.metadata["footer"], "Original footer")
 
 
-@override_settings(LAMBDA_REGION="us-east-1")
 class UpdateCustomTemplateStrategyTest(TestCase):
     def setUp(self):
         self.project = Project.objects.create(
@@ -285,9 +284,9 @@ class UpdateCustomTemplateStrategyTest(TestCase):
             start_condition="original condition",
         )
 
-        self.mock_lambda_service = Mock()
+        self.mock_rule_generator = Mock(spec=RuleGenerator)
         self.strategy = UpdateCustomTemplateStrategy(
-            lambda_service=self.mock_lambda_service
+            rule_generator=self.mock_rule_generator
         )
 
         self.payload = {
@@ -300,20 +299,14 @@ class UpdateCustomTemplateStrategyTest(TestCase):
             ],
         }
 
-    @override_settings(LAMBDA_CODE_GENERATOR="test-arn")
-    def test_init_sets_lambda_code_generator_from_settings(self):
-        strategy = UpdateCustomTemplateStrategy(lambda_service=Mock())
-        self.assertEqual(strategy.lambda_code_generator, "test-arn")
-
     @patch(
         "retail.templates.strategies.update_template_strategies.task_create_template"
     )
     @patch.object(UpdateCustomTemplateStrategy, "_create_version")
-    @patch.object(UpdateCustomTemplateStrategy, "_generate_code")
     def test_update_template_with_parameters_success(
-        self, mock_generate_code, mock_create_version, mock_task
+        self, mock_create_version, mock_task
     ):
-        mock_generate_code.return_value = "generated code"
+        self.mock_rule_generator.generate_code.return_value = "generated code"
 
         mock_version = Mock()
         mock_version.template_name = "custom_template"
@@ -322,13 +315,17 @@ class UpdateCustomTemplateStrategyTest(TestCase):
 
         mock_adapter = Mock()
         mock_adapter.adapt.return_value = {
-            "body": {"type": "BODY", "text": "Updated body"}
+            "body": {"type": "BODY", "text": "Updated body"},
+            "buttons": [],
+            "header": None,
         }
         self.strategy.template_adapter = mock_adapter
 
         result = self.strategy.update_template(self.template, self.payload)
 
-        mock_generate_code.assert_called_once_with(self.payload["parameters"])
+        self.mock_rule_generator.generate_code.assert_called_once_with(
+            self.payload["parameters"], self.template.integrated_agent
+        )
 
         self.template.refresh_from_db()
         self.assertEqual(self.template.rule_code, "generated code")
@@ -351,7 +348,9 @@ class UpdateCustomTemplateStrategyTest(TestCase):
 
         mock_adapter = Mock()
         mock_adapter.adapt.return_value = {
-            "body": {"type": "BODY", "text": "Updated body"}
+            "body": {"type": "BODY", "text": "Updated body"},
+            "buttons": [],
+            "header": None,
         }
         self.strategy.template_adapter = mock_adapter
 
@@ -369,73 +368,9 @@ class UpdateCustomTemplateStrategyTest(TestCase):
         self.template.refresh_from_db()
         self.assertEqual(self.template.rule_code, original_rule_code)
         self.assertEqual(self.template.start_condition, original_start_condition)
-
-    def test_generate_code_success(self):
-        mock_response = {
-            "statusCode": LambdaResponseStatusCode.OK,
-            "body": {"generated_code": "new generated code"},
-        }
-
-        with patch.object(
-            self.strategy, "_invoke_code_generator", return_value=mock_response
-        ):
-            parameters = [{"name": "test", "value": "value"}]
-            result = self.strategy._generate_code(parameters)
-
-            self.assertEqual(result, "new generated code")
-
-    def test_generate_code_bad_request_raises_exception(self):
-        mock_response = {
-            "statusCode": LambdaResponseStatusCode.BAD_REQUEST,
-            "body": "Bad request error",
-        }
-
-        with patch.object(
-            self.strategy, "_invoke_code_generator", return_value=mock_response
-        ):
-            with self.assertRaises(CodeGeneratorBadRequest):
-                self.strategy._generate_code([])
-
-    def test_generate_code_unprocessable_entity_raises_exception(self):
-        mock_response = {
-            "statusCode": LambdaResponseStatusCode.UNPROCESSABLE_ENTITY,
-            "body": "Unprocessable entity error",
-        }
-
-        with patch.object(
-            self.strategy, "_invoke_code_generator", return_value=mock_response
-        ):
-            with self.assertRaises(CodeGeneratorUnprocessableEntity):
-                self.strategy._generate_code([])
-
-    def test_generate_code_unknown_error_raises_internal_server_error(self):
-        mock_response = {"statusCode": 500, "body": "Unknown error"}
-
-        with patch.object(
-            self.strategy, "_invoke_code_generator", return_value=mock_response
-        ):
-            with self.assertRaises(CodeGeneratorInternalServerError):
-                self.strategy._generate_code([])
-
-    @patch("json.loads")
-    def test_invoke_code_generator(self, mock_json_loads):
-        mock_json_loads.return_value = {"statusCode": 200, "body": {}}
-
-        mock_payload = Mock()
-        mock_payload.read.return_value = '{"statusCode": 200, "body": {}}'
-        self.mock_lambda_service.invoke.return_value = {"Payload": mock_payload}
-
-        parameters = [{"name": "test", "value": "value"}]
-        result = self.strategy._invoke_code_generator(parameters)
-
-        self.mock_lambda_service.invoke.assert_called_once_with(
-            function_name=self.strategy.lambda_code_generator,
-            payload={"parameters": parameters},
-        )
-        self.assertEqual(result, {"statusCode": 200, "body": {}})
+        self.mock_rule_generator.generate_code.assert_not_called()
 
 
-@override_settings(LAMBDA_REGION="us-east-1", LAMBDA_CODE_GENERATOR_REGION="us-east-1")
 class UpdateTemplateStrategyFactoryTest(TestCase):
     def test_create_strategy_for_normal_template(self):
         template = Mock()
@@ -445,31 +380,30 @@ class UpdateTemplateStrategyFactoryTest(TestCase):
 
         self.assertIsInstance(strategy, UpdateNormalTemplateStrategy)
 
-    def test_create_strategy_for_custom_template(self):
+    @patch("retail.templates.strategies.update_template_strategies.RuleGenerator")
+    def test_create_strategy_for_custom_template(self, mock_rule_generator_class):
         template = Mock()
         template.is_custom = True
 
-        with patch(
-            "retail.templates.strategies.update_template_strategies.AwsLambdaService"
-        ):
-            strategy = UpdateTemplateStrategyFactory.create_strategy(template)
+        strategy = UpdateTemplateStrategyFactory.create_strategy(template)
 
-            self.assertIsInstance(strategy, UpdateCustomTemplateStrategy)
+        self.assertIsInstance(strategy, UpdateCustomTemplateStrategy)
 
-    def test_create_strategy_with_dependencies(self):
+    @patch("retail.templates.strategies.update_template_strategies.RuleGenerator")
+    def test_create_strategy_with_dependencies(self, mock_rule_generator_class):
         template = Mock()
         template.is_custom = True
 
         mock_adapter = Mock()
-        mock_lambda_service = Mock()
+        mock_rule_generator = Mock()
 
         strategy = UpdateTemplateStrategyFactory.create_strategy(
-            template, template_adapter=mock_adapter, lambda_service=mock_lambda_service
+            template, template_adapter=mock_adapter, rule_generator=mock_rule_generator
         )
 
         self.assertIsInstance(strategy, UpdateCustomTemplateStrategy)
         self.assertEqual(strategy.template_adapter, mock_adapter)
-        self.assertEqual(strategy.lambda_service, mock_lambda_service)
+        self.assertEqual(strategy.rule_generator, mock_rule_generator)
 
     def test_create_strategy_normal_template_with_dependencies(self):
         template = Mock()
