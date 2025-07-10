@@ -54,6 +54,12 @@ class TestHeaderTransformer(TestCase):
         result = self.transformer.transform(template_data)
         self.assertEqual(result, {"header_type": "TEXT", "text": "Already"})
 
+    def test_is_base_64_with_data_prefix(self):
+        base_64_header = base64.b64encode("teste".encode("utf-8")).decode("utf-8")
+        data_prefix_header = f"data:image/png;base64,{base_64_header}"
+        result = self.transformer._is_base_64(data_prefix_header)
+        self.assertTrue(result)
+
 
 class TestBodyTransformer(TestCase):
     def setUp(self):
