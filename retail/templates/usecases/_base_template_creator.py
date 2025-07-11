@@ -8,13 +8,6 @@ from retail.templates.models import Template, Version
 from retail.projects.models import Project
 
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .create_template import CreateTemplateData
-    from .create_library_template import CreateLibraryTemplateData
-
-
 class TemplateBuilderMixin:
     def _create_template(
         self,
@@ -52,7 +45,7 @@ class TemplateBuilderMixin:
 
     def build_template_and_version(
         self,
-        payload: "CreateTemplateData | CreateLibraryTemplateData",
+        payload,
         integrated_agent: Optional[IntegratedAgent] = None,
     ) -> Tuple[Template, Version]:
         """

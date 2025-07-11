@@ -1,7 +1,7 @@
 from retail.templates.models import Template
 
-from ._base_template_creator import TemplateBuilderMixin
-from ._base_library_template import LibraryTemplateData, BaseLibraryTemplateUseCase
+from retail.templates.usecases import TemplateBuilderMixin
+from retail.templates.usecases import LibraryTemplateData, BaseLibraryTemplateUseCase
 
 
 class CreateLibraryTemplateUseCase(TemplateBuilderMixin, BaseLibraryTemplateUseCase):

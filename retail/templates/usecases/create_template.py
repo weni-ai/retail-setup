@@ -4,7 +4,7 @@ from uuid import UUID
 from retail.templates.models import Template
 from retail.templates.tasks import task_create_template
 
-from ._base_template_creator import TemplateBuilderMixin
+from retail.templates.usecases import TemplateBuilderMixin
 
 
 class CreateTemplateData(TypedDict):
