@@ -4,7 +4,7 @@ from rest_framework.exceptions import NotFound
 
 from retail.templates.models import Template, Version
 
-from ._base_library_template import LibraryTemplateData, BaseLibraryTemplateUseCase
+from retail.templates.usecases import LibraryTemplateData, BaseLibraryTemplateUseCase
 
 
 class UpdateLibraryTemplateData(TypedDict):

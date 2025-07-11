@@ -21,22 +21,39 @@ from retail.services.rule_generator import RuleGenerator
 class UpdateTemplateStrategyTest(TestCase):
     def setUp(self):
         self.template_adapter = Mock(spec=TemplateTranslationAdapter)
+        self.metadata_handler = Mock()
 
     def test_abstract_class_cannot_be_instantiated(self):
         with self.assertRaises(TypeError):
             UpdateTemplateStrategy()
 
-    def test_adapt_translation_calls_adapter(self):
-        class ConcreteStrategy(UpdateTemplateStrategy):
-            def update_template(self, template, payload):
-                return template
+    def test_update_common_metadata_calls_metadata_handler(self):
+        strategy = UpdateNormalTemplateStrategy(
+            template_adapter=self.template_adapter,
+            template_metadata_handler=self.metadata_handler,
+        )
+        template = Mock()
+        template.metadata = {"category": "test"}
+        payload = {"template_body": "body"}
 
-        strategy = ConcreteStrategy(self.template_adapter)
-        metadata = {"body": "test", "header": "test header"}
+        self.metadata_handler.build_metadata.return_value = {
+            "body": "body",
+            "category": "test",
+        }
+        self.template_adapter.adapt.return_value = {"body": "body", "category": "test"}
+        self.metadata_handler.post_process_translation.side_effect = lambda m, t: m
 
-        strategy._adapt_translation(metadata)
+        updated_metadata, translation_payload = strategy._update_common_metadata(
+            template, payload
+        )
 
-        self.template_adapter.adapt.assert_called_once_with(metadata)
+        self.metadata_handler.build_metadata.assert_called_once_with(payload, "test")
+        self.template_adapter.adapt.assert_called_once_with(
+            {"body": "body", "category": "test"}
+        )
+        self.metadata_handler.post_process_translation.assert_called_once()
+        self.assertEqual(updated_metadata, {"body": "body", "category": "test"})
+        self.assertEqual(translation_payload, {"body": "body", "category": "test"})
 
     @patch(
         "retail.templates.strategies.update_template_strategies.task_create_template"
@@ -46,7 +63,10 @@ class UpdateTemplateStrategyTest(TestCase):
             def update_template(self, template, payload):
                 return template
 
-        strategy = ConcreteStrategy()
+        strategy = ConcreteStrategy(
+            template_adapter=self.template_adapter,
+            template_metadata_handler=self.metadata_handler,
+        )
         version_name = "test_template"
         version_uuid = uuid4()
         translation_payload = {"body": {"type": "BODY", "text": "test"}}
@@ -72,27 +92,6 @@ class UpdateTemplateStrategyTest(TestCase):
             template_translation=translation_payload,
         )
 
-    def test_notify_integrations_missing_data_raises_error(self):
-        class ConcreteStrategy(UpdateTemplateStrategy):
-            def update_template(self, template, payload):
-                return template
-
-        strategy = ConcreteStrategy()
-
-        with self.assertRaises(ValueError) as context:
-            strategy._notify_integrations(
-                version_name="",
-                version_uuid=uuid4(),
-                translation_payload={},
-                app_uuid="app-123",
-                project_uuid="project-456",
-                category="marketing",
-            )
-
-        self.assertEqual(
-            str(context.exception), "Missing required data to notify integrations"
-        )
-
     @patch(
         "retail.templates.strategies.update_template_strategies.task_create_template"
     )
@@ -101,7 +100,10 @@ class UpdateTemplateStrategyTest(TestCase):
             def update_template(self, template, payload):
                 return template
 
-        strategy = ConcreteStrategy()
+        strategy = ConcreteStrategy(
+            template_adapter=self.template_adapter,
+            template_metadata_handler=self.metadata_handler,
+        )
         translation_payload = {
             "buttons": [
                 {"type": "QUICK_REPLY", "text": "Button 1"},
@@ -122,10 +124,10 @@ class UpdateTemplateStrategyTest(TestCase):
         template_translation = call_args[1]["template_translation"]
         buttons = template_translation["buttons"]
 
-        self.assertEqual(buttons[0]["button_type"], "QUICK_REPLY")
-        self.assertEqual(buttons[1]["button_type"], "URL")
-        self.assertNotIn("type", buttons[0])
-        self.assertNotIn("type", buttons[1])
+        assert buttons[0]["button_type"] == "QUICK_REPLY"
+        assert buttons[1]["button_type"] == "URL"
+        assert "type" not in buttons[0]
+        assert "type" not in buttons[1]
 
 
 class UpdateNormalTemplateStrategyTest(TestCase):
@@ -147,7 +149,10 @@ class UpdateNormalTemplateStrategyTest(TestCase):
             },
         )
 
-        self.strategy = UpdateNormalTemplateStrategy()
+        self.metadata_handler = Mock()
+        self.strategy = UpdateNormalTemplateStrategy(
+            template_metadata_handler=self.metadata_handler
+        )
         self.payload = {
             "template_body": "Updated body",
             "template_header": "Updated header",
@@ -164,21 +169,27 @@ class UpdateNormalTemplateStrategyTest(TestCase):
         )
         template.save()
 
+        self.metadata_handler.build_metadata.side_effect = ValueError(
+            "Template metadata is missing"
+        )
+
         with self.assertRaises(ValueError) as context:
             self.strategy.update_template(template, self.payload)
 
-        self.assertEqual(str(context.exception), "Template metadata is missing")
+        assert str(context.exception) == "Template metadata is missing"
 
     def test_update_template_missing_category_raises_error(self):
         self.template.metadata = {"body": "test"}
         self.template.save()
 
+        self.metadata_handler.build_metadata.side_effect = ValueError(
+            "Missing category in template metadata"
+        )
+
         with self.assertRaises(ValueError) as context:
             self.strategy.update_template(self.template, self.payload)
 
-        self.assertEqual(
-            str(context.exception), "Missing category in template metadata"
-        )
+        assert str(context.exception) == "Missing category in template metadata"
 
     @patch(
         "retail.templates.strategies.update_template_strategies.task_create_template"
@@ -198,14 +209,21 @@ class UpdateNormalTemplateStrategyTest(TestCase):
         }
         self.strategy.template_adapter = mock_adapter
 
+        self.metadata_handler.build_metadata.return_value = {
+            "body": "Updated body",
+            "header": "Updated header",
+            "footer": "Updated footer",
+            "buttons": [{"type": "URL", "text": "Updated Button"}],
+            "category": "UTILITY",
+        }
+        self.metadata_handler.post_process_translation.side_effect = lambda m, t: m
+
         result = self.strategy.update_template(self.template, self.payload)
 
         self.template.refresh_from_db()
-        self.assertEqual(self.template.metadata["body"], "Updated body")
-        self.assertEqual(
-            self.template.metadata["header"], {"type": "TEXT", "text": "Updated header"}
-        )
-        self.assertEqual(self.template.metadata["footer"], "Updated footer")
+        assert self.template.metadata["body"] == "Updated body"
+        assert self.template.metadata["header"] == "Updated header"
+        assert self.template.metadata["footer"] == "Updated footer"
 
         mock_create_version.assert_called_once_with(
             template=self.template,
@@ -214,8 +232,7 @@ class UpdateNormalTemplateStrategyTest(TestCase):
         )
 
         mock_task.delay.assert_called_once()
-
-        self.assertEqual(result, self.template)
+        assert result == self.template
 
     @patch(
         "retail.templates.strategies.update_template_strategies.task_create_template"
@@ -232,9 +249,18 @@ class UpdateNormalTemplateStrategyTest(TestCase):
         mock_adapter = Mock()
         mock_adapter.adapt.return_value = {
             "buttons": [],
-            "header": {"header_type": "TEXT", "text": "Original header"},
+            "header": "Original header",
         }
         self.strategy.template_adapter = mock_adapter
+
+        self.metadata_handler.build_metadata.return_value = {
+            "body": "Only body updated",
+            "header": "Original header",
+            "footer": "Original footer",
+            "buttons": [{"type": "QUICK_REPLY", "text": "Original Button"}],
+            "category": "UTILITY",
+        }
+        self.metadata_handler.post_process_translation.side_effect = lambda m, t: m
 
         partial_payload = {
             "template_body": "Only body updated",
@@ -245,12 +271,9 @@ class UpdateNormalTemplateStrategyTest(TestCase):
         self.strategy.update_template(self.template, partial_payload)
 
         self.template.refresh_from_db()
-        self.assertEqual(self.template.metadata["body"], "Only body updated")
-        self.assertEqual(
-            self.template.metadata["header"],
-            {"header_type": "TEXT", "text": "Original header"},
-        )
-        self.assertEqual(self.template.metadata["footer"], "Original footer")
+        assert self.template.metadata["body"] == "Only body updated"
+        assert self.template.metadata["header"] == "Original header"
+        assert self.template.metadata["footer"] == "Original footer"
 
 
 class UpdateCustomTemplateStrategyTest(TestCase):
@@ -288,8 +311,11 @@ class UpdateCustomTemplateStrategyTest(TestCase):
         )
 
         self.mock_rule_generator = Mock(spec=RuleGenerator)
+        self.metadata_handler = Mock()
         self.strategy = UpdateCustomTemplateStrategy(
-            rule_generator=self.mock_rule_generator
+            template_adapter=Mock(),
+            rule_generator=self.mock_rule_generator,
+            template_metadata_handler=self.metadata_handler,
         )
 
         self.payload = {
@@ -316,13 +342,22 @@ class UpdateCustomTemplateStrategyTest(TestCase):
         mock_version.uuid = uuid4()
         mock_create_version.return_value = mock_version
 
-        mock_adapter = Mock()
-        mock_adapter.adapt.return_value = {
+        self.strategy.template_adapter.adapt.return_value = {
             "body": {"type": "BODY", "text": "Updated body"},
             "buttons": [],
             "header": None,
         }
-        self.strategy.template_adapter = mock_adapter
+
+        self.metadata_handler.build_metadata.return_value = {
+            "body": "Updated body",
+            "category": "CUSTOM",
+        }
+        self.metadata_handler.post_process_translation.side_effect = lambda m, t: m
+        self.metadata_handler.extract_start_condition.side_effect = (
+            lambda params, default: next(
+                (p["value"] for p in params if p["name"] == "start_condition"), None
+            )
+        )
 
         result = self.strategy.update_template(self.template, self.payload)
 
@@ -331,11 +366,10 @@ class UpdateCustomTemplateStrategyTest(TestCase):
         )
 
         self.template.refresh_from_db()
-        self.assertEqual(self.template.rule_code, "generated code")
-        self.assertEqual(self.template.start_condition, "new condition")
-        self.assertEqual(self.template.metadata["body"], "Updated body")
-
-        self.assertEqual(result, self.template)
+        assert self.template.rule_code == "generated code"
+        assert self.template.start_condition == "new condition"
+        assert self.template.metadata["body"] == "Updated body"
+        assert result == self.template
 
     @patch(
         "retail.templates.strategies.update_template_strategies.task_create_template"
@@ -349,13 +383,17 @@ class UpdateCustomTemplateStrategyTest(TestCase):
         mock_version.uuid = uuid4()
         mock_create_version.return_value = mock_version
 
-        mock_adapter = Mock()
-        mock_adapter.adapt.return_value = {
+        self.strategy.template_adapter.adapt.return_value = {
             "body": {"type": "BODY", "text": "Updated body"},
             "buttons": [],
             "header": None,
         }
-        self.strategy.template_adapter = mock_adapter
+
+        self.metadata_handler.build_metadata.return_value = {
+            "body": "Updated body",
+            "category": "CUSTOM",
+        }
+        self.metadata_handler.post_process_translation.side_effect = lambda m, t: m
 
         payload_no_params = {
             "template_body": "Updated body",
@@ -369,8 +407,8 @@ class UpdateCustomTemplateStrategyTest(TestCase):
         self.strategy.update_template(self.template, payload_no_params)
 
         self.template.refresh_from_db()
-        self.assertEqual(self.template.rule_code, original_rule_code)
-        self.assertEqual(self.template.start_condition, original_start_condition)
+        assert self.template.rule_code == original_rule_code
+        assert self.template.start_condition == original_start_condition
         self.mock_rule_generator.generate_code.assert_not_called()
 
 
@@ -379,18 +417,22 @@ class UpdateTemplateStrategyFactoryTest(TestCase):
         template = Mock()
         template.is_custom = False
 
-        strategy = UpdateTemplateStrategyFactory.create_strategy(template)
+        strategy = UpdateTemplateStrategyFactory.create_strategy(
+            template, template_adapter=Mock(), template_metadata_handler=Mock()
+        )
 
-        self.assertIsInstance(strategy, UpdateNormalTemplateStrategy)
+        assert isinstance(strategy, UpdateNormalTemplateStrategy)
 
     @patch("retail.templates.strategies.update_template_strategies.RuleGenerator")
     def test_create_strategy_for_custom_template(self, mock_rule_generator_class):
         template = Mock()
         template.is_custom = True
 
-        strategy = UpdateTemplateStrategyFactory.create_strategy(template)
+        strategy = UpdateTemplateStrategyFactory.create_strategy(
+            template, template_adapter=Mock(), template_metadata_handler=Mock()
+        )
 
-        self.assertIsInstance(strategy, UpdateCustomTemplateStrategy)
+        assert isinstance(strategy, UpdateCustomTemplateStrategy)
 
     @patch("retail.templates.strategies.update_template_strategies.RuleGenerator")
     def test_create_strategy_with_dependencies(self, mock_rule_generator_class):
@@ -399,24 +441,33 @@ class UpdateTemplateStrategyFactoryTest(TestCase):
 
         mock_adapter = Mock()
         mock_rule_generator = Mock()
+        mock_handler = Mock()
 
         strategy = UpdateTemplateStrategyFactory.create_strategy(
-            template, template_adapter=mock_adapter, rule_generator=mock_rule_generator
+            template,
+            template_adapter=mock_adapter,
+            rule_generator=mock_rule_generator,
+            template_metadata_handler=mock_handler,
         )
 
-        self.assertIsInstance(strategy, UpdateCustomTemplateStrategy)
-        self.assertEqual(strategy.template_adapter, mock_adapter)
-        self.assertEqual(strategy.rule_generator, mock_rule_generator)
+        assert isinstance(strategy, UpdateCustomTemplateStrategy)
+        assert strategy.template_adapter == mock_adapter
+        assert strategy.rule_generator == mock_rule_generator
+        assert strategy.metadata_handler == mock_handler
 
     def test_create_strategy_normal_template_with_dependencies(self):
         template = Mock()
         template.is_custom = False
 
         mock_adapter = Mock()
+        mock_handler = Mock()
 
         strategy = UpdateTemplateStrategyFactory.create_strategy(
-            template, template_adapter=mock_adapter
+            template,
+            template_adapter=mock_adapter,
+            template_metadata_handler=mock_handler,
         )
 
-        self.assertIsInstance(strategy, UpdateNormalTemplateStrategy)
-        self.assertEqual(strategy.template_adapter, mock_adapter)
+        assert isinstance(strategy, UpdateNormalTemplateStrategy)
+        assert strategy.template_adapter == mock_adapter
+        assert strategy.metadata_handler == mock_handler

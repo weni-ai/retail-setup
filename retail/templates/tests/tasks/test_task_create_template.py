@@ -12,7 +12,7 @@ class TestTaskCreateTemplate(TestCase):
         self.template_translation = {"language": "en", "content": "Test content"}
 
     @patch("retail.templates.tasks.IntegrationsService")
-    @patch("retail.templates.tasks.UpdateTemplateUseCase")
+    @patch("retail.templates.usecases.update_template.UpdateTemplateUseCase")
     @patch("retail.templates.tasks.logger")
     def test_task_create_template_success(
         self, mock_logger, mock_update_use_case, mock_integrations_service
@@ -52,7 +52,7 @@ class TestTaskCreateTemplate(TestCase):
         mock_update_use_case.assert_not_called()
 
     @patch("retail.templates.tasks.IntegrationsService")
-    @patch("retail.templates.tasks.UpdateTemplateUseCase")
+    @patch("retail.templates.usecases.update_template.UpdateTemplateUseCase")
     @patch("retail.templates.tasks.logger")
     def test_task_create_template_failure_on_create_template(
         self, mock_logger, mock_update_use_case, mock_integrations_service
@@ -91,7 +91,7 @@ class TestTaskCreateTemplate(TestCase):
         )
 
     @patch("retail.templates.tasks.IntegrationsService")
-    @patch("retail.templates.tasks.UpdateTemplateUseCase")
+    @patch("retail.templates.usecases.update_template.UpdateTemplateUseCase")
     @patch("retail.templates.tasks.logger")
     def test_task_create_template_failure_on_create_translation(
         self, mock_logger, mock_update_use_case, mock_integrations_service

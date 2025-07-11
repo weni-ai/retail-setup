@@ -6,9 +6,6 @@ from retail.templates.models import Template
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
-from retail.templates.strategies.update_template_strategies import (
-    UpdateTemplateStrategyFactory,
-)
 from retail.services.rule_generator import RuleGenerator
 
 
@@ -82,6 +79,10 @@ class UpdateTemplateContentUseCase:
         Returns:
             Template: The updated template instance with a new version propagated to integrations.
         """
+        from retail.templates.strategies.update_template_strategies import (
+            UpdateTemplateStrategyFactory,
+        )
+
         template = self._get_template(payload["template_uuid"])
 
         strategy = UpdateTemplateStrategyFactory.create_strategy(
