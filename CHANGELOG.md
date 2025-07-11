@@ -1,3 +1,8 @@
+# 3.9.1
+
+## *Fix*
+  - fix: better logs
+
 # 3.9.0
 
 ## *Feature*
