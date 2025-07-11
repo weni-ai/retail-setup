@@ -1,7 +1,5 @@
 from django.test import TestCase
-
 from unittest.mock import MagicMock, patch
-
 from uuid import uuid4
 
 from retail.agents.models import IntegratedAgent
@@ -16,14 +14,12 @@ from retail.templates.models import Template
 
 class AgentWebhookUseCaseTest(TestCase):
     def setUp(self):
-        # Mock handlers
         self.mock_lambda_handler = MagicMock()
         self.mock_broadcast_handler = MagicMock()
         self.usecase = AgentWebhookUseCase(
             lambda_handler=self.mock_lambda_handler,
             broadcast_handler=self.mock_broadcast_handler,
         )
-        # Mock agent
         self.mock_agent = MagicMock()
         self.mock_agent.uuid = uuid4()
         self.mock_agent.ignore_templates = False
@@ -118,7 +114,7 @@ class AgentWebhookUseCaseTest(TestCase):
 
         result = self.usecase.execute(self.mock_agent, MagicMock())
 
-        self.assertIsInstance(result, dict)
+        self.assertIsNone(result)
         self.mock_broadcast_handler.send_message.assert_called_once()
 
     def test_execute_should_not_send_broadcast(self):
@@ -173,7 +169,7 @@ class AgentWebhookUseCaseTest(TestCase):
         self.mock_broadcast_handler.build_message.return_value = None
 
         result = self.usecase.execute(self.mock_agent, MagicMock())
-        self.assertIsInstance(result, dict)
+        self.assertIsNone(result)
 
     def test_execute_build_message_exception(self):
         mock_response = {"Payload": MagicMock()}
@@ -189,7 +185,7 @@ class AgentWebhookUseCaseTest(TestCase):
         )
 
         result = self.usecase.execute(self.mock_agent, MagicMock())
-        self.assertIsInstance(result, dict)
+        self.assertIsNone(result)
 
     def test_execute_build_message_returns_none(self):
         mock_response = {"Payload": MagicMock()}
@@ -203,7 +199,7 @@ class AgentWebhookUseCaseTest(TestCase):
         self.mock_broadcast_handler.build_message.return_value = None
 
         result = self.usecase.execute(self.mock_agent, MagicMock())
-        self.assertIsInstance(result, dict)
+        self.assertIsNone(result)
         self.mock_broadcast_handler.send_message.assert_not_called()
 
     def test_execute_build_message_returns_empty_dict(self):
@@ -218,7 +214,7 @@ class AgentWebhookUseCaseTest(TestCase):
         self.mock_broadcast_handler.build_message.return_value = {}
 
         result = self.usecase.execute(self.mock_agent, MagicMock())
-        self.assertIsInstance(result, dict)
+        self.assertIsNone(result)
         self.mock_broadcast_handler.send_message.assert_not_called()
 
 
@@ -284,7 +280,7 @@ class LambdaHandlerTest(TestCase):
     def test_validate_response_rule_matched(self):
         data = {"status": LambdaResponseStatus.RULE_MATCHED}
 
-        result = self.handler.validate_response(data)
+        result = self.handler.validate_response(data, self.mock_agent)
 
         self.assertTrue(result)
 
@@ -294,7 +290,7 @@ class LambdaHandlerTest(TestCase):
             "error": "No rule matched",
         }
 
-        result = self.handler.validate_response(data)
+        result = self.handler.validate_response(data, self.mock_agent)
 
         self.assertFalse(result)
 
@@ -304,7 +300,7 @@ class LambdaHandlerTest(TestCase):
             "error": "Pre-processing error",
         }
 
-        result = self.handler.validate_response(data)
+        result = self.handler.validate_response(data, self.mock_agent)
 
         self.assertFalse(result)
 
@@ -314,7 +310,7 @@ class LambdaHandlerTest(TestCase):
             "error": "Custom rule error",
         }
 
-        result = self.handler.validate_response(data)
+        result = self.handler.validate_response(data, self.mock_agent)
 
         self.assertFalse(result)
 
@@ -324,28 +320,28 @@ class LambdaHandlerTest(TestCase):
             "error": "Official rule error",
         }
 
-        result = self.handler.validate_response(data)
+        result = self.handler.validate_response(data, self.mock_agent)
 
         self.assertFalse(result)
 
     def test_validate_response_unknown_status_code(self):
         data = {"status": 999, "error": "Unknown error"}
 
-        result = self.handler.validate_response(data)
+        result = self.handler.validate_response(data, self.mock_agent)
 
         self.assertFalse(result)
 
     def test_validate_response_error_message(self):
         data = {"errorMessage": "Some error"}
 
-        result = self.handler.validate_response(data)
+        result = self.handler.validate_response(data, self.mock_agent)
 
         self.assertFalse(result)
 
     def test_validate_response_no_status_no_error_message(self):
         data = {"template": "order_update", "contact_urn": "whatsapp:123"}
 
-        result = self.handler.validate_response(data)
+        result = self.handler.validate_response(data, self.mock_agent)
 
         self.assertFalse(result)
 

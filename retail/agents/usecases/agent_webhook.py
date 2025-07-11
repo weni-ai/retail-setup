@@ -72,7 +72,9 @@ class LambdaHandler:
             logger.error(f"Error decoding JSON payload: {e}")
             return None
 
-    def validate_response(self, data: Dict[str, Any]) -> bool:
+    def validate_response(
+        self, data: Dict[str, Any], integrated_agent: IntegratedAgent
+    ) -> bool:
         """Validate lambda response for errors based on status codes."""
         status_code = data.get("status")
         error = data.get("error")
@@ -82,25 +84,39 @@ class LambdaHandler:
                 case LambdaResponseStatus.RULE_MATCHED:
                     return True
                 case LambdaResponseStatus.RULE_NOT_MATCHED:
-                    logger.info(f"Rule not matched: {error}")
+                    logger.info(
+                        f"Rule not matched for integrated agent {integrated_agent.uuid}: {error}"
+                    )
                     return False
                 case LambdaResponseStatus.PRE_PROCESSING_FAILED:
-                    logger.info(f"Pre-processing failed: {error}")
+                    logger.info(
+                        f"Pre-processing failed for integrated agent {integrated_agent.uuid}: {error}"
+                    )
                     return False
                 case LambdaResponseStatus.CUSTOM_RULE_FAILED:
-                    logger.info(f"Custom rule failed: {error}")
+                    logger.info(
+                        f"Custom rule failed for integrated agent {integrated_agent.uuid}: {error}"
+                    )
                     return False
                 case LambdaResponseStatus.OFFICIAL_RULE_FAILED:
-                    logger.info(f"Official rule failed: {error}")
+                    logger.info(
+                        f"Official rule failed for integrated agent {integrated_agent.uuid}: {error}"
+                    )
                     return False
                 case LambdaResponseStatus.GLOBAL_RULE_FAILED:
-                    logger.info(f"Global rule failed: {error}")
+                    logger.info(
+                        f"Global rule failed for integrated agent {integrated_agent.uuid}: {error}"
+                    )
                     return False
                 case LambdaResponseStatus.GLOBAL_RULE_NOT_MATCHED:
-                    logger.info(f"Global rule not matched: {error}")
+                    logger.info(
+                        f"Global rule not matched for integrated agent {integrated_agent.uuid}: {error}"
+                    )
                     return False
                 case _:
-                    logger.warning(f"Unknown status code: {status_code}")
+                    logger.warning(
+                        f"Unknown status code for integrated agent {integrated_agent.uuid}: {status_code}"
+                    )
                     return False
 
         if isinstance(data, dict) and "errorMessage" in data:
@@ -286,12 +302,14 @@ class AgentWebhookUseCase:
     ) -> Optional[Dict[str, Any]]:
         """Process lambda response and build broadcast message."""
         data = self.lambda_handler.parse_response(response)
+
         if not data:
-            return response
+            logger.info("Error in parsing lambda response.")
+            return None
 
         response["payload"] = data
 
-        if not self.lambda_handler.validate_response(data):
+        if not self.lambda_handler.validate_response(data, integrated_agent):
             return None
 
         if not self.broadcast_handler.can_send_to_contact(integrated_agent, data):
@@ -304,18 +322,16 @@ class AgentWebhookUseCase:
                 logger.info(
                     f"Failed to build broadcast message from payload data: {data}"
                 )
-                return response
+                return None
 
             self.broadcast_handler.send_message(message)
             return response
 
         except Exception as e:
             logger.exception(f"Unexpected error while building broadcast message: {e}")
-            return response
+            return None
 
-    def execute(
-        self, integrated_agent: IntegratedAgent, data: "RequestData"
-    ) -> Optional[Dict[str, Any]]:
+    def execute(self, integrated_agent: IntegratedAgent, data: "RequestData") -> None:
         """Execute agent webhook broadcast process."""
         logger.info(f"Executing broadcast for agent: {integrated_agent.uuid}")
 
@@ -334,5 +350,3 @@ class AgentWebhookUseCase:
             logger.info(
                 f"Successfully executed broadcast for agent: {integrated_agent.uuid}"
             )
-
-        return result
