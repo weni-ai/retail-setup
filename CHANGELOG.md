@@ -1,3 +1,8 @@
+# 3.9.2
+
+## *Fix*
+  - fix: remove global prompt
+
 # 3.9.1
 
 ## *Fix*
