@@ -51,7 +51,7 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
         )
 
         self.template_adapter_mock = Mock()
-        self.template_adapter_mock.header_transformer.return_value = {
+        self.template_adapter_mock.header_transformer.transform.return_value = {
             "type": "TEXT",
             "text": "Header",
         }
@@ -67,7 +67,7 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
         self.meta_service_mock.get_pre_approved_template.assert_called_with(
             "valid_template", "pt_BR"
         )
-        self.template_adapter_mock.header_transformer.assert_called_with(
+        self.template_adapter_mock.header_transformer.transform.assert_called_with(
             {"type": "TEXT", "text": "Header"}
         )
 
@@ -124,10 +124,10 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
         self.usecase.execute(self.agent)
 
         self.meta_service_mock.get_pre_approved_template.assert_not_called()
-        self.template_adapter_mock.header_transformer.assert_not_called()
+        self.template_adapter_mock.header_transformer.transform.assert_not_called()
 
     def test_template_adapter_is_called_correctly(self):
         self.usecase._get_template_info("valid_template", "pt_BR")
-        self.template_adapter_mock.header_transformer.assert_called_once_with(
+        self.template_adapter_mock.header_transformer.transform.assert_called_once_with(
             {"type": "TEXT", "text": "Header"}
         )
