@@ -115,23 +115,30 @@ class UpdateIntegratedAgentUseCase:
     ) -> IntegratedAgent:
         integrated_agent = self._get_integrated_agent(integrated_agent_uuid)
 
-        contact_percentage = data.get("contact_percentage")
-        global_rule = data.get("global_rule")
+        if "contact_percentage" in data:
+            contact_percentage = data.get("contact_percentage")
 
-        if contact_percentage is not None:
             if not self._is_valid_percentage(contact_percentage):
                 raise ValidationError({"contact_percentage": "Invalid percentage"})
 
             integrated_agent.contact_percentage = contact_percentage
 
-        if global_rule is not None:
-            global_rule_code = (
-                self.global_rule_handler.generate(integrated_agent, global_rule)
-                .validate()
-                .get_global_rule()
-            )
+        if "global_rule" in data:
+            global_rule = data.get("global_rule")
+
+            if global_rule is None or global_rule == "":
+                global_rule_code = None
+                global_rule_prompt = None
+            else:
+                global_rule_code = (
+                    self.global_rule_handler.generate(integrated_agent, global_rule)
+                    .validate()
+                    .get_global_rule()
+                )
+                global_rule_prompt = global_rule
+
             integrated_agent.global_rule_code = global_rule_code
-            integrated_agent.global_rule_prompt = global_rule
+            integrated_agent.global_rule_prompt = global_rule_prompt
 
         integrated_agent.save()
         return integrated_agent

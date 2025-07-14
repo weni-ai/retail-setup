@@ -128,4 +128,4 @@ class AgentWebhookSerializer(serializers.Serializer):
 
 class UpdateIntegratedAgentSerializer(serializers.Serializer):
     contact_percentage = serializers.IntegerField(required=False)
-    global_rule = serializers.CharField(required=False)
+    global_rule = serializers.CharField(required=False, allow_null=True)
