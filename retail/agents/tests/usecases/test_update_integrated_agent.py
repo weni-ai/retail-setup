@@ -105,3 +105,83 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         self.mock_global_rule_handler.get_global_rule.assert_called_once()
         self.assertEqual(self.mock_integrated_agent.global_rule_prompt, "some rule")
         self.mock_integrated_agent.save.assert_called_once()
+
+    @patch("retail.agents.usecases.update_integrated_agent.IntegratedAgent")
+    def test_execute_sets_global_rule_to_none_when_global_rule_is_none(
+        self, mock_integrated_agent_cls
+    ):
+        mock_integrated_agent_cls.objects.get.return_value = self.mock_integrated_agent
+        data = {"global_rule": None}
+
+        result = self.usecase.execute(self.mock_integrated_agent.uuid, data)
+
+        self.mock_global_rule_handler.generate.assert_not_called()
+        self.mock_global_rule_handler.validate.assert_not_called()
+        self.mock_global_rule_handler.get_global_rule.assert_not_called()
+
+        self.assertIsNone(self.mock_integrated_agent.global_rule_code)
+        self.assertIsNone(self.mock_integrated_agent.global_rule_prompt)
+
+        self.mock_integrated_agent.save.assert_called_once()
+        self.assertEqual(result, self.mock_integrated_agent)
+
+    @patch("retail.agents.usecases.update_integrated_agent.IntegratedAgent")
+    def test_execute_sets_global_rule_to_none_when_global_rule_is_empty_string(
+        self, mock_integrated_agent_cls
+    ):
+        mock_integrated_agent_cls.objects.get.return_value = self.mock_integrated_agent
+        data = {"global_rule": ""}
+
+        result = self.usecase.execute(self.mock_integrated_agent.uuid, data)
+
+        self.mock_global_rule_handler.generate.assert_not_called()
+        self.mock_global_rule_handler.validate.assert_not_called()
+        self.mock_global_rule_handler.get_global_rule.assert_not_called()
+
+        self.assertIsNone(self.mock_integrated_agent.global_rule_code)
+        self.assertIsNone(self.mock_integrated_agent.global_rule_prompt)
+
+        self.mock_integrated_agent.save.assert_called_once()
+        self.assertEqual(result, self.mock_integrated_agent)
+
+    @patch("retail.agents.usecases.update_integrated_agent.IntegratedAgent")
+    def test_execute_updates_both_contact_percentage_and_global_rule(
+        self, mock_integrated_agent_cls
+    ):
+        mock_integrated_agent_cls.objects.get.return_value = self.mock_integrated_agent
+        data = {"contact_percentage": 75, "global_rule": "new rule"}
+
+        result = self.usecase.execute(self.mock_integrated_agent.uuid, data)
+
+        self.assertEqual(self.mock_integrated_agent.contact_percentage, 75)
+
+        self.mock_global_rule_handler.generate.assert_called_once_with(
+            self.mock_integrated_agent, "new rule"
+        )
+        self.mock_global_rule_handler.validate.assert_called_once()
+        self.mock_global_rule_handler.get_global_rule.assert_called_once()
+        self.assertEqual(self.mock_integrated_agent.global_rule_prompt, "new rule")
+        self.assertEqual(
+            self.mock_integrated_agent.global_rule_code, "mocked_rule_code"
+        )
+
+        self.mock_integrated_agent.save.assert_called_once()
+        self.assertEqual(result, self.mock_integrated_agent)
+
+    @patch("retail.agents.usecases.update_integrated_agent.IntegratedAgent")
+    def test_execute_updates_contact_percentage_and_clears_global_rule(
+        self, mock_integrated_agent_cls
+    ):
+        mock_integrated_agent_cls.objects.get.return_value = self.mock_integrated_agent
+        data = {"contact_percentage": 25, "global_rule": None}
+
+        result = self.usecase.execute(self.mock_integrated_agent.uuid, data)
+
+        self.assertEqual(self.mock_integrated_agent.contact_percentage, 25)
+
+        self.mock_global_rule_handler.generate.assert_not_called()
+        self.assertIsNone(self.mock_integrated_agent.global_rule_code)
+        self.assertIsNone(self.mock_integrated_agent.global_rule_prompt)
+
+        self.mock_integrated_agent.save.assert_called_once()
+        self.assertEqual(result, self.mock_integrated_agent)
