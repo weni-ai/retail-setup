@@ -159,7 +159,18 @@ class UpdateCustomTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
                 ),
                 template.start_condition,
             )
+
+            variables = next(
+                (
+                    p.get("value")
+                    for p in payload["parameters"]
+                    if p.get("name") == "variables"
+                ),
+                template.variables,
+            )
+
             template.start_condition = start_condition
+            template.variables = variables or []
 
         template.metadata = updated_metadata
         template.save()

@@ -79,6 +79,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         integrated_agent: IntegratedAgent,
         display_name: str,
         start_condition: str,
+        variables: Optional[List[Dict[str, Any]]],
     ) -> Template:
         template.integrated_agent = integrated_agent
         template.metadata = translation
@@ -86,6 +87,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         template.rule_code = generated_code
         template.display_name = display_name
         template.start_condition = start_condition
+        template.variables = variables or []
         template.save()
         return template
 
@@ -139,6 +141,15 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             None,
         )
 
+        variables = next(
+            (
+                param.get("value")
+                for param in payload.get("parameters")
+                if param.get("name") == "variables"
+            ),
+            None,
+        )
+
         template = self._update_template(
             template,
             generated_code,
@@ -147,6 +158,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             integrated_agent,
             payload.get("display_name"),
             start_condition,
+            variables,
         )
         self._notify_integrations(
             version.template_name,

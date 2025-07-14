@@ -51,7 +51,7 @@ class UpdateLibraryTemplateUseCase(BaseLibraryTemplateUseCase):
         self, template: Template, payload: UpdateLibraryTemplateData
     ) -> LibraryTemplateData:
         return {
-            "library_template_name": template.metadata.get("name"),
+            "library_template_name": template.name,
             "category": template.metadata.get("category"),
             "language": template.metadata.get("language"),
             "app_uuid": payload.get("app_uuid"),
