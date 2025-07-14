@@ -68,7 +68,16 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
             "valid_template", "pt_BR"
         )
         self.template_adapter_mock.header_transformer.transform.assert_called_with(
-            {"type": "TEXT", "text": "Header"}
+            {
+                "name": "valid_template",
+                "body": "new content",
+                "header": {"type": "TEXT", "text": "Header"},
+                "body_params": ["param1", "param2"],
+                "footer": "Footer text",
+                "buttons": [{"type": "QUICK_REPLY", "text": "Button"}],
+                "category": "MARKETING",
+                "language": "pt_BR",
+            }
         )
 
         expected_info = {
@@ -129,5 +138,14 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
     def test_template_adapter_is_called_correctly(self):
         self.usecase._get_template_info("valid_template", "pt_BR")
         self.template_adapter_mock.header_transformer.transform.assert_called_once_with(
-            {"type": "TEXT", "text": "Header"}
+            {
+                "name": "valid_template",
+                "body": "new content",
+                "header": {"type": "TEXT", "text": "Header"},
+                "body_params": ["param1", "param2"],
+                "footer": "Footer text",
+                "buttons": [{"type": "QUICK_REPLY", "text": "Button"}],
+                "category": "MARKETING",
+                "language": "pt_BR",
+            }
         )

@@ -45,9 +45,7 @@ class ValidatePreApprovedTemplatesUseCase:
             "name": data_obj.get("name"),
             "content": data_obj.get("body"),
             "metadata": {
-                "header": self.template_adapter.header_transformer.transform(
-                    data_obj.get("header")
-                ),
+                "header": self.template_adapter.header_transformer.transform(data_obj),
                 "body": data_obj.get("body"),
                 "body_params": data_obj.get("body_params"),
                 "footer": data_obj.get("footer"),
