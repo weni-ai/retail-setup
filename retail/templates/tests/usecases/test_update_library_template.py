@@ -164,8 +164,8 @@ class TestUpdateLibraryTemplateUseCase(TestCase):
 
     def test_build_payload(self):
         mock_template = MagicMock()
+        mock_template.name = "Test Template"
         mock_template.metadata = {
-            "name": "Test Template",
             "category": "marketing",
             "language": "pt_BR",
         }

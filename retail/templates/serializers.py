@@ -24,6 +24,7 @@ class ReadTemplateSerializer(serializers.Serializer):
     needs_button_edit = serializers.BooleanField()
     deleted_at = serializers.DateTimeField()
     is_active = serializers.BooleanField()
+    variables = serializers.JSONField()
 
     def get_status(self, obj: Template) -> str:
         last_version = obj.versions.order_by("-id").first()
