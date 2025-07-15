@@ -271,11 +271,6 @@ class BroadcastHandler:
         elif message and "msg" in message and "template" in message["msg"]:
             template_variables = message["msg"]["template"].get("variables", [])
 
-        # Extract status from lambda data
-        status = None
-        if lambda_data and "status" in lambda_data:
-            status = lambda_data["status"]
-
         # Extract error information if present (always return list)
         error_data = []
         if response and "error" in response:
@@ -283,7 +278,6 @@ class BroadcastHandler:
 
         # Build structured data to protobuf schema
         event_data = {
-            "status": status,
             "template": template_name,
             "template_variables": template_variables,
             "contact_urn": contact_urn,
@@ -295,6 +289,10 @@ class BroadcastHandler:
             "response": response,
             "agent": str(integrated_agent.agent.uuid),
         }
+
+        # Only include status if it exists in lambda_data
+        if lambda_data and "status" in lambda_data:
+            event_data["status"] = lambda_data["status"]
 
         self.audit_func(CommerceWebhookPath, event_data)
 
