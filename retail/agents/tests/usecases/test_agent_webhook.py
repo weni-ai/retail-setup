@@ -471,8 +471,18 @@ class BroadcastHandlerTest(TestCase):
 
     def test_send_message(self):
         message = {"template": "test", "contact": "whatsapp:123"}
+        mock_agent = MagicMock()
+        lambda_data = {
+            "status": 0,  # RULE_MATCHED
+            "template": "test",
+            "contact_urn": "whatsapp:123",
+            "template_variables": ["var1", "value1"],
+        }
 
-        self.handler.send_message(message)
+        # Mock the audit function to avoid gRPC connection
+        self.handler.audit_func = MagicMock()
+
+        self.handler.send_message(message, mock_agent, lambda_data)
 
         self.mock_flows_service.send_whatsapp_broadcast.assert_called_once_with(message)
 
@@ -503,3 +513,132 @@ class BroadcastHandlerTest(TestCase):
         result = self.handler.build_message(self.mock_agent, data)
 
         self.assertIsNone(result)
+
+    def test_register_broadcast_event_with_lambda_data(self):
+        """Test that _register_broadcast_event correctly extracts data from lambda_data."""
+        message = {
+            "msg": {
+                "template": {"name": "message_template", "variables": ["var1", "var2"]}
+            },
+            "urns": ["whatsapp:123456789"],
+        }
+        response = {"status": "success"}
+        mock_agent = MagicMock()
+        mock_agent.project.uuid = "project-uuid"
+        mock_agent.agent.uuid = "agent-uuid"
+
+        lambda_data = {
+            "status": 0,  # RULE_MATCHED
+            "template": "lambda_template",
+            "template_variables": ["var1", "value1", "var2", "value2"],
+            "contact_urn": "whatsapp:987654321",
+        }
+
+        # Mock the audit function to capture the data
+        audit_calls = []
+
+        def mock_audit_func(path, data):
+            audit_calls.append(data)
+
+        self.handler.audit_func = mock_audit_func
+
+        self.handler._register_broadcast_event(
+            message, response, mock_agent, lambda_data
+        )
+
+        # Verify that lambda_data was used instead of message data
+        self.assertEqual(len(audit_calls), 1)
+        event_data = audit_calls[0]
+
+        self.assertEqual(event_data["status"], 0)  # From lambda_data
+        self.assertEqual(event_data["template"], "lambda_template")  # From lambda_data
+        self.assertEqual(
+            event_data["contact_urn"], "whatsapp:987654321"
+        )  # From lambda_data
+        self.assertEqual(
+            event_data["template_variables"], ["var1", "value1", "var2", "value2"]
+        )  # From lambda_data
+        self.assertEqual(event_data["project"], "project-uuid")
+        self.assertEqual(event_data["agent"], "agent-uuid")
+        self.assertEqual(event_data["request"], message)
+        self.assertEqual(event_data["response"], response)
+        self.assertEqual(event_data["data"], {"event_type": "template_broadcast_sent"})
+
+    def test_register_broadcast_event_without_lambda_data(self):
+        """Test that _register_broadcast_event falls back to message data when lambda_data is None."""
+        message = {
+            "msg": {
+                "template": {"name": "message_template", "variables": ["var1", "var2"]}
+            },
+            "urns": ["whatsapp:123456789"],
+        }
+        response = {"status": "success"}
+        mock_agent = MagicMock()
+        mock_agent.project.uuid = "project-uuid"
+        mock_agent.agent.uuid = "agent-uuid"
+
+        # Mock the audit function to capture the data
+        audit_calls = []
+
+        def mock_audit_func(path, data):
+            audit_calls.append(data)
+
+        self.handler.audit_func = mock_audit_func
+
+        self.handler._register_broadcast_event(message, response, mock_agent, None)
+
+        # Verify that message data was used as fallback
+        self.assertEqual(len(audit_calls), 1)
+        event_data = audit_calls[0]
+
+        self.assertEqual(event_data["status"], 0)  # Default value when no lambda_data
+        self.assertEqual(event_data["template"], "message_template")  # From message
+        self.assertEqual(
+            event_data["contact_urn"], "whatsapp:123456789"
+        )  # From message
+        self.assertEqual(
+            event_data["template_variables"], ["var1", "var2"]
+        )  # From message
+        self.assertEqual(event_data["project"], "project-uuid")
+        self.assertEqual(event_data["agent"], "agent-uuid")
+        self.assertEqual(event_data["data"], {"event_type": "template_broadcast_sent"})
+
+    def test_register_broadcast_event_with_error(self):
+        """Test that _register_broadcast_event correctly handles error data."""
+        message = {
+            "msg": {
+                "template": {"name": "message_template", "variables": ["var1", "var2"]}
+            },
+            "urns": ["whatsapp:123456789"],
+        }
+        response = {"error": "Some error occurred"}
+        mock_agent = MagicMock()
+        mock_agent.project.uuid = "project-uuid"
+        mock_agent.agent.uuid = "agent-uuid"
+
+        lambda_data = {
+            "status": 2,  # PREPROCESSING_FAILED
+            "template": "lambda_template",
+            "template_variables": ["var1", "value1"],
+            "contact_urn": "whatsapp:987654321",
+        }
+
+        # Mock the audit function to capture the data
+        audit_calls = []
+
+        def mock_audit_func(path, data):
+            audit_calls.append(data)
+
+        self.handler.audit_func = mock_audit_func
+
+        self.handler._register_broadcast_event(
+            message, response, mock_agent, lambda_data
+        )
+
+        # Verify that error data was captured correctly
+        self.assertEqual(len(audit_calls), 1)
+        event_data = audit_calls[0]
+
+        self.assertEqual(event_data["status"], 2)  # PREPROCESSING_FAILED
+        self.assertEqual(event_data["error"], ["Some error occurred"])  # Error as list
+        self.assertEqual(event_data["data"], {"event_type": "template_broadcast_sent"})

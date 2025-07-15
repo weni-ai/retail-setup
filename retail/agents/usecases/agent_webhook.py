@@ -10,13 +10,16 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from uuid import UUID
 
+from datetime import datetime
+
 from retail.agents.models import IntegratedAgent
 from retail.agents.utils import build_broadcast_template_message
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
 from retail.services.flows.service import FlowsService
 from retail.templates.models import Template
-from weni_datalake_sdk.clients.client import send_data
+from weni_datalake_sdk.clients.client import send_commerce_webhook_data
+from weni_datalake_sdk.paths.commerce_webhook import CommerceWebhookPath
 
 
 logger = logging.getLogger(__name__)
@@ -109,7 +112,7 @@ class BroadcastHandler:
         self, flows_service: Optional[FlowsService] = None, audit_func: Callable = None
     ):
         self.flows_service = flows_service or FlowsService()
-        self.audit_func = audit_func or send_data
+        self.audit_func = audit_func or send_commerce_webhook_data
 
     def can_send_to_contact(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
@@ -177,10 +180,15 @@ class BroadcastHandler:
 
         return True
 
-    def send_message(self, message: Dict[str, Any], integrated_agent: IntegratedAgent):
+    def send_message(
+        self,
+        message: Dict[str, Any],
+        integrated_agent: IntegratedAgent,
+        lambda_data: Optional[Dict[str, Any]] = None,
+    ):
         """Send broadcast message via flows service."""
         response = self.flows_service.send_whatsapp_broadcast(message)
-        self._register_broadcast_event(message, response, integrated_agent)
+        self._register_broadcast_event(message, response, integrated_agent, lambda_data)
         logger.info(f"Broadcast message sent: {response}")
 
     def get_current_template_name(
@@ -222,16 +230,73 @@ class BroadcastHandler:
         message: Dict[str, Any],
         response: Dict[str, Any],
         integrated_agent: IntegratedAgent,
+        lambda_data: Optional[Dict[str, Any]] = None,
     ):
-        data = {
-            "event": "broadcast_sent",
-            "agent_uuid": str(integrated_agent.agent.uuid),
-            "project_uuid": str(integrated_agent.project.uuid),
-            "integrated_agent_uuid": str(integrated_agent.uuid),
-            "message": message,
+        """
+        Register broadcast event with structured data according to protobuf schema.
+
+        The method extracts data from lambda_data (preferred) or message, following this priority:
+        - status: from lambda_data["status"] (ResponseStatus enum values, default: 0)
+        - template: from lambda_data["template"] or message structure
+        - template_variables: from lambda_data["template_variables"] or message structure (always list)
+        - contact_urn: from lambda_data["contact_urn"] or message structure
+        - error: from response["error"] (always list)
+        - data: {"event_type": "template_broadcast_sent"} (identifies this as template broadcast event)
+
+        Args:
+            message: The broadcast message sent to flows service
+            response: The response from flows service
+            integrated_agent: The integrated agent instance
+            lambda_data: Lambda response data containing status, template, template_variables, contact_urn
+        """
+
+        # Extract template name from lambda data or message
+        template_name = ""
+        if lambda_data and "template" in lambda_data:
+            template_name = lambda_data["template"]
+        elif message and "msg" in message and "template" in message["msg"]:
+            template_name = message["msg"]["template"].get("name")
+
+        # Extract contact_urn from lambda data or message
+        contact_urn = ""
+        if lambda_data and "contact_urn" in lambda_data:
+            contact_urn = lambda_data["contact_urn"]
+        elif message and "urns" in message and message["urns"]:
+            contact_urn = message["urns"][0]
+
+        # Extract template variables from lambda data or message (always return list)
+        template_variables = []
+        if lambda_data and "template_variables" in lambda_data:
+            template_variables = lambda_data["template_variables"]
+        elif message and "msg" in message and "template" in message["msg"]:
+            template_variables = message["msg"]["template"].get("variables", [])
+
+        # Extract status from lambda data
+        status = None
+        if lambda_data and "status" in lambda_data:
+            status = lambda_data["status"]
+
+        # Extract error information if present (always return list)
+        error_data = []
+        if response and "error" in response:
+            error_data = [response["error"]]
+
+        # Build structured data to protobuf schema
+        event_data = {
+            "status": status,
+            "template": template_name,
+            "template_variables": template_variables,
+            "contact_urn": contact_urn,
+            "error": error_data,
+            "data": {"event_type": "template_broadcast_sent"},
+            "date": datetime.now().isoformat(),
+            "project": str(integrated_agent.project.uuid),
+            "request": message,
             "response": response,
+            "agent": str(integrated_agent.agent.uuid),
         }
-        self.audit_func("AuditPath", data)
+
+        self.audit_func(CommerceWebhookPath, event_data)
 
 
 class AgentWebhookUseCase:
@@ -313,7 +378,7 @@ class AgentWebhookUseCase:
                 )
                 return response
 
-            self.broadcast_handler.send_message(message, integrated_agent)
+            self.broadcast_handler.send_message(message, integrated_agent, data)
             return response
 
         except Exception as e:
