@@ -1,3 +1,11 @@
+# 3.9.3
+
+## *Feature*
+  - feature: new metadata format
+
+## *Fix*
+  - fix: sentry logger error of type project with account not found
+
 # 3.9.2
 
 ## *Fix*
