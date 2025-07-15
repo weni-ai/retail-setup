@@ -16,6 +16,16 @@ class TestHeaderTransformer(TestCase):
     def setUp(self):
         self.transformer = HeaderTransformer()
 
+    def test_is_not_base_64(self):
+        no_base_64_header = "test"
+        result = self.transformer._is_base_64(no_base_64_header)
+        self.assertFalse(result)
+
+    def test_is_base_64(self):
+        base_64_header = base64.b64encode("teste".encode("utf-8")).decode("utf-8")
+        result = self.transformer._is_base_64(base_64_header)
+        self.assertTrue(result)
+
     def test_transform_with_header(self):
         template_data = {"header": "Test Header"}
         result = self.transformer.transform(template_data)
@@ -36,13 +46,19 @@ class TestHeaderTransformer(TestCase):
         base_64_header = base64.b64encode("teste".encode("utf-8")).decode("utf-8")
         template_data = {"header": base_64_header}
         result = self.transformer.transform(template_data)
-        expected = {"header_type": "IMAGE", "example": base_64_header}
+        expected = {"header_type": "IMAGE", "text": base_64_header}
         self.assertEqual(result, expected)
 
     def test_transform_with_already_translated_header(self):
         template_data = {"header": {"header_type": "TEXT", "text": "Already"}}
         result = self.transformer.transform(template_data)
         self.assertEqual(result, {"header_type": "TEXT", "text": "Already"})
+
+    def test_is_base_64_with_data_prefix(self):
+        base_64_header = base64.b64encode("teste".encode("utf-8")).decode("utf-8")
+        data_prefix_header = f"data:image/png;base64,{base_64_header}"
+        result = self.transformer._is_base_64(data_prefix_header)
+        self.assertTrue(result)
 
 
 class TestBodyTransformer(TestCase):

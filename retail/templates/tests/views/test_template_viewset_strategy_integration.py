@@ -62,10 +62,14 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
             uuid=uuid4(), agent=self.agent, project=self.project, is_active=True
         )
 
+    @patch("retail.templates.handlers.template_metadata.S3Service")
+    @patch("retail.templates.handlers.TemplateMetadataHandler")
     @patch(
         "retail.templates.strategies.update_template_strategies.UpdateNormalTemplateStrategy.update_template"
     )
-    def test_normal_template_update_uses_normal_strategy(self, mock_update_method):
+    def test_normal_template_update_uses_normal_strategy(
+        self, mock_update_method, mock_metadata_handler_class, mock_s3_service
+    ):
         template = Template.objects.create(
             uuid=uuid4(),
             name="normal_template",
@@ -95,12 +99,18 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
             call_args[0][1]["template_body"], "Updated body for normal template"
         )
 
+    @patch("retail.templates.handlers.template_metadata.S3Service")
+    @patch("retail.templates.handlers.TemplateMetadataHandler")
     @patch("retail.templates.strategies.update_template_strategies.RuleGenerator")
     @patch(
         "retail.templates.strategies.update_template_strategies.UpdateCustomTemplateStrategy.update_template"
     )
     def test_custom_template_update_uses_custom_strategy(
-        self, mock_update_method, mock_rule_generator_class
+        self,
+        mock_update_method,
+        mock_rule_generator_class,
+        mock_metadata_handler_class,
+        mock_s3_service,
     ):
         template = Template.objects.create(
             uuid=uuid4(),
@@ -140,12 +150,18 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
         self.assertEqual(len(call_args[0][1]["parameters"]), 2)
         self.assertEqual(call_args[0][1]["parameters"][0]["name"], "start_condition")
 
+    @patch("retail.templates.handlers.template_metadata.S3Service")
+    @patch("retail.templates.handlers.TemplateMetadataHandler")
     @patch("retail.templates.strategies.update_template_strategies.RuleGenerator")
     @patch(
         "retail.templates.strategies.update_template_strategies.UpdateTemplateStrategyFactory.create_strategy"
     )
     def test_strategy_factory_is_called_correctly(
-        self, mock_create_strategy, mock_rule_generator_class
+        self,
+        mock_create_strategy,
+        mock_rule_generator_class,
+        mock_metadata_handler_class,
+        mock_s3_service,
     ):
         template = Template.objects.create(
             uuid=uuid4(),
@@ -179,10 +195,14 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
 
         mock_strategy.update_template.assert_called_once()
 
+    @patch("retail.templates.handlers.template_metadata.S3Service")
+    @patch("retail.templates.handlers.TemplateMetadataHandler")
     @patch(
         "retail.templates.strategies.update_template_strategies.UpdateNormalTemplateStrategy.update_template"
     )
-    def test_normal_template_ignores_parameters(self, mock_update_method):
+    def test_normal_template_ignores_parameters(
+        self, mock_update_method, mock_metadata_handler_class, mock_s3_service
+    ):
         template = Template.objects.create(
             uuid=uuid4(),
             name="normal_template",
@@ -207,9 +227,11 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_update_method.assert_called_once()
 
+    @patch("retail.templates.handlers.template_metadata.S3Service")
+    @patch("retail.templates.handlers.TemplateMetadataHandler")
     @patch("retail.templates.strategies.update_template_strategies.RuleGenerator")
     def test_custom_template_with_parameters_is_allowed(
-        self, mock_rule_generator_class
+        self, mock_rule_generator_class, mock_metadata_handler_class, mock_s3_service
     ):
         template = Template.objects.create(
             uuid=uuid4(),

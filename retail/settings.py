@@ -259,6 +259,7 @@ VTEX_IO_WORKSPACE = env.str("VTEX_IO_WORKSPACE", default="")
 LAMBDA_ALLOWED_ROLES = env.list("LAMBDA_ALLOWED_ROLES", default=[])
 
 USE_LAMBDA = env.bool("USE_LAMBDA", default=False)
+USE_S3 = env.bool("USE_S3", default=False)
 
 DOMAIN = env.str("DOMAIN", default="http://localhost:8000")
 
@@ -270,6 +271,9 @@ if USE_LAMBDA:
     LAMBDA_TIMEOUT = env.int("LAMBDA_TIMEOUT", default=60)
     LAMBDA_CODE_GENERATOR = env.str("LAMBDA_CODE_GENERATOR")
     LAMBDA_CODE_GENERATOR_REGION = env.str("LAMBDA_CODE_GENERATOR_REGION")
+
+if USE_S3:
+    AWS_STORAGE_BUCKET_NAME = env.str("AWS_STORAGE_BUCKET_NAME")
 
 USE_META = env.bool("USE_LAMBDA", default=False)
 

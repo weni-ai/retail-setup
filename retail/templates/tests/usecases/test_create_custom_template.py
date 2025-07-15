@@ -51,10 +51,12 @@ class CreateCustomTemplateUseCaseTest(TestCase):
 
         self.mock_rule_generator = Mock(spec=RuleGenerator)
         self.mock_template_adapter = Mock()
+        self.mock_metadata_handler = Mock()
 
         self.use_case = CreateCustomTemplateUseCase(
             rule_generator=self.mock_rule_generator,
             template_adapter=self.mock_template_adapter,
+            template_metadata_handler=self.mock_metadata_handler,
         )
 
         self.valid_payload: CreateCustomTemplateData = {
@@ -94,6 +96,23 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         )
         self.mock_template_adapter.adapt.return_value = self.adapted_translation
 
+        self.mock_metadata_handler.build_metadata.return_value = {
+            "header": {"header_type": "TEXT", "text": "Test Header"},
+            "body": "Test Body",
+            "body_params": None,
+            "footer": "Test Footer",
+            "buttons": [{"type": "URL", "text": "Click here"}],
+            "category": "test",
+        }
+        self.mock_metadata_handler.post_process_translation.side_effect = (
+            lambda metadata, translation: metadata
+        )
+        self.mock_metadata_handler.extract_start_condition.side_effect = (
+            lambda params, default: next(
+                (p["value"] for p in params if p["name"] == "start_condition"), None
+            )
+        )
+
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
     def test_execute_successful_creation(self, mock_task_create_template):
         self._setup_mocks_for_successful_execution()
@@ -107,14 +126,7 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertEqual(result.rule_code, "def test_rule(): return True")
         self.assertEqual(result.integrated_agent, self.integrated_agent)
 
-        expected_metadata = {
-            "body": "Test Body",
-            "body_params": None,
-            "header": {"header_type": "TEXT", "text": "Test Header"},
-            "footer": "Test Footer",
-            "buttons": [{"type": "URL", "text": "Click here"}],
-            "category": "test",
-        }
+        expected_metadata = self.mock_metadata_handler.build_metadata.return_value
         self.assertEqual(result.metadata, expected_metadata)
 
         version = Version.objects.get(template=result)
@@ -123,9 +135,12 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.mock_rule_generator.generate_code.assert_called_once_with(
             self.valid_payload["parameters"], self.integrated_agent
         )
-
         self.mock_template_adapter.adapt.assert_called_once()
-
+        self.mock_metadata_handler.build_metadata.assert_called_once_with(
+            self.valid_payload["template_translation"], self.valid_payload["category"]
+        )
+        self.mock_metadata_handler.post_process_translation.assert_called_once()
+        self.mock_metadata_handler.extract_start_condition.assert_called_once()
         mock_task_create_template.delay.assert_called_once()
 
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
@@ -138,6 +153,15 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         translation_with_buttons = copy.deepcopy(self.adapted_translation)
         translation_with_buttons["buttons"] = [{"type": "URL", "text": "Test Button"}]
         self.mock_template_adapter.adapt.return_value = translation_with_buttons
+
+        self.mock_metadata_handler.build_metadata.return_value = {
+            "header": {"header_type": "TEXT", "text": "Test Header"},
+            "body": "Test Body",
+            "body_params": None,
+            "footer": "Test Footer",
+            "buttons": [{"type": "URL", "text": "Test Button"}],
+            "category": "test",
+        }
 
         result = self.use_case.execute(self.valid_payload)
 
@@ -349,6 +373,14 @@ class CreateCustomTemplateUseCaseTest(TestCase):
             "footer": None,
             "buttons": None,
         }
+        self.mock_metadata_handler.build_metadata.return_value = {
+            "header": None,
+            "body": "Only body content",
+            "body_params": None,
+            "footer": None,
+            "buttons": None,
+            "category": "test",
+        }
 
         result = self.use_case.execute(modified_payload)
 
@@ -364,6 +396,22 @@ class CreateCustomTemplateUseCaseTest(TestCase):
     def test_execute_with_none_generated_code(self, mock_task_create_template):
         self.mock_rule_generator.generate_code.return_value = None
         self.mock_template_adapter.adapt.return_value = self.adapted_translation
+        self.mock_metadata_handler.build_metadata.return_value = {
+            "header": {"header_type": "TEXT", "text": "Test Header"},
+            "body": "Test Body",
+            "body_params": None,
+            "footer": "Test Footer",
+            "buttons": [{"type": "URL", "text": "Click here"}],
+            "category": "test",
+        }
+        self.mock_metadata_handler.post_process_translation.side_effect = (
+            lambda metadata, translation: metadata
+        )
+        self.mock_metadata_handler.extract_start_condition.side_effect = (
+            lambda params, default: next(
+                (p["value"] for p in params if p["name"] == "start_condition"), None
+            )
+        )
         mock_task_create_template.delay.return_value = Mock()
 
         result = self.use_case.execute(self.valid_payload)
@@ -397,6 +445,14 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         translation_without_buttons = copy.deepcopy(self.adapted_translation)
         translation_without_buttons["buttons"] = None
         self.mock_template_adapter.adapt.return_value = translation_without_buttons
+        self.mock_metadata_handler.build_metadata.return_value = {
+            "header": {"header_type": "TEXT", "text": "Test Header"},
+            "body": "Test Body",
+            "body_params": None,
+            "footer": "Test Footer",
+            "buttons": None,
+            "category": "test",
+        }
 
         result = self.use_case.execute(self.valid_payload)
 

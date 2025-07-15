@@ -1,5 +1,7 @@
 import base64
 
+import binascii
+
 from typing import Dict, Optional, List, Protocol
 
 
@@ -17,11 +19,13 @@ class HeaderTransformer(ComponentTransformer):
     def _is_base_64(self, header: str) -> bool:
         if header.startswith("data:"):
             header = header.split(",", 1)[1]
-
         try:
-            base64.b64decode(header, validate=True)
-            return True
-        except Exception:
+            if len(header) % 4 != 0:
+                return False
+            decoded = base64.b64decode(header, validate=True)
+            decoded.decode("utf-8")
+            return base64.b64encode(decoded).decode("utf-8") == header
+        except (binascii.Error, ValueError, UnicodeDecodeError):
             return False
 
     def _is_header_format_already_translated(self, header) -> bool:
@@ -35,7 +39,7 @@ class HeaderTransformer(ComponentTransformer):
             return template_data["header"]
 
         if self._is_base_64(template_data["header"]):
-            return {"header_type": "IMAGE", "example": template_data["header"]}
+            return {"header_type": "IMAGE", "text": template_data["header"]}
 
         return {"header_type": "TEXT", "text": template_data["header"]}
 
