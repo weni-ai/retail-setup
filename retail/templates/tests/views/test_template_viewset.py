@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.urls import reverse
+from django.utils import timezone
 
 from rest_framework.test import APITestCase, APIClient
 from rest_framework.exceptions import NotFound
@@ -21,13 +22,12 @@ from retail.templates.usecases import (
     DeleteTemplateUseCase,
     CreateCustomTemplateUseCase,
 )
-from retail.templates.exceptions import (
-    CodeGeneratorBadRequest,
-    CodeGeneratorUnprocessableEntity,
-    CodeGeneratorInternalServerError,
-)
 from retail.projects.models import Project
-from django.utils import timezone
+from retail.services.rule_generator import (
+    RuleGeneratorUnprocessableEntity,
+    RuleGeneratorBadRequest,
+    RuleGeneratorInternalServerError,
+)
 
 User = get_user_model()
 
@@ -496,7 +496,7 @@ class TemplateViewSetTest(APITestCase):
 
     def test_create_custom_template_code_generator_bad_request(self):
         self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
-            CodeGeneratorBadRequest(detail={"error": "Invalid parameters"})
+            RuleGeneratorBadRequest(detail={"error": "Invalid parameters"})
         )
 
         payload = {
@@ -517,7 +517,7 @@ class TemplateViewSetTest(APITestCase):
 
     def test_create_custom_template_code_generator_unprocessable_entity(self):
         self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
-            CodeGeneratorUnprocessableEntity(detail={"error": "Cannot process request"})
+            RuleGeneratorUnprocessableEntity(detail={"error": "Cannot process request"})
         )
 
         payload = {
@@ -538,7 +538,7 @@ class TemplateViewSetTest(APITestCase):
 
     def test_create_custom_template_code_generator_internal_server_error(self):
         self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
-            CodeGeneratorInternalServerError(
+            RuleGeneratorInternalServerError(
                 detail={"message": "Internal lambda error"}
             )
         )
