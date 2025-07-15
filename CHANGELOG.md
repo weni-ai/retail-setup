@@ -1,3 +1,8 @@
+# 3.8.0
+
+## *Feature*
+  - feat: add WhatsApp click-ID support to Cart model and implement tracking functionality
+
 # 3.7.1
 
 ## *Fix*

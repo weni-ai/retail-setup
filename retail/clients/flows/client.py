@@ -52,3 +52,16 @@ class FlowsClient(RequestClient, FlowsClientInterface):
             headers=self.authentication_instance.headers,
         )
         return response
+
+    def send_purchase_event(self, payload: dict) -> dict:
+        """
+        Send a purchase event to the Flows API.
+        """
+        url = f"{self.base_url}/conversion/"
+        response = self.make_request(
+            url,
+            method="POST",
+            json=payload,
+            headers=self.authentication_instance.headers,
+        )
+        return response

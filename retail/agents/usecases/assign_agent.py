@@ -105,8 +105,8 @@ class AssignAgentUseCase:
 
             metadata = pre_approved.metadata or {}
             data: LibraryTemplateData = {
-                "template_name": metadata.get("name"),
-                "library_template_name": metadata.get("name"),
+                "template_name": pre_approved.name,
+                "library_template_name": pre_approved.name,
                 "category": metadata.get("category"),
                 "language": metadata.get("language"),
                 "app_uuid": app_uuid,
