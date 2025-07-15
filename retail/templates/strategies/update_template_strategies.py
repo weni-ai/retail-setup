@@ -44,7 +44,7 @@ class UpdateTemplateStrategy(ABC):
                 button["button_type"] = button.pop("type", None)
 
         header = translation_payload.get("header")
-        # Corrigido: só tenta acessar .get se header for dict
+
         if isinstance(header, dict) and header.get("type") == "IMAGE":
             header["example"] = header.pop("text", None)
 
