@@ -1,3 +1,13 @@
+# 3.10.0
+
+## *Feature*
+  - feat: add JWT authentication for inter-module communication
+  - feat: new metadata format
+
+## *Fix*
+  - fix: sentry logger error of type project with account not found
+  - fix: update template with parameters
+
 # 3.9.2
 
 ## *Fix*
