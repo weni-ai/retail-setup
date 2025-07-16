@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
 
+from retail.internal.jwt_mixins import JWTModuleAuthMixin
 from retail.utils.aws.lambda_validator import LambdaURLValidator
 from retail.vtex.dtos.register_order_form_dto import RegisterOrderFormDTO
 from retail.vtex.serializers import (
@@ -182,7 +183,7 @@ class OrderDetailsProxyView(BaseVtexProxyView):
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class OrderFormTrackingView(APIView, LambdaURLValidator):
+class OrderFormTrackingView(JWTModuleAuthMixin, APIView):
     """
     Link a VTEX order-form ID with the WhatsApp channel.
 
@@ -190,45 +191,20 @@ class OrderFormTrackingView(APIView, LambdaURLValidator):
     by validating the request, deserializing the input, and executing the use case
     to register the order form.
 
-    Attributes:
-        authentication_classes (list): List of authentication classes (empty for this view).
+    Authentication is handled through JWT tokens via JWTModuleAuthMixin.
     """
 
-    authentication_classes: list = []
-
-    def validate_lambda(self, request: Request) -> Response | None:
-        """
-        Validates the request against the Lambda URL validator.
-
-        Args:
-            request (Request): The incoming HTTP request to be validated.
-
-        Returns:
-            Optional[Response]: Returns a DRF Response with an error if validation fails,
-            otherwise returns None if validation is successful.
-        """
-        validation_response: Response = self.protected_resource(request)
-        if validation_response.status_code != 200:
-            return validation_response
-        return None
-
-    def post(self, request: Request, project_uuid: str) -> Response:
+    def post(self, request: Request) -> Response:
         """
         Handle POST requests to link a VTEX order-form ID with a WhatsApp channel.
 
         Args:
             request (Request): The incoming HTTP request containing the order-form data.
-            project_uuid (str): The UUID of the project to which the order-form will be linked.
 
         Returns:
             Response: A DRF Response containing a success message and the linked cart details,
             or an error response if validation fails.
         """
-        # AWS Lambda STS validation
-        error_response: Response | None = self.validate_lambda(request)
-        if error_response:
-            return error_response
-
         serializer: OrderFormTrackingSerializer = OrderFormTrackingSerializer(
             data=request.data
         )
@@ -236,7 +212,7 @@ class OrderFormTrackingView(APIView, LambdaURLValidator):
 
         dto: RegisterOrderFormDTO = RegisterOrderFormDTO(**serializer.validated_data)
         use_case: RegisterOrderFormUseCase = RegisterOrderFormUseCase(
-            project_uuid=project_uuid
+            project_uuid=self.project_uuid
         )
 
         cart = use_case.execute(dto)
