@@ -1,3 +1,11 @@
+# 3.10.1
+
+## *Feature*
+  - feat: verify if cart items were purchased recently
+
+## *Fix*
+  - fix: change CAPI authorization and handling purchase event
+
 # 3.10.0
 
 ## *Feature*
