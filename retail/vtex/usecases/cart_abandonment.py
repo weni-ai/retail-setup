@@ -69,6 +69,9 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
                 self._update_cart_status(cart, "empty")
                 return
 
+            # Save cart items
+            self._save_cart_items(cart, order_form)
+
             # Check orders by email
             orders = self._fetch_orders_by_email(cart, client_profile["email"])
             self._evaluate_orders(cart, orders, order_form, client_profile)
@@ -148,6 +151,13 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
 
         return client_profile
 
+    def _save_cart_items(self, cart: Cart, order_form: dict):
+        """
+        Save cart items to the cart.
+        """
+        cart.config["cart_items"] = order_form.get("items", [])
+        cart.save()
+
     def _fetch_orders_by_email(self, cart: Cart, email: str) -> dict:
         """
         Fetch orders associated with a given email.
@@ -181,11 +191,14 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
             self._mark_cart_as_abandoned(cart, order_form, client_profile)
             return
 
-        recent_orders = orders.get("list", [])[:3]
-        for order in recent_orders:
-            if order.get("orderFormId") == cart.order_form_id:
-                self._update_cart_status(cart, "purchased")
-                return
+        recent_orders = orders.get("list", [])[:5]
+
+        if self._check_recent_purchases_for_cart_items(cart, recent_orders):
+            logger.info(
+                f"Cart {cart.uuid} items already purchased recently - marking as purchased"
+            )
+            self._update_cart_status(cart, "purchased")
+            return
 
         self._mark_cart_as_abandoned(cart, order_form, client_profile)
 
@@ -214,6 +227,9 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
             None
         """
         self._update_cart_status(cart, "abandoned")
+        # Mark as abandoned using the boolean field
+        cart.abandoned = True
+        cart.save()
 
         # Get both message and extra parameters
         (
@@ -292,6 +308,178 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
             raise ValueError(f"Action ID not found for action '{action_name}'")
 
         return action_id
+
+    def _check_recent_purchases_for_cart_items(
+        self, cart: Cart, recent_orders: list
+    ) -> bool:
+        """
+        Check if any of the cart's items have been purchased in recent orders.
+
+        This method:
+        1. Extracts order IDs from recent orders
+        2. Fetches detailed order information for each order
+        3. Compares cart items with order items
+        4. Returns True if any overlap is found
+
+        Args:
+            cart (Cart): The cart being processed.
+            recent_orders (list): List of recent orders from the user.
+
+        Returns:
+            bool: True if any cart items were found in recent purchases.
+        """
+        cart_items = cart.config.get("cart_items", [])
+        if not cart_items:
+            logger.info(f"Cart {cart.uuid} has no products to compare")
+            return False
+
+        # Extract order IDs from recent orders
+        order_ids = []
+        for order in recent_orders:
+            order_id = order.get("orderId")
+            if order_id:
+                order_ids.append(order_id)
+
+        if not order_ids:
+            logger.info(
+                f"No valid order IDs found in recent orders for cart {cart.uuid}"
+            )
+            return False
+
+        logger.info(
+            f"Checking {len(order_ids)} recent orders for cart {cart.uuid}: {order_ids}"
+        )
+
+        # Store recent orders details for logging/debugging
+        recent_orders_details = []
+
+        # Fetch detailed order information for each order
+        for order_id in order_ids:
+            try:
+                logger.info(f"Fetching details for order {order_id}")
+                order_details = self._fetch_order_details_by_id(cart, order_id)
+                if order_details:
+                    # Store order details for logging
+                    recent_orders_details.append(
+                        {
+                            "orderId": order_id,
+                            "orderFormId": order_details.get("orderFormId"),
+                            "items": order_details.get("itemMetadata", {}).get(
+                                "Items", []
+                            ),
+                        }
+                    )
+
+                    if self._compare_cart_items_with_order_items(cart, order_details):
+                        logger.info(
+                            f"Found matching products in order {order_id} for cart {cart.uuid}"
+                        )
+
+                        # Store recent orders in cart config for debugging
+                        cart.config["recent_orders_checked"] = recent_orders_details
+                        cart.save()
+                        logger.info(
+                            f"Stored {len(recent_orders_details)} recent orders in cart config for debugging"
+                        )
+
+                        return True
+
+            except CustomAPIException as e:
+                logger.error(f"Error fetching order details for {order_id}: {str(e)}")
+                continue
+
+        # Store recent orders in cart config even if no match found (for debugging)
+        cart.config["recent_orders_checked"] = recent_orders_details
+        cart.save()
+        logger.info(
+            f"Stored {len(recent_orders_details)} recent orders in cart config (no matching products found)"
+        )
+
+        logger.info(f"No matching products found in recent orders for cart {cart.uuid}")
+        return False
+
+    def _fetch_order_details_by_id(self, cart: Cart, order_id: str) -> dict:
+        """
+        Fetch detailed order information by order ID.
+
+        Args:
+            cart (Cart): The cart instance (used for project context).
+            order_id (str): The order ID to fetch details for.
+
+        Returns:
+            dict: Complete order details, or empty dict if not found.
+        """
+        try:
+            # Use the VTEX IO service to fetch order details
+            order_details = self.vtex_io_service.get_order_details_by_id(
+                account_domain=self._get_account_domain(str(cart.project.uuid)),
+                order_id=order_id,
+            )
+
+            if order_details:
+                item_count = len(order_details.get("itemMetadata", {}).get("Items", []))
+                logger.debug(
+                    f"Successfully fetched order {order_id} with {item_count} items"
+                )
+                return order_details
+            else:
+                logger.warning(f"No order details found for order {order_id}")
+                return {}
+
+        except Exception as e:
+            logger.error(f"Error fetching order details for {order_id}: {str(e)}")
+            return {}
+
+    def _compare_cart_items_with_order_items(
+        self, cart: Cart, order_details: dict
+    ) -> bool:
+        """
+        Compare cart items with order items to check for overlaps.
+
+        Args:
+            cart (Cart): The cart being processed.
+            order_details (dict): Complete order details from API.
+
+        Returns:
+            bool: True if there's any overlap between cart and order items.
+        """
+        cart_items = cart.config.get("cart_items", [])
+        order_items = order_details.get("itemMetadata", {}).get("Items", [])
+
+        if not cart_items or not order_items:
+            logger.debug(
+                f"Cart or order items empty - cart: {len(cart_items)}, order: {len(order_items)}"
+            )
+            return False
+
+        # Create sets of item IDs for comparison
+        cart_item_ids = set()
+        order_item_ids = set()
+
+        # Extract IDs from cart items
+        for item in cart_items:
+            if item.get("id"):
+                cart_item_ids.add(str(item["id"]))
+
+        # Extract IDs from order items (from itemMetadata.Items)
+        for item in order_items:
+            if item.get("Id"):  # Note: order items use "Id" (capital I)
+                order_item_ids.add(str(item["Id"]))
+
+        logger.debug(f"Cart item IDs: {cart_item_ids}")
+        logger.debug(f"Order item IDs: {order_item_ids}")
+
+        # Check for matching products between cart and recent orders
+        matching_products = cart_item_ids.intersection(order_item_ids)
+
+        if matching_products:
+            logger.info(
+                f"Found matching products in recent orders: {matching_products}"
+            )
+            return True
+
+        logger.debug("No matching products found in recent orders")
+        return False
 
 
 class MessageBuilder:
