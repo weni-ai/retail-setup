@@ -227,9 +227,6 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
             None
         """
         self._update_cart_status(cart, "abandoned")
-        # Mark as abandoned using the boolean field
-        cart.abandoned = True
-        cart.save()
 
         # Get both message and extra parameters
         (
@@ -265,6 +262,10 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
         cart.status = status
         if status == "delivered_error" and response:
             cart.error_message = f"Broadcast failed: {response}"
+
+        if status == "abandoned":
+            cart.abandoned = True
+
         cart.save()
 
     def _handle_error(self, cart_uuid: str, error_message: str):
