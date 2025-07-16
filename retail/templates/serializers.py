@@ -24,6 +24,7 @@ class ReadTemplateSerializer(serializers.Serializer):
     needs_button_edit = serializers.BooleanField()
     deleted_at = serializers.DateTimeField()
     is_active = serializers.BooleanField()
+    variables = serializers.JSONField()
 
     def get_status(self, obj: Template) -> str:
         last_version = obj.versions.order_by("-id").first()
@@ -71,6 +72,7 @@ class UpdateTemplateContentSerializer(serializers.Serializer):
     template_header = serializers.CharField(required=False)
     template_footer = serializers.CharField(required=False)
     template_button = serializers.ListField(required=False)
+    template_body_params = serializers.ListField(required=False)
     app_uuid = serializers.CharField(required=True)
     project_uuid = serializers.CharField(required=True)
     parameters = ParameterSerializer(many=True, required=False, allow_null=True)

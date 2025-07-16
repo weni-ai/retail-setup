@@ -27,6 +27,12 @@ class AbandonedCartNotification(APIView):
         # Instantiate the use case with the given account
         cart_use_case = CartUseCase(account=validated_data["account"])
 
+        if cart_use_case.project is None:
+            return Response(
+                {"message": "Project not found for the given account."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         # Check if the abandoned cart feature is integrated for the project
         if not cart_use_case.integrated_feature:
             return Response(

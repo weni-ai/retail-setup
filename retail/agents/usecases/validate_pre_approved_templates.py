@@ -4,6 +4,9 @@ from typing import Optional, TypedDict, Dict, Any
 
 from retail.services.meta import MetaService
 from retail.interfaces.services.meta import MetaServiceInterface
+from retail.templates.adapters.template_library_to_custom_adapter import (
+    TemplateTranslationAdapter,
+)
 from retail.agents.models import Agent
 
 logger = logging.getLogger(__name__)
@@ -16,8 +19,13 @@ class TemplateInfo(TypedDict):
 
 
 class ValidatePreApprovedTemplatesUseCase:
-    def __init__(self, meta_service: Optional[MetaServiceInterface] = None):
+    def __init__(
+        self,
+        meta_service: Optional[MetaServiceInterface] = None,
+        template_adapter: Optional[TemplateTranslationAdapter] = None,
+    ):
         self.meta_service = meta_service or MetaService()
+        self.template_adapter = template_adapter or TemplateTranslationAdapter()
 
     def _get_template_info(
         self, template_name: str, language: str
@@ -31,10 +39,20 @@ class ValidatePreApprovedTemplatesUseCase:
         if not data:
             return None
 
+        data_obj = data[0]
+
         return {
-            "name": data[0].get("name"),
-            "content": data[0].get("body"),
-            "metadata": data[0],
+            "name": data_obj.get("name"),
+            "content": data_obj.get("body"),
+            "metadata": {
+                "header": self.template_adapter.header_transformer.transform(data_obj),
+                "body": data_obj.get("body"),
+                "body_params": data_obj.get("body_params"),
+                "footer": data_obj.get("footer"),
+                "buttons": data_obj.get("buttons"),
+                "category": data_obj.get("category"),
+                "language": data_obj.get("language"),
+            },
         }
 
     def execute(self, agent: Agent) -> None:
