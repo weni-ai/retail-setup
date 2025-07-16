@@ -1,7 +1,7 @@
 from django.urls import path
 from retail.vtex.views import (
     AccountIdentifierProxyView,
-    OrderFormTrackingView,
+    # OrderFormTrackingView,
     OrderDetailsProxyView,
     OrdersProxyView,
 )
@@ -19,9 +19,10 @@ urlpatterns = [
         OrderDetailsProxyView.as_view(),
         name="vtex-order-details",
     ),
-    path(
-        "projects/<uuid:project_uuid>/order-form-tracking/",
-        OrderFormTrackingView.as_view(),
-        name="vtex-order-form-tracking",
-    ),
+    # TODO: Temporarily disabled (to be re-enabled after fix authorization) -- 2025-07-08
+    # path(
+    #     "projects/<uuid:project_uuid>/order-form-tracking/",
+    #     OrderFormTrackingView.as_view(),
+    #     name="vtex-order-form-tracking",
+    # ),
 ]

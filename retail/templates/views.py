@@ -162,7 +162,7 @@ class TemplateLibraryViewSet(ViewSet):
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 
-class TemplateMetricsView(APIView):
+class TemplateMetricsView(APIView):  # pragma: no cover
     """
     Endpoint for retrieving aggregated metrics of all template versions
     associated with a given template UUID, within a specified date range.

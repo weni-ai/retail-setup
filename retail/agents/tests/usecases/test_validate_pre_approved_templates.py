@@ -31,26 +31,74 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
         self.meta_service_mock = Mock()
         self.meta_service_mock.get_pre_approved_template.side_effect = (
             lambda name, language: (
-                {"data": [{"name": "valid_template", "body": "new content"}]}
+                {
+                    "data": [
+                        {
+                            "name": "valid_template",
+                            "body": "new content",
+                            "header": {"type": "TEXT", "text": "Header"},
+                            "body_params": ["param1", "param2"],
+                            "footer": "Footer text",
+                            "buttons": [{"type": "QUICK_REPLY", "text": "Button"}],
+                            "category": "MARKETING",
+                            "language": "pt_BR",
+                        }
+                    ]
+                }
                 if name == "valid_template"
                 else {"data": []}
             )
         )
+
+        self.template_adapter_mock = Mock()
+        self.template_adapter_mock.header_transformer.transform.return_value = {
+            "type": "TEXT",
+            "text": "Header",
+        }
+
         self.usecase = ValidatePreApprovedTemplatesUseCase(
-            meta_service=self.meta_service_mock
+            meta_service=self.meta_service_mock,
+            template_adapter=self.template_adapter_mock,
         )
 
     def test_get_template_info_returns_info_when_exists(self):
         info = self.usecase._get_template_info("valid_template", "pt_BR")
+
         self.meta_service_mock.get_pre_approved_template.assert_called_with(
             "valid_template", "pt_BR"
         )
+        self.template_adapter_mock.header_transformer.transform.assert_called_with(
+            {
+                "name": "valid_template",
+                "body": "new content",
+                "header": {"type": "TEXT", "text": "Header"},
+                "body_params": ["param1", "param2"],
+                "footer": "Footer text",
+                "buttons": [{"type": "QUICK_REPLY", "text": "Button"}],
+                "category": "MARKETING",
+                "language": "pt_BR",
+            }
+        )
 
-        data = {"name": info.get("name"), "content": info.get("content")}
-        self.assertEqual(data, {"name": "valid_template", "content": "new content"})
+        expected_info = {
+            "name": "valid_template",
+            "content": "new content",
+            "metadata": {
+                "header": {"type": "TEXT", "text": "Header"},
+                "body": "new content",
+                "body_params": ["param1", "param2"],
+                "footer": "Footer text",
+                "buttons": [{"type": "QUICK_REPLY", "text": "Button"}],
+                "category": "MARKETING",
+                "language": "pt_BR",
+            },
+        }
+
+        self.assertEqual(info, expected_info)
 
     def test_get_template_info_returns_none_when_not_exists(self):
         info = self.usecase._get_template_info("invalid_template", "pt_BR")
+
         self.meta_service_mock.get_pre_approved_template.assert_called_with(
             "invalid_template", "pt_BR"
         )
@@ -66,6 +114,17 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
         self.assertEqual(self.template_valid.name, "valid_template")
         self.assertEqual(self.template_valid.content, "new content")
 
+        expected_metadata = {
+            "header": {"type": "TEXT", "text": "Header"},
+            "body": "new content",
+            "body_params": ["param1", "param2"],
+            "footer": "Footer text",
+            "buttons": [{"type": "QUICK_REPLY", "text": "Button"}],
+            "category": "MARKETING",
+            "language": "pt_BR",
+        }
+        self.assertEqual(self.template_valid.metadata, expected_metadata)
+
         self.assertFalse(self.template_invalid.is_valid)
         self.assertEqual(self.template_invalid.content, "should not change")
 
@@ -74,3 +133,19 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
         self.usecase.execute(self.agent)
 
         self.meta_service_mock.get_pre_approved_template.assert_not_called()
+        self.template_adapter_mock.header_transformer.transform.assert_not_called()
+
+    def test_template_adapter_is_called_correctly(self):
+        self.usecase._get_template_info("valid_template", "pt_BR")
+        self.template_adapter_mock.header_transformer.transform.assert_called_once_with(
+            {
+                "name": "valid_template",
+                "body": "new content",
+                "header": {"type": "TEXT", "text": "Header"},
+                "body_params": ["param1", "param2"],
+                "footer": "Footer text",
+                "buttons": [{"type": "QUICK_REPLY", "text": "Button"}],
+                "category": "MARKETING",
+                "language": "pt_BR",
+            }
+        )

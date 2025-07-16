@@ -1,3 +1,36 @@
+# 3.9.2
+
+## *Fix*
+  - fix: remove global prompt
+
+# 3.9.1
+
+## *Fix*
+  - fix: better logs
+
+# 3.9.0
+
+## *Feature*
+  - feature: global rule
+
+# 3.8.2
+
+## *Fix*
+  - fix: temporarily disable OrderFormTrackingView due to authorization issues
+
+# 3.8.1
+
+## *Feature*
+  - feat: add __str__ to ORMs
+
+## *Fix*
+  - fix: sentry error in retrieving template name without current version
+
+# 3.8.0
+
+## *Feature*
+  - feat: add WhatsApp click-ID support to Cart model and implement tracking functionality
+
 # 3.7.1
 
 ## *Fix*
