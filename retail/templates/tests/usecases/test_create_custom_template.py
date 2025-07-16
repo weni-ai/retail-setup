@@ -112,6 +112,11 @@ class CreateCustomTemplateUseCaseTest(TestCase):
                 (p["value"] for p in params if p["name"] == "start_condition"), None
             )
         )
+        self.mock_metadata_handler.extract_variables.side_effect = (
+            lambda params, default: next(
+                (p["value"] for p in params if p["name"] == "variables"), default
+            )
+        )
 
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
     def test_execute_successful_creation(self, mock_task_create_template):
@@ -410,6 +415,11 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.mock_metadata_handler.extract_start_condition.side_effect = (
             lambda params, default: next(
                 (p["value"] for p in params if p["name"] == "start_condition"), None
+            )
+        )
+        self.mock_metadata_handler.extract_variables.side_effect = (
+            lambda params, default: next(
+                (p["value"] for p in params if p["name"] == "variables"), default
             )
         )
         mock_task_create_template.delay.return_value = Mock()

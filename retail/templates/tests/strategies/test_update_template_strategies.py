@@ -358,6 +358,11 @@ class UpdateCustomTemplateStrategyTest(TestCase):
                 (p["value"] for p in params if p["name"] == "start_condition"), None
             )
         )
+        self.metadata_handler.extract_variables.side_effect = (
+            lambda params, default: next(
+                (p["value"] for p in params if p["name"] == "variables"), default
+            )
+        )
 
         result = self.strategy.update_template(self.template, self.payload)
 
@@ -394,6 +399,16 @@ class UpdateCustomTemplateStrategyTest(TestCase):
             "category": "CUSTOM",
         }
         self.metadata_handler.post_process_translation.side_effect = lambda m, t: m
+        self.metadata_handler.extract_start_condition.side_effect = (
+            lambda params, default: next(
+                (p["value"] for p in params if p["name"] == "start_condition"), None
+            )
+        )
+        self.metadata_handler.extract_variables.side_effect = (
+            lambda params, default: next(
+                (p["value"] for p in params if p["name"] == "variables"), default
+            )
+        )
 
         payload_no_params = {
             "template_body": "Updated body",

@@ -137,12 +137,8 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             None,
         )
 
-        variables = next(
-            (
-                param.get("value")
-                for param in payload.get("parameters")
-                if param.get("name") == "variables"
-            ),
+        variables = self.metadata_handler.extract_variables(
+            payload.get("parameters", []),
             None,
         )
 

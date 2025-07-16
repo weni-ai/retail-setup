@@ -142,16 +142,12 @@ class UpdateCustomTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
 
             start_condition = self.metadata_handler.extract_start_condition(
                 payload["parameters"],
-                template.start_condition,
+                None,
             )
 
-            variables = next(
-                (
-                    p.get("value")
-                    for p in payload["parameters"]
-                    if p.get("name") == "variables"
-                ),
-                template.variables,
+            variables = self.metadata_handler.extract_variables(
+                payload["parameters"],
+                None,
             )
 
             template.start_condition = start_condition
