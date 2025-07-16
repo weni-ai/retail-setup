@@ -5,6 +5,7 @@ import boto3
 from typing import Any, Dict, Optional
 
 from django.conf import settings
+from django.utils import timezone
 
 from retail.interfaces.clients.aws_lambda.client import AwsLambdaClientInterface
 
@@ -18,6 +19,7 @@ class AwsLambdaClient(AwsLambdaClientInterface):
         self.runtime = settings.LAMBDA_RUNTIME
         self.handler = settings.LAMBDA_HANDLER
         self.timeout = settings.LAMBDA_TIMEOUT
+        self.log_group = settings.LAMBDA_LOG_GROUP
 
     def create_function(self, function_name: str, zip_bytes: bytes) -> Dict[str, Any]:
         kwargs = {
@@ -28,6 +30,15 @@ class AwsLambdaClient(AwsLambdaClientInterface):
             "Code": {"ZipFile": zip_bytes},
             "Timeout": self.timeout,
             "Publish": True,
+            "LoggingConfig": {
+                "LogGroup": self.log_group,
+            },
+            "Tags": {
+                "Name": function_name,
+                "team": "activation",
+                "service": "lambda",
+                "create_timestamp": timezone.now().isoformat(),
+            },
         }
 
         return self.boto3_client.create_function(**kwargs)
@@ -46,4 +57,5 @@ class AwsLambdaClient(AwsLambdaClientInterface):
             FunctionName=function_name,
             InvocationType="RequestResponse",
             Payload=json.dumps(payload),
+            LogType="Tail",
         )
