@@ -10,15 +10,21 @@ from retail.agents.usecases.agent_webhook import (
     LambdaResponseStatus,
 )
 from retail.templates.models import Template
+from retail.agents.tests.mocks.cache.integrated_agent_webhook import (
+    IntegratedAgentCacheHandlerMock,
+)
 
 
 class AgentWebhookUseCaseTest(TestCase):
     def setUp(self):
         self.mock_lambda_handler = MagicMock()
         self.mock_broadcast_handler = MagicMock()
+        self.mock_cache_handler = IntegratedAgentCacheHandlerMock()
+
         self.usecase = AgentWebhookUseCase(
             lambda_handler=self.mock_lambda_handler,
             broadcast_handler=self.mock_broadcast_handler,
+            cache_handler=self.mock_cache_handler,
         )
         self.mock_agent = MagicMock()
         self.mock_agent.uuid = uuid4()
@@ -216,6 +222,70 @@ class AgentWebhookUseCaseTest(TestCase):
         result = self.usecase.execute(self.mock_agent, MagicMock())
         self.assertIsNone(result)
         self.mock_broadcast_handler.send_message.assert_not_called()
+
+    @patch("retail.agents.usecases.agent_webhook.IntegratedAgent.objects.get")
+    def test_get_integrated_agent_from_cache(self, mock_get):
+        mock_agent = MagicMock()
+        test_uuid = uuid4()
+        mock_agent.uuid = test_uuid
+
+        self.mock_cache_handler.set_cached_agent(mock_agent)
+
+        result = self.usecase._get_integrated_agent(test_uuid)
+
+        self.assertEqual(result, mock_agent)
+        mock_get.assert_not_called()
+
+    @patch("retail.agents.usecases.agent_webhook.IntegratedAgent.objects.get")
+    def test_get_integrated_agent_cache_miss_then_set(self, mock_get):
+        mock_agent = MagicMock()
+        test_uuid = uuid4()
+        mock_agent.uuid = test_uuid
+        mock_get.return_value = mock_agent
+
+        result = self.usecase._get_integrated_agent(test_uuid)
+
+        self.assertEqual(result, mock_agent)
+        mock_get.assert_called_once_with(uuid=test_uuid, is_active=True)
+        cached_agent = self.mock_cache_handler.get_cached_agent(test_uuid)
+        self.assertEqual(cached_agent, mock_agent)
+
+    @patch("retail.agents.usecases.agent_webhook.IntegratedAgent.objects.get")
+    def test_get_integrated_agent_cache_miss_not_found(self, mock_get):
+        mock_get.side_effect = IntegratedAgent.DoesNotExist()
+        test_uuid = uuid4()
+
+        result = self.usecase._get_integrated_agent(test_uuid)
+
+        self.assertIsNone(result)
+        mock_get.assert_called_once_with(uuid=test_uuid, is_active=True)
+        cached_agent = self.mock_cache_handler.get_cached_agent(test_uuid)
+        self.assertIsNone(cached_agent)
+
+    @patch("retail.agents.usecases.agent_webhook.IntegratedAgent.objects.get")
+    def test_get_integrated_agent_cache_with_none_value(self, mock_get):
+        mock_agent = MagicMock()
+        test_uuid = uuid4()
+        mock_agent.uuid = test_uuid
+        mock_get.return_value = mock_agent
+
+        self.mock_cache_handler.cache[str(test_uuid)] = None
+
+        result = self.usecase._get_integrated_agent(test_uuid)
+
+        self.assertEqual(result, mock_agent)
+        mock_get.assert_called_once_with(uuid=test_uuid, is_active=True)
+        cached_agent = self.mock_cache_handler.get_cached_agent(test_uuid)
+        self.assertEqual(cached_agent, mock_agent)
+
+    def test_get_integrated_agent_blocked_uuid_no_cache_interaction(self):
+        blocked_uuid = "d30bcce8-ce67-4677-8a33-c12b62a51d4f"
+
+        result = self.usecase._get_integrated_agent(blocked_uuid)
+
+        self.assertIsNone(result)
+        cached_agent = self.mock_cache_handler.get_cached_agent(blocked_uuid)
+        self.assertIsNone(cached_agent)
 
 
 class LambdaHandlerTest(TestCase):
