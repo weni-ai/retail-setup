@@ -486,7 +486,6 @@ class UpdateCustomTemplateStrategyTest(TestCase):
 
 
 @override_settings(
-    AWS_STORAGE_ROLE="arn:aws:iam::123456789012:role/test-role",
     LAMBDA_ROLE_ARN="arn:aws:iam::123456789012:role/lambda-role",
     CELERY_TASK_ALWAYS_EAGER=True,
     CELERY_BROKER_URL="memory://",

@@ -25,7 +25,6 @@ from retail.services.rule_generator import (
 
 
 @override_settings(
-    AWS_STORAGE_ROLE="arn:aws:iam::123456789012:role/test-role",
     CELERY_TASK_ALWAYS_EAGER=True,
     CELERY_BROKER_URL="memory://",
     CELERY_RESULT_BACKEND="cache+memory://",
