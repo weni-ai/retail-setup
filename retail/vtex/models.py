@@ -12,6 +12,8 @@ class Cart(models.Model):
         ("delivered_success", "Delivered Success"),
         ("delivered_error", "Delivered Error"),
         ("empty", "Empty"),
+        ("skipped_identical_cart", "Skipped Identical Cart"),
+        ("skipped_abandoned_cart_cooldown", "Skipped Abandoned Cart Cooldown"),
     ]
 
     uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
@@ -19,7 +21,7 @@ class Cart(models.Model):
     created_on = models.DateTimeField(auto_now_add=True)
     modified_on = models.DateTimeField(auto_now=True)
     status = models.CharField(
-        max_length=20,
+        max_length=35,
         choices=STATUS_CHOICES,
         default="created",
         verbose_name="Status of Cart",
@@ -45,4 +47,11 @@ class Cart(models.Model):
         return f"Cart: {self.phone_number}, Status: {status}, Last Modified: {self.modified_on:%Y-%m-%d %H:%M:%S}"
 
     class Meta:
-        indexes = [models.Index(fields=["project", "status"])]
+        indexes = [
+            models.Index(fields=["project", "status"]),
+            models.Index(fields=["order_form_id", "project"]),
+            models.Index(fields=["abandoned"]),
+            models.Index(fields=["phone_number"]),
+            models.Index(fields=["phone_number", "status", "modified_on"]),
+            models.Index(fields=["phone_number", "project", "modified_on"]),
+        ]
