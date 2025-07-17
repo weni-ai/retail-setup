@@ -1,8 +1,9 @@
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from django.core.files.uploadedfile import UploadedFile
 
 
+@runtime_checkable
 class S3ServiceInterface(Protocol):
     def upload_file(self, file: UploadedFile, key: str) -> str:
         """Uploads a file to an S3 bucket."""

@@ -4,11 +4,12 @@ from uuid import uuid4
 
 from io import BytesIO
 
-from typing import Protocol, Any
+from typing import Protocol, Any, runtime_checkable
 
 from django.core.files.uploadedfile import InMemoryUploadedFile, UploadedFile
 
 
+@runtime_checkable
 class ConverterInterface(Protocol):
     def convert(self, file: Any) -> UploadedFile:
         pass

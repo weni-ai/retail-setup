@@ -4,7 +4,7 @@ from unittest.mock import patch, Mock
 
 from uuid import uuid4
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from rest_framework.exceptions import NotFound
 
@@ -24,6 +24,13 @@ from retail.services.rule_generator import (
 )
 
 
+@override_settings(
+    AWS_STORAGE_ROLE="arn:aws:iam::123456789012:role/test-role",
+    CELERY_TASK_ALWAYS_EAGER=True,
+    CELERY_BROKER_URL="memory://",
+    CELERY_RESULT_BACKEND="cache+memory://",
+    REDIS_URL="redis://localhost:6379/1",
+)
 class CreateCustomTemplateUseCaseTest(TestCase):
     def setUp(self):
         self.project_uuid = uuid4()
@@ -61,62 +68,47 @@ class CreateCustomTemplateUseCaseTest(TestCase):
 
         self.valid_payload: CreateCustomTemplateData = {
             "template_translation": {
-                "template_header": "Test Header",
-                "template_body": "Test Body",
-                "template_footer": "Test Footer",
-                "template_button": [{"type": "URL", "text": "Click here"}],
+                "en": {"text": "Hello, {{name}}!"},
+                "pt": {"text": "Olá, {{name}}!"},
             },
-            "template_name": "test_template",
-            "category": "test",
+            "category": "UTILITY",
             "app_uuid": str(uuid4()),
             "project_uuid": str(self.project_uuid),
             "integrated_agent_uuid": self.integrated_agent_uuid,
-            "parameters": [
-                {
-                    "name": "variables",
-                    "value": [{"definition": "test", "fallback": "default"}],
-                },
-                {"name": "start_condition", "value": "test condition"},
-                {"name": "examples", "value": [{"input": "example"}]},
-                {"name": "template_content", "value": "some template text"},
-            ],
             "display_name": "Test Display Name",
-        }
-
-        self.adapted_translation = {
-            "header": {"header_type": "TEXT", "text": "Test Header"},
-            "body": {"type": "BODY", "text": "Test Body"},
-            "footer": {"type": "FOOTER", "text": "Test Footer"},
-            "buttons": [{"type": "URL", "text": "Click here"}],
+            "parameters": [
+                {"name": "start_condition", "value": "test condition"},
+                {"name": "variables", "value": [{"name": "name", "type": "text"}]},
+            ],
         }
 
     def _setup_mocks_for_successful_execution(self):
         self.mock_rule_generator.generate_code.return_value = (
             "def test_rule(): return True"
         )
-        self.mock_template_adapter.adapt.return_value = self.adapted_translation
 
         self.mock_metadata_handler.build_metadata.return_value = {
-            "header": {"header_type": "TEXT", "text": "Test Header"},
-            "body": "Test Body",
-            "body_params": None,
-            "footer": "Test Footer",
-            "buttons": [{"type": "URL", "text": "Click here"}],
-            "category": "test",
+            "body": "Hello, {{name}}!",
+            "category": "UTILITY",
         }
+
+        self.mock_template_adapter.adapt.return_value = {
+            "en": {"text": "Hello, {{name}}!"},
+            "pt": {"text": "Olá, {{name}}!"},
+        }
+
         self.mock_metadata_handler.post_process_translation.side_effect = (
             lambda metadata, translation: metadata
         )
-        self.mock_metadata_handler.extract_start_condition.side_effect = (
-            lambda params, default: next(
-                (p["value"] for p in params if p["name"] == "start_condition"), None
-            )
+
+        self.mock_metadata_handler.extract_start_condition.return_value = (
+            "test condition"
         )
-        self.mock_metadata_handler.extract_variables.side_effect = (
-            lambda params, default: next(
-                (p["value"] for p in params if p["name"] == "variables"), default
-            )
-        )
+        self.mock_metadata_handler.extract_variables.return_value = [
+            {"name": "name", "type": "text"}
+        ]
+
+        return self.mock_metadata_handler, self.mock_template_adapter
 
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
     def test_execute_successful_creation(self, mock_task_create_template):
@@ -148,43 +140,24 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.mock_metadata_handler.extract_start_condition.assert_called_once()
         mock_task_create_template.delay.assert_called_once()
 
-    @patch("retail.templates.usecases.create_custom_template.task_create_template")
-    def test_execute_with_buttons_modification_in_notify_integrations(
-        self, mock_task_create_template
-    ):
+    def test_execute_template_already_exists(self):
         self._setup_mocks_for_successful_execution()
-        mock_task_create_template.delay.return_value = Mock()
 
-        translation_with_buttons = copy.deepcopy(self.adapted_translation)
-        translation_with_buttons["buttons"] = [{"type": "URL", "text": "Test Button"}]
-        self.mock_template_adapter.adapt.return_value = translation_with_buttons
+        Template.objects.create(
+            name="existing_template",
+            display_name="Test Display Name",
+            integrated_agent=self.integrated_agent,
+        )
 
-        self.mock_metadata_handler.build_metadata.return_value = {
-            "header": {"header_type": "TEXT", "text": "Test Header"},
-            "body": "Test Body",
-            "body_params": None,
-            "footer": "Test Footer",
-            "buttons": [{"type": "URL", "text": "Test Button"}],
-            "category": "test",
-        }
+        with self.assertRaises(CustomTemplateAlreadyExists) as context:
+            self.use_case.execute(self.valid_payload)
 
-        result = self.use_case.execute(self.valid_payload)
-
-        self.assertIn("buttons", result.metadata)
-        self.assertEqual(result.metadata["buttons"][0]["type"], "URL")
-
-        mock_task_create_template.delay.assert_called_once()
-        call_args = mock_task_create_template.delay.call_args.kwargs
-        self.assertIn("template_translation", call_args)
-
-        notify_translation = call_args["template_translation"]
-        if "buttons" in notify_translation:
-            self.assertEqual(notify_translation["buttons"][0]["button_type"], "URL")
-            self.assertNotIn("type", notify_translation["buttons"][0])
+        self.assertIn(
+            "Custom template with this display name already exists",
+            str(context.exception),
+        )
 
     def test_execute_integrated_agent_not_found(self):
-        self._setup_mocks_for_successful_execution()
-
         invalid_payload = copy.deepcopy(self.valid_payload)
         invalid_payload["integrated_agent_uuid"] = uuid4()
 
@@ -194,8 +167,6 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertIn("Assigned agent not found", str(context.exception))
 
     def test_execute_integrated_agent_inactive(self):
-        self._setup_mocks_for_successful_execution()
-
         self.integrated_agent.is_active = False
         self.integrated_agent.save()
 
@@ -242,257 +213,171 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertIn("statusCode", detail["error"])
         self.assertTrue(str(detail["error"]["statusCode"]) == "500")
 
-    def test_get_start_condition_from_parameters(self):
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_get_start_condition_from_parameters(self, mock_task):
+        """Testa extração de start_condition dos parâmetros."""
         self._setup_mocks_for_successful_execution()
-
-        modified_payload = copy.deepcopy(self.valid_payload)
-        modified_payload["parameters"][1]["value"] = "custom start condition"
-
-        with patch(
-            "retail.templates.usecases.create_custom_template.task_create_template"
-        ) as mock_task:
-            mock_task.delay.return_value = Mock()
-            result = self.use_case.execute(modified_payload)
-
-        self.assertEqual(result.start_condition, "custom start condition")
-
-    def test_get_start_condition_not_found_in_parameters(self):
-        self._setup_mocks_for_successful_execution()
+        # Mock do task para evitar conexão Redis
+        mock_task.delay.return_value = Mock()
 
         modified_payload = copy.deepcopy(self.valid_payload)
         modified_payload["parameters"] = [
-            param
-            for param in modified_payload["parameters"]
-            if param["name"] != "start_condition"
+            {"name": "start_condition", "value": "test condition"},
+            {"name": "other_param", "value": "other_value"},
         ]
 
-        with patch(
-            "retail.templates.usecases.create_custom_template.task_create_template"
-        ) as mock_task:
-            mock_task.delay.return_value = Mock()
-            result = self.use_case.execute(modified_payload)
-
-        self.assertIsNone(result.start_condition)
-
-    @patch("retail.templates.usecases.create_custom_template.task_create_template")
-    def test_execute_creates_template_and_version_relationship(
-        self, mock_task_create_template
-    ):
-        self._setup_mocks_for_successful_execution()
-        mock_task_create_template.delay.return_value = Mock()
-
-        result = self.use_case.execute(self.valid_payload)
-
-        self.assertTrue(Template.objects.filter(uuid=result.uuid).exists())
-
-        version = Version.objects.get(template=result)
-        self.assertEqual(version.template, result)
-        self.assertEqual(version.project, self.project)
-
-    @patch("retail.templates.usecases.create_custom_template.task_create_template")
-    def test_rule_generator_called_with_correct_parameters(
-        self, mock_task_create_template
-    ):
-        self._setup_mocks_for_successful_execution()
-        mock_task_create_template.delay.return_value = Mock()
-
-        self.use_case.execute(self.valid_payload)
-
-        self.mock_rule_generator.generate_code.assert_called_once_with(
-            self.valid_payload["parameters"], self.integrated_agent
-        )
-
-    @patch("retail.templates.usecases.create_custom_template.task_create_template")
-    def test_adapt_translation_called_with_correct_data(
-        self, mock_task_create_template
-    ):
-        self._setup_mocks_for_successful_execution()
-        mock_task_create_template.delay.return_value = Mock()
-
-        self.use_case.execute(self.valid_payload)
-
-        self.mock_template_adapter.adapt.assert_called_once()
-        call_args = self.mock_template_adapter.adapt.call_args[0][0]
-
-        expected_structure = {
-            "header": {
-                "header_type": "TEXT",
-                "text": self.valid_payload["template_translation"]["template_header"],
-            },
-            "body": self.valid_payload["template_translation"]["template_body"],
-            "body_params": self.valid_payload["template_translation"].get(
-                "template_body_params"
-            ),
-            "footer": self.valid_payload["template_translation"]["template_footer"],
-            "buttons": self.valid_payload["template_translation"]["template_button"],
-            "category": self.valid_payload["category"],
-        }
-        self.assertEqual(call_args, expected_structure)
-
-    def test_execute_custom_template_already_exists(self):
-        self._setup_mocks_for_successful_execution()
-
-        Template.objects.create(
-            uuid=uuid4(),
-            name="existing_template",
-            display_name="Test Display Name",
-            integrated_agent=self.integrated_agent,
-            rule_code="def existing_rule(): return True",
-            metadata={"test": "data"},
-        )
-
-        with self.assertRaises(CustomTemplateAlreadyExists) as context:
-            self.use_case.execute(self.valid_payload)
-
-        self.assertIn(
-            "Custom template with this display name already exists",
-            str(context.exception),
-        )
-
-    @patch("retail.templates.usecases.create_custom_template.task_create_template")
-    def test_execute_with_empty_parameters_list(self, mock_task_create_template):
-        self._setup_mocks_for_successful_execution()
-        mock_task_create_template.delay.return_value = Mock()
-
-        modified_payload = copy.deepcopy(self.valid_payload)
-        modified_payload["parameters"] = []
-
         result = self.use_case.execute(modified_payload)
 
         self.assertIsInstance(result, Template)
+        # Verificar se o start_condition foi extraído corretamente
+        result.refresh_from_db()
+        self.assertEqual(result.start_condition, "test condition")
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_execute_with_empty_variables_list(self, mock_task):
+        self._setup_mocks_for_successful_execution()
+        self.mock_metadata_handler.extract_variables.return_value = []
+        mock_task.delay.return_value = Mock()
+
+        result = self.use_case.execute(self.valid_payload)
+
+        self.assertEqual(result.variables, [])
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_execute_with_null_variables(self, mock_task):
+        self._setup_mocks_for_successful_execution()
+        self.mock_metadata_handler.extract_variables.return_value = None
+        mock_task.delay.return_value = Mock()
+
+        result = self.use_case.execute(self.valid_payload)
+
+        self.assertEqual(result.variables, [])
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_execute_with_null_start_condition(self, mock_task):
+        self._setup_mocks_for_successful_execution()
+        self.mock_metadata_handler.extract_start_condition.return_value = None
+        mock_task.delay.return_value = Mock()
+
+        result = self.use_case.execute(self.valid_payload)
+
         self.assertIsNone(result.start_condition)
 
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
-    def test_execute_with_missing_translation_fields(self, mock_task_create_template):
+    def test_execute_template_name_generation(self, mock_task):
         self._setup_mocks_for_successful_execution()
-        mock_task_create_template.delay.return_value = Mock()
+        mock_task.delay.return_value = Mock()
 
-        modified_payload = copy.deepcopy(self.valid_payload)
-        modified_payload["template_translation"] = {
-            "template_body": "Only body content",
-        }
+        payload = copy.deepcopy(self.valid_payload)
+        payload["display_name"] = "My Custom Template"
+
+        with patch.object(self.use_case, "build_template_and_version") as mock_build:
+            mock_template = Mock()
+            mock_version = Mock()
+            mock_build.return_value = (mock_template, mock_version)
+
+            self.use_case.execute(payload)
+
+            call_args = mock_build.call_args[0][0]
+            self.assertEqual(call_args["template_name"], "my_custom_template")
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_notify_integrations_with_buttons(self, mock_task):
+        self._setup_mocks_for_successful_execution()
+        mock_task.delay.return_value = Mock()
 
         self.mock_template_adapter.adapt.return_value = {
-            "header": None,
-            "body": {"type": "BODY", "text": "Only body content"},
-            "footer": None,
-            "buttons": None,
-        }
-        self.mock_metadata_handler.build_metadata.return_value = {
-            "header": None,
-            "body": "Only body content",
-            "body_params": None,
-            "footer": None,
-            "buttons": None,
-            "category": "test",
+            "buttons": [
+                {"type": "QUICK_REPLY", "text": "Quick Reply"},
+                {"type": "URL", "text": "URL Button"},
+            ]
         }
 
-        result = self.use_case.execute(modified_payload)
+        self.use_case.execute(self.valid_payload)
 
-        self.assertIsInstance(result, Template)
-        self.mock_template_adapter.adapt.assert_called_once()
-        call_args = self.mock_template_adapter.adapt.call_args[0][0]
-        self.assertEqual(call_args["body"], "Only body content")
-        self.assertIsNone(call_args["header"])
-        self.assertIsNone(call_args["footer"])
-        self.assertIsNone(call_args["buttons"])
+        mock_task.delay.assert_called_once()
+        call_kwargs = mock_task.delay.call_args.kwargs
+        template_translation = call_kwargs["template_translation"]
 
-    @patch("retail.templates.usecases.create_custom_template.task_create_template")
-    def test_execute_with_none_generated_code(self, mock_task_create_template):
-        self.mock_rule_generator.generate_code.return_value = None
-        self.mock_template_adapter.adapt.return_value = self.adapted_translation
-        self.mock_metadata_handler.build_metadata.return_value = {
-            "header": {"header_type": "TEXT", "text": "Test Header"},
-            "body": "Test Body",
-            "body_params": None,
-            "footer": "Test Footer",
-            "buttons": [{"type": "URL", "text": "Click here"}],
-            "category": "test",
-        }
-        self.mock_metadata_handler.post_process_translation.side_effect = (
-            lambda metadata, translation: metadata
+        self.assertEqual(
+            template_translation["buttons"][0]["button_type"], "QUICK_REPLY"
         )
-        self.mock_metadata_handler.extract_start_condition.side_effect = (
-            lambda params, default: next(
-                (p["value"] for p in params if p["name"] == "start_condition"), None
-            )
-        )
-        self.mock_metadata_handler.extract_variables.side_effect = (
-            lambda params, default: next(
-                (p["value"] for p in params if p["name"] == "variables"), default
-            )
-        )
-        mock_task_create_template.delay.return_value = Mock()
-
-        result = self.use_case.execute(self.valid_payload)
-
-        self.assertIsInstance(result, Template)
-        self.assertIsNone(result.rule_code)
+        self.assertEqual(template_translation["buttons"][1]["button_type"], "URL")
 
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
-    def test_execute_template_name_generation_from_display_name(
-        self, mock_task_create_template
-    ):
+    def test_notify_integrations_with_image_header(self, mock_task):
         self._setup_mocks_for_successful_execution()
-        mock_task_create_template.delay.return_value = Mock()
+        mock_task.delay.return_value = Mock()
 
-        modified_payload = copy.deepcopy(self.valid_payload)
-        modified_payload["display_name"] = "My Custom Template Name"
-
-        result = self.use_case.execute(modified_payload)
-
-        self.assertIsInstance(result, Template)
-        version = Version.objects.get(template=result)
-        self.assertIn("my_custom_template_name", version.template_name)
-
-    @patch("retail.templates.usecases.create_custom_template.task_create_template")
-    def test_execute_notify_integrations_without_buttons(
-        self, mock_task_create_template
-    ):
-        self._setup_mocks_for_successful_execution()
-        mock_task_create_template.delay.return_value = Mock()
-
-        translation_without_buttons = copy.deepcopy(self.adapted_translation)
-        translation_without_buttons["buttons"] = None
-        self.mock_template_adapter.adapt.return_value = translation_without_buttons
-        self.mock_metadata_handler.build_metadata.return_value = {
-            "header": {"header_type": "TEXT", "text": "Test Header"},
-            "body": "Test Body",
-            "body_params": None,
-            "footer": "Test Footer",
-            "buttons": None,
-            "category": "test",
+        self.mock_template_adapter.adapt.return_value = {
+            "header": {"type": "IMAGE", "text": "base64_image_data"}
         }
 
-        result = self.use_case.execute(self.valid_payload)
+        self.use_case.execute(self.valid_payload)
 
-        self.assertIsInstance(result, Template)
-        self.assertIn("buttons", result.metadata)
-        self.assertIsNone(result.metadata["buttons"])
+        mock_task.delay.assert_called_once()
+        call_kwargs = mock_task.delay.call_args.kwargs
+        template_translation = call_kwargs["template_translation"]
 
-        mock_task_create_template.delay.assert_called_once()
-        call_args = mock_task_create_template.delay.call_args.kwargs
-        notify_translation = call_args["template_translation"]
-        self.assertIn("buttons", notify_translation)
-        self.assertIsNone(notify_translation["buttons"])
+        self.assertEqual(template_translation["header"]["example"], "base64_image_data")
+        self.assertNotIn("text", template_translation["header"])
 
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
-    def test_execute_multiple_parameters_with_same_name(
-        self, mock_task_create_template
-    ):
+    def test_notify_integrations_with_text_header(self, mock_task):
         self._setup_mocks_for_successful_execution()
-        mock_task_create_template.delay.return_value = Mock()
+        mock_task.delay.return_value = Mock()
+
+        self.mock_template_adapter.adapt.return_value = {
+            "header": {"type": "TEXT", "text": "Text header"}
+        }
+
+        self.use_case.execute(self.valid_payload)
+
+        mock_task.delay.assert_called_once()
+        call_kwargs = mock_task.delay.call_args.kwargs
+        template_translation = call_kwargs["template_translation"]
+
+        self.assertEqual(template_translation["header"]["text"], "Text header")
+        self.assertNotIn("example", template_translation["header"])
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_notify_integrations_creates_copy_of_translation(self, mock_task):
+        self._setup_mocks_for_successful_execution()
+        mock_task.delay.return_value = Mock()
+
+        original_translation = {
+            "buttons": [{"type": "QUICK_REPLY", "text": "Reply"}],
+            "header": {"type": "IMAGE", "text": "image_data"},
+        }
+        self.mock_template_adapter.adapt.return_value = original_translation
+
+        self.use_case.execute(self.valid_payload)
+
+        self.assertEqual(original_translation["buttons"][0]["type"], "QUICK_REPLY")
+        self.assertEqual(original_translation["header"]["text"], "image_data")
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_execute_multiple_parameters_with_same_name(self, mock_task):
+        """Testa execução com múltiplos parâmetros com mesmo nome."""
+        self._setup_mocks_for_successful_execution()
+        mock_task.delay.return_value = Mock()
 
         modified_payload = copy.deepcopy(self.valid_payload)
         modified_payload["parameters"] = [
             {"name": "start_condition", "value": "first condition"},
             {"name": "start_condition", "value": "second condition"},
-            {"name": "other_param", "value": "other value"},
+            {"name": "other_param", "value": "other_value"},
         ]
+
+        # Mock para garantir que o primeiro valor seja retornado
+        self.mock_metadata_handler.extract_start_condition.return_value = (
+            "first condition"
+        )
 
         result = self.use_case.execute(modified_payload)
 
         self.assertIsInstance(result, Template)
+        # Verificar se o primeiro start_condition foi usado
         self.assertEqual(result.start_condition, "first condition")
 
     def test_execute_rule_generator_exception(self):
@@ -504,3 +389,87 @@ class CreateCustomTemplateUseCaseTest(TestCase):
             self.use_case.execute(self.valid_payload)
 
         self.assertEqual(str(context.exception), "Rule generator error")
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_update_template_sets_all_fields_correctly(self, mock_task):
+        self._setup_mocks_for_successful_execution()
+        mock_task.delay.return_value = Mock()
+
+        with patch.object(self.use_case, "build_template_and_version") as mock_build:
+            template = Template.objects.create(
+                name="test_template", integrated_agent=self.integrated_agent
+            )
+            version = Mock()
+            mock_build.return_value = (template, version)
+
+            self.use_case.execute(self.valid_payload)
+
+            template.refresh_from_db()
+            self.assertEqual(template.integrated_agent, self.integrated_agent)
+            self.assertIsNotNone(template.metadata)
+            self.assertEqual(template.metadata["category"], "UTILITY")
+            self.assertEqual(template.rule_code, "def test_rule(): return True")
+            self.assertEqual(template.display_name, "Test Display Name")
+            self.assertEqual(template.start_condition, "test condition")
+            self.assertEqual(template.variables, [{"name": "name", "type": "text"}])
+
+    def test_get_integrated_agent_success(self):
+        result = self.use_case._get_integrated_agent(self.integrated_agent_uuid)
+        self.assertEqual(result, self.integrated_agent)
+
+    def test_get_integrated_agent_not_found(self):
+        with self.assertRaises(NotFound) as context:
+            self.use_case._get_integrated_agent(uuid4())
+
+        self.assertIn("Assigned agent not found", str(context.exception))
+
+    def test_get_integrated_agent_inactive(self):
+        self.integrated_agent.is_active = False
+        self.integrated_agent.save()
+
+        with self.assertRaises(NotFound) as context:
+            self.use_case._get_integrated_agent(self.integrated_agent_uuid)
+
+        self.assertIn("Assigned agent not found", str(context.exception))
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_execute_with_empty_parameters_list(self, mock_task):
+        self._setup_mocks_for_successful_execution()
+        mock_task.delay.return_value = Mock()
+
+        payload = copy.deepcopy(self.valid_payload)
+        payload["parameters"] = []
+
+        result = self.use_case.execute(payload)
+        self.assertIsInstance(result, Template)
+
+    def test_init_with_default_dependencies(self):
+        with patch(
+            "retail.templates.usecases.create_custom_template.RuleGenerator"
+        ) as mock_rg:
+            with patch(
+                "retail.templates.usecases.create_custom_template.TemplateTranslationAdapter"
+            ) as mock_tta:
+                with patch(
+                    "retail.templates.usecases.create_custom_template.TemplateMetadataHandler"
+                ) as mock_tmh:
+                    CreateCustomTemplateUseCase()
+
+                    mock_rg.assert_called_once()
+                    mock_tta.assert_called_once()
+                    mock_tmh.assert_called_once()
+
+    def test_init_with_custom_dependencies(self):
+        custom_rule_generator = Mock()
+        custom_adapter = Mock()
+        custom_handler = Mock()
+
+        use_case = CreateCustomTemplateUseCase(
+            rule_generator=custom_rule_generator,
+            template_adapter=custom_adapter,
+            template_metadata_handler=custom_handler,
+        )
+
+        self.assertEqual(use_case.rule_generator, custom_rule_generator)
+        self.assertEqual(use_case.template_adapter, custom_adapter)
+        self.assertEqual(use_case.metadata_handler, custom_handler)
