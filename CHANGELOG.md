@@ -1,3 +1,8 @@
+# 3.10.2
+
+## *Feature*
+  - feat: implement abandoned cart notification cooldown and duplicate prevention
+
 # 3.10.1
 
 ## *Feature*
