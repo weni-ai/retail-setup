@@ -286,3 +286,13 @@ if USE_META:
     )
 
 ORDER_STATUS_AGENT_UUID = env.str("ORDER_STATUS_AGENT_UUID", default="")
+
+# Path to the JWT public key
+JWT_PUBLIC_KEY_PATH = BASE_DIR / "retail" / "jwt_keys" / "public_key.pem"
+
+# The public key is loaded a single time at application startup.
+try:
+    with open(JWT_PUBLIC_KEY_PATH, "rb") as f:
+        JWT_PUBLIC_KEY = f.read()
+except FileNotFoundError:
+    JWT_PUBLIC_KEY = None

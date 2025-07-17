@@ -136,3 +136,6 @@ dmypy.json
 media/
 
 .idea
+
+# Ingore private keys
+retail/jwt_keys/private_key.pem
