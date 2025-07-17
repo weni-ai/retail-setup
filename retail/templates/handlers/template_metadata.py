@@ -41,9 +41,13 @@ class TemplateMetadataHandler:
             metadata["buttons"] = translation_payload["buttons"]
         if "header" in translation_payload:
             metadata["header"] = translation_payload["header"]
-            metadata["header"]["text"] = self._upload_header_image(
-                translation_payload["header"]
-            )
+            if (
+                "header_type" in translation_payload["header"]
+                and translation_payload["header"]["header_type"] == "image"
+            ):
+                metadata["header"]["text"] = self._upload_header_image(
+                    translation_payload["header"]
+                )
 
         return metadata
 
