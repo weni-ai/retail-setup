@@ -1,5 +1,7 @@
 import base64
 
+import string
+
 import binascii
 
 from typing import Dict, Optional, List, Protocol
@@ -17,14 +19,21 @@ class HeaderTransformer(ComponentTransformer):
     """Transforms header component from library to translation format."""
 
     def _is_base_64(self, header: str) -> bool:
+        HEURISTIC_MIN_LENGTH = 100
+
         if header.startswith("data:"):
             header = header.split(",", 1)[1]
+
+        if len(header) < HEURISTIC_MIN_LENGTH:
+            return False
+
+        base64_charset = set(string.ascii_letters + string.digits + "+/=")
+        if any(c not in base64_charset for c in header):
+            return False
+
         try:
-            if len(header) % 4 != 0:
-                return False
-            decoded = base64.b64decode(header, validate=True)
-            decoded.decode("utf-8")
-            return base64.b64encode(decoded).decode("utf-8") == header
+            base64.b64decode(header, validate=True)
+            return True
         except (binascii.Error, ValueError, UnicodeDecodeError):
             return False
 
