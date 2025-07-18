@@ -1,5 +1,3 @@
-import uuid
-
 from typing import List, Optional, Dict, Any
 
 from retail.interfaces.services.aws_s3 import S3ServiceInterface
@@ -13,11 +11,7 @@ class TemplateMetadataHandler:
     def _upload_header_image(self, header: Dict[str, Any]) -> str:
         """Upload header image to S3 and return the unique file key."""
         file = self.s3_service.base_64_converter.convert(header.get("text"))
-
-        file_extension = file.name.split(".")[-1] if "." in file.name else "jpg"
-        unique_filename = f"{uuid.uuid4()}.{file_extension}"
-        key = f"template_headers/{unique_filename}"
-
+        key = f"template_headers/{file.name}"
         uploaded_key = self.s3_service.upload_file(file, key=key)
         return uploaded_key
 
