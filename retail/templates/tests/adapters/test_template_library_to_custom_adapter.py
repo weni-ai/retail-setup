@@ -1,5 +1,7 @@
 import base64
 
+import os
+
 from django.test import TestCase
 from unittest.mock import Mock
 
@@ -15,6 +17,7 @@ from retail.templates.adapters.template_library_to_custom_adapter import (
 class TestHeaderTransformer(TestCase):
     def setUp(self):
         self.transformer = HeaderTransformer()
+        self.header = base64.b64encode(os.urandom(76)).decode("utf-8")
 
     def test_is_not_base_64(self):
         no_base_64_header = "test"
@@ -22,8 +25,7 @@ class TestHeaderTransformer(TestCase):
         self.assertFalse(result)
 
     def test_is_base_64(self):
-        base_64_header = base64.b64encode("teste".encode("utf-8")).decode("utf-8")
-        result = self.transformer._is_base_64(base_64_header)
+        result = self.transformer._is_base_64(self.header)
         self.assertTrue(result)
 
     def test_transform_with_header(self):
@@ -43,10 +45,9 @@ class TestHeaderTransformer(TestCase):
         self.assertIsNone(result)
 
     def test_transform_with_image_header(self):
-        base_64_header = base64.b64encode("teste".encode("utf-8")).decode("utf-8")
-        template_data = {"header": base_64_header}
+        template_data = {"header": self.header}
         result = self.transformer.transform(template_data)
-        expected = {"header_type": "IMAGE", "text": base_64_header}
+        expected = {"header_type": "IMAGE", "text": self.header}
         self.assertEqual(result, expected)
 
     def test_transform_with_already_translated_header(self):
@@ -55,8 +56,7 @@ class TestHeaderTransformer(TestCase):
         self.assertEqual(result, {"header_type": "TEXT", "text": "Already"})
 
     def test_is_base_64_with_data_prefix(self):
-        base_64_header = base64.b64encode("teste".encode("utf-8")).decode("utf-8")
-        data_prefix_header = f"data:image/png;base64,{base_64_header}"
+        data_prefix_header = f"data:image/png;base64,{self.header}"
         result = self.transformer._is_base_64(data_prefix_header)
         self.assertTrue(result)
 
