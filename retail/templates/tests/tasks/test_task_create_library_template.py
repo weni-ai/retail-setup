@@ -1,27 +1,27 @@
 from unittest.mock import patch, MagicMock
-
 from django.test import TestCase
+from uuid import uuid4
 
 
 class TestTaskCreateLibraryTemplate(TestCase):
     def setUp(self):
         self.name = "Test Library Template"
-        self.app_uuid = "app-123"
-        self.project_uuid = "project-456"
+        self.app_uuid = str(uuid4())
+        self.project_uuid = str(uuid4())
         self.category = "marketing"
         self.language = "en"
         self.library_template_name = "library-template-test"
-        self.gallery_version = "version-789"
+        self.gallery_version = str(uuid4())
         self.library_template_button_inputs = [
             {"button_id": "btn1", "label": "Button 1"},
             {"button_id": "btn2", "label": "Button 2"},
         ]
 
     @patch("retail.templates.tasks.IntegrationsService")
-    @patch("retail.templates.tasks.UpdateTemplateUseCase")
+    @patch("retail.templates.usecases.UpdateTemplateUseCase.execute", return_value=None)
     @patch("retail.templates.tasks.logger")
     def test_task_create_library_template_success_without_button_inputs(
-        self, mock_logger, mock_update_use_case, mock_integrations_service
+        self, mock_logger, mock_execute, mock_integrations_service
     ):
         from retail.templates.tasks import task_create_library_template
 
@@ -52,14 +52,14 @@ class TestTaskCreateLibraryTemplate(TestCase):
             project_uuid=self.project_uuid,
             template_data=expected_payload,
         )
-        mock_update_use_case.assert_not_called()
+        mock_execute.assert_not_called()
         mock_logger.error.assert_not_called()
 
     @patch("retail.templates.tasks.IntegrationsService")
-    @patch("retail.templates.tasks.UpdateTemplateUseCase")
+    @patch("retail.templates.usecases.UpdateTemplateUseCase.execute", return_value=None)
     @patch("retail.templates.tasks.logger")
     def test_task_create_library_template_success_with_button_inputs(
-        self, mock_logger, mock_update_use_case, mock_integrations_service
+        self, mock_logger, mock_execute, mock_integrations_service
     ):
         from retail.templates.tasks import task_create_library_template
 
@@ -92,18 +92,18 @@ class TestTaskCreateLibraryTemplate(TestCase):
             project_uuid=self.project_uuid,
             template_data=expected_payload,
         )
-        mock_update_use_case.assert_not_called()
+        mock_execute.assert_not_called()
         mock_logger.error.assert_not_called()
 
     @patch("retail.templates.tasks.IntegrationsService")
-    @patch("retail.templates.tasks.UpdateTemplateUseCase")
+    @patch("retail.templates.usecases.UpdateTemplateUseCase.execute", return_value=None)
     @patch("retail.templates.tasks.logger")
     @patch("retail.templates.tasks.traceback")
     def test_task_create_library_template_failure(
         self,
         mock_traceback,
         mock_logger,
-        mock_update_use_case,
+        mock_execute,
         mock_integrations_service,
     ):
         from retail.templates.tasks import task_create_library_template
@@ -114,9 +114,6 @@ class TestTaskCreateLibraryTemplate(TestCase):
             "Library template creation failed"
         )
         mock_traceback.format_exc.return_value = "Traceback details"
-
-        mock_update_use_case_instance = MagicMock()
-        mock_update_use_case.return_value = mock_update_use_case_instance
 
         task_create_library_template(
             name=self.name,
@@ -135,8 +132,7 @@ class TestTaskCreateLibraryTemplate(TestCase):
             f"for App: {self.app_uuid} - {self.category} - version: {self.gallery_version} Library template creation failed"  # noqa: E501
             f"Error: Traceback details"
         )
-        mock_update_use_case.assert_called_once()
-        mock_update_use_case_instance.execute.assert_called_once_with(
+        mock_execute.assert_called_once_with(
             payload={"version_uuid": self.gallery_version, "status": "REJECTED"}
         )
         mock_logger.info.assert_called_once_with(
