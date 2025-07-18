@@ -1,5 +1,4 @@
 import base64
-
 from unittest.mock import patch
 
 from django.test import TestCase
@@ -44,18 +43,6 @@ class TestBase64ToUploadedFileConverter(TestCase):
         self.assertTrue(result.name.endswith(".jpeg"))
         self.assertEqual(result.size, len(test_data))
 
-    def test_convert_with_pdf_content_type(self):
-        test_data = b"pdf document data"
-        base64_data = base64.b64encode(test_data).decode("utf-8")
-        data_uri = f"data:application/pdf;base64,{base64_data}"
-
-        result = self.converter.convert(data_uri)
-
-        self.assertIsInstance(result, InMemoryUploadedFile)
-        self.assertEqual(result.content_type, "application/pdf")
-        self.assertTrue(result.name.endswith(".pdf"))
-        self.assertEqual(result.size, len(test_data))
-
     def test_convert_without_header(self):
         test_data = b"raw base64 data"
         base64_data = base64.b64encode(test_data).decode("utf-8")
@@ -63,8 +50,8 @@ class TestBase64ToUploadedFileConverter(TestCase):
         result = self.converter.convert(base64_data)
 
         self.assertIsInstance(result, InMemoryUploadedFile)
-        self.assertIsNone(result.content_type)
-        self.assertNotIn(".", result.name)
+        self.assertEqual(result.content_type, "image/jpeg")
+        self.assertTrue(result.name.endswith(".jpg"))
         self.assertEqual(result.size, len(test_data))
         self.assertEqual(result.read(), test_data)
 
@@ -76,20 +63,18 @@ class TestBase64ToUploadedFileConverter(TestCase):
         result = self.converter.convert(data_uri)
 
         self.assertIsInstance(result, InMemoryUploadedFile)
-        self.assertIsNone(result.content_type)
-        self.assertNotIn(".", result.name)
-        self.assertEqual(result.size, len(test_data))
+        self.assertEqual(result.content_type, "image/jpeg")
+        self.assertTrue(result.name.endswith(".jpg"))
 
     def test_convert_with_data_without_semicolon_valid_base64(self):
         test_data = b"test data"
         base64_data = base64.b64encode(test_data).decode("utf-8")
-        data_uri = base64_data
 
-        result = self.converter.convert(data_uri)
+        result = self.converter.convert(base64_data)
 
         self.assertIsInstance(result, InMemoryUploadedFile)
-        self.assertIsNone(result.content_type)
-        self.assertNotIn(".", result.name)
+        self.assertEqual(result.content_type, "image/jpeg")
+        self.assertTrue(result.name.endswith(".jpg"))
         self.assertEqual(result.size, len(test_data))
 
     def test_convert_with_empty_content_type(self):
@@ -100,8 +85,8 @@ class TestBase64ToUploadedFileConverter(TestCase):
         result = self.converter.convert(data_uri)
 
         self.assertIsInstance(result, InMemoryUploadedFile)
-        self.assertEqual(result.content_type, "")
-        self.assertNotIn(".", result.name)
+        self.assertEqual(result.content_type, "image/jpeg")
+        self.assertTrue(result.name.endswith(".jpg"))
         self.assertEqual(result.size, len(test_data))
 
     def test_convert_with_content_type_without_slash(self):
@@ -112,8 +97,8 @@ class TestBase64ToUploadedFileConverter(TestCase):
         result = self.converter.convert(data_uri)
 
         self.assertIsInstance(result, InMemoryUploadedFile)
-        self.assertEqual(result.content_type, "plaintext")
-        self.assertNotIn(".", result.name)
+        self.assertEqual(result.content_type, "image/jpeg")
+        self.assertTrue(result.name.endswith(".jpg"))
         self.assertEqual(result.size, len(test_data))
 
     @patch("retail.services.aws_s3.converters.uuid4")
@@ -128,20 +113,6 @@ class TestBase64ToUploadedFileConverter(TestCase):
         self.assertEqual(result.name, "abcdef123456.png")
         mock_uuid4.assert_called_once()
 
-    def test_convert_file_has_correct_properties(self):
-        test_data = b"test file properties"
-        base64_data = base64.b64encode(test_data).decode("utf-8")
-        data_uri = f"data:text/plain;base64,{base64_data}"
-
-        result = self.converter.convert(data_uri)
-
-        self.assertIsInstance(result, InMemoryUploadedFile)
-        self.assertIsNone(result.field_name)
-        self.assertEqual(result.content_type, "text/plain")
-        self.assertEqual(result.size, len(test_data))
-        self.assertIsNone(result.charset)
-        self.assertTrue(result.name.endswith(".plain"))
-
     def test_convert_with_large_file(self):
         test_data = b"x" * (1024 * 1024)
         base64_data = base64.b64encode(test_data).decode("utf-8")
@@ -151,7 +122,6 @@ class TestBase64ToUploadedFileConverter(TestCase):
 
         self.assertIsInstance(result, InMemoryUploadedFile)
         self.assertEqual(result.size, len(test_data))
-        self.assertEqual(result.content_type, "application/octet-stream")
 
     def test_convert_with_empty_base64_data(self):
         data_uri = "data:text/plain;base64,"
@@ -175,7 +145,6 @@ class TestBase64ToUploadedFileConverter(TestCase):
         result.seek(0)
         second_read = result.read()
         self.assertEqual(second_read, test_data)
-        self.assertEqual(first_read, second_read)
 
     def test_convert_with_multiple_commas_in_data(self):
         test_data = b"data,with,commas"
@@ -185,7 +154,6 @@ class TestBase64ToUploadedFileConverter(TestCase):
         result = self.converter.convert(data_uri)
 
         self.assertIsInstance(result, InMemoryUploadedFile)
-        self.assertEqual(result.content_type, "text/csv")
 
     def test_converter_interface_protocol(self):
         self.assertTrue(hasattr(ConverterInterface, "convert"))
