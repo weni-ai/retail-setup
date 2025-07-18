@@ -161,7 +161,9 @@ class TestTemplateMetadataHandler(TestCase):
 
     def test_post_process_translation_with_header_upload(self):
         metadata = {"body": "Test"}
-        translation_payload = {"header": {"type": "IMAGE", "text": "base64_image"}}
+        translation_payload = {
+            "header": {"header_type": "IMAGE", "text": "base64_image"}
+        }
 
         expected_key = "template_headers/uploaded_image.jpg"
         with patch.object(
@@ -171,14 +173,16 @@ class TestTemplateMetadataHandler(TestCase):
                 metadata, translation_payload
             )
 
-        self.assertEqual(result["header"], {"type": "IMAGE", "text": expected_key})
+        self.assertEqual(
+            result["header"], {"header_type": "IMAGE", "text": expected_key}
+        )
         self.assertEqual(result["body"], "Test")
 
     def test_post_process_translation_with_both_buttons_and_header(self):
         metadata = {"body": "Test", "category": "UTILITY"}
         translation_payload = {
             "buttons": [{"type": "QUICK_REPLY", "text": "Quick"}],
-            "header": {"type": "TEXT", "text": "Header Text"},
+            "header": {"header_type": "TEXT", "text": "Header Text"},
         }
 
         with patch.object(
@@ -190,7 +194,7 @@ class TestTemplateMetadataHandler(TestCase):
 
         self.assertEqual(result["buttons"], [{"type": "QUICK_REPLY", "text": "Quick"}])
         self.assertEqual(
-            result["header"], {"type": "TEXT", "text": "uploaded_header_key"}
+            result["header"], {"header_type": "TEXT", "text": "Header Text"}
         )
         self.assertEqual(result["body"], "Test")
         self.assertEqual(result["category"], "UTILITY")

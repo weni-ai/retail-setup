@@ -309,7 +309,7 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         mock_task.delay.return_value = Mock()
 
         self.mock_template_adapter.adapt.return_value = {
-            "header": {"type": "IMAGE", "text": "base64_image_data"}
+            "header": {"header_type": "IMAGE", "text": "base64_image_data"}
         }
 
         self.use_case.execute(self.valid_payload)
@@ -327,7 +327,7 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         mock_task.delay.return_value = Mock()
 
         self.mock_template_adapter.adapt.return_value = {
-            "header": {"type": "TEXT", "text": "Text header"}
+            "header": {"header_type": "TEXT", "text": "Text header"}
         }
 
         self.use_case.execute(self.valid_payload)
@@ -346,7 +346,7 @@ class CreateCustomTemplateUseCaseTest(TestCase):
 
         original_translation = {
             "buttons": [{"type": "QUICK_REPLY", "text": "Reply"}],
-            "header": {"type": "IMAGE", "text": "image_data"},
+            "header": {"header_type": "IMAGE", "text": "image_data"},
         }
         self.mock_template_adapter.adapt.return_value = original_translation
 

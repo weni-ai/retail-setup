@@ -1,11 +1,7 @@
 import base64
-
 from uuid import uuid4
-
 from io import BytesIO
-
 from typing import Protocol, Any, runtime_checkable
-
 from django.core.files.uploadedfile import InMemoryUploadedFile, UploadedFile
 
 
@@ -29,21 +25,23 @@ class Base64ToUploadedFileConverter(ConverterInterface):
 
         file_data = base64.b64decode(base64_data)
 
-        content_type = None
-        extension = ""
+        extension = "jpg"
+        content_type = "image/jpeg"
 
         if header.startswith("data:") and ";base64" in header:
-            content_type = header.split("data:")[1].split(";base64")[0]
-            if "/" in content_type:
-                extension = content_type.split("/")[1]
+            content_type_from_header = header.split("data:")[1].split(";base64")[0]
+            if "/" in content_type_from_header:
+                type_main, type_ext = content_type_from_header.split("/", 1)
+                if type_main == "image":
+                    content_type = f"{type_main}/{type_ext}"
+                    extension = type_ext
 
-        prefix_name = str(uuid4().hex)
-        filename = f"{prefix_name}.{extension}" if extension else prefix_name
+        filename = f"{uuid4().hex}.{extension}"
 
         file_io = BytesIO(file_data)
         file_size = file_io.getbuffer().nbytes
 
-        uploaded_file = InMemoryUploadedFile(
+        return InMemoryUploadedFile(
             file=file_io,
             field_name=None,
             name=filename,
@@ -51,5 +49,3 @@ class Base64ToUploadedFileConverter(ConverterInterface):
             size=file_size,
             charset=None,
         )
-
-        return uploaded_file
