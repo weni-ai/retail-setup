@@ -1,5 +1,7 @@
 import logging
 
+from typing import Optional
+
 from rest_framework.exceptions import ValidationError, NotFound
 from retail.features.models import Feature, IntegratedFeature
 from retail.projects.models import Project
@@ -29,7 +31,7 @@ class CartUseCase:
         self.project = self._get_project_by_account()
         self.integrated_feature = self._get_integrated_feature()
 
-    def _get_project_by_account(self) -> Project:
+    def _get_project_by_account(self) -> Optional[Project]:
         """
         Fetch the project associated with the account.
 
@@ -42,9 +44,8 @@ class CartUseCase:
         try:
             return Project.objects.get(vtex_account=self.account)
         except Project.DoesNotExist:
-            error_message = f"Project with account '{self.account}' does not exist."
-            logger.error(error_message)
-            raise NotFound(error_message)
+            logger.info(f"Project with account '{self.account}' does not exist.")
+            return None
         except Project.MultipleObjectsReturned:
             error_message = f"Multiple projects found with account '{self.account}'."
             logger.error(error_message)

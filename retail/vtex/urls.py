@@ -20,7 +20,7 @@ urlpatterns = [
         name="vtex-order-details",
     ),
     path(
-        "projects/<uuid:project_uuid>/order-form-tracking/",
+        "order-form-tracking/",
         OrderFormTrackingView.as_view(),
         name="vtex-order-form-tracking",
     ),
