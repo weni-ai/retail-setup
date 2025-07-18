@@ -62,7 +62,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             for button in buttons:
                 button["button_type"] = button.pop("type", None)
 
-        if header and header.get("type") == "IMAGE":
+        if header and header.get("header_type") == "IMAGE":
             header["example"] = header.pop("text", None)
 
         task_create_template.delay(

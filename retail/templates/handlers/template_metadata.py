@@ -37,7 +37,7 @@ class TemplateMetadataHandler:
             metadata["header"] = translation_payload["header"]
             if (
                 "header_type" in translation_payload["header"]
-                and translation_payload["header"]["header_type"] == "image"
+                and translation_payload["header"]["header_type"] == "IMAGE"
             ):
                 metadata["header"]["text"] = self._upload_header_image(
                     translation_payload["header"]

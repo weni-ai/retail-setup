@@ -105,7 +105,7 @@ class UpdateTemplateStrategyTest(TestCase):
         version_uuid = uuid4()
         translation_payload = {
             "body": "Test body",
-            "header": {"type": "IMAGE", "text": "base64_image_data"},
+            "header": {"header_type": "IMAGE", "text": "base64_image_data"},
         }
         app_uuid = str(uuid4())
         project_uuid = str(uuid4())
@@ -141,7 +141,7 @@ class UpdateTemplateStrategyTest(TestCase):
         version_uuid = uuid4()
         translation_payload = {
             "body": "Test body",
-            "header": {"type": "TEXT", "text": "Header text"},
+            "header": {"header_type": "TEXT", "text": "Header text"},
         }
         app_uuid = str(uuid4())
         project_uuid = str(uuid4())

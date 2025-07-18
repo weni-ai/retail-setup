@@ -45,7 +45,7 @@ class UpdateTemplateStrategy(ABC):
 
         header = translation_payload.get("header")
 
-        if isinstance(header, dict) and header.get("type") == "IMAGE":
+        if isinstance(header, dict) and header.get("header_type") == "IMAGE":
             header["example"] = header.pop("text", None)
 
         task_create_template.delay(
