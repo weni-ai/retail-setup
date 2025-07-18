@@ -14,6 +14,11 @@ from retail.templates.models import Template
 
 class AgentWebhookUseCaseTest(TestCase):
     def setUp(self):
+        # Mock the datalake audit function
+        patcher = patch("weni_datalake_sdk.clients.client.send_commerce_webhook_data")
+        self.mock_audit = patcher.start()
+        self.addCleanup(patcher.stop)
+
         self.mock_lambda_handler = MagicMock()
         self.mock_broadcast_handler = MagicMock()
         self.usecase = AgentWebhookUseCase(
@@ -220,6 +225,11 @@ class AgentWebhookUseCaseTest(TestCase):
 
 class LambdaHandlerTest(TestCase):
     def setUp(self):
+        # Mock the datalake audit function
+        patcher = patch("weni_datalake_sdk.clients.client.send_commerce_webhook_data")
+        self.mock_audit = patcher.start()
+        self.addCleanup(patcher.stop)
+
         self.mock_lambda_service = MagicMock()
         self.handler = LambdaHandler(lambda_service=self.mock_lambda_service)
         self.mock_agent = MagicMock()
@@ -349,7 +359,10 @@ class LambdaHandlerTest(TestCase):
 class BroadcastHandlerTest(TestCase):
     def setUp(self):
         self.mock_flows_service = MagicMock()
-        self.handler = BroadcastHandler(flows_service=self.mock_flows_service)
+        self.mock_audit = MagicMock()
+        self.handler = BroadcastHandler(
+            flows_service=self.mock_flows_service, audit_func=self.mock_audit
+        )
         self.mock_agent = MagicMock()
         self.mock_agent.uuid = uuid4()
         self.mock_agent.channel_uuid = uuid4()
@@ -479,9 +492,6 @@ class BroadcastHandlerTest(TestCase):
             "template_variables": ["var1", "value1"],
         }
 
-        # Mock the audit function to avoid gRPC connection
-        self.handler.audit_func = MagicMock()
-
         self.handler.send_message(message, mock_agent, lambda_data)
 
         self.mock_flows_service.send_whatsapp_broadcast.assert_called_once_with(message)
@@ -534,13 +544,13 @@ class BroadcastHandlerTest(TestCase):
             "contact_urn": "whatsapp:987654321",
         }
 
-        # Mock the audit function to capture the data
+        # Capture the data passed to audit_func
         audit_calls = []
 
         def mock_audit_func(path, data):
             audit_calls.append(data)
 
-        self.handler.audit_func = mock_audit_func
+        self.mock_audit.side_effect = mock_audit_func
 
         self.handler._register_broadcast_event(
             message, response, mock_agent, lambda_data
@@ -577,13 +587,13 @@ class BroadcastHandlerTest(TestCase):
         mock_agent.project.uuid = "project-uuid"
         mock_agent.agent.uuid = "agent-uuid"
 
-        # Mock the audit function to capture the data
+        # Capture the data passed to audit_func
         audit_calls = []
 
         def mock_audit_func(path, data):
             audit_calls.append(data)
 
-        self.handler.audit_func = mock_audit_func
+        self.mock_audit.side_effect = mock_audit_func
 
         self.handler._register_broadcast_event(message, response, mock_agent, None)
 
@@ -591,7 +601,7 @@ class BroadcastHandlerTest(TestCase):
         self.assertEqual(len(audit_calls), 1)
         event_data = audit_calls[0]
 
-        self.assertEqual(event_data["status"], 0)  # Default value when no lambda_data
+        self.assertNotIn("status", event_data)  # No status when no lambda_data
         self.assertEqual(event_data["template"], "message_template")  # From message
         self.assertEqual(
             event_data["contact_urn"], "whatsapp:123456789"
@@ -623,13 +633,13 @@ class BroadcastHandlerTest(TestCase):
             "contact_urn": "whatsapp:987654321",
         }
 
-        # Mock the audit function to capture the data
+        # Capture the data passed to audit_func
         audit_calls = []
 
         def mock_audit_func(path, data):
             audit_calls.append(data)
 
-        self.handler.audit_func = mock_audit_func
+        self.mock_audit.side_effect = mock_audit_func
 
         self.handler._register_broadcast_event(
             message, response, mock_agent, lambda_data
