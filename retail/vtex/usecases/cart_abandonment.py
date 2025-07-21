@@ -9,7 +9,8 @@ from retail.services.code_actions.service import CodeActionsService
 from retail.clients.code_actions.client import CodeActionsClient
 from retail.clients.exceptions import CustomAPIException
 from retail.vtex.usecases.base import BaseVtexUseCase
-
+from datetime import timedelta
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
             if not order_form.get("items", []):
                 # Mark cart as empty if no items are found
                 self._update_cart_status(cart, "empty")
+                logger.info(f"Cart {cart_uuid} is empty - marking as empty")
                 return
 
             # Save cart items
@@ -189,13 +191,16 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
         """
         if not orders.get("list"):
             self._mark_cart_as_abandoned(cart, order_form, client_profile)
+            logger.info(
+                f"Cart {cart.uuid} orders is empty - marking as abandoned to {cart.phone_number}"
+            )
             return
 
         recent_orders = orders.get("list", [])[:5]
 
         if self._check_recent_purchases_for_cart_items(cart, recent_orders):
             logger.info(
-                f"Cart {cart.uuid} items already purchased recently - marking as purchased"
+                f"Cart {cart.uuid} items already purchased recently - marking as purchased to {cart.phone_number}"
             )
             self._update_cart_status(cart, "purchased")
             return
@@ -226,6 +231,22 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
         Returns:
             None
         """
+        # Check if abandoned cart notification cooldown is configured and should be applied
+        if self._check_abandoned_cart_notification_cooldown(cart):
+            logger.info(
+                f"Skipping notification for cart {cart.uuid} - abandoned cart notification cooldown active"
+            )
+            self._update_cart_status(cart, "skipped_abandoned_cart_cooldown")
+            return
+
+        # Check if identical cart was already sent recently
+        if self._check_identical_cart_sent_recently(cart):
+            logger.info(
+                f"Skipping notification for cart {cart.uuid} - identical cart already sent recently"
+            )
+            self._update_cart_status(cart, "skipped_identical_cart")
+            return
+
         self._update_cart_status(cart, "abandoned")
 
         # Get both message and extra parameters
@@ -244,6 +265,12 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
             action_id=self._get_code_action_id_by_cart(cart),
             message_payload=message_payload,
             extra_payload=extra_payload,
+        )
+
+        logger.info(
+            f"Cart abandonment notification sent - Phone: {cart.phone_number}, "
+            f"Order Form: {cart.order_form_id}, Cart UUID: {cart.uuid}, "
+            f"Project: {cart.project.name}"
         )
 
         self._update_cart_status(cart, "delivered_success", response)
@@ -279,6 +306,7 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
         try:
             cart = Cart.objects.get(uuid=cart_uuid)
             self._update_cart_status(cart, "delivered_error", error_message)
+            logger.error(f"Cart {cart_uuid} error: {error_message}")
         except Cart.DoesNotExist:
             logger.error(f"Cart not found during error handling: {error_message}")
 
@@ -399,6 +427,87 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
         logger.info(f"No matching products found in recent orders for cart {cart.uuid}")
         return False
 
+    def _check_identical_cart_sent_recently(self, cart: Cart) -> bool:
+        """
+        Check if a cart with identical items was already sent in the last 24 hours.
+
+        This method:
+        1. Gets current cart items
+        2. Finds carts with same phone number sent in last 24 hours
+        3. Compares items exactly (same products, same quantities)
+        4. Returns True if identical cart was already sent
+
+        Args:
+            cart (Cart): The cart being processed.
+
+        Returns:
+            bool: True if identical cart was already sent recently.
+        """
+        cart_items = cart.config.get("cart_items", [])
+        if not cart_items:
+            logger.info(f"Cart {cart.uuid} has no products to compare")
+            return False
+
+        # Calculate 24 hours ago
+        twenty_four_hours_ago = timezone.now() - timedelta(hours=24)
+
+        # Find carts with same phone number that were sent in the last 24 hours
+        recent_sent_carts = Cart.objects.filter(
+            phone_number=cart.phone_number,
+            project=cart.project,
+            status="delivered_success",
+            modified_on__gte=twenty_four_hours_ago,
+        ).exclude(uuid=cart.uuid)
+
+        if not recent_sent_carts:
+            logger.info(f"No recent sent carts found for phone {cart.phone_number}")
+            return False
+
+        # Create a normalized representation of current cart items
+        current_items_normalized = self._normalize_cart_items(cart_items)
+
+        # Check each recent cart for identical items
+        for recent_cart in recent_sent_carts:
+            recent_items = recent_cart.config.get("cart_items", [])
+            if recent_items:
+                recent_items_normalized = self._normalize_cart_items(recent_items)
+                logger.info(
+                    f"Recent cart {recent_cart.uuid} items normalized: {recent_items_normalized}"
+                )
+
+                if current_items_normalized == recent_items_normalized:
+                    logger.info(
+                        f"Found identical cart {recent_cart.uuid} sent at {recent_cart.modified_on} "
+                        f"for cart {cart.uuid}"
+                    )
+                    return True
+
+        logger.info("No identical carts found in recent sent carts")
+        return False
+
+    def _normalize_cart_items(self, items: list) -> list:
+        """
+        Normalize cart items for comparison by extracting key identifiers.
+
+        Args:
+            items (list): List of cart items.
+
+        Returns:
+            list: Normalized list of item identifiers for comparison.
+        """
+        normalized = []
+        for item in items:
+            # Extract key identifiers: id, quantity
+            normalized_item = {
+                "id": str(item.get("id", "")),
+                "quantity": item.get("quantity", 1),
+            }
+            normalized.append(normalized_item)
+
+        # Sort by id to ensure consistent comparison
+        normalized.sort(key=lambda x: x["id"])
+        return normalized
+
     def _fetch_order_details_by_id(self, cart: Cart, order_id: str) -> dict:
         """
         Fetch detailed order information by order ID.
@@ -419,7 +528,7 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
 
             if order_details:
                 item_count = len(order_details.get("itemMetadata", {}).get("Items", []))
-                logger.debug(
+                logger.info(
                     f"Successfully fetched order {order_id} with {item_count} items"
                 )
                 return order_details
@@ -448,7 +557,7 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
         order_items = order_details.get("itemMetadata", {}).get("Items", [])
 
         if not cart_items or not order_items:
-            logger.debug(
+            logger.info(
                 f"Cart or order items empty - cart: {len(cart_items)}, order: {len(order_items)}"
             )
             return False
@@ -467,9 +576,6 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
             if item.get("Id"):  # Note: order items use "Id" (capital I)
                 order_item_ids.add(str(item["Id"]))
 
-        logger.debug(f"Cart item IDs: {cart_item_ids}")
-        logger.debug(f"Order item IDs: {order_item_ids}")
-
         # Check for matching products between cart and recent orders
         matching_products = cart_item_ids.intersection(order_item_ids)
 
@@ -479,7 +585,65 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
             )
             return True
 
-        logger.debug("No matching products found in recent orders")
+        logger.info("No matching products found in recent orders")
+        return False
+
+    def _check_abandoned_cart_notification_cooldown(self, cart: Cart) -> bool:
+        """
+        Check if there's an abandoned cart notification cooldown configured and if it should be applied.
+
+        This method prevents sending multiple abandoned cart notifications to the same phone number
+        within a configured time period. The goal is to maintain 1 notification per X hours.
+
+        This method:
+        1. Gets the cooldown configuration from integrated feature
+        2. If configured, checks if any abandoned cart notification was sent recently
+        3. Returns True if cooldown should be applied (skip notification)
+
+        Args:
+            cart (Cart): The cart being processed.
+
+        Returns:
+            bool: True if notification should be skipped due to cooldown.
+        """
+        # Get abandoned cart notification cooldown configuration from integrated feature
+        cooldown_hours = cart.integrated_feature.config.get(
+            "abandoned_cart_notification_cooldown_hours"
+        )
+
+        if not cooldown_hours:
+            logger.info(
+                f"No abandoned cart notification cooldown configured for cart {cart.uuid}"
+            )
+            return False
+
+        # Calculate the cooldown period
+        cooldown_period = timezone.now() - timedelta(hours=cooldown_hours)
+
+        # Find any cart with same phone number that had abandoned cart notification sent within cooldown period
+        recent_sent_cart = (
+            Cart.objects.filter(
+                phone_number=cart.phone_number,
+                project=cart.project,
+                status="delivered_success",
+                modified_on__gte=cooldown_period,
+            )
+            .exclude(uuid=cart.uuid)
+            .first()
+        )
+
+        if recent_sent_cart:
+            logger.info(
+                f"Abandoned cart notification cooldown applied for cart {cart.uuid} - "
+                f"Phone {cart.phone_number} had abandoned cart notification sent at {recent_sent_cart.modified_on} "
+                f"(cooldown: {cooldown_hours}h - maintaining 1 notification per {cooldown_hours} hours)"
+            )
+            return True
+
+        logger.info(
+            f"No recent abandoned cart notifications found for phone {cart.phone_number} "
+            f"within {cooldown_hours}h cooldown"
+        )
         return False
 
 
