@@ -12,6 +12,8 @@ from retail.vtex.usecases.base import BaseVtexUseCase
 from datetime import timedelta
 from django.utils import timezone
 
+from retail.webhooks.vtex.utils import PhoneNotificationLockService
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,6 +30,7 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
         vtex_io_service: VtexIOService = None,
         vtex_service: VtexService = None,
         message_builder=None,
+        notification_lock_service: PhoneNotificationLockService = None,
     ):
         """
         Initialize dependencies for the CartAbandonmentUseCase.
@@ -45,6 +48,9 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
         self.vtex_service = vtex_service or VtexService(VtexClient())
 
         self.message_builder = message_builder or MessageBuilder()
+        self.notification_lock_service = (
+            notification_lock_service or PhoneNotificationLockService()
+        )
 
     def process_abandoned_cart(self, cart_uuid: str):
         """
@@ -245,6 +251,16 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
                 f"Skipping notification for cart {cart.uuid} - identical cart already sent recently"
             )
             self._update_cart_status(cart, "skipped_identical_cart")
+            return
+
+        # Acquire lock to prevent multiple notifications for the same phone number
+        if not self.notification_lock_service.acquire_lock(
+            cart.phone_number, cart.uuid
+        ):
+            logger.info(
+                f"Skipping notification for cart {cart.uuid} - "
+                f"notification already in progress for phone {cart.phone_number}"
+            )
             return
 
         self._update_cart_status(cart, "abandoned")
@@ -457,7 +473,7 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
             project=cart.project,
             status="delivered_success",
             modified_on__gte=twenty_four_hours_ago,
-        ).exclude(uuid=cart.uuid)
+        )
 
         if not recent_sent_carts:
             logger.info(f"No recent sent carts found for phone {cart.phone_number}")
@@ -621,16 +637,12 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
         cooldown_period = timezone.now() - timedelta(hours=cooldown_hours)
 
         # Find any cart with same phone number that had abandoned cart notification sent within cooldown period
-        recent_sent_cart = (
-            Cart.objects.filter(
-                phone_number=cart.phone_number,
-                project=cart.project,
-                status="delivered_success",
-                modified_on__gte=cooldown_period,
-            )
-            .exclude(uuid=cart.uuid)
-            .first()
-        )
+        recent_sent_cart = Cart.objects.filter(
+            phone_number=cart.phone_number,
+            project=cart.project,
+            status="delivered_success",
+            modified_on__gte=cooldown_period,
+        ).first()
 
         if recent_sent_cart:
             logger.info(

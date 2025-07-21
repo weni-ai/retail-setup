@@ -1,4 +1,5 @@
 import logging
+import time
 
 from typing import Optional
 
@@ -7,6 +8,7 @@ from retail.features.models import Feature, IntegratedFeature
 from retail.projects.models import Project
 from retail.vtex.models import Cart
 from retail.vtex.tasks import mark_cart_as_abandoned
+from django_redis import get_redis_connection
 
 from retail.webhooks.vtex.services import CartTimeRestrictionService
 
@@ -100,6 +102,25 @@ class CartUseCase:
         Returns:
             Cart: The created or updated cart instance.
         """
+        # Get Redis connection for distributed lock
+        redis = get_redis_connection()
+        lock_key = f"cart_creation_lock:{self.account}:{order_form_id}:{phone}"
+
+        # Try to acquire distributed lock (30 seconds TTL)
+        if not redis.set(lock_key, "locked", nx=True, ex=30):
+            logger.info(f"Cart creation already in progress for {order_form_id}")
+            # Wait a bit and try to get the existing cart
+            time.sleep(1)
+            try:
+                return Cart.objects.get(
+                    order_form_id=order_form_id,
+                    project=self.project,
+                    phone_number=phone,
+                    status="created",
+                )
+            except Cart.DoesNotExist:
+                raise ValidationError(f"Cart creation failed to lock {lock_key}")
+
         try:
             # Check if the cart already exists
             cart = Cart.objects.get(
@@ -114,6 +135,9 @@ class CartUseCase:
         except Cart.DoesNotExist:
             # Create new cart if it doesn't exist
             return self._create_cart(order_form_id, phone, name)
+        finally:
+            # Release the lock
+            redis.delete(lock_key)
 
     def _create_cart(self, order_form_id: str, phone: str, name: str) -> Cart:
         """
