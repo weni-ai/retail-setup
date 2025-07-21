@@ -65,6 +65,15 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         if header and header.get("header_type") == "IMAGE":
             header["example"] = header.pop("text", None)
 
+        print("========= NOTIFYING INTEGRATIONS ==========")
+        print(f"translation_payload: {translation_payload}")
+        print(f"version_name: {version_name}")
+        print(f"version_uuid: {version_uuid}")
+        print(f"app_uuid: {app_uuid}")
+        print(f"project_uuid: {project_uuid}")
+        print(f"category: {category}")
+        print("===========================================")
+
         task_create_template.delay(
             template_name=version_name,
             app_uuid=app_uuid,
