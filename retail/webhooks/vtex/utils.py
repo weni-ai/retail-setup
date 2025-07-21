@@ -1,5 +1,11 @@
+import logging
+
 from django_redis import get_redis_connection
+
 from redis import Redis
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_redis_lock_connection() -> Redis:
@@ -58,5 +64,4 @@ class PhoneNotificationLockService:
         try:
             self.redis.delete(key)
         except Exception:
-            # Log or ignore if deletion fails
-            pass
+            logger.error(f"Failed to release lock for {phone_number}:{cart_uuid}")
