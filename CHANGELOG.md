@@ -1,3 +1,12 @@
+# 3.11.0
+
+## *Feature*
+  - feat: add lambda logs
+  - feat: cache integrated agent in webhook
+
+## *Fix*
+  - fix: prevent duplicate notifications for abandoned carts
+
 # 3.10.2
 
 ## *Feature*
