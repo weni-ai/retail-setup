@@ -31,16 +31,18 @@ class TemplateMetadataHandler:
         self, metadata: Dict[str, Any], translation_payload: Dict[str, Any]
     ) -> dict:
         metadata = dict(metadata)
-        if "buttons" in translation_payload:
-            metadata["buttons"] = translation_payload["buttons"]
-        if "header" in translation_payload:
-            metadata["header"] = translation_payload["header"]
+        translation_payload_copy = dict(translation_payload)
+
+        if "buttons" in translation_payload_copy:
+            metadata["buttons"] = translation_payload_copy["buttons"]
+        if "header" in translation_payload_copy:
+            metadata["header"] = translation_payload_copy["header"]
             if (
-                "header_type" in translation_payload["header"]
-                and translation_payload["header"]["header_type"] == "IMAGE"
+                "header_type" in translation_payload_copy["header"]
+                and translation_payload_copy["header"]["header_type"] == "IMAGE"
             ):
                 metadata["header"]["text"] = self._upload_header_image(
-                    translation_payload["header"]
+                    translation_payload_copy["header"]
                 )
 
         return metadata

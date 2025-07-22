@@ -1,5 +1,3 @@
-import copy
-
 from typing import Optional, Dict, Any, TypedDict, List
 
 from uuid import UUID
@@ -164,7 +162,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         self._notify_integrations(
             version.template_name,
             version.uuid,
-            copy.deepcopy(translation_payload),
+            translation_payload,
             payload.get("app_uuid"),
             payload.get("project_uuid"),
             payload.get("category"),
