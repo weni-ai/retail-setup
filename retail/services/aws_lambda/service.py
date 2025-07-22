@@ -1,4 +1,5 @@
 import logging
+
 from typing import Any, Dict, Optional
 
 from botocore.exceptions import ClientError
@@ -39,6 +40,7 @@ class AwsLambdaService(AwsLambdaServiceInterface):
                 logger.info(f"Updated Lambda: {function_name}")
                 return response["FunctionArn"]
 
+            logger.error(f"Failed to create function in aws lambda: {e}")
             raise APIException("Failed to create function in aws lambda.")
 
     def invoke(self, function_name: str, payload: dict) -> Dict[str, Any]:
