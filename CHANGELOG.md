@@ -1,3 +1,26 @@
+# 3.10.2
+
+## *Feature*
+  - feat: implement abandoned cart notification cooldown and duplicate prevention
+
+# 3.10.1
+
+## *Feature*
+  - feat: verify if cart items were purchased recently
+
+## *Fix*
+  - fix: change CAPI authorization and handling purchase event
+
+# 3.10.0
+
+## *Feature*
+  - feat: add JWT authentication for inter-module communication
+  - feat: new metadata format
+
+## *Fix*
+  - fix: sentry logger error of type project with account not found
+  - fix: update template with parameters
+
 # 3.9.2
 
 ## *Fix*

@@ -1,30 +1,33 @@
+# retail/templates/strategies/update_template_strategies.py
+
 from abc import ABC, abstractmethod
-
 from typing import Optional, Dict, Any
-
 from uuid import UUID
 
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
 from retail.templates.models import Template
-from retail.templates.tasks import task_create_template
-from retail.templates.usecases._base_template_creator import TemplateBuilderMixin
+from retail.templates.usecases import TemplateBuilderMixin
 from retail.services.rule_generator import RuleGenerator
+from retail.templates.handlers import TemplateMetadataHandler
+from retail.templates.tasks import task_create_template
 
 
 class UpdateTemplateStrategy(ABC):
     """Abstract strategy for template updates"""
 
-    def __init__(self, template_adapter: Optional[TemplateTranslationAdapter] = None):
+    def __init__(
+        self,
+        template_adapter: Optional[TemplateTranslationAdapter] = None,
+        template_metadata_handler: Optional[TemplateMetadataHandler] = None,
+    ):
         self.template_adapter = template_adapter or TemplateTranslationAdapter()
+        self.metadata_handler = template_metadata_handler or TemplateMetadataHandler()
 
     @abstractmethod
     def update_template(self, template: Template, payload: Dict[str, Any]) -> Template:
         pass
-
-    def _adapt_translation(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        return self.template_adapter.adapt(metadata)
 
     def _notify_integrations(
         self,
@@ -35,13 +38,15 @@ class UpdateTemplateStrategy(ABC):
         project_uuid: str,
         category: str,
     ) -> None:
-        if not all([version_name, app_uuid, project_uuid, version_uuid]):
-            raise ValueError("Missing required data to notify integrations")
-
         buttons = translation_payload.get("buttons")
         if buttons:
             for button in buttons:
                 button["button_type"] = button.pop("type", None)
+
+        header = translation_payload.get("header")
+
+        if isinstance(header, dict) and header.get("header_type") == "IMAGE":
+            header["example"] = header.pop("text", None)
 
         task_create_template.delay(
             template_name=version_name,
@@ -55,38 +60,14 @@ class UpdateTemplateStrategy(ABC):
     def _update_common_metadata(
         self, template: Template, payload: Dict[str, Any]
     ) -> tuple[Dict[str, Any], Dict[str, Any]]:
-        """
-        Atualiza campos comuns de metadata e já retorna o translation_payload
-        para evitar chamar _adapt_translation duas vezes.
-        """
-        if not template.metadata:
-            raise ValueError("Template metadata is missing")
-
-        if template.metadata.get("category") is None:
-            raise ValueError("Missing category in template metadata")
-
-        updated_metadata = dict(template.metadata)
-
-        updated_metadata["body"] = payload.get(
-            "template_body", template.metadata.get("body")
+        updated_metadata = self.metadata_handler.build_metadata(
+            payload,
+            template.metadata.get("category"),
         )
-        updated_metadata["body_params"] = payload.get(
-            "template_body_params", template.metadata.get("body_params")
+        translation_payload = self.template_adapter.adapt(updated_metadata)
+        updated_metadata = self.metadata_handler.post_process_translation(
+            updated_metadata, translation_payload
         )
-        updated_metadata["header"] = payload.get(
-            "template_header", template.metadata.get("header")
-        )
-        updated_metadata["footer"] = payload.get(
-            "template_footer", template.metadata.get("footer")
-        )
-        updated_metadata["buttons"] = payload.get(
-            "template_button", template.metadata.get("buttons")
-        )
-
-        translation_payload = self._adapt_translation(dict(updated_metadata))
-        updated_metadata["buttons"] = translation_payload.get("buttons")
-        updated_metadata["header"] = translation_payload.get("header")
-
         return updated_metadata, translation_payload
 
     def _create_version_and_notify(
@@ -116,6 +97,13 @@ class UpdateTemplateStrategy(ABC):
 class UpdateNormalTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin):
     """Strategy for updating normal templates"""
 
+    def __init__(
+        self,
+        template_adapter: Optional[TemplateTranslationAdapter] = None,
+        template_metadata_handler: Optional[TemplateMetadataHandler] = None,
+    ):
+        super().__init__(template_adapter, template_metadata_handler)
+
     def update_template(self, template: Template, payload: Dict[str, Any]) -> Template:
         updated_metadata, translation_payload = self._update_common_metadata(
             template, payload
@@ -136,8 +124,9 @@ class UpdateCustomTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
         self,
         template_adapter: Optional[TemplateTranslationAdapter] = None,
         rule_generator: Optional[RuleGenerator] = None,
+        template_metadata_handler: Optional[TemplateMetadataHandler] = None,
     ):
-        super().__init__(template_adapter)
+        super().__init__(template_adapter, template_metadata_handler)
         self.rule_generator = rule_generator or RuleGenerator()
 
     def update_template(self, template: Template, payload: Dict[str, Any]) -> Template:
@@ -153,17 +142,13 @@ class UpdateCustomTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
             )
             template.rule_code = generated_code
 
-            start_condition = next(
-                (
-                    p.get("value")
-                    for p in parameters
-                    if p.get("name") == "start_condition"
-                ),
+            start_condition = self.metadata_handler.extract_start_condition(
+                parameters,
                 None,
             )
 
-            variables = next(
-                (p.get("value") for p in parameters if p.get("name") == "variables"),
+            variables = self.metadata_handler.extract_variables(
+                parameters,
                 None,
             )
 
@@ -186,10 +171,15 @@ class UpdateTemplateStrategyFactory:
         template: Template,
         template_adapter: Optional[TemplateTranslationAdapter] = None,
         rule_generator: Optional[RuleGenerator] = None,
-    ) -> UpdateTemplateStrategy:
+        template_metadata_handler: Optional[TemplateMetadataHandler] = None,
+    ) -> "UpdateTemplateStrategy":
         if template.is_custom:
             return UpdateCustomTemplateStrategy(
                 template_adapter=template_adapter,
                 rule_generator=rule_generator,
+                template_metadata_handler=template_metadata_handler,
             )
-        return UpdateNormalTemplateStrategy(template_adapter=template_adapter)
+        return UpdateNormalTemplateStrategy(
+            template_adapter=template_adapter,
+            template_metadata_handler=template_metadata_handler,
+        )

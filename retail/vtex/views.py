@@ -2,8 +2,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
-from rest_framework.permissions import AllowAny
 
+from retail.internal.jwt_mixins import JWTModuleAuthMixin
 from retail.utils.aws.lambda_validator import LambdaURLValidator
 from retail.vtex.dtos.register_order_form_dto import RegisterOrderFormDTO
 from retail.vtex.serializers import (
@@ -183,19 +183,37 @@ class OrderDetailsProxyView(BaseVtexProxyView):
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class OrderFormTrackingView(APIView):
+class OrderFormTrackingView(JWTModuleAuthMixin, APIView):
     """
     Link a VTEX order-form ID with the WhatsApp channel.
+
+    This view handles the linking of a VTEX order-form ID to a WhatsApp channel
+    by validating the request, deserializing the input, and executing the use case
+    to register the order form.
+
+    Authentication is handled through JWT tokens via JWTModuleAuthMixin.
     """
 
-    permission_classes = [AllowAny]
+    def post(self, request: Request) -> Response:
+        """
+        Handle POST requests to link a VTEX order-form ID with a WhatsApp channel.
 
-    def post(self, request, project_uuid: str):
-        serializer = OrderFormTrackingSerializer(data=request.data)
+        Args:
+            request (Request): The incoming HTTP request containing the order-form data.
+
+        Returns:
+            Response: A DRF Response containing a success message and the linked cart details,
+            or an error response if validation fails.
+        """
+        serializer: OrderFormTrackingSerializer = OrderFormTrackingSerializer(
+            data=request.data
+        )
         serializer.is_valid(raise_exception=True)
 
-        dto = RegisterOrderFormDTO(**serializer.validated_data)
-        use_case = RegisterOrderFormUseCase(project_uuid=project_uuid)
+        dto: RegisterOrderFormDTO = RegisterOrderFormDTO(**serializer.validated_data)
+        use_case: RegisterOrderFormUseCase = RegisterOrderFormUseCase(
+            project_uuid=self.project_uuid
+        )
 
         cart = use_case.execute(dto)
 

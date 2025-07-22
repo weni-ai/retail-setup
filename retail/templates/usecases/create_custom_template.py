@@ -1,5 +1,7 @@
 import copy
+
 from typing import Optional, Dict, Any, TypedDict, List
+
 from uuid import UUID
 
 from rest_framework.exceptions import NotFound
@@ -7,12 +9,13 @@ from rest_framework.exceptions import NotFound
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
-from retail.templates.usecases._base_template_creator import TemplateBuilderMixin
+from retail.templates.usecases import TemplateBuilderMixin
 from retail.templates.tasks import task_create_template
 from retail.templates.models import Template
 from retail.templates.exceptions import CustomTemplateAlreadyExists
 from retail.agents.models import IntegratedAgent
 from retail.services.rule_generator import RuleGenerator
+from retail.templates.handlers import TemplateMetadataHandler
 
 
 class ParameterData(TypedDict):
@@ -37,14 +40,11 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         self,
         rule_generator: Optional[RuleGenerator] = None,
         template_adapter: Optional[TemplateTranslationAdapter] = None,
+        template_metadata_handler: Optional[TemplateMetadataHandler] = None,
     ):
         self.rule_generator = rule_generator or RuleGenerator()
         self.template_adapter = template_adapter or TemplateTranslationAdapter()
-
-    def _adapt_translation(
-        self, template_translation: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        return self.template_adapter.adapt(template_translation)
+        self.metadata_handler = template_metadata_handler or TemplateMetadataHandler()
 
     def _notify_integrations(
         self,
@@ -56,10 +56,23 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         category: str,
     ) -> None:
         buttons = translation_payload.get("buttons")
+        header = translation_payload.get("header")
 
         if buttons:
             for button in buttons:
                 button["button_type"] = button.pop("type", None)
+
+        if header and header.get("header_type") == "IMAGE":
+            header["example"] = header.pop("text", None)
+
+        print("========= NOTIFYING INTEGRATIONS ==========")
+        print(f"translation_payload: {translation_payload}")
+        print(f"version_name: {version_name}")
+        print(f"version_uuid: {version_uuid}")
+        print(f"app_uuid: {app_uuid}")
+        print(f"project_uuid: {project_uuid}")
+        print(f"category: {category}")
+        print("===========================================")
 
         task_create_template.delay(
             template_name=version_name,
@@ -74,7 +87,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         self,
         template: Template,
         generated_code: str,
-        translation: Dict[str, Any],
+        metadata: Dict[str, Any],
         category: str,
         integrated_agent: IntegratedAgent,
         display_name: str,
@@ -82,7 +95,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         variables: Optional[List[Dict[str, Any]]],
     ) -> Template:
         template.integrated_agent = integrated_agent
-        template.metadata = translation
+        template.metadata = metadata
         template.metadata["category"] = category
         template.rule_code = generated_code
         template.display_name = display_name
@@ -117,36 +130,24 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
 
         template, version = self.build_template_and_version(payload, integrated_agent)
 
-        metadata = {
-            "body": payload.get("template_translation", {}).get("template_body"),
-            "body_params": payload.get("template_translation", {}).get(
-                "template_body_params"
-            ),
-            "header": payload.get("template_translation", {}).get("template_header"),
-            "footer": payload.get("template_translation", {}).get("template_footer"),
-            "buttons": payload.get("template_translation", {}).get("template_button"),
-        }
+        metadata = self.metadata_handler.build_metadata(
+            payload.get("template_translation", {}),
+            payload.get("category"),
+        )
 
-        translation_payload = self._adapt_translation(metadata)
+        translation_payload = self.template_adapter.adapt(metadata)
 
-        metadata["buttons"] = translation_payload.get("buttons")
-        metadata["header"] = translation_payload.get("header")
+        metadata = self.metadata_handler.post_process_translation(
+            metadata, translation_payload
+        )
 
-        start_condition = next(
-            (
-                param.get("value")
-                for param in payload.get("parameters")
-                if param.get("name") == "start_condition"
-            ),
+        start_condition = self.metadata_handler.extract_start_condition(
+            payload.get("parameters", []),
             None,
         )
 
-        variables = next(
-            (
-                param.get("value")
-                for param in payload.get("parameters")
-                if param.get("name") == "variables"
-            ),
+        variables = self.metadata_handler.extract_variables(
+            payload.get("parameters", []),
             None,
         )
 
