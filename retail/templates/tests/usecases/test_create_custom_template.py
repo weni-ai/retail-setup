@@ -352,8 +352,10 @@ class CreateCustomTemplateUseCaseTest(TestCase):
 
         self.use_case.execute(self.valid_payload)
 
-        self.assertEqual(original_translation["buttons"][0]["type"], "QUICK_REPLY")
-        self.assertEqual(original_translation["header"]["text"], "image_data")
+        self.assertEqual(
+            original_translation["buttons"][0]["button_type"], "QUICK_REPLY"
+        )
+        self.assertEqual(original_translation["header"]["example"], "image_data")
 
     @patch("retail.templates.usecases.create_custom_template.task_create_template")
     def test_execute_multiple_parameters_with_same_name(self, mock_task):

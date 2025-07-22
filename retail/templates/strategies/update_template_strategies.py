@@ -65,6 +65,7 @@ class UpdateTemplateStrategy(ABC):
             template.metadata.get("category"),
         )
         translation_payload = self.template_adapter.adapt(updated_metadata)
+
         updated_metadata = self.metadata_handler.post_process_translation(
             updated_metadata, translation_payload
         )
