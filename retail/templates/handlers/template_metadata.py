@@ -1,3 +1,5 @@
+import copy
+
 from typing import List, Optional, Dict, Any
 
 from retail.interfaces.services.aws_s3 import S3ServiceInterface
@@ -30,8 +32,8 @@ class TemplateMetadataHandler:
     def post_process_translation(
         self, metadata: Dict[str, Any], translation_payload: Dict[str, Any]
     ) -> dict:
-        metadata = dict(metadata)
-        translation_payload_copy = dict(translation_payload)
+        metadata = copy.deepcopy(metadata)
+        translation_payload_copy = copy.deepcopy(translation_payload)
 
         if "buttons" in translation_payload_copy:
             metadata["buttons"] = translation_payload_copy["buttons"]
