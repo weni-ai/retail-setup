@@ -7,8 +7,6 @@ from retail.services.integrations.service import IntegrationsService
 
 from typing import Optional, List, Dict, Any
 
-from retail.templates.usecases.update_template import UpdateTemplateUseCase
-
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +20,8 @@ def task_create_template(
     version_uuid: str,
     template_translation: dict,
 ):
+    from retail.templates.usecases.update_template import UpdateTemplateUseCase
+
     try:
         integrations_service = IntegrationsService()
 
@@ -64,6 +64,8 @@ def task_create_library_template(
     gallery_version: str,
     library_template_button_inputs: Optional[List[Dict[str, Any]]] = None,
 ):
+    from retail.templates.usecases.update_template import UpdateTemplateUseCase
+
     payload = {
         "library_template_name": library_template_name,
         "name": name,
