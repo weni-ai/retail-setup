@@ -274,7 +274,6 @@ if USE_LAMBDA:
 
 if USE_S3:
     AWS_STORAGE_BUCKET_NAME = env.str("AWS_STORAGE_BUCKET_NAME")
-    AWS_STORAGE_ROLE = env.str("AWS_STORAGE_ROLE")
 
 USE_META = env.bool("USE_LAMBDA", default=False)
 
