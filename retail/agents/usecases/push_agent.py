@@ -100,7 +100,7 @@ class PushAgentUseCase:
         return agent
 
     def _create_function_name(self, agent_name: str, agent_uuid: UUID) -> str:
-        simple_hash = f"{agent_name}_{str(agent_uuid.hex)}"
+        simple_hash = f"retail-setup-{agent_name}-{str(agent_uuid.hex)}"
         return simple_hash
 
     def _update_or_create_pre_approved_templates(

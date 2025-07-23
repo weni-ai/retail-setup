@@ -21,6 +21,10 @@ from retail.templates.models import Template
 from weni_datalake_sdk.clients.client import send_commerce_webhook_data
 from weni_datalake_sdk.paths.commerce_webhook import CommerceWebhookPath
 
+from retail.agents.handlers.cache.integrated_agent_webhook import (
+    IntegratedAgentCacheHandler,
+    IntegratedAgentCacheHandlerRedis,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +46,10 @@ class LambdaResponseStatus(IntEnum):
 
 
 class LambdaHandler:
-    def __init__(self, lambda_service: Optional[AwsLambdaServiceInterface] = None):
+    def __init__(
+        self,
+        lambda_service: Optional[AwsLambdaServiceInterface] = None,
+    ):
         self.lambda_service = lambda_service or AwsLambdaService()
 
     def invoke(
@@ -333,9 +340,11 @@ class AgentWebhookUseCase:
         self,
         lambda_handler: Optional[LambdaHandler] = None,
         broadcast_handler: Optional[BroadcastHandler] = None,
+        cache_handler: Optional[IntegratedAgentCacheHandler] = None,
     ):
         self.lambda_handler = lambda_handler or LambdaHandler()
         self.broadcast_handler = broadcast_handler or BroadcastHandler()
+        self.cache_handler = cache_handler or IntegratedAgentCacheHandlerRedis()
         self.IGNORE_INTEGRATED_AGENT_UUID = "d30bcce8-ce67-4677-8a33-c12b62a51d4f"
 
     def _get_integrated_agent(self, uuid: UUID):
@@ -344,8 +353,15 @@ class AgentWebhookUseCase:
             logger.info(f"Integrated agent is blocked: {uuid}")
             return None
 
+        cached_integrated_agent = self.cache_handler.get_cached_agent(uuid)
+
+        if cached_integrated_agent is not None:
+            return cached_integrated_agent
+
         try:
-            return IntegratedAgent.objects.get(uuid=uuid, is_active=True)
+            db_integrated_agent = IntegratedAgent.objects.get(uuid=uuid, is_active=True)
+            self.cache_handler.set_cached_agent(db_integrated_agent)
+            return db_integrated_agent
         except IntegratedAgent.DoesNotExist:
             logger.info(f"Integrated agent not found: {uuid}")
             return None
@@ -376,10 +392,14 @@ class AgentWebhookUseCase:
     def _set_project_rules(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
     ) -> None:
-        rule_codes = integrated_agent.templates.filter(
+        templates = integrated_agent.templates.filter(
             is_active=True, parent__isnull=True
-        ).values_list("rule_code", flat=True)
-        project_rules = [{"source": rule_code} for rule_code in rule_codes if rule_code]
+        ).values("rule_code", "name")
+        project_rules = [
+            {"source": template["rule_code"], "template": template["name"]}
+            for template in templates
+            if template["rule_code"]
+        ]
         data.set_project_rules(project_rules)
 
     def _process_lambda_response(
