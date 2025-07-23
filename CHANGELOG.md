@@ -1,3 +1,18 @@
+# 3.12.0
+
+## *Feature*
+  - feat: support image in template header
+
+# 3.11.2
+
+## *Fix*
+  - fix: send template name in custom rule
+
+# 3.11.1
+
+## *Feature*
+  - feat: add logger error when creating lambda fails
+
 # 3.11.0
 
 ## *Feature*
