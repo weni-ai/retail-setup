@@ -307,10 +307,14 @@ class AgentWebhookUseCase:
     def _set_project_rules(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
     ) -> None:
-        rule_codes = integrated_agent.templates.filter(
+        templates = integrated_agent.templates.filter(
             is_active=True, parent__isnull=True
-        ).values_list("rule_code", flat=True)
-        project_rules = [{"source": rule_code} for rule_code in rule_codes if rule_code]
+        ).values("rule_code", "name")
+        project_rules = [
+            {"source": template["rule_code"], "template": template["name"]}
+            for template in templates
+            if template["rule_code"]
+        ]
         data.set_project_rules(project_rules)
 
     def _process_lambda_response(
