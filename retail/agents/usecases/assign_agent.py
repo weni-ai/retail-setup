@@ -47,10 +47,10 @@ class AssignAgentUseCase:
         integrated_agent, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
             project=project,
-            ignore_templates=ignore_templates_slugs,
             is_active=True,
             defaults={
                 "channel_uuid": channel_uuid,
+                "ignore_templates": ignore_templates_slugs,
             },
         )
 
