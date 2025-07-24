@@ -583,7 +583,7 @@ class BroadcastHandlerTest(TestCase):
                 data=data,
                 channel_uuid=str(self.mock_agent.channel_uuid),
                 project_uuid=str(self.mock_agent.project.uuid),
-                template_name="order_update_v2",
+                template=mock_template,
             )
 
     def test_build_message_template_not_found(self):
