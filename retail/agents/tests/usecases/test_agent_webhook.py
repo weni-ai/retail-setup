@@ -515,16 +515,16 @@ class BroadcastHandlerTest(TestCase):
         mock_template.current_version.template_name = "order_update_v2"
         self.mock_agent.templates.get.return_value = mock_template
 
-        result = self.handler.get_current_template_name(self.mock_agent, data)
+        result = self.handler.get_current_template(self.mock_agent, data)
 
-        self.assertEqual(result, "order_update_v2")
+        self.assertEqual(result, mock_template)
         self.mock_agent.templates.get.assert_called_once_with(name="order_update")
 
     def test_get_current_template_name_not_found(self):
         data = {"template": "non_existent_template"}
         self.mock_agent.templates.get.side_effect = Template.DoesNotExist()
 
-        result = self.handler.get_current_template_name(self.mock_agent, data)
+        result = self.handler.get_current_template(self.mock_agent, data)
 
         self.assertIsNone(result)
 
@@ -534,7 +534,7 @@ class BroadcastHandlerTest(TestCase):
         mock_template.current_version = None
         self.mock_agent.templates.get.return_value = mock_template
 
-        result = self.handler.get_current_template_name(self.mock_agent, data)
+        result = self.handler.get_current_template(self.mock_agent, data)
 
         self.assertFalse(result)
         self.mock_agent.templates.get.assert_called_once_with(name="order_update")

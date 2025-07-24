@@ -100,7 +100,7 @@ def build_broadcast_template_message(
         ]
 
     if s3_key is not None:
-        message["msg"]["attachment"] = [
+        message["msg"]["attachments"] = [
             f"img/jpeg:{s3_service.generate_presigned_url(s3_key)}"
         ]
 

@@ -208,20 +208,6 @@ class BroadcastHandler:
         response = self.flows_service.send_whatsapp_broadcast(message)
         logger.info(f"Broadcast message sent: {response}")
 
-    def get_current_template_name(
-        self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
-    ) -> Optional[str | bool]:
-        """Get current template name from integrated agent templates."""
-        template_name = data.get("template")
-        try:
-            template = integrated_agent.templates.get(name=template_name)
-            if template.current_version is None:
-                logger.info(f"Template {template_name} has no current version.")
-                return False
-            return template.current_version.template_name
-        except Template.DoesNotExist:
-            return None
-
     def get_current_template(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> Optional[str | bool]:
