@@ -49,9 +49,9 @@ def build_broadcast_template_message(
     button = template_variables.pop("button", None)
 
     # Extract image s3 key if present
-    header = template.metadata.get("header", {})
+    header = template.metadata.get("header", None)
     s3_key = None
-    if header["header_type"] == "IMAGE":
+    if header and header["header_type"] == "IMAGE":
         s3_key = header["text"]
 
     # Sort template variables by numeric key
@@ -100,7 +100,7 @@ def build_broadcast_template_message(
         ]
 
     if s3_key is not None:
-        message["msg"]["attachment"] = [
+        message["msg"]["attachments"] = [
             f"img/jpeg:{s3_service.generate_presigned_url(s3_key)}"
         ]
 
