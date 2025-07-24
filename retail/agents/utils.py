@@ -1,5 +1,7 @@
 import logging
 
+import mimetypes
+
 from typing import Any, Dict, Optional
 
 from retail.templates.models import Template
@@ -100,8 +102,20 @@ def build_broadcast_template_message(
         ]
 
     if s3_key is not None:
+        content_type, _ = mimetypes.guess_type(s3_key)
+
+        if content_type and content_type.startswith("image/"):
+            image_subtype = content_type.split("/")[-1]
+            if image_subtype == "jpg":
+                image_subtype = "jpeg"
+        else:
+            image_subtype = "jpeg"
+            logger.warning(
+                f"Could not detect image type for {s3_key}, using jpeg as fallback"
+            )
+
         message["msg"]["attachments"] = [
-            f"img/jpeg:{s3_service.generate_presigned_url(s3_key)}"
+            f"img/{image_subtype}:{s3_service.generate_presigned_url(s3_key)}"
         ]
 
     return message
