@@ -311,8 +311,9 @@ class BroadcastHandler:
 
         # Extract error information if present (always return list)
         error_data = []
-        if response and "error" in response:
-            error_data = [response["error"]]
+        print(f"Response broadcast: {response}")
+        # if response and "error" in response:
+        #     error_data = [response["error"]]
 
         # Build structured data to protobuf schema
         event_data = {
