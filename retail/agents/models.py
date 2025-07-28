@@ -28,6 +28,8 @@ class Agent(models.Model):
     credentials = models.JSONField(null=True, default=dict)
     language = models.CharField(max_length=5, default="pt_BR")
     examples = models.JSONField(null=True, default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.name}/{self.slug}"
@@ -48,6 +50,8 @@ class IntegratedAgent(models.Model):
     config = models.JSONField(default=dict)
     global_rule_code = models.TextField(null=True)
     global_rule_prompt = models.TextField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.agent} - {self.project}"

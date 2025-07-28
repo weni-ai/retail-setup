@@ -31,6 +31,8 @@ class Template(models.Model):
     start_condition = models.TextField(null=True, blank=True)
     display_name = models.TextField(null=True, blank=True)
     variables = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     @property
     def is_custom(self) -> bool:
