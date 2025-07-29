@@ -720,5 +720,39 @@ class BroadcastHandlerTest(TestCase):
         event_data = audit_calls[0]
 
         self.assertEqual(event_data["status"], 2)  # PREPROCESSING_FAILED
-        self.assertEqual(event_data["error"], ["Some error occurred"])  # Error as list
+        self.assertEqual(
+            event_data["error"], {"message": "Some error occurred"}
+        )  # Error as dict
+        self.assertEqual(event_data["data"], {"event_type": "template_broadcast_sent"})
+
+    def test_register_broadcast_event_with_string_error(self):
+        """Test that _register_broadcast_event correctly handles string error data."""
+        message = {
+            "msg": {
+                "template": {"name": "message_template", "variables": ["var1", "var2"]}
+            },
+            "urns": ["whatsapp:123456789"],
+        }
+        response = {"error": "Simple string error"}
+        mock_agent = MagicMock()
+        mock_agent.project.uuid = "project-uuid"
+        mock_agent.agent.uuid = "agent-uuid"
+
+        # Capture the data passed to audit_func
+        audit_calls = []
+
+        def mock_audit_func(path, data):
+            audit_calls.append(data)
+
+        self.mock_audit.side_effect = mock_audit_func
+
+        self.handler._register_broadcast_event(message, response, mock_agent, None)
+
+        # Verify that string error was captured correctly
+        self.assertEqual(len(audit_calls), 1)
+        event_data = audit_calls[0]
+
+        self.assertEqual(
+            event_data["error"], {"message": "Simple string error"}
+        )  # String error as dict
         self.assertEqual(event_data["data"], {"event_type": "template_broadcast_sent"})
