@@ -295,10 +295,12 @@ class BroadcastHandler:
         elif message and "urns" in message and message["urns"]:
             contact_urn = message["urns"][0]
 
-        # Extract template variables from message (always return list)
-        template_variables = []
+        # Extract template variables from message (always return dict)
+        template_variables = {}
         if message and "msg" in message and "template" in message["msg"]:
-            template_variables = message["msg"]["template"].get("variables", [])
+            variables = message["msg"]["template"].get("variables", [])
+            # Convert list to dict with numeric keys
+            template_variables = {str(i): var for i, var in enumerate(variables, 1)}
 
         # Extract error information if present (always return dict)
         error_data = {}
