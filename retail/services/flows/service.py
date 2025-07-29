@@ -21,7 +21,7 @@ class FlowsService:
             )
             return None
 
-    def send_whatsapp_broadcast(self, payload: dict) -> bool:
+    def send_whatsapp_broadcast(self, payload: dict) -> dict:
         """
         Send a WhatsApp broadcast message.
 
