@@ -5,7 +5,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.exceptions import NotFound
 
-from retail.agents.exceptions import AgentFileNotSent
+from retail.agents.exceptions import AgentFileNotSent, InvalidExamplesFormat
 from retail.agents.models import Agent, PreApprovedTemplate
 from retail.agents.usecases import PushAgentUseCase
 from retail.projects.models import Project
@@ -34,6 +34,53 @@ class PushAgentUseCaseTest(TestCase):
         with self.assertRaises(NotFound):
             self.usecase._get_project(str(uuid4()))
 
+    def test_validate_examples_format_valid(self):
+        valid_examples = [
+            {"urn": "test:urn:1", "data": {"key": "value"}},
+            {"urn": "test:urn:2", "data": {"another": "data"}},
+        ]
+        self.usecase._validate_examples_format(valid_examples)
+
+    def test_validate_examples_format_empty_list(self):
+        empty_examples = []
+        self.usecase._validate_examples_format(empty_examples)
+
+    def test_validate_examples_format_not_list(self):
+        invalid_examples = {"not": "a_list"}
+        with self.assertRaises(InvalidExamplesFormat) as context:
+            self.usecase._validate_examples_format(invalid_examples)
+        self.assertIn("Examples must be a list of objects", str(context.exception))
+
+    def test_validate_examples_format_item_not_dict(self):
+        invalid_examples = ["not_a_dict", {"urn": "test", "data": {}}]
+        with self.assertRaises(InvalidExamplesFormat) as context:
+            self.usecase._validate_examples_format(invalid_examples)
+        self.assertIn("must be an object (dictionary)", str(context.exception))
+
+    def test_validate_examples_format_missing_urn(self):
+        invalid_examples = [{"data": {"key": "value"}}]
+        with self.assertRaises(InvalidExamplesFormat) as context:
+            self.usecase._validate_examples_format(invalid_examples)
+        self.assertIn("must have 'urn' key", str(context.exception))
+
+    def test_validate_examples_format_urn_not_string(self):
+        invalid_examples = [{"urn": 123, "data": {"key": "value"}}]
+        with self.assertRaises(InvalidExamplesFormat) as context:
+            self.usecase._validate_examples_format(invalid_examples)
+        self.assertIn("'urn' must be a string", str(context.exception))
+
+    def test_validate_examples_format_missing_data(self):
+        invalid_examples = [{"urn": "test:urn"}]
+        with self.assertRaises(InvalidExamplesFormat) as context:
+            self.usecase._validate_examples_format(invalid_examples)
+        self.assertIn("must have 'data' key", str(context.exception))
+
+    def test_validate_examples_format_data_not_dict(self):
+        invalid_examples = [{"urn": "test:urn", "data": "not_a_dict"}]
+        with self.assertRaises(InvalidExamplesFormat) as context:
+            self.usecase._validate_examples_format(invalid_examples)
+        self.assertIn("'data' must be a dictionary", str(context.exception))
+
     def test_update_or_create_agent_creates(self):
         payload = {
             "name": self.agent_name,
@@ -58,6 +105,56 @@ class PushAgentUseCaseTest(TestCase):
         self.assertEqual(agent.language, "pt_BR")
         self.assertEqual(agent.project, self.project)
         self.assertEqual(agent.credentials, {})
+
+    def test_update_or_create_agent_with_valid_examples(self):
+        payload = {
+            "name": self.agent_name,
+            "language": "pt_BR",
+            "description": self.agent_description,
+            "rules": {
+                "r1": {
+                    "display_name": "d",
+                    "template": "template1",
+                    "start_condition": "cond",
+                    "source": {"entrypoint": "", "path": ""},
+                }
+            },
+            "pre_processing": {
+                "result_example": [
+                    {"urn": "test:urn:1", "data": {"key": "value"}},
+                    {"urn": "test:urn:2", "data": {"another": "data"}},
+                ]
+            },
+        }
+        agent, created = self.usecase._update_or_create_agent(
+            payload, self.agent_slug, self.project
+        )
+        self.assertTrue(created)
+        self.assertEqual(len(agent.examples), 2)
+        self.assertEqual(agent.examples[0]["urn"], "test:urn:1")
+
+    def test_update_or_create_agent_with_invalid_examples(self):
+        payload = {
+            "name": self.agent_name,
+            "language": "pt_BR",
+            "description": self.agent_description,
+            "rules": {
+                "r1": {
+                    "display_name": "d",
+                    "template": "template1",
+                    "start_condition": "cond",
+                    "source": {"entrypoint": "", "path": ""},
+                }
+            },
+            "pre_processing": {
+                "result_example": [
+                    {"urn": "test:urn:1", "data": {"key": "value"}},
+                    {"missing_data": "invalid"},
+                ]
+            },
+        }
+        with self.assertRaises(InvalidExamplesFormat):
+            self.usecase._update_or_create_agent(payload, self.agent_slug, self.project)
 
     def test_update_or_create_agent_updates_existing(self):
         agent = Agent.objects.create(
