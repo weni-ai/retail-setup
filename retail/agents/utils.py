@@ -101,7 +101,7 @@ def build_broadcast_template_message(
             }
         ]
 
-    if s3_key is not None:
+    if s3_key is not None and s3_key.strip():
         content_type, _ = mimetypes.guess_type(s3_key)
 
         if content_type and content_type.startswith("image/"):
