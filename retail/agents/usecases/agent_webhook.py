@@ -332,6 +332,8 @@ class BroadcastHandler:
         if lambda_data and "status" in lambda_data:
             event_data["status"] = lambda_data["status"]
 
+        print(f"Sending event data: {event_data}")
+        print(f"CommerceWebhookPath: {CommerceWebhookPath}")
         self.audit_func(CommerceWebhookPath, event_data)
 
 

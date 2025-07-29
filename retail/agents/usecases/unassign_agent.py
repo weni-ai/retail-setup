@@ -55,7 +55,8 @@ class UnassignAgentUseCase:
             "project": project_uuid,
             "agent": str(agent.uuid),
         }
-
+        print(f"Sending event data: {event_data}")
+        print(f"CommerceWebhookPath: {CommerceWebhookPath}")
         self.audit_func(CommerceWebhookPath, event_data)
         logger.info(f"Agent unassignment event registered for agent {agent.uuid}")
 

@@ -32,8 +32,7 @@ class FlowsService:
         Returns:
             dict: API response from the Flows service.
         """
-        response = self.client.send_whatsapp_broadcast(payload=payload)
-        return response.status_code == 200
+        return self.client.send_whatsapp_broadcast(payload=payload)
 
     def send_purchase_event(self, payload: dict) -> dict:
         """
