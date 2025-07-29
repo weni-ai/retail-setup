@@ -115,7 +115,7 @@ def build_broadcast_template_message(
             )
 
         message["msg"]["attachments"] = [
-            f"img/{image_subtype}:{s3_service.generate_presigned_url(s3_key)}"
+            f"image/{image_subtype}:{s3_service.generate_presigned_url(s3_key)}"
         ]
 
     return message
