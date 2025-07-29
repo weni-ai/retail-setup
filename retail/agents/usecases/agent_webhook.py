@@ -300,10 +300,14 @@ class BroadcastHandler:
         if message and "msg" in message and "template" in message["msg"]:
             template_variables = message["msg"]["template"].get("variables", [])
 
-        # Extract error information if present (always return list)
-        error_data = []
+        # Extract error information if present (always return dict)
+        error_data = {}
         if response and "error" in response:
-            error_data = [response["error"]]
+            error = response["error"]
+            if isinstance(error, dict):
+                error_data = error
+            else:
+                error_data = {"message": str(error)}
 
         # Build structured data to protobuf schema
         event_data = {
