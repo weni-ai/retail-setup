@@ -295,11 +295,9 @@ class BroadcastHandler:
         elif message and "urns" in message and message["urns"]:
             contact_urn = message["urns"][0]
 
-        # Extract template variables from lambda data or message (always return list)
+        # Extract template variables from message (always return list)
         template_variables = []
-        if lambda_data and "template_variables" in lambda_data:
-            template_variables = lambda_data["template_variables"]
-        elif message and "msg" in message and "template" in message["msg"]:
+        if message and "msg" in message and "template" in message["msg"]:
             template_variables = message["msg"]["template"].get("variables", [])
 
         # Extract error information if present (always return list)

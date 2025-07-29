@@ -556,7 +556,7 @@ class BroadcastHandlerTest(TestCase):
             message, response, mock_agent, lambda_data
         )
 
-        # Verify that lambda_data was used instead of message data
+        # Verify that lambda_data was used for status, template, contact_urn, but template_variables come from message
         self.assertEqual(len(audit_calls), 1)
         event_data = audit_calls[0]
 
@@ -566,8 +566,8 @@ class BroadcastHandlerTest(TestCase):
             event_data["contact_urn"], "whatsapp:987654321"
         )  # From lambda_data
         self.assertEqual(
-            event_data["template_variables"], ["var1", "value1", "var2", "value2"]
-        )  # From lambda_data
+            event_data["template_variables"], ["var1", "var2"]
+        )  # From message
         self.assertEqual(event_data["project"], "project-uuid")
         self.assertEqual(event_data["agent"], "agent-uuid")
         self.assertEqual(event_data["request"], message)
