@@ -1,5 +1,9 @@
 import logging
 
+import hashlib
+
+import base64
+
 from typing import Any, Dict, List, Optional, TypedDict
 
 from uuid import UUID
@@ -134,8 +138,17 @@ class PushAgentUseCase:
         return agent
 
     def _create_function_name(self, agent_name: str, agent_uuid: UUID) -> str:
-        simple_hash = f"retail-setup-{agent_name}-{str(agent_uuid.hex)}"
-        return simple_hash
+        input_hash_string = f"{agent_name}-{str(agent_uuid.hex)}"
+
+        hash_object = hashlib.sha256(input_hash_string.encode("utf-8"))
+        hash_bytes = hash_object.digest()
+
+        base64_hash = base64.b64encode(hash_bytes).decode("utf-8")
+        only_alphanumeric_hash = "".join(c.lower() for c in base64_hash if c.isalnum())
+
+        hash_13_digits = only_alphanumeric_hash[:13]
+
+        return f"retail-setup-{hash_13_digits}"
 
     def _update_or_create_pre_approved_templates(
         self, agent: Agent, agent_payload: AgentItemsData

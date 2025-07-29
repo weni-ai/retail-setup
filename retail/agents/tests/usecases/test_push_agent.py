@@ -245,8 +245,73 @@ class PushAgentUseCaseTest(TestCase):
 
     def test_create_function_name(self):
         name = self.usecase._create_function_name(self.agent_slug, self.agent_uuid)
-        self.assertIn(self.agent_slug, name)
-        self.assertIn(self.agent_uuid.hex, name)
+
+        self.assertTrue(name.startswith("retail-setup-"))
+
+        hash_part = name.replace("retail-setup-", "")
+        self.assertEqual(len(hash_part), 13)
+        self.assertTrue(hash_part.isalnum())
+        self.assertTrue(hash_part.islower())
+
+        self.assertLessEqual(len(name), 64)
+
+    def test_create_function_name_different_inputs_different_hashes(self):
+        different_uuid = uuid4()
+        different_slug = "different-agent"
+
+        name_original = self.usecase._create_function_name(
+            self.agent_slug, self.agent_uuid
+        )
+        name_diff_uuid = self.usecase._create_function_name(
+            self.agent_slug, different_uuid
+        )
+        name_diff_slug = self.usecase._create_function_name(
+            different_slug, self.agent_uuid
+        )
+
+        self.assertNotEqual(name_original, name_diff_uuid)
+        self.assertNotEqual(name_original, name_diff_slug)
+        self.assertNotEqual(name_diff_uuid, name_diff_slug)
+
+        for name in [name_original, name_diff_uuid, name_diff_slug]:
+            self.assertTrue(name.startswith("retail-setup-"))
+            hash_part = name.replace("retail-setup-", "")
+            self.assertEqual(len(hash_part), 13)
+            self.assertTrue(hash_part.isalnum())
+
+    def test_create_function_name_hash_only_alphanumeric_characters(self):
+        import string
+
+        test_cases = [
+            "agent-with-dashes",
+            "agent_with_underscores",
+            "AGENT.WITH.DOTS",
+            "agent@with#special$chars%",
+            "agent with spaces",
+            "agênt-wïth-àccénts",
+            "агент-кириллица",
+            "エージェント",
+        ]
+
+        valid_chars = set(string.ascii_lowercase + string.digits)
+
+        for agent_name in test_cases:
+            name = self.usecase._create_function_name(agent_name, self.agent_uuid)
+
+            self.assertTrue(name.startswith("retail-setup-"))
+
+            hash_part = name.replace("retail-setup-", "")
+
+            self.assertEqual(len(hash_part), 13)
+
+            for char in hash_part:
+                self.assertIn(char, valid_chars)
+
+            self.assertTrue(
+                hash_part.islower()
+                or hash_part.isdigit()
+                or all(c.islower() or c.isdigit() for c in hash_part)
+            )
 
     def test_create_pre_approved_templates_creates_and_updates(self):
         agent = Agent.objects.create(
