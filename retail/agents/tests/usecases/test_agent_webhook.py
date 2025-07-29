@@ -636,7 +636,7 @@ class BroadcastHandlerTest(TestCase):
             event_data["contact_urn"], "whatsapp:987654321"
         )  # From lambda_data
         self.assertEqual(
-            event_data["template_variables"], ["var1", "var2"]
+            event_data["template_variables"], {"1": "var1", "2": "var2"}
         )  # From message
         self.assertEqual(event_data["project"], "project-uuid")
         self.assertEqual(event_data["agent"], "agent-uuid")
@@ -677,7 +677,7 @@ class BroadcastHandlerTest(TestCase):
             event_data["contact_urn"], "whatsapp:123456789"
         )  # From message
         self.assertEqual(
-            event_data["template_variables"], ["var1", "var2"]
+            event_data["template_variables"], {"1": "var1", "2": "var2"}
         )  # From message
         self.assertEqual(event_data["project"], "project-uuid")
         self.assertEqual(event_data["agent"], "agent-uuid")
