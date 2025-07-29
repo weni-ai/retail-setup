@@ -1,14 +1,23 @@
 import logging
 
-from typing import Any, Dict
+import mimetypes
 
+from typing import Any, Dict, Optional
+
+from retail.templates.models import Template
+from retail.interfaces.services.aws_s3 import S3ServiceInterface
+from retail.services.aws_s3.service import S3Service
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
 logger = logging.getLogger(__name__)
 
 
 def build_broadcast_template_message(
-    data: Dict[str, Any], channel_uuid: str, project_uuid: str, template_name: str
+    data: Dict[str, Any],
+    channel_uuid: str,
+    project_uuid: str,
+    template: Template,
+    s3_service: Optional[S3ServiceInterface] = None,
 ) -> Dict[str, Any]:
     """
     Builds a WhatsApp broadcast message payload based on a template and variable input.
@@ -32,12 +41,20 @@ def build_broadcast_template_message(
         Dict[str, Any]: A formatted message dictionary for the Flows Broadcast API.
         Returns an empty dictionary if required fields are missing or invalid.
     """
+    s3_service = s3_service or S3Service()
     template_variables = data.get("template_variables", {})
     contact_urn = data.get("contact_urn")
     language = data.get("language", "pt-BR")
+    template_name = template.current_version.template_name
 
     # Extract and remove button if present
     button = template_variables.pop("button", None)
+
+    # Extract image s3 key if present
+    header = template.metadata.get("header", None)
+    s3_key = None
+    if header and header["header_type"] == "IMAGE":
+        s3_key = header["text"]
 
     # Sort template variables by numeric key
     sorted_keys = []
@@ -82,6 +99,23 @@ def build_broadcast_template_message(
                 "sub_type": "url",
                 "parameters": [{"type": "text", "text": button}],
             }
+        ]
+
+    if s3_key is not None and s3_key.strip():
+        content_type, _ = mimetypes.guess_type(s3_key)
+
+        if content_type and content_type.startswith("image/"):
+            image_subtype = content_type.split("/")[-1]
+            if image_subtype == "jpg":
+                image_subtype = "jpeg"
+        else:
+            image_subtype = "jpeg"
+            logger.warning(
+                f"Could not detect image type for {s3_key}, using jpeg as fallback"
+            )
+
+        message["msg"]["attachments"] = [
+            f"image/{image_subtype}:{s3_service.generate_presigned_url(s3_key)}"
         ]
 
     return message
