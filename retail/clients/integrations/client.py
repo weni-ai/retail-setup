@@ -173,3 +173,25 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
         )
 
         return response.json()
+
+    def fetch_templates_from_user(self, app_uuid: str) -> List[Dict]:
+        all_templates = []
+        page = 1
+        page_size = 15
+
+        while True:
+            url = f"{self.base_url}/api/v1/apptypes/wpp-cloud/apps/{app_uuid}/templates/?page={page}&page_size={page_size}"
+
+            response = self.make_request(
+                url, method="GET", headers=self.authentication_instance.headers
+            ).json()
+
+            current_results = response.get("results", [])
+            all_templates.extend(current_results)
+
+            if not response.get("next"):
+                break
+
+            page += 1
+
+        return all_templates

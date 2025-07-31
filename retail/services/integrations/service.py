@@ -342,3 +342,38 @@ class IntegrationsService:
         return self.client.fetch_template_metrics(
             app_uuid, template_versions, start, end
         )
+
+    def fetch_templates_from_user(
+        self, app_uuid: str, templates_names: List[str], language: str
+    ) -> Dict[str, Dict[str, Any]]:
+        def adapt_translation_to_gallery_format(
+            translation: Dict[str, Any], category: str
+        ) -> Dict[str, Any]:
+            return {
+                "header": translation.get("header"),
+                "body": translation.get("body"),
+                "footer": translation.get("footer"),
+                "buttons": [
+                    {"type": b["button_type"], "url": b["url"]}
+                    for b in translation.get("buttons", [])
+                ],
+                "body_params": translation.get("body_params"),
+                "category": category,
+                "language": language,
+            }
+
+        data = self.client.fetch_templates_from_user(app_uuid)
+        templates = filter(lambda obj: obj.get("name") in templates_names, data)
+
+        translations_by_name = {}
+
+        for template in templates:
+            category = template.get("category")
+            template_name = template.get("name")
+            for translation in template.get("translations", []):
+                if translation.get("language") == language:
+                    translations_by_name[
+                        template_name
+                    ] = adapt_translation_to_gallery_format(translation, category)
+
+        return translations_by_name

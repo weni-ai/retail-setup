@@ -1,15 +1,24 @@
-from typing import List, TypedDict, Mapping, Any
+import logging
+
+from typing import List, TypedDict, Mapping, Any, Optional
 
 from uuid import UUID
+
+from django.db import transaction
 
 from rest_framework.exceptions import NotFound, ValidationError
 
 from retail.agents.models import Agent, Credential, IntegratedAgent, PreApprovedTemplate
+from retail.services.integrations.service import IntegrationsService
+from retail.interfaces.services.integrations import IntegrationsServiceInterface
 from retail.projects.models import Project
 from retail.templates.usecases.create_library_template import (
     LibraryTemplateData,
     CreateLibraryTemplateUseCase,
 )
+from retail.templates.usecases._base_template_creator import TemplateBuilderMixin
+
+logger = logging.getLogger(__name__)
 
 
 class MetaButtonFormat(TypedDict):
@@ -29,6 +38,12 @@ class IntegrationsButtonFormat(TypedDict):
 
 
 class AssignAgentUseCase:
+    def __init__(
+        self,
+        integrations_service: Optional[IntegrationsServiceInterface] = None,
+    ):
+        self.integrations_service = integrations_service or IntegrationsService()
+
     def _get_project(self, project_uuid: UUID):
         try:
             return Project.objects.get(uuid=project_uuid)
@@ -88,21 +103,15 @@ class AssignAgentUseCase:
                 },
             )
 
-    def _create_templates(
+    def _create_valid_templates(
         self,
         integrated_agent: IntegratedAgent,
-        pre_approveds: List[str],
+        valid_pre_approveds: List[PreApprovedTemplate],
         project_uuid: UUID,
         app_uuid: UUID,
-        ignore_templates: List[str],
     ) -> None:
         create_library_use_case = CreateLibraryTemplateUseCase()
-        pre_approveds = pre_approveds.exclude(uuid__in=ignore_templates)
-
-        for pre_approved in pre_approveds:
-            if not pre_approved.is_valid:
-                continue
-
+        for pre_approved in valid_pre_approveds:
             metadata = pre_approved.metadata or {}
             data: LibraryTemplateData = {
                 "template_name": pre_approved.name,
@@ -131,6 +140,76 @@ class AssignAgentUseCase:
             integrated_agent.ignore_templates.append(template.parent.slug)
             integrated_agent.save(update_fields=["ignore_templates"])
 
+    def _create_invalid_templates(
+        self,
+        integrated_agent: IntegratedAgent,
+        invalid_pre_approveds: List[PreApprovedTemplate],
+        project_uuid: UUID,
+        app_uuid: UUID,
+    ) -> None:
+        logger.info(
+            "Fetching user templates in integrations service (non-pre-approved)..."
+        )
+
+        template_builder = TemplateBuilderMixin()
+        language = integrated_agent.agent.language
+
+        translations_by_name = self.integrations_service.fetch_templates_from_user(
+            app_uuid,
+            [pre_approved.name for pre_approved in invalid_pre_approveds],
+            language,
+        )
+
+        logger.info(
+            f"Found {len(translations_by_name)} templates in integrations service (non-pre-approved)"
+        )
+
+        for pre_approved in invalid_pre_approveds:
+            translation = translations_by_name.get(pre_approved.name)
+            if translation is not None:
+                template, version = template_builder.build_template_and_version(
+                    payload={
+                        "template_name": pre_approved.name,
+                        "app_uuid": app_uuid,
+                        "project_uuid": project_uuid,
+                    },
+                    integrated_agent=integrated_agent,
+                )
+                template.metadata = translation
+                template.parent = pre_approved
+                template.start_condition = pre_approved.start_condition
+                template.display_name = pre_approved.display_name
+                template.current_version = version
+                template.save()
+
+                version.status = "APPROVED"
+                version.save()
+
+    def _create_templates(
+        self,
+        integrated_agent: IntegratedAgent,
+        pre_approveds: List[PreApprovedTemplate],
+        project_uuid: UUID,
+        app_uuid: UUID,
+        ignore_templates: List[str],
+    ) -> None:
+        pre_approveds = pre_approveds.exclude(uuid__in=ignore_templates)
+        valid_pre_approveds = pre_approveds.filter(is_valid=True)
+        invalid_pre_approveds = pre_approveds.filter(is_valid=False)
+
+        self._create_valid_templates(
+            integrated_agent,
+            valid_pre_approveds,
+            project_uuid,
+            app_uuid,
+        )
+        self._create_invalid_templates(
+            integrated_agent,
+            invalid_pre_approveds,
+            project_uuid,
+            app_uuid,
+        )
+
     def _get_ignore_templates(
         self, agent: Agent, include_templates: List[str]
     ) -> List[str]:
@@ -151,6 +230,7 @@ class AssignAgentUseCase:
         ).values_list("slug", flat=True)
         return list(slugs)
 
+    @transaction.atomic
     def execute(
         self,
         agent: Agent,
