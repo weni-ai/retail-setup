@@ -46,3 +46,7 @@ class IntegrationsClientInterface(ABC):
         self, app_uuid: str, template_versions: List[str], start: str, end: str
     ) -> Dict:
         pass
+
+    @abstractmethod
+    def fetch_templates_from_user(self, app_uuid: str) -> List[Dict[str, Any]]:
+        pass

@@ -371,9 +371,12 @@ class IntegrationsService:
             category = template.get("category")
             template_name = template.get("name")
             for translation in template.get("translations", []):
-                if translation.get("language") == language:
-                    translations_by_name[
-                        template_name
-                    ] = adapt_translation_to_gallery_format(translation, category)
+                if (
+                    translation.get("language") == language
+                    and translation.get("status") == "APPROVED"
+                ):
+                    translations_by_name[template_name] = (
+                        adapt_translation_to_gallery_format(translation, category)
+                    )
 
         return translations_by_name
