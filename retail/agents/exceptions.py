@@ -7,6 +7,11 @@ class AgentFileNotSent(APIException):
     default_code = "agent_not_sent"
 
 
+class InvalidExamplesFormat(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "invalid_examples_format"
+
+
 class GlobalRuleBadRequest(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
 

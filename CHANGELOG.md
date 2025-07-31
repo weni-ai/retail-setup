@@ -1,3 +1,17 @@
+# 3.13.0
+
+## *Feature*
+  - feat: add 13-digits hash as active agent lambda function name
+  - feat: add validation for examples and push agent is now atomic
+
+## *Fix*
+  - fix: send header image in broadcast
+
+# 3.12.1
+
+## *Fix*
+  - hotfix: duplicated integrated agents
+
 # 3.12.0
 
 ## *Feature*

@@ -222,7 +222,7 @@ class BroadcastHandler:
         self._register_broadcast_event(message, response, integrated_agent, lambda_data)
         logger.info(f"Broadcast message sent: {response}")
 
-    def get_current_template_name(
+    def get_current_template(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> Optional[str | bool]:
         """Get current template name from integrated agent templates."""
@@ -232,7 +232,7 @@ class BroadcastHandler:
             if template.current_version is None:
                 logger.info(f"Template {template_name} has no current version.")
                 return False
-            return template.current_version.template_name
+            return template
         except Template.DoesNotExist:
             return None
 
@@ -241,16 +241,16 @@ class BroadcastHandler:
     ) -> Optional[Dict[str, Any]]:
         """Build broadcast message from lambda response data."""
         logger.info("Retrieving current template name.")
-        template_name = self.get_current_template_name(integrated_agent, data)
+        template = self.get_current_template(integrated_agent, data)
 
-        if template_name is False:
+        if template is False:
             logger.info(
                 "Could not build message because template has no current version."
             )
             return
 
-        if template_name is None:
-            logger.error(f"Template not found: {template_name}")
+        if template is None:
+            logger.error(f"Template not found: {template}")
             return
 
         logger.info("Building broadcast template message.")
@@ -258,7 +258,7 @@ class BroadcastHandler:
             data=data,
             channel_uuid=str(integrated_agent.channel_uuid),
             project_uuid=str(integrated_agent.project.uuid),
-            template_name=template_name,
+            template=template,
         )
         logger.info(f"Broadcast template message built: {message}")
         return message

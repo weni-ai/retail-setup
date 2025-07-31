@@ -1,14 +1,19 @@
 import logging
 
+import hashlib
+
+import base64
+
 from typing import Any, Dict, List, Optional, TypedDict
 
 from uuid import UUID
 
 from django.core.files.uploadedfile import UploadedFile
+from django.db import transaction
 
 from rest_framework.exceptions import NotFound
 
-from retail.agents.exceptions import AgentFileNotSent
+from retail.agents.exceptions import AgentFileNotSent, InvalidExamplesFormat
 from retail.agents.models import Agent, PreApprovedTemplate
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.projects.models import Project
@@ -64,10 +69,43 @@ class PushAgentUseCase:
     def _parse_credentials(self, credentials: List[Dict]) -> Dict:
         return {credential.get("key"): credential for credential in credentials}
 
+    def _validate_examples_format(self, examples: Any) -> None:
+        if not isinstance(examples, list):
+            raise InvalidExamplesFormat(detail="Examples must be a list of objects")
+
+        for i, example in enumerate(examples):
+            if not isinstance(example, dict):
+                raise InvalidExamplesFormat(
+                    detail=f"Example at index {i} must be an object (dictionary)"
+                )
+
+            if "urn" not in example:
+                raise InvalidExamplesFormat(
+                    detail=f"Example at index {i} must have 'urn' key"
+                )
+
+            if not isinstance(example["urn"], str):
+                raise InvalidExamplesFormat(
+                    detail=f"Example at index {i}: 'urn' must be a string"
+                )
+
+            if "data" not in example:
+                raise InvalidExamplesFormat(
+                    detail=f"Example at index {i} must have 'data' key"
+                )
+
+            if not isinstance(example["data"], dict):
+                raise InvalidExamplesFormat(
+                    detail=f"Example at index {i}: 'data' must be a dictionary"
+                )
+
     def _update_or_create_agent(
         self, payload: AgentItemsData, slug: str, project: Project
     ) -> Agent:
         credentials = self._parse_credentials(payload.get("credentials", []))
+        examples = payload.get("pre_processing", {}).get("result_example", [])
+
+        self._validate_examples_format(examples)
 
         agent, created = Agent.objects.update_or_create(
             slug=slug,
@@ -77,7 +115,7 @@ class PushAgentUseCase:
                 "description": payload.get("description"),
                 "credentials": credentials,
                 "language": payload.get("language"),
-                "examples": payload.get("pre_processing", {}).get("result_example", []),
+                "examples": examples,
             },
         )
 
@@ -100,8 +138,17 @@ class PushAgentUseCase:
         return agent
 
     def _create_function_name(self, agent_name: str, agent_uuid: UUID) -> str:
-        simple_hash = f"retail-setup-{agent_name}-{str(agent_uuid.hex)}"
-        return simple_hash
+        input_hash_string = f"{agent_name}-{str(agent_uuid.hex)}"
+
+        hash_object = hashlib.sha256(input_hash_string.encode("utf-8"))
+        hash_bytes = hash_object.digest()
+
+        base64_hash = base64.b64encode(hash_bytes).decode("utf-8")
+        only_alphanumeric_hash = "".join(c.lower() for c in base64_hash if c.isalnum())
+
+        hash_13_digits = only_alphanumeric_hash[:13]
+
+        return f"retail-setup-{hash_13_digits}"
 
     def _update_or_create_pre_approved_templates(
         self, agent: Agent, agent_payload: AgentItemsData
@@ -117,6 +164,7 @@ class PushAgentUseCase:
                 },
             )
 
+    @transaction.atomic
     def execute(
         self, payload: PushAgentData, files: Dict[str, UploadedFile]
     ) -> List[Agent]:
