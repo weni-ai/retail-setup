@@ -6,6 +6,7 @@ from django.utils.timezone import timedelta
 from django.conf import settings
 
 from retail.features.models import IntegratedFeature
+from retail.vtex.usecases.phone_number_normalizer import PhoneNumberNormalizer
 from sentry_sdk import capture_exception, capture_message
 
 logger = logging.getLogger(__name__)
@@ -230,3 +231,59 @@ class CartTimeRestrictionService:
             return self.default_abandoned_countdown
 
         return (next_available_time - now).seconds
+
+
+class CartPhoneRestrictionService:
+    """
+    This class is responsible for validating phone number restrictions for the abandoned cart feature.
+    """
+
+    def __init__(self, integrated_feature: IntegratedFeature):
+        self.integrated_feature = integrated_feature
+
+    def validate_phone_restriction(self, phone: str) -> bool:
+        """
+        Validates if the phone number is allowed based on the configured restrictions.
+
+        Args:
+            phone (str): The normalized phone number to validate.
+
+        Returns:
+            bool: True if the phone is allowed, False if it should be blocked.
+        """
+        feature_settings = self.integrated_feature.config.get(
+            "integration_settings", {}
+        )
+        abandoned_cart_restriction = feature_settings.get(
+            "abandoned_cart_restriction", {}
+        )
+
+        if not abandoned_cart_restriction.get("is_active", False):
+            logger.info(
+                f"No abandoned cart phone restriction active for integrated feature {self.integrated_feature.uuid}"
+            )
+            return True
+
+        phone_list_restriction = abandoned_cart_restriction.get("phone_numbers", [])
+
+        if not phone_list_restriction:
+            logger.info(
+                f"Abandoned cart phone restriction active but no phone numbers configured "
+                f"for integrated feature {self.integrated_feature.uuid}. Blocking by default."
+            )
+            return False
+
+        # Normalize all numbers in the restriction list
+        normalized_phones = {
+            PhoneNumberNormalizer.normalize(number) for number in phone_list_restriction
+        }
+
+        if phone not in normalized_phones:
+            logger.info(
+                f"Phone {phone} blocked due to abandoned cart phone restriction. "
+                f"Allowed numbers: {normalized_phones}"
+            )
+            return False
+
+        logger.info(f"Phone {phone} allowed through abandoned cart phone restriction")
+        return True
