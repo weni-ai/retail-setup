@@ -13,6 +13,8 @@ from uuid import UUID
 from retail.agents.models import IntegratedAgent
 from retail.agents.utils import build_broadcast_template_message
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
+from retail.interfaces.jwt import JWTInterface
+from retail.jwt_keys.usecases.generate_jwt import JWTUsecase
 from retail.services.aws_lambda import AwsLambdaService
 from retail.services.flows.service import FlowsService
 from retail.templates.models import Template
@@ -44,8 +46,10 @@ class LambdaHandler:
     def __init__(
         self,
         lambda_service: Optional[AwsLambdaServiceInterface] = None,
+        jwt_generator: Optional[JWTInterface] = None,
     ):
         self.lambda_service = lambda_service or AwsLambdaService()
+        self.jwt_generator = jwt_generator or JWTUsecase()
 
     def invoke(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
@@ -53,7 +57,7 @@ class LambdaHandler:
         """Invoke lambda function with agent and request data."""
         function_name = integrated_agent.agent.lambda_arn
         project = integrated_agent.project
-
+        jwt_token = self.jwt_generator.generate_jwt_token(str(project.uuid))
         return self.lambda_service.invoke(
             function_name,
             {
@@ -66,6 +70,7 @@ class LambdaHandler:
                 "project": {
                     "uuid": str(project.uuid),
                     "vtex_account": project.vtex_account,
+                    "auth_token": jwt_token,
                 },
             },
         )
