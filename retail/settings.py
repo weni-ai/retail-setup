@@ -298,4 +298,4 @@ except FileNotFoundError:
     JWT_PUBLIC_KEY = None
 
 # JWT secret key
-JWT_SECRET_KEY = env.str("JWT_SECRET_KEY")
+JWT_SECRET_KEY = env.str("JWT_SECRET_KEY", default="")
