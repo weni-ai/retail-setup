@@ -148,6 +148,7 @@ class AssignAgentUseCase:
         logger.info(
             "Fetching user templates in integrations service (non-pre-approved)..."
         )
+        print(f"Criando templates inválidos: {invalid_pre_approveds}")
 
         template_builder = TemplateBuilderMixin()
         language = integrated_agent.agent.language
@@ -161,6 +162,8 @@ class AssignAgentUseCase:
         logger.info(
             f"Found {len(translations_by_name)} templates in integrations service (non-pre-approved)"
         )
+
+        print(f"Templates encontrados: {translations_by_name}")
 
         for pre_approved in invalid_pre_approveds:
             translation = translations_by_name.get(pre_approved.name)
@@ -180,6 +183,8 @@ class AssignAgentUseCase:
                 template.current_version = version
                 template.save()
 
+                print(f"Template criado: {template.name}")
+
                 version.status = "APPROVED"
                 version.save()
 
@@ -191,6 +196,7 @@ class AssignAgentUseCase:
         app_uuid: UUID,
         ignore_templates: List[str],
     ) -> None:
+        print("Criando templates")
         pre_approveds = pre_approveds.exclude(uuid__in=ignore_templates)
         valid_pre_approveds = pre_approveds.filter(is_valid=True)
         invalid_pre_approveds = pre_approveds.filter(is_valid=False)

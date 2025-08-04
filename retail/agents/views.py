@@ -184,6 +184,8 @@ class AssignAgentView(GenericIntegratedAgentView):
 
         response_serializer = ReadIntegratedAgentSerializer(integrated_agent)
 
+        print(f"Response serializer: {response_serializer.data}")
+
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
