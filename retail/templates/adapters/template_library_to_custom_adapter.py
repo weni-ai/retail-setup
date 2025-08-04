@@ -1,3 +1,9 @@
+import base64
+
+import string
+
+import binascii
+
 from typing import Dict, Optional, List, Protocol
 
 
@@ -12,6 +18,25 @@ class ComponentTransformer(Protocol):
 class HeaderTransformer(ComponentTransformer):
     """Transforms header component from library to translation format."""
 
+    def _is_base_64(self, header: str) -> bool:
+        HEURISTIC_MIN_LENGTH = 100
+
+        if header.startswith("data:"):
+            header = header.split(",", 1)[1]
+
+        if len(header) < HEURISTIC_MIN_LENGTH:
+            return False
+
+        base64_charset = set(string.ascii_letters + string.digits + "+/=")
+        if any(c not in base64_charset for c in header):
+            return False
+
+        try:
+            base64.b64decode(header, validate=True)
+            return True
+        except (binascii.Error, ValueError, UnicodeDecodeError):
+            return False
+
     def _is_header_format_already_translated(self, header) -> bool:
         return isinstance(header, dict) and "header_type" in header and "text" in header
 
@@ -21,6 +46,9 @@ class HeaderTransformer(ComponentTransformer):
 
         if self._is_header_format_already_translated(template_data["header"]):
             return template_data["header"]
+
+        if self._is_base_64(template_data["header"]):
+            return {"header_type": "IMAGE", "text": template_data["header"]}
 
         return {"header_type": "TEXT", "text": template_data["header"]}
 
