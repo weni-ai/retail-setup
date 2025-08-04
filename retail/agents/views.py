@@ -150,6 +150,7 @@ class AssignAgentView(GenericIntegratedAgentView):
             }
         ]
         """
+        print("AssignAgentView")
 
         project_uuid = get_project_uuid_from_request(request)
         credentials = request.data.get("credentials", {})
@@ -165,12 +166,21 @@ class AssignAgentView(GenericIntegratedAgentView):
 
         agent = self.get_agent(agent_uuid)
 
+        print("Agente encontrado")
+
         self.check_object_permissions(request, agent)
 
+        print("Entrando no use case")
+
         use_case = AssignAgentUseCase()
+
+        print("Executando use case")
+
         integrated_agent = use_case.execute(
             agent, project_uuid, app_uuid, channel_uuid, credentials, include_templates
         )
+
+        print("Agente integrado criado")
 
         response_serializer = ReadIntegratedAgentSerializer(integrated_agent)
 

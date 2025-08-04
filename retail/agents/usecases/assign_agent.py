@@ -4,8 +4,6 @@ from typing import List, TypedDict, Mapping, Any, Optional
 
 from uuid import UUID
 
-from django.db import transaction
-
 from rest_framework.exceptions import NotFound, ValidationError
 
 from retail.agents.models import Agent, Credential, IntegratedAgent, PreApprovedTemplate
@@ -230,7 +228,6 @@ class AssignAgentUseCase:
         ).values_list("slug", flat=True)
         return list(slugs)
 
-    @transaction.atomic
     def execute(
         self,
         agent: Agent,
@@ -254,9 +251,13 @@ class AssignAgentUseCase:
             ignore_templates=ignore_templates,
         )
 
+        print("Agente integrado criado")
+
         self._create_credentials(integrated_agent, agent, credentials)
         self._create_templates(
             integrated_agent, templates, project_uuid, app_uuid, ignore_templates
         )
+
+        print("Templates criados")
 
         return integrated_agent
