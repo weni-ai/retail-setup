@@ -1923,13 +1923,13 @@ files = [
 
 [[package]]
 name = "weni-datalake-sdk"
-version = "0.3.0a1"
+version = "0.5.0"
 description = "Lib to connect python/django modules to redshift"
 optional = false
 python-versions = "<4.0,>=3.9"
 files = [
-    {file = "weni_datalake_sdk-0.3.0a1-py3-none-any.whl", hash = "sha256:92c15d09838327c91f4bddfe3459ec270c82a72998eb7643d562589cd9300630"},
-    {file = "weni_datalake_sdk-0.3.0a1.tar.gz", hash = "sha256:7f4a40ee06a3e8de02d0edb33bfb6aa7e697a9231c47f897ab8d71133ab342da"},
+    {file = "weni_datalake_sdk-0.5.0-py3-none-any.whl", hash = "sha256:1bf1017a563c169709c32ae6dee35a10fb2abcd80659ed839610abe738f11851"},
+    {file = "weni_datalake_sdk-0.5.0.tar.gz", hash = "sha256:06cce8e0d12516dd5405a526f608d8e227bf70df80af3d2b494e33d4bd53c5e0"},
 ]
 
 [package.dependencies]
@@ -1986,4 +1986,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "e41550f5883367d9a28bc524c09ab1ae2b81670d1f3643e16be9e9b6cdf6c445"
+content-hash = "b305e439e57f16e06edf0d1fef53777eb45027debbfa2d4aa9d6e9d860b27b01"
