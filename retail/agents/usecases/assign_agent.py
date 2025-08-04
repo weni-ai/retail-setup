@@ -156,6 +156,7 @@ class AssignAgentUseCase:
 
         translations_by_name = self.integrations_service.fetch_templates_from_user(
             app_uuid,
+            str(project_uuid),
             [pre_approved.name for pre_approved in invalid_pre_approveds],
             language,
         )

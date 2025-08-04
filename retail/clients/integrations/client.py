@@ -182,13 +182,16 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
 
         return response.json()
 
-    def fetch_templates_from_user(self, app_uuid: str) -> List[Dict]:
+    def fetch_templates_from_user(self, app_uuid: str, project_uuid: str) -> List[Dict]:
         def fetch_single_page(app_uuid: str, page: int, page_size: int = 15) -> Dict:
-            url = f"{self.base_url}/api/v1/apptypes/wpp-cloud/apps/{app_uuid}/templates/?page={page}&page_size={page_size}"
+            url = f"{self.base_url}/api/v1/apps/{app_uuid}/templates/?page={page}&page_size={page_size}"
 
-            response = self.make_request(
-                url, method="GET", headers=self.authentication_instance.headers
-            ).json()
+            headers = {
+                **self.authentication_instance.headers,
+                "Project-Uuid": project_uuid,
+            }
+
+            response = self.make_request(url, method="GET", headers=headers).json()
 
             return response
 

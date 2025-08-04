@@ -344,7 +344,11 @@ class IntegrationsService:
         )
 
     def fetch_templates_from_user(
-        self, app_uuid: str, templates_names: List[str], language: str
+        self,
+        app_uuid: str,
+        project_uuid: str,
+        templates_names: List[str],
+        language: str,
     ) -> Dict[str, Dict[str, Any]]:
         def adapt_translation_to_gallery_format(
             translation: Dict[str, Any], category: str
@@ -362,7 +366,7 @@ class IntegrationsService:
                 "language": language,
             }
 
-        data = self.client.fetch_templates_from_user(app_uuid)
+        data = self.client.fetch_templates_from_user(app_uuid, project_uuid)
         templates = filter(lambda obj: obj.get("name") in templates_names, data)
 
         translations_by_name = {}
@@ -375,8 +379,8 @@ class IntegrationsService:
                     translation.get("language") == language
                     and translation.get("status") == "APPROVED"
                 ):
-                    translations_by_name[template_name] = (
-                        adapt_translation_to_gallery_format(translation, category)
-                    )
+                    translations_by_name[
+                        template_name
+                    ] = adapt_translation_to_gallery_format(translation, category)
 
         return translations_by_name

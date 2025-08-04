@@ -9,7 +9,8 @@ class IntegrationsServiceInterface(Protocol):
         name: str,
         category: str,
         gallery_version: Optional[str] = None,
-    ) -> str: ...
+    ) -> str:
+        ...
 
     def create_template_translation(
         self,
@@ -17,8 +18,14 @@ class IntegrationsServiceInterface(Protocol):
         project_uuid: str,
         template_uuid: str,
         payload: Dict[str, Any],
-    ) -> Dict[str, Any]: ...
+    ) -> Dict[str, Any]:
+        ...
 
     def fetch_templates_from_user(
-        self, app_uuid: str, templates_names: List[str], language: str
-    ) -> Dict[str, Dict[str, Any]]: ...
+        self,
+        app_uuid: str,
+        project_uuid: str,
+        templates_names: List[str],
+        language: str,
+    ) -> Dict[str, Dict[str, Any]]:
+        ...

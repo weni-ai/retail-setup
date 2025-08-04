@@ -441,7 +441,10 @@ class AssignAgentUseCaseTest(TestCase):
         )
 
         self.use_case.integrations_service.fetch_templates_from_user.assert_called_once_with(
-            app_uuid, ["template_invalid_1", "template_invalid_2"], self.agent.language
+            app_uuid,
+            str(project_uuid),
+            ["template_invalid_1", "template_invalid_2"],
+            self.agent.language,
         )
 
         mock_template_builder.return_value.build_template_and_version.assert_called_once()
@@ -473,7 +476,7 @@ class AssignAgentUseCaseTest(TestCase):
         )
 
         self.use_case.integrations_service.fetch_templates_from_user.assert_called_once_with(
-            app_uuid, ["template_not_found"], self.agent.language
+            app_uuid, str(project_uuid), ["template_not_found"], self.agent.language
         )
 
         mock_template_builder.return_value.build_template_and_version.assert_not_called()
@@ -542,7 +545,7 @@ class AssignAgentUseCaseTest(TestCase):
 
         mock_use_case_instance.execute.assert_called_once()
         self.use_case.integrations_service.fetch_templates_from_user.assert_called_once_with(
-            app_uuid, ["invalid_template"], self.agent.language
+            app_uuid, str(project_uuid), ["invalid_template"], self.agent.language
         )
 
     def test_create_templates_with_integrations_service_mock(self):
@@ -636,7 +639,7 @@ class AssignAgentUseCaseTest(TestCase):
         mock_use_case_instance.execute.assert_called_once()
 
         mock_integrations_service.fetch_templates_from_user.assert_called_once_with(
-            app_uuid, ["invalid_template"], self.agent.language
+            app_uuid, str(self.project.uuid), ["invalid_template"], self.agent.language
         )
 
     @patch("retail.agents.usecases.assign_agent.CreateLibraryTemplateUseCase")
@@ -690,7 +693,7 @@ class AssignAgentUseCaseTest(TestCase):
         self.assertIn(invalid_template2.slug, integrated_agent.ignore_templates)
 
         mock_integrations_service.fetch_templates_from_user.assert_called_once_with(
-            app_uuid, [], self.agent.language
+            app_uuid, str(self.project.uuid), [], self.agent.language
         )
 
         mock_create_library_use_case.return_value.execute.assert_not_called()
