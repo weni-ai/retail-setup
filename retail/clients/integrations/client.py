@@ -184,20 +184,33 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
 
     def fetch_templates_from_user(self, app_uuid: str) -> List[Dict]:
         def fetch_single_page(app_uuid: str, page: int, page_size: int = 15) -> Dict:
+            print(f"Fetching page {page}")
             url = f"{self.base_url}/api/v1/apptypes/wpp-cloud/apps/{app_uuid}/templates/?page={page}&page_size={page_size}"
+
+            print(f"URL: {url}")
 
             response = self.make_request(
                 url, method="GET", headers=self.authentication_instance.headers
             ).json()
 
+            print(f"Response: {response}")
+
             return response
+
+        print("Dentro do client do integrations")
 
         page_size = 15
 
         first_page_response = fetch_single_page(app_uuid, 1, page_size)
 
         all_templates = first_page_response.get("results", [])
+
+        print(f"Templates encontrados: {all_templates}")
+
         total_count = first_page_response.get("count", 0)
+
+        print(f"Total de templates: {total_count}")
+        print(f"Page size: {page_size}")
 
         if total_count <= page_size:
             return all_templates
