@@ -185,7 +185,7 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
     def fetch_templates_from_user(self, app_uuid: str) -> List[Dict]:
         def fetch_single_page(app_uuid: str, page: int, page_size: int = 15) -> Dict:
             print(f"Fetching page {page}")
-            url = f"{self.base_url}/api/v1/apptypes/wpp-cloud/apps/{app_uuid}/templates/?page={page}&page_size={page_size}"
+            url = f"{self.base_url}/api/v1/apps/{app_uuid}/templates/?page={page}&page_size={page_size}"
 
             print(f"URL: {url}")
 
