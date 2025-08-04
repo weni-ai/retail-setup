@@ -181,6 +181,7 @@ class AssignAgentUseCase:
                 template.start_condition = pre_approved.start_condition
                 template.display_name = pre_approved.display_name
                 template.current_version = version
+                template.integrated_agent = integrated_agent
                 template.save()
 
                 print(f"Template criado: {template.name}")
