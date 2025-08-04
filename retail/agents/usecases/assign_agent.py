@@ -184,6 +184,7 @@ class AssignAgentUseCase:
                 template.integrated_agent = integrated_agent
                 template.save()
 
+                version.template_name = pre_approved.name
                 version.status = "APPROVED"
                 version.save()
 
