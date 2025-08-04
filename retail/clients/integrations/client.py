@@ -190,7 +190,12 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
             print(f"URL: {url}")
 
             response = self.make_request(
-                url, method="GET", headers=self.authentication_instance.headers
+                url,
+                method="GET",
+                headers={
+                    **self.authentication_instance.headers,
+                    "Project-Uuid": "03324714-2fd5-4fae-8ee0-90afd6e12d20",
+                },
             ).json()
 
             print(f"Response: {response}")
