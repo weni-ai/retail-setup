@@ -296,3 +296,6 @@ try:
         JWT_PUBLIC_KEY = f.read()
 except FileNotFoundError:
     JWT_PUBLIC_KEY = None
+
+# Datalake server address
+DATALAKE_SERVER_ADDRESS = env.str("DATALAKE_SERVER_ADDRESS", default="")
