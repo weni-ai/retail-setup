@@ -1,3 +1,7 @@
+import base64
+
+import os
+
 from django.test import TestCase
 from unittest.mock import Mock
 
@@ -13,6 +17,16 @@ from retail.templates.adapters.template_library_to_custom_adapter import (
 class TestHeaderTransformer(TestCase):
     def setUp(self):
         self.transformer = HeaderTransformer()
+        self.header = base64.b64encode(os.urandom(76)).decode("utf-8")
+
+    def test_is_not_base_64(self):
+        no_base_64_header = "test"
+        result = self.transformer._is_base_64(no_base_64_header)
+        self.assertFalse(result)
+
+    def test_is_base_64(self):
+        result = self.transformer._is_base_64(self.header)
+        self.assertTrue(result)
 
     def test_transform_with_header(self):
         template_data = {"header": "Test Header"}
@@ -29,6 +43,22 @@ class TestHeaderTransformer(TestCase):
         template_data = {"header": ""}
         result = self.transformer.transform(template_data)
         self.assertIsNone(result)
+
+    def test_transform_with_image_header(self):
+        template_data = {"header": self.header}
+        result = self.transformer.transform(template_data)
+        expected = {"header_type": "IMAGE", "text": self.header}
+        self.assertEqual(result, expected)
+
+    def test_transform_with_already_translated_header(self):
+        template_data = {"header": {"header_type": "TEXT", "text": "Already"}}
+        result = self.transformer.transform(template_data)
+        self.assertEqual(result, {"header_type": "TEXT", "text": "Already"})
+
+    def test_is_base_64_with_data_prefix(self):
+        data_prefix_header = f"data:image/png;base64,{self.header}"
+        result = self.transformer._is_base_64(data_prefix_header)
+        self.assertTrue(result)
 
 
 class TestBodyTransformer(TestCase):
@@ -50,6 +80,16 @@ class TestBodyTransformer(TestCase):
             "example": {"body_text": [["John"]]},
         }
         self.assertEqual(result, expected)
+
+    def test_transform_without_body(self):
+        template_data = {}
+        result = self.transformer.transform(template_data)
+        self.assertIsNone(result)
+
+    def test_transform_with_empty_body(self):
+        template_data = {"body": ""}
+        result = self.transformer.transform(template_data)
+        self.assertIsNone(result)
 
 
 class TestFooterTransformer(TestCase):
@@ -178,6 +218,19 @@ class TestButtonTransformer(TestCase):
         result = self.transformer.transform(template_data)
         self.assertEqual(result, [])
 
+    def test_transform_button_with_unexpected_format(self):
+        template_data = {
+            "buttons": [
+                {
+                    "text": "No Type",
+                    "url": {"base_url": "https://example.com"},
+                }
+            ]
+        }
+
+        with self.assertRaises(KeyError):
+            self.transformer.transform(template_data)
+
     def test_is_button_format_already_translated(self):
         button = {"type": "URL", "url": "https://example.com"}
         self.assertTrue(self.transformer._is_button_format_already_translated(button))
@@ -210,6 +263,7 @@ class TestTemplateTranslationAdapter(TestCase):
         self.assertEqual(result["language"], "en_US")
         self.assertEqual(result["body"]["type"], "BODY")
         self.assertEqual(result["body"]["text"], "Hello {{1}}")
+        self.assertEqual(result["body"]["example"], {"body_text": [["John"]]})
         self.assertEqual(result["header"]["header_type"], "TEXT")
         self.assertEqual(result["header"]["text"], "Welcome")
         self.assertEqual(result["footer"]["type"], "FOOTER")
@@ -221,7 +275,7 @@ class TestTemplateTranslationAdapter(TestCase):
         template_data = {"body": "Simple message"}
         result = self.adapter.adapt(template_data)
 
-        self.assertEqual(result["language"], "pt_BR")  # default language
+        self.assertEqual(result["language"], "pt_BR")
         self.assertEqual(result["body"]["type"], "BODY")
         self.assertEqual(result["body"]["text"], "Simple message")
         self.assertNotIn("header", result)
@@ -261,3 +315,12 @@ class TestTemplateTranslationAdapter(TestCase):
         self.assertEqual(result["body"]["text"], "Custom Body")
         self.assertNotIn("footer", result)
         self.assertNotIn("buttons", result)
+
+    def test_adapt_with_empty_fields(self):
+        template_data = {"header": "", "footer": "", "body": ""}
+        result = self.adapter.adapt(template_data)
+        self.assertNotIn("header", result)
+        self.assertNotIn("footer", result)
+        self.assertNotIn("body", result)
+        self.assertNotIn("buttons", result)
+        self.assertEqual(result["language"], "pt_BR")

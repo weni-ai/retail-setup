@@ -1,12 +1,19 @@
 import logging
+import time
+
+from typing import Optional
 
 from rest_framework.exceptions import ValidationError, NotFound
 from retail.features.models import Feature, IntegratedFeature
 from retail.projects.models import Project
 from retail.vtex.models import Cart
 from retail.vtex.tasks import mark_cart_as_abandoned
+from django_redis import get_redis_connection
 
-from retail.webhooks.vtex.services import CartTimeRestrictionService
+from retail.webhooks.vtex.services import (
+    CartTimeRestrictionService,
+    CartPhoneRestrictionService,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -29,7 +36,7 @@ class CartUseCase:
         self.project = self._get_project_by_account()
         self.integrated_feature = self._get_integrated_feature()
 
-    def _get_project_by_account(self) -> Project:
+    def _get_project_by_account(self) -> Optional[Project]:
         """
         Fetch the project associated with the account.
 
@@ -42,9 +49,8 @@ class CartUseCase:
         try:
             return Project.objects.get(vtex_account=self.account)
         except Project.DoesNotExist:
-            error_message = f"Project with account '{self.account}' does not exist."
-            logger.error(error_message)
-            raise NotFound(error_message)
+            logger.info(f"Project with account '{self.account}' does not exist.")
+            return None
         except Project.MultipleObjectsReturned:
             error_message = f"Multiple projects found with account '{self.account}'."
             logger.error(error_message)
@@ -99,6 +105,25 @@ class CartUseCase:
         Returns:
             Cart: The created or updated cart instance.
         """
+        # Get Redis connection for distributed lock
+        redis = get_redis_connection()
+        lock_key = f"cart_creation_lock:{self.account}:{order_form_id}:{phone}"
+
+        # Try to acquire distributed lock (30 seconds TTL)
+        if not redis.set(lock_key, "locked", nx=True, ex=30):
+            logger.info(f"Cart creation already in progress for {order_form_id}")
+            # Wait a bit and try to get the existing cart
+            time.sleep(1)
+            try:
+                return Cart.objects.get(
+                    order_form_id=order_form_id,
+                    project=self.project,
+                    phone_number=phone,
+                    status="created",
+                )
+            except Cart.DoesNotExist:
+                raise ValidationError(f"Cart creation failed to lock {lock_key}")
+
         try:
             # Check if the cart already exists
             cart = Cart.objects.get(
@@ -113,6 +138,9 @@ class CartUseCase:
         except Cart.DoesNotExist:
             # Create new cart if it doesn't exist
             return self._create_cart(order_form_id, phone, name)
+        finally:
+            # Release the lock
+            redis.delete(lock_key)
 
     def _create_cart(self, order_form_id: str, phone: str, name: str) -> Cart:
         """
@@ -120,9 +148,14 @@ class CartUseCase:
 
         Args:
             order_form_id (str): The UUID of the cart.
+            phone (str): The phone number.
+            name (str): The client name.
 
         Returns:
             Cart: The created cart instance.
+
+        Raises:
+            ValidationError: If phone restriction is active and phone is not allowed.
         """
         # Check if templates are synchronized before proceeding
         sync_status = self.integrated_feature.config.get(
@@ -137,6 +170,24 @@ class CartUseCase:
             raise ValidationError(
                 {"error": "Templates are not synchronized"},
                 code="templates_not_synchronized",
+            )
+
+        # Validate phone restriction before creating cart
+        phone_restriction_service = CartPhoneRestrictionService(self.integrated_feature)
+        if not phone_restriction_service.validate_phone_restriction(phone):
+            logger.info(
+                f"Cart creation blocked for phone {phone} due to phone restriction. "
+                f"Order form: {order_form_id}, Project: {self.project.uuid}"
+            )
+            raise ValidationError(
+                {
+                    "error": "Phone number not allowed due to active restrictions",
+                    "phone": phone,
+                    "order_form_id": order_form_id,
+                    "project_uuid": str(self.project.uuid),
+                    "message": "Cart creation blocked due to active phone restrictions.",
+                },
+                code="phone_restriction_blocked",
             )
 
         cart = Cart.objects.create(

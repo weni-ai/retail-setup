@@ -1,3 +1,9 @@
+import base64
+
+import string
+
+import binascii
+
 from typing import Dict, Optional, List, Protocol
 
 
@@ -12,19 +18,51 @@ class ComponentTransformer(Protocol):
 class HeaderTransformer(ComponentTransformer):
     """Transforms header component from library to translation format."""
 
+    def _is_base_64(self, header: str) -> bool:
+        HEURISTIC_MIN_LENGTH = 100
+
+        if header.startswith("data:"):
+            header = header.split(",", 1)[1]
+
+        if len(header) < HEURISTIC_MIN_LENGTH:
+            return False
+
+        base64_charset = set(string.ascii_letters + string.digits + "+/=")
+        if any(c not in base64_charset for c in header):
+            return False
+
+        try:
+            base64.b64decode(header, validate=True)
+            return True
+        except (binascii.Error, ValueError, UnicodeDecodeError):
+            return False
+
+    def _is_header_format_already_translated(self, header) -> bool:
+        return isinstance(header, dict) and "header_type" in header and "text" in header
+
     def transform(self, template_data: Dict) -> Optional[Dict]:
         if not template_data.get("header"):
             return None
+
+        if self._is_header_format_already_translated(template_data["header"]):
+            return template_data["header"]
+
+        if self._is_base_64(template_data["header"]):
+            return {"header_type": "IMAGE", "text": template_data["header"]}
+
         return {"header_type": "TEXT", "text": template_data["header"]}
 
 
 class BodyTransformer(ComponentTransformer):
     """Transforms body component from library to translation format."""
 
-    def transform(self, template_data: Dict) -> Dict:
+    def transform(self, template_data: Dict) -> Optional[Dict]:
+        if not template_data.get("body"):
+            return None
+
         body_data = {"type": "BODY", "text": template_data["body"]}
 
-        if "body_params" in template_data:
+        if template_data.get("body_params"):
             body_data["example"] = {"body_text": [template_data["body_params"]]}
 
         return body_data
@@ -88,10 +126,10 @@ class TemplateTranslationAdapter:
         footer_transformer: Optional[ComponentTransformer] = None,
         button_transformer: Optional[ComponentTransformer] = None,
     ):
-        self._header_transformer = header_transformer or HeaderTransformer()
-        self._body_transformer = body_transformer or BodyTransformer()
-        self._footer_transformer = footer_transformer or FooterTransformer()
-        self._button_transformer = button_transformer or ButtonTransformer()
+        self.header_transformer = header_transformer or HeaderTransformer()
+        self.body_transformer = body_transformer or BodyTransformer()
+        self.footer_transformer = footer_transformer or FooterTransformer()
+        self.button_transformer = button_transformer or ButtonTransformer()
 
     def adapt(self, template_data: Dict) -> Dict:
         """
@@ -106,14 +144,13 @@ class TemplateTranslationAdapter:
         """
         language = template_data.get("language", "pt_BR")
 
-        header_data = self._header_transformer.transform(template_data)
-        body_data = self._body_transformer.transform(template_data)
-        footer_data = self._footer_transformer.transform(template_data)
-        buttons_data = self._button_transformer.transform(template_data)
+        header_data = self.header_transformer.transform(template_data)
+        body_data = self.body_transformer.transform(template_data)
+        footer_data = self.footer_transformer.transform(template_data)
+        buttons_data = self.button_transformer.transform(template_data)
 
         translation_payload = {
             "language": language,
-            "body": body_data,
         }
 
         if header_data:
@@ -122,5 +159,7 @@ class TemplateTranslationAdapter:
             translation_payload["footer"] = footer_data
         if buttons_data:
             translation_payload["buttons"] = buttons_data
+        if body_data:
+            translation_payload["body"] = body_data
 
         return translation_payload

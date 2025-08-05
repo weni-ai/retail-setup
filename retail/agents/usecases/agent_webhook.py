@@ -6,9 +6,11 @@ import random
 
 from enum import IntEnum
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from uuid import UUID
+
+from datetime import datetime
 
 from retail.agents.models import IntegratedAgent
 from retail.agents.utils import build_broadcast_template_message
@@ -16,6 +18,14 @@ from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
 from retail.services.flows.service import FlowsService
 from retail.templates.models import Template
+
+from weni_datalake_sdk.clients.client import send_commerce_webhook_data
+from weni_datalake_sdk.paths.commerce_webhook import CommerceWebhookPath
+
+from retail.agents.handlers.cache.integrated_agent_webhook import (
+    IntegratedAgentCacheHandler,
+    IntegratedAgentCacheHandlerRedis,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +42,16 @@ class LambdaResponseStatus(IntEnum):
     PRE_PROCESSING_FAILED = 2
     CUSTOM_RULE_FAILED = 3
     OFFICIAL_RULE_FAILED = 4
+    GLOBAL_RULE_FAILED = 5
+    GLOBAL_RULE_NOT_MATCHED = 6
 
 
 class LambdaHandler:
-    def __init__(self, lambda_service: Optional[AwsLambdaServiceInterface] = None):
+    def __init__(
+        self,
+        lambda_service: Optional[AwsLambdaServiceInterface] = None,
+    ):
         self.lambda_service = lambda_service or AwsLambdaService()
-        self.MISSING_TEMPLATE_ERROR = "Missing template"
 
     def invoke(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
@@ -54,6 +68,7 @@ class LambdaHandler:
                 "credentials": data.credentials,
                 "ignore_official_rules": integrated_agent.ignore_templates,
                 "project_rules": data.project_rules,
+                "global_rule": integrated_agent.global_rule_code,
                 "project": {
                     "uuid": str(project.uuid),
                     "vtex_account": project.vtex_account,
@@ -70,7 +85,9 @@ class LambdaHandler:
             logger.error(f"Error decoding JSON payload: {e}")
             return None
 
-    def validate_response(self, data: Dict[str, Any]) -> bool:
+    def validate_response(
+        self, data: Dict[str, Any], integrated_agent: IntegratedAgent
+    ) -> bool:
         """Validate lambda response for errors based on status codes."""
         status_code = data.get("status")
         error = data.get("error")
@@ -80,19 +97,39 @@ class LambdaHandler:
                 case LambdaResponseStatus.RULE_MATCHED:
                     return True
                 case LambdaResponseStatus.RULE_NOT_MATCHED:
-                    logger.info(f"Rule not matched: {error}")
+                    logger.info(
+                        f"Rule not matched for integrated agent {integrated_agent.uuid}: {error}"
+                    )
                     return False
                 case LambdaResponseStatus.PRE_PROCESSING_FAILED:
-                    logger.info(f"Pre-processing failed: {error}")
+                    logger.info(
+                        f"Pre-processing failed for integrated agent {integrated_agent.uuid}: {error}"
+                    )
                     return False
                 case LambdaResponseStatus.CUSTOM_RULE_FAILED:
-                    logger.info(f"Custom rule failed: {error}")
+                    logger.info(
+                        f"Custom rule failed for integrated agent {integrated_agent.uuid}: {error}"
+                    )
                     return False
                 case LambdaResponseStatus.OFFICIAL_RULE_FAILED:
-                    logger.info(f"Official rule failed: {error}")
+                    logger.info(
+                        f"Official rule failed for integrated agent {integrated_agent.uuid}: {error}"
+                    )
+                    return False
+                case LambdaResponseStatus.GLOBAL_RULE_FAILED:
+                    logger.info(
+                        f"Global rule failed for integrated agent {integrated_agent.uuid}: {error}"
+                    )
+                    return False
+                case LambdaResponseStatus.GLOBAL_RULE_NOT_MATCHED:
+                    logger.info(
+                        f"Global rule not matched for integrated agent {integrated_agent.uuid}: {error}"
+                    )
                     return False
                 case _:
-                    logger.warning(f"Unknown status code: {status_code}")
+                    logger.warning(
+                        f"Unknown status code for integrated agent {integrated_agent.uuid}: {status_code}"
+                    )
                     return False
 
         if isinstance(data, dict) and "errorMessage" in data:
@@ -103,8 +140,11 @@ class LambdaHandler:
 
 
 class BroadcastHandler:
-    def __init__(self, flows_service: Optional[FlowsService] = None):
+    def __init__(
+        self, flows_service: Optional[FlowsService] = None, audit_func: Callable = None
+    ):
         self.flows_service = flows_service or FlowsService()
+        self.audit_func = audit_func or send_commerce_webhook_data
 
     def can_send_to_contact(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
@@ -172,22 +212,28 @@ class BroadcastHandler:
 
         return True
 
-    def send_message(self, message: Dict[str, Any]):
+    def send_message(
+        self,
+        message: Dict[str, Any],
+        integrated_agent: IntegratedAgent,
+        lambda_data: Optional[Dict[str, Any]] = None,
+    ):
         """Send broadcast message via flows service."""
         response = self.flows_service.send_whatsapp_broadcast(message)
+        self._register_broadcast_event(message, response, integrated_agent, lambda_data)
         logger.info(f"Broadcast message sent: {response}")
 
-    def get_current_template_name(
+    def get_current_template(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
-    ) -> str:
+    ) -> Optional[str | bool]:
         """Get current template name from integrated agent templates."""
         template_name = data.get("template")
         try:
             template = integrated_agent.templates.get(name=template_name)
             if template.current_version is None:
                 logger.info(f"Template {template_name} has no current version.")
-                return None
-            return template.current_version.template_name
+                return False
+            return template
         except Template.DoesNotExist:
             return None
 
@@ -196,20 +242,102 @@ class BroadcastHandler:
     ) -> Optional[Dict[str, Any]]:
         """Build broadcast message from lambda response data."""
         logger.info("Retrieving current template name.")
-        template_name = self.get_current_template_name(integrated_agent, data)
-        if not template_name:
-            logger.error(f"Template not found: {template_name}")
-            return None
+        template = self.get_current_template(integrated_agent, data)
+
+        if template is False:
+            logger.info(
+                "Could not build message because template has no current version."
+            )
+            return
+
+        if template is None:
+            logger.error(f"Template not found: {template}")
+            return
 
         logger.info("Building broadcast template message.")
         message = build_broadcast_template_message(
             data=data,
             channel_uuid=str(integrated_agent.channel_uuid),
             project_uuid=str(integrated_agent.project.uuid),
-            template_name=template_name,
+            template=template,
         )
         logger.info(f"Broadcast template message built: {message}")
         return message
+
+    def _register_broadcast_event(
+        self,
+        message: Dict[str, Any],
+        response: Dict[str, Any],
+        integrated_agent: IntegratedAgent,
+        lambda_data: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Register broadcast event with structured data according to protobuf schema.
+
+        The method extracts data from lambda_data (preferred) or message, following this priority:
+        - status: from lambda_data["status"] (ResponseStatus enum values, default: 0)
+        - template: from lambda_data["template"] or message structure
+        - template_variables: from lambda_data["template_variables"] or message structure (always list)
+        - contact_urn: from lambda_data["contact_urn"] or message structure
+        - error: from response["error"] (always list)
+        - data: {"event_type": "template_broadcast_sent"} (identifies this as template broadcast event)
+
+        Args:
+            message: The broadcast message sent to flows service
+            response: The response from flows service
+            integrated_agent: The integrated agent instance
+            lambda_data: Lambda response data containing status, template, template_variables, contact_urn
+        """
+
+        # Extract template name from lambda data or message
+        template_name = ""
+        if lambda_data and "template" in lambda_data:
+            template_name = lambda_data["template"]
+        elif message and "msg" in message and "template" in message["msg"]:
+            template_name = message["msg"]["template"].get("name")
+
+        # Extract contact_urn from lambda data or message
+        contact_urn = ""
+        if lambda_data and "contact_urn" in lambda_data:
+            contact_urn = lambda_data["contact_urn"]
+        elif message and "urns" in message and message["urns"]:
+            contact_urn = message["urns"][0]
+
+        # Extract template variables from message (always return dict)
+        template_variables = {}
+        if message and "msg" in message and "template" in message["msg"]:
+            variables = message["msg"]["template"].get("variables", [])
+            # Convert list to dict with numeric keys
+            template_variables = {str(i): var for i, var in enumerate(variables, 1)}
+
+        # Extract error information if present (always return dict)
+        error_data = {}
+        if response and "error" in response:
+            error = response["error"]
+            if isinstance(error, dict):
+                error_data = error
+            else:
+                error_data = {"message": str(error)}
+
+        # Build structured data to protobuf schema
+        event_data = {
+            "template": template_name,
+            "template_variables": template_variables,
+            "contact_urn": contact_urn,
+            "error": error_data,
+            "data": {"event_type": "template_broadcast_sent"},
+            "date": datetime.now().isoformat(),
+            "project": str(integrated_agent.project.uuid),
+            "request": message,
+            "response": response,
+            "agent": str(integrated_agent.agent.uuid),
+        }
+
+        # Only include status if it exists in lambda_data
+        if lambda_data and "status" in lambda_data:
+            event_data["status"] = lambda_data["status"]
+
+        self.audit_func(CommerceWebhookPath, event_data)
 
 
 class AgentWebhookUseCase:
@@ -217,9 +345,11 @@ class AgentWebhookUseCase:
         self,
         lambda_handler: Optional[LambdaHandler] = None,
         broadcast_handler: Optional[BroadcastHandler] = None,
+        cache_handler: Optional[IntegratedAgentCacheHandler] = None,
     ):
         self.lambda_handler = lambda_handler or LambdaHandler()
         self.broadcast_handler = broadcast_handler or BroadcastHandler()
+        self.cache_handler = cache_handler or IntegratedAgentCacheHandlerRedis()
         self.IGNORE_INTEGRATED_AGENT_UUID = "d30bcce8-ce67-4677-8a33-c12b62a51d4f"
 
     def _get_integrated_agent(self, uuid: UUID):
@@ -228,8 +358,15 @@ class AgentWebhookUseCase:
             logger.info(f"Integrated agent is blocked: {uuid}")
             return None
 
+        cached_integrated_agent = self.cache_handler.get_cached_agent(uuid)
+
+        if cached_integrated_agent is not None:
+            return cached_integrated_agent
+
         try:
-            return IntegratedAgent.objects.get(uuid=uuid, is_active=True)
+            db_integrated_agent = IntegratedAgent.objects.get(uuid=uuid, is_active=True)
+            self.cache_handler.set_cached_agent(db_integrated_agent)
+            return db_integrated_agent
         except IntegratedAgent.DoesNotExist:
             logger.info(f"Integrated agent not found: {uuid}")
             return None
@@ -260,10 +397,14 @@ class AgentWebhookUseCase:
     def _set_project_rules(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
     ) -> None:
-        rule_codes = integrated_agent.templates.filter(
+        templates = integrated_agent.templates.filter(
             is_active=True, parent__isnull=True
-        ).values_list("rule_code", flat=True)
-        project_rules = [{"source": rule_code} for rule_code in rule_codes if rule_code]
+        ).values("rule_code", "name")
+        project_rules = [
+            {"source": template["rule_code"], "template": template["name"]}
+            for template in templates
+            if template["rule_code"]
+        ]
         data.set_project_rules(project_rules)
 
     def _process_lambda_response(
@@ -271,12 +412,14 @@ class AgentWebhookUseCase:
     ) -> Optional[Dict[str, Any]]:
         """Process lambda response and build broadcast message."""
         data = self.lambda_handler.parse_response(response)
+
         if not data:
-            return response
+            logger.info("Error in parsing lambda response.")
+            return None
 
         response["payload"] = data
 
-        if not self.lambda_handler.validate_response(data):
+        if not self.lambda_handler.validate_response(data, integrated_agent):
             return None
 
         if not self.broadcast_handler.can_send_to_contact(integrated_agent, data):
@@ -286,21 +429,19 @@ class AgentWebhookUseCase:
         try:
             message = self.broadcast_handler.build_message(integrated_agent, data)
             if not message:
-                logger.error(
+                logger.info(
                     f"Failed to build broadcast message from payload data: {data}"
                 )
-                return response
+                return None
 
-            self.broadcast_handler.send_message(message)
+            self.broadcast_handler.send_message(message, integrated_agent, data)
             return response
 
         except Exception as e:
             logger.exception(f"Unexpected error while building broadcast message: {e}")
-            return response
+            return None
 
-    def execute(
-        self, integrated_agent: IntegratedAgent, data: "RequestData"
-    ) -> Optional[Dict[str, Any]]:
+    def execute(self, integrated_agent: IntegratedAgent, data: "RequestData") -> None:
         """Execute agent webhook broadcast process."""
         logger.info(f"Executing broadcast for agent: {integrated_agent.uuid}")
 
@@ -319,5 +460,3 @@ class AgentWebhookUseCase:
             logger.info(
                 f"Successfully executed broadcast for agent: {integrated_agent.uuid}"
             )
-
-        return result

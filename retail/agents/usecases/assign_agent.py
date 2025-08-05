@@ -47,10 +47,10 @@ class AssignAgentUseCase:
         integrated_agent, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
             project=project,
-            ignore_templates=ignore_templates_slugs,
             is_active=True,
             defaults={
                 "channel_uuid": channel_uuid,
+                "ignore_templates": ignore_templates_slugs,
             },
         )
 
@@ -105,8 +105,8 @@ class AssignAgentUseCase:
 
             metadata = pre_approved.metadata or {}
             data: LibraryTemplateData = {
-                "template_name": metadata.get("name"),
-                "library_template_name": metadata.get("name"),
+                "template_name": pre_approved.name,
+                "library_template_name": pre_approved.name,
                 "category": metadata.get("category"),
                 "language": metadata.get("language"),
                 "app_uuid": app_uuid,

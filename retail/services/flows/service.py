@@ -21,7 +21,7 @@ class FlowsService:
             )
             return None
 
-    def send_whatsapp_broadcast(self, payload: dict) -> bool:
+    def send_whatsapp_broadcast(self, payload: dict) -> dict:
         """
         Send a WhatsApp broadcast message.
 
@@ -32,12 +32,10 @@ class FlowsService:
         Returns:
             dict: API response from the Flows service.
         """
-        response = self.client.send_whatsapp_broadcast(payload=payload)
-        return response.status_code == 200
+        return self.client.send_whatsapp_broadcast(payload=payload)
 
-    def send_purchase_event(self, payload: dict) -> bool:
+    def send_purchase_event(self, payload: dict) -> dict:
         """
         Send a purchase event to the Flows service.
         """
-        response = self.client.send_purchase_event(payload=payload)
-        return response.status_code == 200
+        return self.client.send_purchase_event(payload=payload)

@@ -1,3 +1,92 @@
+# 3.13.0
+
+## *Feature*
+  - feat: add 13-digits hash as active agent lambda function name
+  - feat: add validation for examples and push agent is now atomic
+
+## *Fix*
+  - fix: send header image in broadcast
+
+# 3.12.1
+
+## *Fix*
+  - hotfix: duplicated integrated agents
+
+# 3.12.0
+
+## *Feature*
+  - feat: support image in template header
+
+# 3.11.2
+
+## *Fix*
+  - fix: send template name in custom rule
+
+# 3.11.1
+
+## *Feature*
+  - feat: add logger error when creating lambda fails
+
+# 3.11.0
+
+## *Feature*
+  - feat: add lambda logs
+  - feat: cache integrated agent in webhook
+
+## *Fix*
+  - fix: prevent duplicate notifications for abandoned carts
+
+# 3.10.2
+
+## *Feature*
+  - feat: implement abandoned cart notification cooldown and duplicate prevention
+
+# 3.10.1
+
+## *Feature*
+  - feat: verify if cart items were purchased recently
+
+## *Fix*
+  - fix: change CAPI authorization and handling purchase event
+
+# 3.10.0
+
+## *Feature*
+  - feat: add JWT authentication for inter-module communication
+  - feat: new metadata format
+
+## *Fix*
+  - fix: sentry logger error of type project with account not found
+  - fix: update template with parameters
+
+# 3.9.2
+
+## *Fix*
+  - fix: remove global prompt
+
+# 3.9.1
+
+## *Fix*
+  - fix: better logs
+
+# 3.9.0
+
+## *Feature*
+  - feature: global rule
+
+# 3.8.2
+
+## *Fix*
+  - fix: temporarily disable OrderFormTrackingView due to authorization issues
+
+# 3.8.1
+
+## *Feature*
+  - feat: add __str__ to ORMs
+
+## *Fix*
+  - fix: sentry error in retrieving template name without current version
+
 # 3.8.0
 
 ## *Feature*

@@ -2,9 +2,9 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
-from rest_framework.permissions import AllowAny
 
-from retail.utils.aws.lambda_validator import LambdaURLValidator
+from retail.internal.jwt_mixins import JWTModuleAuthMixin
+
 from retail.vtex.dtos.register_order_form_dto import RegisterOrderFormDTO
 from retail.vtex.serializers import (
     OrderFormTrackingSerializer,
@@ -17,30 +17,12 @@ from retail.vtex.usecases.get_orders import GetOrdersUsecase
 from retail.vtex.usecases.register_order_form import RegisterOrderFormUseCase
 
 
-class BaseVtexProxyView(APIView, LambdaURLValidator):
+class BaseVtexProxyView(JWTModuleAuthMixin, APIView):
     """
     Base class for all VTEX proxy views.
 
-    Includes shared behaviors like Lambda STS validation and
-    default settings for authentication.
+    Includes shared behaviors like JWT authentication.
     """
-
-    authentication_classes = []
-
-    def validate_lambda(self, request: Request) -> Response | None:
-        """
-        Validates the request against the Lambda URL validator.
-
-        Args:
-            request (Request): The incoming request.
-
-        Returns:
-            Optional[Response]: Error response if validation fails, else None.
-        """
-        validation_response = self.protected_resource(request)
-        if validation_response.status_code != 200:
-            return validation_response
-        return None
 
 
 class OrdersProxyView(BaseVtexProxyView):
@@ -80,15 +62,12 @@ class OrdersProxyView(BaseVtexProxyView):
         Returns:
             Response: The API response with order data or error message.
         """
-        # AWS Lambda STS validation
-        error_response = self.validate_lambda(request)
-        if error_response:
-            return error_response
-
         serializer = OrdersQueryParamsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        result = self.get_orders_usecase.execute(data=serializer.validated_data)
+        result = self.get_orders_usecase.execute(
+            data=serializer.validated_data, project_uuid=self.project_uuid
+        )
         return Response(result, status=status.HTTP_200_OK)
 
 
@@ -107,23 +86,18 @@ class AccountIdentifierProxyView(BaseVtexProxyView):
             self._usecase = GetAccountIdentifierUsecase(VtexIOService())
         return self._usecase
 
-    def get(self, request: Request, project_uuid: str) -> Response:
+    def get(self, request: Request) -> Response:
         """
-        Retrieves the VTEX account identifier using the project UUID from the URL.
+        Retrieves the VTEX account identifier using the project UUID from JWT token.
 
         Args:
             request (Request): The incoming HTTP request.
-            project_uuid (str): The UUID of the project.
 
         Returns:
             Response: VTEX account identifier or error.
         """
-        error_response = self.validate_lambda(request)
-        if error_response:
-            return error_response
-
         try:
-            result = self.usecase.execute(project_uuid)
+            result = self.usecase.execute(project_uuid=self.project_uuid)
             return Response(result, status=status.HTTP_200_OK)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -158,44 +132,57 @@ class OrderDetailsProxyView(BaseVtexProxyView):
             )
         return self._get_order_details_usecase
 
-    def get(self, request: Request, project_uuid: str, order_id: str) -> Response:
+    def get(self, request: Request, order_id: str) -> Response:
         """
         Handle GET requests to retrieve specific order details from VTEX IO OMS API.
 
         Args:
             request (Request): The incoming request object.
-            project_uuid (str): The UUID of the project associated with the order.
             order_id (str): The ID of the order to retrieve details for.
 
         Returns:
             Response: The API response with order details or error message.
         """
-        error_response = self.validate_lambda(request)
-        if error_response:
-            return error_response
-
         try:
             result = self.get_order_details_usecase.execute(
-                project_uuid=str(project_uuid), order_id=order_id
+                project_uuid=self.project_uuid, order_id=order_id
             )
             return Response(result, status=status.HTTP_200_OK)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class OrderFormTrackingView(APIView):
+class OrderFormTrackingView(BaseVtexProxyView):
     """
     Link a VTEX order-form ID with the WhatsApp channel.
+
+    This view handles the linking of a VTEX order-form ID to a WhatsApp channel
+    by validating the request, deserializing the input, and executing the use case
+    to register the order form.
+
+    Authentication is handled through JWT tokens via JWTModuleAuthMixin.
     """
 
-    permission_classes = [AllowAny]
+    def post(self, request: Request) -> Response:
+        """
+        Handle POST requests to link a VTEX order-form ID with a WhatsApp channel.
 
-    def post(self, request, project_uuid: str):
-        serializer = OrderFormTrackingSerializer(data=request.data)
+        Args:
+            request (Request): The incoming HTTP request containing the order-form data.
+
+        Returns:
+            Response: A DRF Response containing a success message and the linked cart details,
+            or an error response if validation fails.
+        """
+        serializer: OrderFormTrackingSerializer = OrderFormTrackingSerializer(
+            data=request.data
+        )
         serializer.is_valid(raise_exception=True)
 
-        dto = RegisterOrderFormDTO(**serializer.validated_data)
-        use_case = RegisterOrderFormUseCase(project_uuid=project_uuid)
+        dto: RegisterOrderFormDTO = RegisterOrderFormDTO(**serializer.validated_data)
+        use_case: RegisterOrderFormUseCase = RegisterOrderFormUseCase(
+            project_uuid=self.project_uuid
+        )
 
         cart = use_case.execute(dto)
 

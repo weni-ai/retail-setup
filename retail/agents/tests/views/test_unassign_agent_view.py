@@ -17,6 +17,13 @@ CONNECT_SERVICE_PATH = "retail.internal.permissions.ConnectService"
 
 class UnassignAgentViewTest(APITestCase):
     def setUp(self):
+        # Mock the datalake audit function in the UnassignAgentUseCase
+        patcher = patch(
+            "retail.agents.usecases.unassign_agent.send_commerce_webhook_data"
+        )
+        self.mock_audit = patcher.start()
+        self.addCleanup(patcher.stop)
+
         self.project = Project.objects.create(name="Project", uuid=uuid4())
         self.agent_oficial = Agent.objects.create(
             uuid=uuid4(),

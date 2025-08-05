@@ -1,43 +1,19 @@
-import json
-
-import copy
-
 from typing import Optional, Dict, Any, TypedDict, List
-
-from enum import IntEnum
 
 from uuid import UUID
 
-from django.conf import settings
-
 from rest_framework.exceptions import NotFound
 
-from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
-from retail.services.aws_lambda import AwsLambdaService
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
-from retail.templates.usecases._base_template_creator import TemplateBuilderMixin
+from retail.templates.usecases import TemplateBuilderMixin
 from retail.templates.tasks import task_create_template
 from retail.templates.models import Template
-from retail.templates.exceptions import (
-    CodeGeneratorBadRequest,
-    CodeGeneratorUnprocessableEntity,
-    CodeGeneratorInternalServerError,
-    CustomTemplateAlreadyExists,
-)
+from retail.templates.exceptions import CustomTemplateAlreadyExists
 from retail.agents.models import IntegratedAgent
-
-
-class LambdaResponsePayload(TypedDict):
-    statusCode: int
-    body: Dict[str, Any]
-
-
-class LambdaResponseStatusCode(IntEnum):
-    OK = 200
-    BAD_REQUEST = 400
-    UNPROCESSABLE_ENTITY = 422
+from retail.services.rule_generator import RuleGenerator
+from retail.templates.handlers import TemplateMetadataHandler
 
 
 class ParameterData(TypedDict):
@@ -60,44 +36,13 @@ class CreateCustomTemplateData(TypedDict):
 class CreateCustomTemplateUseCase(TemplateBuilderMixin):
     def __init__(
         self,
-        lambda_service: Optional[AwsLambdaServiceInterface] = None,
+        rule_generator: Optional[RuleGenerator] = None,
         template_adapter: Optional[TemplateTranslationAdapter] = None,
+        template_metadata_handler: Optional[TemplateMetadataHandler] = None,
     ):
-        self.lambda_service = lambda_service or AwsLambdaService(
-            region_name=settings.LAMBDA_CODE_GENERATOR_REGION
-        )
-        self.lambda_code_generator = getattr(
-            settings,
-            "LAMBDA_CODE_GENERATOR",
-            "arn:aws:lambda:us-east-1:123456789012:function:mock",
-        )
+        self.rule_generator = rule_generator or RuleGenerator()
         self.template_adapter = template_adapter or TemplateTranslationAdapter()
-
-    def _invoke_code_generator(
-        self, params: List[ParameterData], integrated_agent: IntegratedAgent
-    ) -> Dict[str, Any]:
-        example_parameter = {
-            "name": "examples",
-            "value": integrated_agent.agent.examples,
-        }
-        params.append(example_parameter)
-
-        payload = {
-            "parameters": params,
-        }
-
-        response = self.lambda_service.invoke(
-            function_name=self.lambda_code_generator, payload=payload
-        )
-
-        response_payload = json.loads(response["Payload"].read())
-
-        return response_payload
-
-    def _adapt_translation(
-        self, template_translation: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        return self.template_adapter.adapt(template_translation)
+        self.metadata_handler = template_metadata_handler or TemplateMetadataHandler()
 
     def _notify_integrations(
         self,
@@ -107,16 +52,16 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         app_uuid: str,
         project_uuid: str,
         category: str,
-        variables: Optional[List[str]],
     ) -> None:
         buttons = translation_payload.get("buttons")
+        header = translation_payload.get("header")
 
         if buttons:
             for button in buttons:
                 button["button_type"] = button.pop("type", None)
 
-        if variables:
-            translation_payload["body"]["example"] = {"body_text": [variables]}
+        if header and header.get("header_type") == "IMAGE":
+            header["example"] = header.pop("text", None)
 
         task_create_template.delay(
             template_name=version_name,
@@ -130,19 +75,21 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
     def _update_template(
         self,
         template: Template,
-        body: Dict[str, Any],
-        translation: Dict[str, Any],
+        generated_code: str,
+        metadata: Dict[str, Any],
         category: str,
         integrated_agent: IntegratedAgent,
         display_name: str,
         start_condition: str,
+        variables: Optional[List[Dict[str, Any]]],
     ) -> Template:
         template.integrated_agent = integrated_agent
-        template.metadata = translation
+        template.metadata = metadata
         template.metadata["category"] = category
-        template.rule_code = body.get("generated_code")
+        template.rule_code = generated_code
         template.display_name = display_name
         template.start_condition = start_condition
+        template.variables = variables or []
         template.save()
         return template
 
@@ -157,7 +104,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
     def _handle_successful_code_generation(
         self,
         payload: CreateCustomTemplateData,
-        body: Dict[str, Any],
+        generated_code: str,
         integrated_agent: IntegratedAgent,
     ) -> Template:
         if Template.objects.filter(
@@ -172,54 +119,44 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
 
         template, version = self.build_template_and_version(payload, integrated_agent)
 
-        metadata = {
-            "body": payload.get("template_translation", {}).get("template_body"),
-            "header": payload.get("template_translation", {}).get("template_header"),
-            "footer": payload.get("template_translation", {}).get("template_footer"),
-            "buttons": payload.get("template_translation", {}).get("template_button"),
-        }
+        metadata = self.metadata_handler.build_metadata(
+            payload.get("template_translation", {}),
+            payload.get("category"),
+        )
 
-        translation_payload = self._adapt_translation(metadata)
-        metadata["buttons"] = translation_payload.get("buttons")
+        translation_payload = self.template_adapter.adapt(metadata)
 
-        start_condition = next(
-            (
-                param.get("value")
-                for param in payload.get("parameters")
-                if param.get("name") == "start_condition"
-            ),
+        metadata = self.metadata_handler.post_process_translation(
+            metadata, translation_payload
+        )
+
+        start_condition = self.metadata_handler.extract_start_condition(
+            payload.get("parameters", []),
             None,
         )
 
-        variables = [
-            variable.get("fallback")
-            for variable in next(
-                (
-                    param.get("value")
-                    for param in payload.get("parameters")
-                    if param.get("name") == "variables"
-                ),
-                [],
-            )
-        ]
+        variables = self.metadata_handler.extract_variables(
+            payload.get("parameters", []),
+            None,
+        )
 
         template = self._update_template(
             template,
-            body,
+            generated_code,
             metadata,
             payload.get("category"),
             integrated_agent,
             payload.get("display_name"),
             start_condition,
+            variables,
         )
         self._notify_integrations(
             version.template_name,
             version.uuid,
-            copy.deepcopy(translation_payload),
+            translation_payload,
             payload.get("app_uuid"),
             payload.get("project_uuid"),
             payload.get("category"),
-            variables,
         )
         return template
 
@@ -236,26 +173,11 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         integrated_agent = self._get_integrated_agent(
             payload.get("integrated_agent_uuid")
         )
-        response_payload = self._invoke_code_generator(
+
+        generated_code = self.rule_generator.generate_code(
             payload["parameters"], integrated_agent
         )
 
-        status_code = response_payload.get("statusCode")
-        body = response_payload.get("body")
-
-        if status_code is not None:
-            match status_code:
-                case LambdaResponseStatusCode.OK:
-                    return self._handle_successful_code_generation(
-                        payload, body, integrated_agent
-                    )
-
-                case LambdaResponseStatusCode.BAD_REQUEST:
-                    raise CodeGeneratorBadRequest(detail=body)
-
-                case LambdaResponseStatusCode.UNPROCESSABLE_ENTITY:
-                    raise CodeGeneratorUnprocessableEntity(detail=body)
-
-        raise CodeGeneratorInternalServerError(
-            detail={"message": "Unknown error from lambda.", "error": response_payload}
+        return self._handle_successful_code_generation(
+            payload, generated_code, integrated_agent
         )

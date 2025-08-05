@@ -1,50 +1,33 @@
-import json
-import copy
+# retail/templates/strategies/update_template_strategies.py
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, List
-
+from typing import Optional, Dict, Any
 from uuid import UUID
 
-from enum import IntEnum
-
-from django.conf import settings
-
-from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
-from retail.services.aws_lambda import AwsLambdaService
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
 from retail.templates.models import Template
+from retail.templates.usecases import TemplateBuilderMixin
+from retail.services.rule_generator import RuleGenerator
+from retail.templates.handlers import TemplateMetadataHandler
 from retail.templates.tasks import task_create_template
-from retail.templates.exceptions import (
-    CodeGeneratorBadRequest,
-    CodeGeneratorUnprocessableEntity,
-    CodeGeneratorInternalServerError,
-)
-from retail.templates.usecases._base_template_creator import TemplateBuilderMixin
-
-
-class LambdaResponseStatusCode(IntEnum):
-    OK = 200
-    BAD_REQUEST = 400
-    UNPROCESSABLE_ENTITY = 422
 
 
 class UpdateTemplateStrategy(ABC):
     """Abstract strategy for template updates"""
 
-    def __init__(self, template_adapter: Optional[TemplateTranslationAdapter] = None):
+    def __init__(
+        self,
+        template_adapter: Optional[TemplateTranslationAdapter] = None,
+        template_metadata_handler: Optional[TemplateMetadataHandler] = None,
+    ):
         self.template_adapter = template_adapter or TemplateTranslationAdapter()
+        self.metadata_handler = template_metadata_handler or TemplateMetadataHandler()
 
     @abstractmethod
     def update_template(self, template: Template, payload: Dict[str, Any]) -> Template:
-        """Execute the template update strategy"""
         pass
-
-    def _adapt_translation(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Common method to adapt template translation"""
-        return self.template_adapter.adapt(metadata)
 
     def _notify_integrations(
         self,
@@ -55,14 +38,15 @@ class UpdateTemplateStrategy(ABC):
         project_uuid: str,
         category: str,
     ) -> None:
-        """Common method to notify integrations"""
-        if not all([version_name, app_uuid, project_uuid, version_uuid]):
-            raise ValueError("Missing required data to notify integrations")
-
         buttons = translation_payload.get("buttons")
         if buttons:
             for button in buttons:
                 button["button_type"] = button.pop("type", None)
+
+        header = translation_payload.get("header")
+
+        if isinstance(header, dict) and header.get("header_type") == "IMAGE":
+            header["example"] = header.pop("text", None)
 
         task_create_template.delay(
             template_name=version_name,
@@ -73,38 +57,27 @@ class UpdateTemplateStrategy(ABC):
             template_translation=translation_payload,
         )
 
+    def _update_common_metadata(
+        self, template: Template, payload: Dict[str, Any]
+    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        updated_metadata = self.metadata_handler.build_metadata(
+            payload,
+            template.metadata.get("category"),
+        )
+        translation_payload = self.template_adapter.adapt(updated_metadata)
 
-class UpdateNormalTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin):
-    """Strategy for updating normal templates"""
+        updated_metadata = self.metadata_handler.post_process_translation(
+            updated_metadata, translation_payload
+        )
+        return updated_metadata, translation_payload
 
-    def update_template(self, template: Template, payload: Dict[str, Any]) -> Template:
-        if not template.metadata:
-            raise ValueError("Template metadata is missing")
-
+    def _create_version_and_notify(
+        self,
+        template: Template,
+        payload: Dict[str, Any],
+        translation_payload: Dict[str, Any],
+    ) -> None:
         category = template.metadata.get("category")
-        if not category:
-            raise ValueError("Missing category in template metadata")
-
-        updated_metadata = dict(template.metadata)
-
-        updated_metadata["body"] = payload.get(
-            "template_body", template.metadata.get("body")
-        )
-        updated_metadata["header"] = payload.get(
-            "template_header", template.metadata.get("header")
-        )
-        updated_metadata["footer"] = payload.get(
-            "template_footer", template.metadata.get("footer")
-        )
-        updated_metadata["buttons"] = payload.get(
-            "template_button", template.metadata.get("buttons")
-        )
-
-        translation_payload = self._adapt_translation(updated_metadata)
-        updated_metadata["buttons"] = translation_payload.get("buttons")
-
-        template.metadata = updated_metadata
-        template.save(update_fields=["metadata"])
 
         version = self._create_version(
             template=template,
@@ -115,11 +88,32 @@ class UpdateNormalTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
         self._notify_integrations(
             version_name=version.template_name,
             version_uuid=version.uuid,
-            translation_payload=copy.deepcopy(translation_payload),
+            translation_payload=translation_payload,
             app_uuid=payload["app_uuid"],
             project_uuid=payload["project_uuid"],
             category=category,
         )
+
+
+class UpdateNormalTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin):
+    """Strategy for updating normal templates"""
+
+    def __init__(
+        self,
+        template_adapter: Optional[TemplateTranslationAdapter] = None,
+        template_metadata_handler: Optional[TemplateMetadataHandler] = None,
+    ):
+        super().__init__(template_adapter, template_metadata_handler)
+
+    def update_template(self, template: Template, payload: Dict[str, Any]) -> Template:
+        updated_metadata, translation_payload = self._update_common_metadata(
+            template, payload
+        )
+
+        template.metadata = updated_metadata
+        template.save(update_fields=["metadata"])
+
+        self._create_version_and_notify(template, payload, translation_payload)
 
         return template
 
@@ -130,109 +124,44 @@ class UpdateCustomTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
     def __init__(
         self,
         template_adapter: Optional[TemplateTranslationAdapter] = None,
-        lambda_service: Optional[AwsLambdaServiceInterface] = None,
+        rule_generator: Optional[RuleGenerator] = None,
+        template_metadata_handler: Optional[TemplateMetadataHandler] = None,
     ):
-        super().__init__(template_adapter)
-        self.lambda_service = lambda_service or AwsLambdaService(
-            region_name=settings.LAMBDA_CODE_GENERATOR_REGION
-        )
-        self.lambda_code_generator = getattr(
-            settings,
-            "LAMBDA_CODE_GENERATOR",
-            "arn:aws:lambda:us-east-1:123456789012:function:mock",
-        )
+        super().__init__(template_adapter, template_metadata_handler)
+        self.rule_generator = rule_generator or RuleGenerator()
 
     def update_template(self, template: Template, payload: Dict[str, Any]) -> Template:
-        if not template.metadata:
-            raise ValueError("Template metadata is missing")
+        updated_metadata, translation_payload = self._update_common_metadata(
+            template, payload
+        )
 
-        category = template.metadata.get("category")
+        parameters = payload.get("parameters", [])
 
-        if not category:
-            raise ValueError("Missing category in template metadata")
-
-        if "parameters" in payload:
-            generated_code = self._generate_code(payload["parameters"])
+        if parameters:
+            generated_code = self.rule_generator.generate_code(
+                parameters, template.integrated_agent
+            )
             template.rule_code = generated_code
 
-        updated_metadata = dict(template.metadata)
-        updated_metadata["body"] = payload.get(
-            "template_body", template.metadata.get("body")
-        )
-        updated_metadata["header"] = payload.get(
-            "template_header", template.metadata.get("header")
-        )
-        updated_metadata["footer"] = payload.get(
-            "template_footer", template.metadata.get("footer")
-        )
-        updated_metadata["buttons"] = payload.get(
-            "template_button", template.metadata.get("buttons")
-        )
-
-        translation_payload = self._adapt_translation(updated_metadata)
-        updated_metadata["buttons"] = translation_payload.get("buttons")
-
-        if "parameters" in payload:
-            start_condition = next(
-                (
-                    param.get("value")
-                    for param in payload["parameters"]
-                    if param.get("name") == "start_condition"
-                ),
-                template.start_condition,
+            start_condition = self.metadata_handler.extract_start_condition(
+                parameters,
+                None,
             )
+
+            variables = self.metadata_handler.extract_variables(
+                parameters,
+                None,
+            )
+
             template.start_condition = start_condition
+            template.variables = variables or []
 
         template.metadata = updated_metadata
-        template.save(update_fields=["metadata", "rule_code", "start_condition"])
+        template.save()
 
-        version = self._create_version(
-            template=template,
-            app_uuid=payload["app_uuid"],
-            project_uuid=payload["project_uuid"],
-        )
-
-        self._notify_integrations(
-            version_name=version.template_name,
-            version_uuid=version.uuid,
-            translation_payload=copy.deepcopy(translation_payload),
-            app_uuid=payload["app_uuid"],
-            project_uuid=payload["project_uuid"],
-            category=category,
-        )
+        self._create_version_and_notify(template, payload, translation_payload)
 
         return template
-
-    def _generate_code(self, parameters: List[Dict[str, Any]]) -> str:
-        """Generate code using Lambda service"""
-        response_payload = self._invoke_code_generator(parameters)
-
-        status_code = response_payload.get("statusCode")
-        body = response_payload.get("body")
-
-        if status_code is not None:
-            match status_code:
-                case LambdaResponseStatusCode.OK:
-                    return body.get("generated_code", "")
-                case LambdaResponseStatusCode.BAD_REQUEST:
-                    raise CodeGeneratorBadRequest(detail=body)
-                case LambdaResponseStatusCode.UNPROCESSABLE_ENTITY:
-                    raise CodeGeneratorUnprocessableEntity(detail=body)
-
-        raise CodeGeneratorInternalServerError(
-            detail={"message": "Unknown error from lambda.", "error": response_payload}
-        )
-
-    def _invoke_code_generator(self, params: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Invoke Lambda code generator"""
-        payload = {"parameters": params}
-
-        response = self.lambda_service.invoke(
-            function_name=self.lambda_code_generator, payload=payload
-        )
-
-        response_payload = json.loads(response["Payload"].read())
-        return response_payload
 
 
 class UpdateTemplateStrategyFactory:
@@ -242,25 +171,16 @@ class UpdateTemplateStrategyFactory:
     def create_strategy(
         template: Template,
         template_adapter: Optional[TemplateTranslationAdapter] = None,
-        lambda_service: Optional[AwsLambdaServiceInterface] = None,
-    ) -> UpdateTemplateStrategy:
-        """
-        Create the appropriate strategy based on template type.
-
-        Args:
-            template: Template instance to determine strategy
-            template_adapter: Optional adapter for template translation
-            lambda_service: Optional lambda service for custom templates
-
-        Returns:
-            UpdateTemplateStrategy: The appropriate strategy instance
-        """
+        rule_generator: Optional[RuleGenerator] = None,
+        template_metadata_handler: Optional[TemplateMetadataHandler] = None,
+    ) -> "UpdateTemplateStrategy":
         if template.is_custom:
             return UpdateCustomTemplateStrategy(
                 template_adapter=template_adapter,
-                lambda_service=lambda_service,
+                rule_generator=rule_generator,
+                template_metadata_handler=template_metadata_handler,
             )
-        else:
-            return UpdateNormalTemplateStrategy(
-                template_adapter=template_adapter,
-            )
+        return UpdateNormalTemplateStrategy(
+            template_adapter=template_adapter,
+            template_metadata_handler=template_metadata_handler,
+        )

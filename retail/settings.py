@@ -259,6 +259,7 @@ VTEX_IO_WORKSPACE = env.str("VTEX_IO_WORKSPACE", default="")
 LAMBDA_ALLOWED_ROLES = env.list("LAMBDA_ALLOWED_ROLES", default=[])
 
 USE_LAMBDA = env.bool("USE_LAMBDA", default=False)
+USE_S3 = env.bool("USE_S3", default=False)
 
 DOMAIN = env.str("DOMAIN", default="http://localhost:8000")
 
@@ -270,6 +271,10 @@ if USE_LAMBDA:
     LAMBDA_TIMEOUT = env.int("LAMBDA_TIMEOUT", default=60)
     LAMBDA_CODE_GENERATOR = env.str("LAMBDA_CODE_GENERATOR")
     LAMBDA_CODE_GENERATOR_REGION = env.str("LAMBDA_CODE_GENERATOR_REGION")
+    LAMBDA_LOG_GROUP = env.str("LAMBDA_LOG_GROUP")
+
+if USE_S3:
+    AWS_STORAGE_BUCKET_NAME = env.str("AWS_STORAGE_BUCKET_NAME")
 
 USE_META = env.bool("USE_LAMBDA", default=False)
 
@@ -283,3 +288,15 @@ if USE_META:
 ORDER_STATUS_AGENT_UUID = env.str("ORDER_STATUS_AGENT_UUID", default="")
 
 CONNECT_REST_ENDPOINT = env.str("CONNECT_REST_ENDPOINT")
+# Path to the JWT public key
+JWT_PUBLIC_KEY_PATH = BASE_DIR / "retail" / "jwt_keys" / "public_key.pem"
+
+# The public key is loaded a single time at application startup.
+try:
+    with open(JWT_PUBLIC_KEY_PATH, "rb") as f:
+        JWT_PUBLIC_KEY = f.read()
+except FileNotFoundError:
+    JWT_PUBLIC_KEY = None
+
+# Datalake server address
+DATALAKE_SERVER_ADDRESS = env.str("DATALAKE_SERVER_ADDRESS", default="")
