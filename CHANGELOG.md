@@ -1,3 +1,11 @@
+# 3.14.0
+
+## *Feature*
+  - feat: handle non preapproved
+  - feat: add unit tests for VTEX module, repositories, and CAPI use cases
+  - feat: add phone number restriction for abandoned cart
+  - feat: register events using weni-datalake-sdk
+
 # 3.13.0
 
 ## *Feature*
