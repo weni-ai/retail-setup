@@ -12,7 +12,7 @@ router.register(
 urlpatterns = [
     path("", include(router.urls)),
     path(
-        "projects/vtex-account/",
+        "projects/<uuid:project_uuid>/vtex-account/",
         project_views.VtexAccountLookupView.as_view(),
         name="project-vtex-account-lookup",
     ),
