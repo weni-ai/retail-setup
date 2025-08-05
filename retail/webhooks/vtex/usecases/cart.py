@@ -10,7 +10,10 @@ from retail.vtex.models import Cart
 from retail.vtex.tasks import mark_cart_as_abandoned
 from django_redis import get_redis_connection
 
-from retail.webhooks.vtex.services import CartTimeRestrictionService
+from retail.webhooks.vtex.services import (
+    CartTimeRestrictionService,
+    CartPhoneRestrictionService,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -145,9 +148,14 @@ class CartUseCase:
 
         Args:
             order_form_id (str): The UUID of the cart.
+            phone (str): The phone number.
+            name (str): The client name.
 
         Returns:
             Cart: The created cart instance.
+
+        Raises:
+            ValidationError: If phone restriction is active and phone is not allowed.
         """
         # Check if templates are synchronized before proceeding
         sync_status = self.integrated_feature.config.get(
@@ -162,6 +170,24 @@ class CartUseCase:
             raise ValidationError(
                 {"error": "Templates are not synchronized"},
                 code="templates_not_synchronized",
+            )
+
+        # Validate phone restriction before creating cart
+        phone_restriction_service = CartPhoneRestrictionService(self.integrated_feature)
+        if not phone_restriction_service.validate_phone_restriction(phone):
+            logger.info(
+                f"Cart creation blocked for phone {phone} due to phone restriction. "
+                f"Order form: {order_form_id}, Project: {self.project.uuid}"
+            )
+            raise ValidationError(
+                {
+                    "error": "Phone number not allowed due to active restrictions",
+                    "phone": phone,
+                    "order_form_id": order_form_id,
+                    "project_uuid": str(self.project.uuid),
+                    "message": "Cart creation blocked due to active phone restrictions.",
+                },
+                code="phone_restriction_blocked",
             )
 
         cart = Cart.objects.create(

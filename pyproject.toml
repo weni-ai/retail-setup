@@ -24,6 +24,7 @@ pre-commit = "^4.2.0"
 boto3 = "^1.38.13"
 pyjwt = "^2.10.1"
 cryptography = "^45.0.5"
+weni-datalake-sdk = "0.5.0"
 
 [tool.poetry.group.dev.dependencies]
 flake8 = "^7.1.0"
