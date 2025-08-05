@@ -63,7 +63,9 @@ def build_broadcast_template_message(
             int_key = int(key)
             sorted_keys.append((int_key, key))
         except ValueError:
-            logger.warning(f"Ignoring non-numeric template variable key: {key}")
+            logger.warning(
+                f"Ignoring non-numeric template variable key: {key} with value: {template_variables[key]}"
+            )
             continue
 
     # Extract values in sorted order
