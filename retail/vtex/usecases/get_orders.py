@@ -6,7 +6,7 @@ class GetOrdersUsecase(BaseVtexUseCase):
     def __init__(self, vtex_io_service: VtexIOService):
         self.vtex_io_service = vtex_io_service
 
-    def execute(self, data: dict, project_uuid: str) -> dict:
+    def execute(self, data: dict) -> dict:
         """
         Execute the get orders use case.
 
@@ -17,6 +17,7 @@ class GetOrdersUsecase(BaseVtexUseCase):
             dict: Orders data from VTEX IO
         """
         # Remove project_uuid from params as it's not needed for the VTEX API call
+        project_uuid = data.get("project_uuid")
         raw_query = data.get("raw_query")
         account_domain = self._get_account_domain(project_uuid)
         return self.vtex_io_service.get_orders(
