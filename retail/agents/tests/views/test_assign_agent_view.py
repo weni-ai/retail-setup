@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 
 from uuid import uuid4
 from urllib.parse import urlencode
+from unittest.mock import patch, MagicMock
 
 from retail.agents.models import Agent
 from retail.projects.models import Project
@@ -34,7 +35,12 @@ class AssignAgentViewTest(APITestCase):
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 
-    def test_assign_agent_oficial(self):
+    @patch("retail.agents.usecases.assign_agent.IntegrationsService")
+    def test_assign_agent_oficial(self, mock_integrations_service_class):
+        mock_integrations_service = MagicMock()
+        mock_integrations_service.fetch_templates_from_user.return_value = {}
+        mock_integrations_service_class.return_value = mock_integrations_service
+
         url = reverse("assign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})
         query_string = urlencode(
             {"app_uuid": str(uuid4()), "channel_uuid": str(uuid4())}
@@ -62,7 +68,14 @@ class AssignAgentViewTest(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_assign_agent_not_oficial_correct_project(self):
+    @patch("retail.agents.usecases.assign_agent.IntegrationsService")
+    def test_assign_agent_not_oficial_correct_project(
+        self, mock_integrations_service_class
+    ):
+        mock_integrations_service = MagicMock()
+        mock_integrations_service.fetch_templates_from_user.return_value = {}
+        mock_integrations_service_class.return_value = mock_integrations_service
+
         url = reverse(
             "assign-agent", kwargs={"agent_uuid": self.agent_not_oficial.uuid}
         )

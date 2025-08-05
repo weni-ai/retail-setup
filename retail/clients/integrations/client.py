@@ -1,11 +1,19 @@
 """Client for connection with Integrations"""
 
+import concurrent.futures
+
+import logging
+
+import math
+
 from django.conf import settings
 
 from typing import Dict, List, Optional
 
 from retail.clients.base import RequestClient, InternalAuthentication
 from retail.interfaces.clients.integrations.interface import IntegrationsClientInterface
+
+logger = logging.getLogger(__name__)
 
 
 class IntegrationsClient(RequestClient, IntegrationsClientInterface):
@@ -173,3 +181,50 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
         )
 
         return response.json()
+
+    def fetch_templates_from_user(self, app_uuid: str, project_uuid: str) -> List[Dict]:
+        def fetch_single_page(app_uuid: str, page: int, page_size: int = 15) -> Dict:
+            url = f"{self.base_url}/api/v1/apps/{app_uuid}/templates/?page={page}&page_size={page_size}"
+
+            headers = {
+                **self.authentication_instance.headers,
+                "Project-Uuid": project_uuid,
+            }
+
+            response = self.make_request(url, method="GET", headers=headers).json()
+
+            return response
+
+        page_size = 15
+
+        first_page_response = fetch_single_page(app_uuid, 1, page_size)
+
+        all_templates = first_page_response.get("results", [])
+        total_count = first_page_response.get("count", 0)
+
+        if total_count <= page_size:
+            return all_templates
+
+        total_pages = math.ceil(total_count / page_size)
+
+        if total_pages > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                future_to_page = {
+                    executor.submit(fetch_single_page, app_uuid, page, page_size): page
+                    for page in range(2, total_pages + 1)
+                }
+
+                page_results = {}
+                for future in concurrent.futures.as_completed(future_to_page):
+                    page_num = future_to_page[future]
+                    try:
+                        page_response = future.result()
+                        page_results[page_num] = page_response.get("results", [])
+                    except Exception as exc:
+                        logger.warning(f"Error fetching page {page_num}: {exc}")
+                        page_results[page_num] = []
+
+                for page_num in sorted(page_results.keys()):
+                    all_templates.extend(page_results[page_num])
+
+        return all_templates
