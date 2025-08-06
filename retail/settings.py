@@ -287,6 +287,7 @@ if USE_META:
 
 ORDER_STATUS_AGENT_UUID = env.str("ORDER_STATUS_AGENT_UUID", default="")
 
+CONNECT_REST_ENDPOINT = env.str("CONNECT_REST_ENDPOINT")
 # Path to the JWT public key
 JWT_PUBLIC_KEY_PATH = BASE_DIR / "retail" / "jwt_keys" / "public_key.pem"
 
@@ -296,3 +297,6 @@ try:
         JWT_PUBLIC_KEY = f.read()
 except FileNotFoundError:
     JWT_PUBLIC_KEY = None
+
+# Datalake server address
+DATALAKE_SERVER_ADDRESS = env.str("DATALAKE_SERVER_ADDRESS", default="")

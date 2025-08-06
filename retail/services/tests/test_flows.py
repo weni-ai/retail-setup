@@ -41,8 +41,8 @@ class TestFlowsService(TestCase):
         self.assertIsNone(result)
 
     def test_send_whatsapp_broadcast_success(self):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
+        # Mock successful response
+        mock_response = {"status": 200, "message": "Broadcast sent successfully"}
         self.mock_client.send_whatsapp_broadcast.return_value = mock_response
 
         result = self.service.send_whatsapp_broadcast(self.payload)
@@ -50,11 +50,11 @@ class TestFlowsService(TestCase):
         self.mock_client.send_whatsapp_broadcast.assert_called_once_with(
             payload=self.payload
         )
-        self.assertTrue(result)
+        self.assertEqual(result, mock_response)
 
     def test_send_whatsapp_broadcast_failure(self):
-        mock_response = MagicMock()
-        mock_response.status_code = 400
+        # Mock failed response
+        mock_response = {"status": 400, "error": "Bad request"}
         self.mock_client.send_whatsapp_broadcast.return_value = mock_response
 
         result = self.service.send_whatsapp_broadcast(self.payload)
@@ -62,4 +62,16 @@ class TestFlowsService(TestCase):
         self.mock_client.send_whatsapp_broadcast.assert_called_once_with(
             payload=self.payload
         )
-        self.assertFalse(result)
+        self.assertEqual(result, mock_response)
+
+    def test_send_whatsapp_broadcast_exception(self):
+        # Mock exception
+        exception = Exception("Network error")
+        self.mock_client.send_whatsapp_broadcast.side_effect = exception
+
+        with self.assertRaises(Exception):
+            self.service.send_whatsapp_broadcast(self.payload)
+
+        self.mock_client.send_whatsapp_broadcast.assert_called_once_with(
+            payload=self.payload
+        )

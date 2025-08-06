@@ -12,6 +12,7 @@ from django.utils.timezone import timedelta
 from retail.features.models import Feature, IntegratedFeature
 from retail.projects.models import Project
 from retail.webhooks.vtex.services import CartTimeRestrictionService
+from retail.webhooks.vtex.services import CartPhoneRestrictionService
 
 
 class TestCartTimeRestrictionService(TestCase):
@@ -297,3 +298,118 @@ class TestCartTimeRestrictionService(TestCase):
         countdown = self.service(integrated_feature=integrated_feature).get_countdown()
 
         self.assertAlmostEqual(countdown, 3600, delta=45)
+
+
+class TestCartPhoneRestrictionService(TestCase):
+    def setUp(self):
+        self.feature = Feature.objects.create()
+        self.project = Project.objects.create(uuid=uuid.uuid4())
+        self.user = User.objects.create()
+
+    def test_validate_phone_restriction_no_restriction_active(self):
+        """Test phone validation when no restriction is active."""
+        config = {
+            "integration_settings": {
+                "abandoned_cart_restriction": {
+                    "is_active": False,
+                }
+            }
+        }
+
+        integrated_feature = IntegratedFeature.objects.create(
+            feature=self.feature, project=self.project, config=config, user=self.user
+        )
+        service = CartPhoneRestrictionService(integrated_feature)
+
+        # Should allow any phone when restriction is not active
+        self.assertTrue(service.validate_phone_restriction("5584987654321"))
+
+    def test_validate_phone_restriction_active_no_phone_numbers(self):
+        """Test phone validation when restriction is active but no phone numbers configured."""
+        config = {
+            "integration_settings": {
+                "abandoned_cart_restriction": {
+                    "is_active": True,
+                    "phone_numbers": [],
+                }
+            }
+        }
+
+        integrated_feature = IntegratedFeature.objects.create(
+            feature=self.feature, project=self.project, config=config, user=self.user
+        )
+        service = CartPhoneRestrictionService(integrated_feature)
+
+        # Should block when restriction is active but no numbers configured
+        self.assertFalse(service.validate_phone_restriction("5584987654321"))
+
+    def test_validate_phone_restriction_active_phone_allowed(self):
+        """Test phone validation when restriction is active and phone is allowed."""
+        config = {
+            "integration_settings": {
+                "abandoned_cart_restriction": {
+                    "is_active": True,
+                    "phone_numbers": ["5584987654321", "5584987654322"],
+                }
+            }
+        }
+
+        integrated_feature = IntegratedFeature.objects.create(
+            feature=self.feature, project=self.project, config=config, user=self.user
+        )
+        service = CartPhoneRestrictionService(integrated_feature)
+
+        # Should allow phone that is in the allowed list
+        self.assertTrue(service.validate_phone_restriction("5584987654321"))
+        self.assertTrue(service.validate_phone_restriction("5584987654322"))
+
+    def test_validate_phone_restriction_active_phone_blocked(self):
+        """Test phone validation when restriction is active and phone is blocked."""
+        config = {
+            "integration_settings": {
+                "abandoned_cart_restriction": {
+                    "is_active": True,
+                    "phone_numbers": ["5584987654321", "5584987654322"],
+                }
+            }
+        }
+
+        integrated_feature = IntegratedFeature.objects.create(
+            feature=self.feature, project=self.project, config=config, user=self.user
+        )
+        service = CartPhoneRestrictionService(integrated_feature)
+
+        # Should block phone that is not in the allowed list
+        self.assertFalse(service.validate_phone_restriction("5584987654323"))
+
+    def test_validate_phone_restriction_normalizes_numbers(self):
+        """Test that phone numbers are normalized before comparison."""
+        config = {
+            "integration_settings": {
+                "abandoned_cart_restriction": {
+                    "is_active": True,
+                    "phone_numbers": ["+55 84 98765-4321", "+55 84 98765-4322"],
+                }
+            }
+        }
+
+        integrated_feature = IntegratedFeature.objects.create(
+            feature=self.feature, project=self.project, config=config, user=self.user
+        )
+        service = CartPhoneRestrictionService(integrated_feature)
+
+        # Should allow normalized numbers that match the normalized allowed list
+        self.assertTrue(service.validate_phone_restriction("5584987654321"))
+        self.assertTrue(service.validate_phone_restriction("5584987654322"))
+
+    def test_validate_phone_restriction_missing_config(self):
+        """Test phone validation when restriction config is missing."""
+        config = {"integration_settings": {}}
+
+        integrated_feature = IntegratedFeature.objects.create(
+            feature=self.feature, project=self.project, config=config, user=self.user
+        )
+        service = CartPhoneRestrictionService(integrated_feature)
+
+        # Should allow any phone when restriction config is missing
+        self.assertTrue(service.validate_phone_restriction("5584987654321"))
