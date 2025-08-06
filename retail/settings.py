@@ -300,3 +300,6 @@ except FileNotFoundError:
 
 # Datalake server address
 DATALAKE_SERVER_ADDRESS = env.str("DATALAKE_SERVER_ADDRESS", default="")
+
+# JWT secret key
+JWT_SECRET_KEY = env.str("JWT_SECRET_KEY", default="")
