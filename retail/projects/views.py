@@ -6,7 +6,6 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework import status
 
-from retail.internal.jwt_mixins import JWTModuleAuthMixin
 from retail.internal.views import InternalGenericViewSet
 from retail.projects.models import Project
 from retail.internal.permissions import CanCommunicateInternally
@@ -15,6 +14,7 @@ from retail.projects.usecases.get_project_vtex_account import (
     GetProjectVtexAccountUseCase,
 )
 from retail.projects.usecases.project_vtex import ProjectVtexConfigUseCase
+from retail.utils.aws.lambda_validator import LambdaURLValidator
 
 
 class ProjectViewSet(viewsets.ViewSet, InternalGenericViewSet):
@@ -57,7 +57,7 @@ class ProjectVtexViewSet(viewsets.ViewSet):
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
 
 
-class VtexAccountLookupView(JWTModuleAuthMixin, APIView):
+class VtexAccountLookupView(APIView, LambdaURLValidator):
     """
     API view to look up the VTEX account associated with a given project.
 
@@ -66,19 +66,26 @@ class VtexAccountLookupView(JWTModuleAuthMixin, APIView):
     a 400 Bad Request response with an appropriate message.
     """
 
-    def get(self, request):
+    authentication_classes = []
+
+    def get(self, request, project_uuid):
         """
         Handle GET request to retrieve VTEX account for a project.
 
         Args:
             request: The HTTP request object.
+            project_uuid: The UUID of the project for which to retrieve the VTEX account.
 
         Returns:
             Response: A Response object containing the VTEX account information
             or an error message if the account is not found.
         """
+        validation_response = self._validate_lambda_url(request)
+        if validation_response:
+            return validation_response
+
         use_case = GetProjectVtexAccountUseCase()
-        vtex_account = use_case.execute(self.project_uuid)
+        vtex_account = use_case.execute(project_uuid)
 
         if not vtex_account:
             return Response(
@@ -87,3 +94,9 @@ class VtexAccountLookupView(JWTModuleAuthMixin, APIView):
             )
 
         return Response({"vtex_account": vtex_account})
+
+    def _validate_lambda_url(self, request):
+        validation_response = self.protected_resource(request)
+        if validation_response.status_code != 200:
+            return validation_response
+        return None

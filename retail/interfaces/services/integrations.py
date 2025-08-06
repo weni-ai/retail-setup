@@ -1,4 +1,4 @@
-from typing import Protocol, Dict, Any, Optional
+from typing import Protocol, Dict, Any, Optional, List
 
 
 class IntegrationsServiceInterface(Protocol):
@@ -19,4 +19,13 @@ class IntegrationsServiceInterface(Protocol):
         template_uuid: str,
         payload: Dict[str, Any],
     ) -> Dict[str, Any]:
+        ...
+
+    def fetch_templates_from_user(
+        self,
+        app_uuid: str,
+        project_uuid: str,
+        templates_names: List[str],
+        language: str,
+    ) -> Dict[str, Dict[str, Any]]:
         ...
