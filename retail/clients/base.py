@@ -84,3 +84,19 @@ class InternalAuthentication(RequestClient):
         Useful when passing raw tokens to external services.
         """
         return self.__get_module_token().replace("Bearer ", "")
+
+
+class UserAuthentication:
+    """
+    Authentication class for regular users using JWT tokens.
+    """
+
+    def __init__(self, user_token: str):
+        self.user_token = user_token
+
+    @property
+    def headers(self):
+        return {
+            "Content-Type": "application/json; charset: utf-8",
+            "Authorization": f"Bearer {self.user_token}",
+        }

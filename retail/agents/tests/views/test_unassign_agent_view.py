@@ -6,11 +6,15 @@ from rest_framework import status
 
 from django.urls import reverse
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 
 from retail.agents.models import Agent, IntegratedAgent
 from retail.projects.models import Project
 
 User = get_user_model()
+
+CONNECT_SERVICE_PATH = "retail.internal.permissions.ConnectService"
 
 
 class UnassignAgentViewTest(APITestCase):
@@ -43,13 +47,36 @@ class UnassignAgentViewTest(APITestCase):
         self.integrated_agent_not_oficial = IntegratedAgent.objects.create(
             agent=self.agent_not_oficial, project=self.project, channel_uuid=uuid4()
         )
-        self.user = User.objects.create_user(username="testuser", password="12345")
+        self.user = User.objects.create_user(
+            username="testuser", password="12345", email="testuser@example.com"
+        )
+
+        # Give user internal communication permission for tests
+        content_type = ContentType.objects.get_for_model(User)
+        permission, created = Permission.objects.get_or_create(
+            codename="can_communicate_internally",
+            name="can communicate internally",
+            content_type=content_type,
+        )
+        self.user.user_permissions.add(permission)
+
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
-    def test_unassign_agent_oficial_success(self):
+    @patch(CONNECT_SERVICE_PATH)
+    def test_unassign_agent_oficial_success(self, mock_connect_service):
+        mock_instance = mock_connect_service.return_value
+        mock_instance.get_user_permissions.return_value = (
+            200,
+            {"project_authorization": 2},
+        )
         url = reverse("unassign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})
-        response = self.client.post(url, HTTP_PROJECT_UUID=str(self.project.uuid))
+        full_url = f"{url}?user_email={self.user.email}"
+
+        response = self.client.post(
+            full_url,
+            headers={"Project-Uuid": str(self.project.uuid)},
+        )
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(
             IntegratedAgent.objects.filter(
@@ -57,11 +84,22 @@ class UnassignAgentViewTest(APITestCase):
             ).exists()
         )
 
-    def test_unassign_agent_not_oficial_success(self):
+    @patch(CONNECT_SERVICE_PATH)
+    def test_unassign_agent_not_oficial_success(self, mock_connect_service):
+        mock_instance = mock_connect_service.return_value
+        mock_instance.get_user_permissions.return_value = (
+            200,
+            {"project_authorization": 3},
+        )
         url = reverse(
             "unassign-agent", kwargs={"agent_uuid": self.agent_not_oficial.uuid}
         )
-        response = self.client.post(url, HTTP_PROJECT_UUID=str(self.project.uuid))
+        full_url = f"{url}?user_email={self.user.email}"
+
+        response = self.client.post(
+            full_url,
+            headers={"Project-Uuid": str(self.project.uuid)},
+        )
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(
             IntegratedAgent.objects.filter(
@@ -69,19 +107,99 @@ class UnassignAgentViewTest(APITestCase):
             ).exists()
         )
 
-    def test_unassign_agent_not_oficial_wrong_project(self):
+    @patch(CONNECT_SERVICE_PATH)
+    def test_unassign_agent_not_oficial_wrong_project(self, mock_connect_service):
+        mock_instance = mock_connect_service.return_value
+        mock_instance.get_user_permissions.return_value = (
+            200,
+            {"project_authorization": 3},
+        )
+
         url = reverse(
             "unassign-agent", kwargs={"agent_uuid": self.agent_not_oficial.uuid}
         )
-        response = self.client.post(url, HTTP_PROJECT_UUID=str(uuid4()))
+        full_url = f"{url}?user_email={self.user.email}"
+
+        response = self.client.post(
+            full_url,
+            headers={"Project-Uuid": str(uuid4())},
+        )
+
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_unassign_agent_missing_project_uuid_header(self):
         url = reverse("unassign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})
-        response = self.client.post(url)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        full_url = f"{url}?user_email={self.user.email}"
 
-    def test_unassign_agent_not_found(self):
+        response = self.client.post(full_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch(CONNECT_SERVICE_PATH)
+    def test_unassign_agent_not_found(self, mock_connect_service):
+        mock_instance = mock_connect_service.return_value
+        mock_instance.get_user_permissions.return_value = (
+            200,
+            {"project_authorization": 2},
+        )
         url = reverse("unassign-agent", kwargs={"agent_uuid": uuid4()})
-        response = self.client.post(url, HTTP_PROJECT_UUID=str(self.project.uuid))
+        full_url = f"{url}?user_email={self.user.email}"
+
+        response = self.client.post(
+            full_url,
+            headers={"Project-Uuid": str(self.project.uuid)},
+        )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch(CONNECT_SERVICE_PATH)
+    def test_unassign_agent_permission_denied_by_service(self, mock_connect_service):
+        mock_instance = mock_connect_service.return_value
+        mock_instance.get_user_permissions.return_value = (
+            200,
+            {"project_authorization": 1},
+        )
+        url = reverse("unassign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})
+        full_url = f"{url}?user_email={self.user.email}"
+
+        response = self.client.post(
+            full_url,
+            headers={"Project-Uuid": str(self.project.uuid)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch(CONNECT_SERVICE_PATH)
+    def test_unassign_agent_permission_denied_by_service_error(
+        self, mock_connect_service
+    ):
+        mock_instance = mock_connect_service.return_value
+        mock_instance.get_user_permissions.return_value = (
+            500,
+            {"error": "Service unavailable"},
+        )
+        url = reverse("unassign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})
+        full_url = f"{url}?user_email={self.user.email}"
+
+        response = self.client.post(
+            full_url,
+            headers={"Project-Uuid": str(self.project.uuid)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unassign_agent_missing_user_email(self):
+        url = reverse("unassign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})
+
+        response = self.client.post(
+            url,
+            headers={"Project-Uuid": str(self.project.uuid)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unauthenticated_user_cannot_unassign_agent(self):
+        self.client.force_authenticate(user=None)
+        url = reverse("unassign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})
+        full_url = f"{url}?user_email={self.user.email}"
+
+        response = self.client.post(
+            full_url,
+            headers={"Project-Uuid": str(self.project.uuid)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
