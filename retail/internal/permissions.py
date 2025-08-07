@@ -70,7 +70,7 @@ class HasProjectPermission(permissions.BasePermission):
         if project_uuid is None or not user.is_authenticated:
             return False
 
-        is_internal_user = user.has_perm("authentication.can_communicate_internally")
+        is_internal_user = user.has_perm("auth.can_communicate_internally")
 
         if is_internal_user:
             user_email = request.query_params.get("user_email")

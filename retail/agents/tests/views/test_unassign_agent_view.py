@@ -6,6 +6,8 @@ from rest_framework import status
 
 from django.urls import reverse
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 
 from retail.agents.models import Agent, IntegratedAgent
 from retail.projects.models import Project
@@ -48,6 +50,16 @@ class UnassignAgentViewTest(APITestCase):
         self.user = User.objects.create_user(
             username="testuser", password="12345", email="testuser@example.com"
         )
+
+        # Give user internal communication permission for tests
+        content_type = ContentType.objects.get_for_model(User)
+        permission, created = Permission.objects.get_or_create(
+            codename="can_communicate_internally",
+            name="can communicate internally",
+            content_type=content_type,
+        )
+        self.user.user_permissions.add(permission)
+
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
