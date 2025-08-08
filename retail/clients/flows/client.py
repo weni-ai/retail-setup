@@ -51,7 +51,7 @@ class FlowsClient(RequestClient, FlowsClientInterface):
             json=payload,
             headers=self.authentication_instance.headers,
         )
-        return response
+        return response.json()
 
     def send_purchase_event(self, payload: dict) -> dict:
         """

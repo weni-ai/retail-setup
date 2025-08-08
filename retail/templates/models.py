@@ -55,7 +55,7 @@ class Version(models.Model):
     template = models.ForeignKey(
         "Template", on_delete=models.CASCADE, related_name="versions"
     )
-    template_name = models.CharField(unique=True)
+    template_name = models.CharField()
     integrations_app_uuid = models.UUIDField()
     project = models.ForeignKey(
         "projects.Project", on_delete=models.CASCADE, related_name="template_versions"

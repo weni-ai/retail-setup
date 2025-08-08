@@ -7,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework import status
 
 from retail.internal.jwt_mixins import JWTModuleAuthMixin
+
 from retail.internal.views import InternalGenericViewSet
 from retail.projects.models import Project
 from retail.internal.permissions import CanCommunicateInternally

@@ -3,7 +3,6 @@ from rest_framework import serializers
 
 class OrdersQueryParamsSerializer(serializers.Serializer):
     """
-    Serializer for validating query parameters for the Orders endpoint.
     Validates that raw_query is provided.
     The raw_query contains the filter parameters to be passed to the VTEX API.
     """

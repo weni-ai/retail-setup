@@ -145,7 +145,7 @@ class OrderDetailsProxyView(BaseVtexProxyView):
         """
         try:
             result = self.get_order_details_usecase.execute(
-                project_uuid=self.project_uuid, order_id=order_id
+                order_id=order_id, project_uuid=self.project_uuid
             )
             return Response(result, status=status.HTTP_200_OK)
         except ValueError as e:
