@@ -1,3 +1,9 @@
+# 3.16.0
+
+## *Feature*
+  - feat: add retry method to rule_generator
+  - feat: permissions per project
+
 # 3.15.0
 
 ## *Feature*
