@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
 
-from retail.internal.permissions import CanCommunicateInternally
+from retail.internal.permissions import CanCommunicateInternally, HasProjectPermission
 from retail.templates.usecases import (
     CreateTemplateUseCase,
     ReadTemplateUseCase,
@@ -39,7 +39,7 @@ from retail.templates.usecases.template_metrics import FetchTemplateMetricsUseCa
 
 
 class TemplateViewSet(ViewSet):
-    permission_classes = [CanCommunicateInternally]
+    permission_classes = [CanCommunicateInternally | HasProjectPermission]
 
     def create(self, request: Request) -> Response:
         request_serializer = CreateTemplateSerializer(data=request.data)
@@ -131,7 +131,7 @@ class TemplateViewSet(ViewSet):
 
 
 class TemplateLibraryViewSet(ViewSet):
-    permission_classes = [CanCommunicateInternally]
+    permission_classes = [CanCommunicateInternally | HasProjectPermission]
 
     def partial_update(self, request: Request, pk: UUID) -> Response:
         request_serializer = UpdateLibraryTemplateSerializer(data=request.data)
@@ -188,7 +188,7 @@ class TemplateMetricsView(APIView):  # pragma: no cover
             }
     """
 
-    permission_classes = [CanCommunicateInternally]
+    permission_classes = [CanCommunicateInternally | HasProjectPermission]
 
     def post(self, request, *args, **kwargs):
         serializer = TemplateMetricsRequestSerializer(data=request.data)
