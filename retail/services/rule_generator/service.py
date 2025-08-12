@@ -1,6 +1,11 @@
 import json
 
+import logging
+
+import time
+
 from typing import Optional, Dict, Any, List
+
 from enum import IntEnum
 
 from django.conf import settings
@@ -31,10 +36,18 @@ class RuleGeneratorResponseStatusCode(IntEnum):
     UNPROCESSABLE_ENTITY = 422
 
 
-class RuleGenerator:
-    """Handles code generation using AWS Lambda service"""
+logger = logging.getLogger(__name__)
 
-    def __init__(self, lambda_service: Optional[AwsLambdaServiceInterface] = None):
+
+class RuleGenerator:
+    """Handles code generation using AWS Lambda service with retry mechanism"""
+
+    def __init__(
+        self,
+        lambda_service: Optional[AwsLambdaServiceInterface] = None,
+        max_retry_attempts: int = 1,
+        retry_delay_seconds: float = 1.0,
+    ):
         self.lambda_service = lambda_service or AwsLambdaService(
             region_name=getattr(
                 settings,
@@ -47,6 +60,8 @@ class RuleGenerator:
             "LAMBDA_CODE_GENERATOR",
             "arn:aws:lambda:us-east-1:123456789012:function:mock",
         )
+        self.max_retry_attempts = max_retry_attempts
+        self.retry_delay_seconds = retry_delay_seconds
 
     def generate_code(
         self,
@@ -54,7 +69,7 @@ class RuleGenerator:
         integrated_agent: Optional[IntegratedAgent] = None,
     ) -> str:
         """
-        Generate code using Lambda service
+        Generate code using Lambda service with retry mechanism
 
         Args:
             parameters: List of parameters for code generation
@@ -63,8 +78,64 @@ class RuleGenerator:
         Returns:
             str: Generated code
         """
-        response_payload = self._invoke_code_generator(parameters, integrated_agent)
-        return self._handle_response(response_payload)
+        return self._generate_code_with_retry(parameters, integrated_agent)
+
+    def _generate_code_with_retry(
+        self,
+        parameters: List[Dict[str, Any]],
+        integrated_agent: Optional[IntegratedAgent] = None,
+    ) -> str:
+        """
+        Generate code with retry mechanism for non-success responses
+
+        Args:
+            parameters: List of parameters for code generation
+            integrated_agent: Optional integrated agent for adding examples
+
+        Returns:
+            str: Generated code
+
+        Raises:
+            Exception: Last exception encountered if all retry attempts fail
+        """
+        last_exception = None
+
+        for attempt in range(self.max_retry_attempts + 1):
+            try:
+                logger.info(
+                    f"Code generation attempt {attempt + 1}/{self.max_retry_attempts + 1}"
+                )
+
+                response_payload = self._invoke_code_generator(
+                    parameters, integrated_agent
+                )
+                result = self._handle_response(response_payload)
+
+                if attempt > 0:
+                    logger.info(f"Code generation succeeded on attempt {attempt + 1}")
+
+                return result
+
+            except (
+                RuleGeneratorBadRequest,
+                RuleGeneratorUnprocessableEntity,
+                RuleGeneratorInternalServerError,
+            ) as e:
+                last_exception = e
+
+                if attempt < self.max_retry_attempts:
+                    logger.warning(
+                        f"Code generation failed on attempt {attempt + 1}: {str(e)}. "
+                        f"Retrying in {self.retry_delay_seconds} seconds..."
+                    )
+                    time.sleep(self.retry_delay_seconds)
+                else:
+                    logger.error(
+                        f"Code generation failed after {self.max_retry_attempts + 1} attempts. "
+                        f"Final error: {str(e)}"
+                    )
+
+        raise last_exception
 
     def _invoke_code_generator(
         self,
