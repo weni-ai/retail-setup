@@ -103,6 +103,9 @@ class AgentViewSet(ViewSet):
     def list(self, request: Request, *args, **kwargs) -> Response:
         project_uuid = request.headers.get("Project-Uuid")
 
+        if project_uuid is None:
+            raise ValidationError({"project_uuid": "Missing project uuid in header."})
+
         agents = ListAgentsUseCase.execute(project_uuid)
 
         response_serializer = ReadAgentSerializer(agents, many=True)

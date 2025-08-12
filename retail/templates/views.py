@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 
 from retail.internal.permissions import CanCommunicateInternally, HasProjectPermission
 from retail.templates.usecases import (
@@ -39,7 +40,15 @@ from retail.templates.usecases.template_metrics import FetchTemplateMetricsUseCa
 
 
 class TemplateViewSet(ViewSet):
-    permission_classes = [CanCommunicateInternally | HasProjectPermission]
+    permission_classes = [IsAuthenticated, HasProjectPermission]
+
+    def get_permissions(self):
+        permissions = super().get_permissions()
+
+        if self.action == "status":
+            return [CanCommunicateInternally()]
+
+        return permissions
 
     def create(self, request: Request) -> Response:
         request_serializer = CreateTemplateSerializer(data=request.data)
@@ -131,7 +140,7 @@ class TemplateViewSet(ViewSet):
 
 
 class TemplateLibraryViewSet(ViewSet):
-    permission_classes = [CanCommunicateInternally | HasProjectPermission]
+    permission_classes = [IsAuthenticated, HasProjectPermission]
 
     def partial_update(self, request: Request, pk: UUID) -> Response:
         request_serializer = UpdateLibraryTemplateSerializer(data=request.data)
@@ -162,7 +171,7 @@ class TemplateLibraryViewSet(ViewSet):
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 
-class TemplateMetricsView(APIView):  # pragma: no cover
+class TemplateMetricsView(APIView):
     """
     Endpoint for retrieving aggregated metrics of all template versions
     associated with a given template UUID, within a specified date range.
@@ -188,7 +197,7 @@ class TemplateMetricsView(APIView):  # pragma: no cover
             }
     """
 
-    permission_classes = [CanCommunicateInternally | HasProjectPermission]
+    permission_classes = [CanCommunicateInternally]
 
     def post(self, request, *args, **kwargs):
         serializer = TemplateMetricsRequestSerializer(data=request.data)
