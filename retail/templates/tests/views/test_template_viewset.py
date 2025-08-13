@@ -3,8 +3,6 @@ from uuid import uuid4
 from unittest.mock import patch, MagicMock
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
-from django.contrib.contenttypes.models import ContentType
 from django.urls import reverse
 from django.utils import timezone
 
@@ -28,14 +26,34 @@ from retail.services.rule_generator import (
     RuleGeneratorBadRequest,
     RuleGeneratorInternalServerError,
 )
+from retail.internal.test_mixins import (
+    BaseTestMixin,
+    ConnectServicePermissionScenarios,
+    with_test_settings,
+)
 
 User = get_user_model()
 
-CONNECT_SERVICE_PATH = "retail.internal.permissions.ConnectService"
 
+@with_test_settings
+class TemplateViewSetTest(BaseTestMixin, APITestCase):
+    """
+    Comprehensive tests for the Template ViewSet.
 
-class TemplateViewSetTest(APITestCase):
+    Tests the complete CRUD operations for templates, including:
+    - Creating templates with validation and permissions
+    - Reading template details and handling not found cases
+    - Updating template content and status
+    - Deleting templates with proper authorization
+    - Custom template creation workflows
+    - Authentication and authorization validation
+    - Project-based permissions and access control
+    - Integration with external services and use cases
+    """
+
     def setUp(self):
+        super().setUp()
+
         self.user = User.objects.create_user(
             username="testuser", password="testpass", email="test@example.com"
         )
@@ -74,6 +92,10 @@ class TemplateViewSetTest(APITestCase):
             uuid=uuid4(), agent=self.agent, project=self.project, is_active=True
         )
 
+        self._setup_use_cases()
+
+    def _setup_use_cases(self):
+        """Configure use case mocks and patches"""
         self.create_usecase = CreateTemplateUseCase()
         self.read_usecase = ReadTemplateUseCase()
         self.update_usecase = UpdateTemplateUseCase()
@@ -120,30 +142,18 @@ class TemplateViewSetTest(APITestCase):
         self.addCleanup(self.delete_usecase_patch.stop)
         self.addCleanup(self.create_custom_usecase_patch.stop)
 
-    def _add_internal_permission_to_user(self):
-        """Helper method to add can_communicate_internally permission to user"""
-        content_type = ContentType.objects.get_for_model(User)
-        permission, _ = Permission.objects.get_or_create(
-            codename="can_communicate_internally",
-            name="Can communicate internally",
-            content_type=content_type,
-        )
-        self.user.user_permissions.add(permission)
-        self.user.save()
-
     def _get_project_headers_and_params(self):
         """Helper method to get standard headers and params for HasProjectPermission"""
         return {"HTTP_PROJECT_UUID": str(self.project.uuid)}, {
             "user_email": self.user.email
         }
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_create_template(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_create_template(self):
+        """Test successful template creation with contributor permissions"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         template = Template.objects.create(
@@ -174,17 +184,16 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["name"], "test_template")
         self.assertEqual(response.data["status"], "PENDING")
-        mock_connect_service.return_value.get_user_permissions.assert_called_once_with(
+        self._mock_connect_instance.get_user_permissions.assert_called_once_with(
             str(self.project.uuid), self.user.email
         )
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_create_template_invalid_data(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_create_template_invalid_data(self):
+        """Test template creation fails with invalid data"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         payload = {
@@ -203,13 +212,12 @@ class TemplateViewSetTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_read_template(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_read_template(self):
+        """Test successful template retrieval with proper permissions"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         template = Template.objects.create(
@@ -243,13 +251,12 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.data["name"], "test_template")
         self.assertEqual(response.data["status"], "APPROVED")
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_read_template_not_found(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_read_template_not_found(self):
+        """Test template retrieval with non-existent template"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         self.read_usecase.execute = lambda uuid: (_ for _ in ()).throw(
@@ -269,8 +276,8 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_patch_status(self):
-        # Status action uses only CanCommunicateInternally permission (not HasProjectPermission)
-        self._add_internal_permission_to_user()
+        """Test successful template status update"""
+        self.setup_internal_user_permissions(self.user)
 
         template = Template.objects.create(
             uuid=uuid4(),
@@ -307,8 +314,8 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.data["status"], "APPROVED")
 
     def test_patch_status_not_found(self):
-        # Status action uses only CanCommunicateInternally permission (not HasProjectPermission)
-        self._add_internal_permission_to_user()
+        """Test template status update with non-existent template"""
+        self.setup_internal_user_permissions(self.user)
 
         self.update_usecase.execute = lambda payload: (_ for _ in ()).throw(
             NotFound("not found")
@@ -322,8 +329,8 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_patch_status_invalid_data(self):
-        # Status action uses only CanCommunicateInternally permission (not HasProjectPermission)
-        self._add_internal_permission_to_user()
+        """Test template status update with invalid data"""
+        self.setup_internal_user_permissions(self.user)
 
         payload = {"version_uuid": "invalid-uuid", "status": "INVALID_STATUS"}
 
@@ -332,13 +339,12 @@ class TemplateViewSetTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_partial_update_template_content(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_partial_update_template_content(self):
+        """Test successful template content update with contributor permissions"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         template = Template.objects.create(
@@ -384,15 +390,12 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["name"], "test_template")
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_partial_update_template_content_with_custom_template_parameters(
-        self, mock_connect_service
-    ):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_partial_update_template_content_with_custom_template_parameters(self):
+        """Test template content update with custom template parameters"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         custom_template = Template.objects.create(
@@ -444,13 +447,12 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["name"], "custom_template")
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_partial_update_template_content_invalid_data(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_partial_update_template_content_invalid_data(self):
+        """Test template content update fails with invalid data"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         template_uuid = str(uuid4())
@@ -471,13 +473,12 @@ class TemplateViewSetTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_partial_update_template_content_not_found(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_partial_update_template_content_not_found(self):
+        """Test template content update with non-existent template"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         self.update_content_usecase.execute = lambda data: (_ for _ in ()).throw(
@@ -503,13 +504,12 @@ class TemplateViewSetTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_delete_template(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_delete_template(self):
+        """Test successful template deletion with contributor permissions"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         template = Template.objects.create(
@@ -533,13 +533,12 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.delete_usecase.execute.assert_called_once_with(template_uuid)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_delete_template_not_found(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_delete_template_not_found(self):
+        """Test template deletion with non-existent template"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         self.delete_usecase.execute = lambda uuid: (_ for _ in ()).throw(
@@ -559,6 +558,7 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_unauthorized_access(self):
+        """Test that unauthenticated users cannot access templates"""
         client = APIClient()
 
         response = client.get(reverse("template-list"))
@@ -571,13 +571,12 @@ class TemplateViewSetTest(APITestCase):
         response = client.get(reverse("template-detail", args=[template_uuid]))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_create_custom_template_success(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_create_custom_template_success(self):
+        """Test successful custom template creation with contributor permissions"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         template = Template.objects.create(
@@ -627,11 +626,9 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.data["display_name"], "Custom Template")
         self.assertEqual(response.data["is_custom"], True)
 
-    # ===== PERMISSION TESTS =====
-
     def test_missing_project_uuid_header_returns_403(self):
-        """Test that missing Project-Uuid header returns 403 for HasProjectPermission"""
-        self._add_internal_permission_to_user()
+        """Test that missing Project-UUID header returns 403 Forbidden"""
+        self.setup_internal_user_permissions(self.user)
 
         payload = {
             "template_translation": {"en": {"text": "Hello"}},
@@ -641,7 +638,6 @@ class TemplateViewSetTest(APITestCase):
             "project_uuid": str(self.project.uuid),
         }
 
-        # Missing Project-Uuid header
         response = self.client.post(
             reverse("template-list") + f"?user_email={self.user.email}",
             payload,
@@ -650,10 +646,9 @@ class TemplateViewSetTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_missing_user_email_query_param_returns_403(self, mock_connect_service):
-        """Test that missing user_email query param returns 403 for internal users"""
-        self._add_internal_permission_to_user()
+    def test_missing_user_email_query_param_returns_403(self):
+        """Test that missing user_email query parameter returns 403 Forbidden"""
+        self.setup_internal_user_permissions(self.user)
 
         payload = {
             "template_translation": {"en": {"text": "Hello"}},
@@ -663,7 +658,6 @@ class TemplateViewSetTest(APITestCase):
             "project_uuid": str(self.project.uuid),
         }
 
-        # Missing user_email query param
         response = self.client.post(
             reverse("template-list"),
             payload,
@@ -672,17 +666,13 @@ class TemplateViewSetTest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        mock_connect_service.return_value.get_user_permissions.assert_not_called()
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_insufficient_project_permissions_returns_403(self, mock_connect_service):
-        """Test that insufficient project permissions (not contributor/moderator) returns 403"""
-        self._add_internal_permission_to_user()
-
-        # User has only chat_user level (5), needs contributor (2) or moderator (3)
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 5},  # chat_user level
+    def test_insufficient_project_permissions_returns_403(self):
+        """Test that insufficient project permissions return 403 Forbidden"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.NO_PERMISSIONS,
         )
 
         payload = {
@@ -703,19 +693,15 @@ class TemplateViewSetTest(APITestCase):
         response = self.client.post(url, payload, format="json", **headers)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        mock_connect_service.return_value.get_user_permissions.assert_called_once_with(
+        self._mock_connect_instance.get_user_permissions.assert_called_once_with(
             str(self.project.uuid), self.user.email
         )
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_connect_service_error_returns_403(self, mock_connect_service):
-        """Test that Connect service errors return 403"""
-        self._add_internal_permission_to_user()
-
-        # Simulate Connect service returning error
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            404,
-            {"error": "User not found"},
+    def test_connect_service_error_returns_403(self):
+        """Test that ConnectService errors return 403 Forbidden"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            *ConnectServicePermissionScenarios.USER_NOT_FOUND
         )
 
         payload = {
@@ -736,10 +722,12 @@ class TemplateViewSetTest(APITestCase):
         response = self.client.post(url, payload, format="json", **headers)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self._mock_connect_instance.get_user_permissions.assert_called_once_with(
+            str(self.project.uuid), self.user.email
+        )
 
     def test_status_action_without_internal_permission_returns_403(self):
-        """Test that status action without CanCommunicateInternally permission returns 403"""
-        # User without can_communicate_internally permission
+        """Test that status action without internal permission returns 403 Forbidden"""
         payload = {"version_uuid": str(uuid4()), "status": "APPROVED"}
 
         url = reverse("template-status")
@@ -748,8 +736,8 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_status_action_with_internal_permission_works(self):
-        """Test that status action works with CanCommunicateInternally permission"""
-        self._add_internal_permission_to_user()
+        """Test that status action works with internal permission"""
+        self.setup_internal_user_permissions(self.user)
 
         template = Template.objects.create(
             uuid=uuid4(),
@@ -784,8 +772,8 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.data["status"], "APPROVED")
 
     def test_unauthenticated_user_returns_403(self):
-        """Test that unauthenticated users get 403"""
-        self.client.force_authenticate(None)  # Remove authentication
+        """Test that unauthenticated users get 403 Forbidden"""
+        self.client.force_authenticate(None)
 
         response = self.client.get(reverse("template-list"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -800,13 +788,12 @@ class TemplateViewSetTest(APITestCase):
         response = self.client.patch(reverse("template-status"), {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_create_custom_template_invalid_data(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_create_custom_template_invalid_data(self):
+        """Test custom template creation fails with invalid data"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         payload = {
@@ -825,13 +812,12 @@ class TemplateViewSetTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_create_custom_template_missing_required_fields(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_create_custom_template_missing_required_fields(self):
+        """Test custom template creation fails with missing required fields"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         payload = {
@@ -853,15 +839,12 @@ class TemplateViewSetTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_create_custom_template_integrated_agent_not_found(
-        self, mock_connect_service
-    ):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_create_custom_template_integrated_agent_not_found(self):
+        """Test custom template creation fails when integrated agent not found"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
@@ -894,15 +877,12 @@ class TemplateViewSetTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_create_custom_template_code_generator_bad_request(
-        self, mock_connect_service
-    ):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_create_custom_template_code_generator_bad_request(self):
+        """Test custom template creation fails with rule generator bad request"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
@@ -931,15 +911,12 @@ class TemplateViewSetTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_create_custom_template_code_generator_unprocessable_entity(
-        self, mock_connect_service
-    ):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_create_custom_template_code_generator_unprocessable_entity(self):
+        """Test custom template creation fails with rule generator unprocessable entity"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
@@ -968,15 +945,12 @@ class TemplateViewSetTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_create_custom_template_code_generator_internal_server_error(
-        self, mock_connect_service
-    ):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_create_custom_template_code_generator_internal_server_error(self):
+        """Test custom template creation fails with rule generator internal server error"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         self.create_custom_usecase.execute = lambda payload: (_ for _ in ()).throw(
@@ -1007,13 +981,12 @@ class TemplateViewSetTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_create_custom_template_with_buttons(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_create_custom_template_with_buttons(self):
+        """Test successful custom template creation with buttons"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         template = Template.objects.create(
@@ -1057,6 +1030,7 @@ class TemplateViewSetTest(APITestCase):
             self.assertIn("type", response.data["metadata"]["buttons"][0])
 
     def test_create_custom_template_unauthorized(self):
+        """Test that unauthenticated users cannot create custom templates"""
         client = APIClient()
 
         payload = {
@@ -1076,6 +1050,7 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_create_custom_template_without_permission(self):
+        """Test that users without permission cannot create custom templates"""
         user_without_permission = User.objects.create_user(
             username="nopermuser", password="testpass"
         )
@@ -1099,6 +1074,7 @@ class TemplateViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_forbidden_access_without_permission(self):
+        """Test that users without permission get 403 Forbidden"""
         user_without_permission = User.objects.create_user(
             username="nopermuser", password="testpass"
         )
@@ -1115,13 +1091,12 @@ class TemplateViewSetTest(APITestCase):
         response = client.get(reverse("template-detail", args=[template_uuid]))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_integration_delete_template_successfully(self, mock_connect_service):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_integration_delete_template_successfully(self):
+        """Test successful template deletion with integration behavior"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         integrated_agent = IntegratedAgent.objects.create(
@@ -1170,15 +1145,12 @@ class TemplateViewSetTest(APITestCase):
             integrated_agent.refresh_from_db()
             self.assertIn(self.parent.slug, integrated_agent.ignore_templates)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_integration_delete_nonexistent_template_returns_not_found(
-        self, mock_connect_service
-    ):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_integration_delete_nonexistent_template_returns_not_found(self):
+        """Test template deletion with non-existent template returns 404"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         with patch("retail.templates.views.DeleteTemplateUseCase") as mock_delete_class:
@@ -1197,15 +1169,12 @@ class TemplateViewSetTest(APITestCase):
 
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_integration_delete_inactive_template_returns_not_found(
-        self, mock_connect_service
-    ):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_integration_delete_inactive_template_returns_not_found(self):
+        """Test template deletion with inactive template returns 404"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         template = Template.objects.create(
@@ -1230,15 +1199,12 @@ class TemplateViewSetTest(APITestCase):
 
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_integration_delete_template_updates_ignore_list(
-        self, mock_connect_service
-    ):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_integration_delete_template_updates_ignore_list(self):
+        """Test template deletion properly updates integrated agent ignore list"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         integrated_agent = IntegratedAgent.objects.create(
@@ -1282,15 +1248,12 @@ class TemplateViewSetTest(APITestCase):
             self.assertIn(self.parent.slug, integrated_agent.ignore_templates)
             self.assertIn("existing-template", integrated_agent.ignore_templates)
 
-    @patch(CONNECT_SERVICE_PATH)
-    def test_integration_delete_preserves_other_template_fields(
-        self, mock_connect_service
-    ):
-        self._add_internal_permission_to_user()
-
-        mock_connect_service.return_value.get_user_permissions.return_value = (
-            200,
-            {"project_authorization": 2},  # contributor level
+    def test_integration_delete_preserves_other_template_fields(self):
+        """Test template deletion preserves other template fields while updating status"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
         integrated_agent = IntegratedAgent.objects.create(
