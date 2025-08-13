@@ -1118,7 +1118,7 @@ class TemplateViewSetTest(APITestCase):
     @patch(CONNECT_SERVICE_PATH)
     def test_integration_delete_template_successfully(self, mock_connect_service):
         self._add_internal_permission_to_user()
-        
+
         mock_connect_service.return_value.get_user_permissions.return_value = (
             200,
             {"project_authorization": 2},  # contributor level
@@ -1171,9 +1171,11 @@ class TemplateViewSetTest(APITestCase):
             self.assertIn(self.parent.slug, integrated_agent.ignore_templates)
 
     @patch(CONNECT_SERVICE_PATH)
-    def test_integration_delete_nonexistent_template_returns_not_found(self, mock_connect_service):
+    def test_integration_delete_nonexistent_template_returns_not_found(
+        self, mock_connect_service
+    ):
         self._add_internal_permission_to_user()
-        
+
         mock_connect_service.return_value.get_user_permissions.return_value = (
             200,
             {"project_authorization": 2},  # contributor level
@@ -1196,9 +1198,11 @@ class TemplateViewSetTest(APITestCase):
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch(CONNECT_SERVICE_PATH)
-    def test_integration_delete_inactive_template_returns_not_found(self, mock_connect_service):
+    def test_integration_delete_inactive_template_returns_not_found(
+        self, mock_connect_service
+    ):
         self._add_internal_permission_to_user()
-        
+
         mock_connect_service.return_value.get_user_permissions.return_value = (
             200,
             {"project_authorization": 2},  # contributor level
@@ -1227,9 +1231,11 @@ class TemplateViewSetTest(APITestCase):
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch(CONNECT_SERVICE_PATH)
-    def test_integration_delete_template_updates_ignore_list(self, mock_connect_service):
+    def test_integration_delete_template_updates_ignore_list(
+        self, mock_connect_service
+    ):
         self._add_internal_permission_to_user()
-        
+
         mock_connect_service.return_value.get_user_permissions.return_value = (
             200,
             {"project_authorization": 2},  # contributor level
@@ -1277,9 +1283,11 @@ class TemplateViewSetTest(APITestCase):
             self.assertIn("existing-template", integrated_agent.ignore_templates)
 
     @patch(CONNECT_SERVICE_PATH)
-    def test_integration_delete_preserves_other_template_fields(self, mock_connect_service):
+    def test_integration_delete_preserves_other_template_fields(
+        self, mock_connect_service
+    ):
         self._add_internal_permission_to_user()
-        
+
         mock_connect_service.return_value.get_user_permissions.return_value = (
             200,
             {"project_authorization": 2},  # contributor level
