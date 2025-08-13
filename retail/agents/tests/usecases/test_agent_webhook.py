@@ -9,6 +9,7 @@ from retail.agents.usecases.agent_webhook import (
     BroadcastHandler,
     LambdaResponseStatus,
 )
+from retail.interfaces.jwt import JWTInterface
 from retail.templates.models import Template
 from retail.agents.tests.mocks.cache.integrated_agent_webhook import (
     IntegratedAgentCacheHandlerMock,
@@ -301,7 +302,11 @@ class LambdaHandlerTest(TestCase):
         self.addCleanup(patcher.stop)
 
         self.mock_lambda_service = MagicMock()
-        self.handler = LambdaHandler(lambda_service=self.mock_lambda_service)
+        self.mock_jwt_generator = MagicMock(spec=JWTInterface)
+        self.handler = LambdaHandler(
+            lambda_service=self.mock_lambda_service,
+            jwt_generator=self.mock_jwt_generator,
+        )
         self.mock_agent = MagicMock()
         self.mock_agent.agent.lambda_arn = (
             "arn:aws:lambda:region:account-id:function:function-name"
@@ -320,6 +325,8 @@ class LambdaHandlerTest(TestCase):
             project_rules=[],
         )
 
+        self.mock_jwt_generator.generate_jwt_token.return_value = "mock_jwt_token"
+
         expected_payload = {
             "params": mock_data.params,
             "payload": mock_data.payload,
@@ -330,13 +337,35 @@ class LambdaHandlerTest(TestCase):
             "project": {
                 "uuid": str(self.mock_agent.project.uuid),
                 "vtex_account": self.mock_agent.project.vtex_account,
+                "auth_token": "mock_jwt_token",
             },
         }
 
         self.handler.invoke(self.mock_agent, mock_data)
 
+        self.mock_jwt_generator.generate_jwt_token.assert_called_once_with(
+            str(self.mock_agent.project.uuid)
+        )
         self.mock_lambda_service.invoke.assert_called_once_with(
             self.mock_agent.agent.lambda_arn, expected_payload
+        )
+
+    def test_invoke_lambda_with_jwt_generator(self):
+        """Test that JWT generator is properly injected and used."""
+        mock_data = MagicMock()
+        mock_data.configure_mock(
+            params={},
+            payload={},
+            credentials={},
+            project_rules=[],
+        )
+
+        self.mock_jwt_generator.generate_jwt_token.return_value = "test_jwt_token"
+
+        self.handler.invoke(self.mock_agent, mock_data)
+
+        self.mock_jwt_generator.generate_jwt_token.assert_called_once_with(
+            str(self.mock_agent.project.uuid)
         )
 
     def test_parse_response_success(self):

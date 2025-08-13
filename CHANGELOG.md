@@ -1,3 +1,15 @@
+# 3.16.0
+
+## *Feature*
+  - feat: add retry method to rule_generator
+  - feat: permissions per project
+
+# 3.15.0
+
+## *Feature*
+  - feat: add JWT token generation and integrate it into LambdaHandler
+  - feat: change authorization from aws to jwt
+
 # 3.14.0
 
 ## *Feature*
