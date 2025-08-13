@@ -42,16 +42,8 @@ from retail.vtex.tasks import task_order_status_agent_webhook
 from retail.internal.permissions import HasProjectPermission
 
 
-def get_project_uuid_from_request(request: Request) -> str:
-    project_uuid = request.headers.get("Project-Uuid")
-    if project_uuid is None:
-        raise ValidationError({"project_uuid": "Missing project uuid in header."})
-
-    return project_uuid
-
-
 class PushAgentView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasProjectPermission]
 
     def __parse_credentials(self, agent: dict) -> list[dict]:
         credentials = []
@@ -109,7 +101,10 @@ class AgentViewSet(ViewSet):
         return permissions
 
     def list(self, request: Request, *args, **kwargs) -> Response:
-        project_uuid = get_project_uuid_from_request(request)
+        project_uuid = request.headers.get("Project-Uuid")
+
+        if project_uuid is None:
+            raise ValidationError({"project_uuid": "Missing project uuid in header."})
 
         agents = ListAgentsUseCase.execute(project_uuid)
 
@@ -118,8 +113,6 @@ class AgentViewSet(ViewSet):
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> Response:
-        get_project_uuid_from_request(request)
-
         agent = RetrieveAgentUseCase.execute(pk)
 
         self.check_object_permissions(request, agent)
@@ -156,7 +149,7 @@ class AssignAgentView(GenericIntegratedAgentView):
         ]
         """
 
-        project_uuid = get_project_uuid_from_request(request)
+        project_uuid = request.headers.get("Project-Uuid")
         credentials = request.data.get("credentials", {})
         include_templates = request.data.get("templates", [])
         app_uuid = request.query_params.get("app_uuid")
@@ -190,7 +183,7 @@ class UnassignAgentView(GenericIntegratedAgentView):
     ]
 
     def post(self, request: Request, agent_uuid: UUID) -> Response:
-        project_uuid = get_project_uuid_from_request(request)
+        project_uuid = request.headers.get("Project-Uuid")
         agent = self.get_agent(agent_uuid)
 
         self.check_object_permissions(request, agent)
@@ -216,11 +209,17 @@ class AgentWebhookView(APIView):
 
 
 class IntegratedAgentViewSet(ViewSet):
-    permission_classes = [AllowAny, IsIntegratedAgentFromProject]
+    permission_classes = [IsAuthenticated, IsIntegratedAgentFromProject]
+
+    def get_permissions(self):
+        permissions = super().get_permissions()
+
+        if self.action == "partial_update":
+            permissions.append(HasProjectPermission())
+
+        return permissions
 
     def retrieve(self, request: Request, pk: UUID, *args, **kwargs) -> Response:
-        get_project_uuid_from_request(request)
-
         query_params_serializer = RetrieveIntegratedAgentQueryParamsSerializer(
             data=request.query_params
         )
@@ -239,7 +238,7 @@ class IntegratedAgentViewSet(ViewSet):
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     def list(self, request: Request, *args, **kwargs) -> Response:
-        project_uuid = get_project_uuid_from_request(request)
+        project_uuid = request.headers.get("Project-Uuid")
 
         use_case = ListIntegratedAgentUseCase()
         integrated_agents = use_case.execute(project_uuid)
@@ -251,16 +250,18 @@ class IntegratedAgentViewSet(ViewSet):
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     def partial_update(self, request: Request, pk: UUID, *args, **kwargs) -> Response:
-        get_project_uuid_from_request(request)
-
         request_serializer = UpdateIntegratedAgentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
 
         serialized_data: UpdateIntegratedAgentData = request_serializer.data
 
         use_case = UpdateIntegratedAgentUseCase()
-        integrated_agent = use_case.execute(pk, serialized_data)
+        integrated_agent = use_case.get_integrated_agent(pk)
 
-        response_serializer = ReadIntegratedAgentSerializer(integrated_agent)
+        self.check_object_permissions(request, integrated_agent)
+
+        updated_integrated_agent = use_case.execute(integrated_agent, serialized_data)
+
+        response_serializer = ReadIntegratedAgentSerializer(updated_integrated_agent)
 
         return Response(response_serializer.data, status=status.HTTP_200_OK)
