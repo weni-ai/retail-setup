@@ -7,6 +7,7 @@ from datetime import datetime
 
 from django.urls import reverse
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission, ContentType
 
 from uuid import uuid4
 
@@ -15,6 +16,8 @@ from retail.projects.models import Project
 from retail.templates.models import Template
 
 User = get_user_model()
+
+CONNECT_SERVICE_PATH = "retail.internal.permissions.ConnectService"
 
 
 class IntegratedAgentViewSetTest(APITestCase):
@@ -69,7 +72,19 @@ class IntegratedAgentViewSetTest(APITestCase):
             project=self.project2,
         )
 
-        self.user = User.objects.create_user(username="testuser", password="12345")
+        self.user = User.objects.create_user(
+            username="testuser", password="12345", email="test@example.com"
+        )
+
+        content_type = ContentType.objects.get_for_model(User)
+        self.permission, _ = Permission.objects.get_or_create(
+            codename="can_communicate_internally",
+            name="Can Communicate Internally",
+            content_type=content_type,
+        )
+        self.user.user_permissions.add(self.permission)
+        self.user.save()
+
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 
@@ -206,8 +221,16 @@ class IntegratedAgentViewSetTest(APITestCase):
             response.json(), {"project_uuid": "Missing project uuid in header."}
         )
 
+    @patch(CONNECT_SERVICE_PATH)
     @patch("retail.agents.views.UpdateIntegratedAgentUseCase")
-    def test_partial_update_integrated_agent_success(self, mock_use_case_class):
+    def test_partial_update_integrated_agent_success(
+        self, mock_use_case_class, mock_connect_service
+    ):
+        mock_connect_service.return_value.get_user_permissions.return_value = (
+            200,
+            {"project_authorization": 2},
+        )
+
         mock_use_case = MagicMock()
         updated_agent = self.integrated_agent1
         mock_use_case.execute.return_value = updated_agent
@@ -216,23 +239,117 @@ class IntegratedAgentViewSetTest(APITestCase):
         update_data = {"contact_percentage": 20}
 
         response = self.client.patch(
-            self.detail_url1,
+            self.detail_url1 + "?user_email=test@example.com",
             data=update_data,
             HTTP_PROJECT_UUID=str(self.project1.uuid),
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_use_case.execute.assert_called_once()
+        mock_connect_service.return_value.get_user_permissions.assert_called_once_with(
+            str(self.project1.uuid), "test@example.com"
+        )
+
+    @patch(CONNECT_SERVICE_PATH)
+    @patch("retail.agents.views.UpdateIntegratedAgentUseCase")
+    def test_partial_update_insufficient_project_permissions(
+        self, mock_use_case_class, mock_connect_service
+    ):
+        mock_connect_service.return_value.get_user_permissions.return_value = (
+            200,
+            {"project_authorization": 1},
+        )
+
+        mock_use_case = MagicMock()
+        mock_use_case_class.return_value = mock_use_case
+
+        update_data = {"contact_percentage": 20}
+
+        response = self.client.patch(
+            self.detail_url1 + "?user_email=test@example.com",
+            data=update_data,
+            HTTP_PROJECT_UUID=str(self.project1.uuid),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_use_case.execute.assert_not_called()
+        mock_connect_service.return_value.get_user_permissions.assert_called_once_with(
+            str(self.project1.uuid), "test@example.com"
+        )
+
+    @patch(CONNECT_SERVICE_PATH)
+    @patch("retail.agents.views.UpdateIntegratedAgentUseCase")
+    def test_partial_update_connect_service_error(
+        self, mock_use_case_class, mock_connect_service
+    ):
+        mock_connect_service.return_value.get_user_permissions.return_value = (
+            404,
+            {"error": "Not found"},
+        )
+
+        mock_use_case = MagicMock()
+        mock_use_case_class.return_value = mock_use_case
+
+        update_data = {"contact_percentage": 20}
+
+        response = self.client.patch(
+            self.detail_url1 + "?user_email=test@example.com",
+            data=update_data,
+            HTTP_PROJECT_UUID=str(self.project1.uuid),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_use_case.execute.assert_not_called()
+        mock_connect_service.return_value.get_user_permissions.assert_called_once_with(
+            str(self.project1.uuid), "test@example.com"
+        )
+
+    @patch(CONNECT_SERVICE_PATH)
+    @patch("retail.agents.views.UpdateIntegratedAgentUseCase")
+    def test_partial_update_moderator_permissions_success(
+        self, mock_use_case_class, mock_connect_service
+    ):
+        mock_connect_service.return_value.get_user_permissions.return_value = (
+            200,
+            {"project_authorization": 3},
+        )
+
+        mock_use_case = MagicMock()
+        updated_agent = self.integrated_agent1
+        mock_use_case.execute.return_value = updated_agent
+        mock_use_case_class.return_value = mock_use_case
+
+        update_data = {"contact_percentage": 20}
+
+        response = self.client.patch(
+            self.detail_url1 + "?user_email=test@example.com",
+            data=update_data,
+            HTTP_PROJECT_UUID=str(self.project1.uuid),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_use_case.execute.assert_called_once()
+        mock_connect_service.return_value.get_user_permissions.assert_called_once_with(
+            str(self.project1.uuid), "test@example.com"
+        )
+
+    def test_partial_update_missing_user_email_query_param(self):
+        update_data = {"contact_percentage": 20}
+
+        response = self.client.patch(
+            self.detail_url1,
+            data=update_data,
+            HTTP_PROJECT_UUID=str(self.project1.uuid),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_partial_update_integrated_agent_missing_project_uuid_header(self):
         update_data = {"contact_percentage": 20}
 
         response = self.client.patch(self.detail_url1, data=update_data)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(), {"project_uuid": "Missing project uuid in header."}
-        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_unauthenticated_access(self):
         self.client.logout()
