@@ -5,7 +5,7 @@ from enum import IntEnum
 from rest_framework import permissions
 from rest_framework.request import Request
 
-from retail.services.connect import ConnectService
+from retail.services.connect.proxy import ConnectServiceProxy
 from retail.interfaces.services.connect import ConnectServiceInterface
 
 
@@ -61,7 +61,7 @@ class HasProjectPermission(permissions.BasePermission):
     """
 
     def __init__(self, connect_service: Optional[ConnectServiceInterface] = None):
-        self.connect_service = connect_service or ConnectService()
+        self.connect_service = connect_service or ConnectServiceProxy()
 
     def has_permission(self, request: Request, view):
         project_uuid = request.headers.get("Project-Uuid")
