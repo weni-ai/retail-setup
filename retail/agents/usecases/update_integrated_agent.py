@@ -99,7 +99,7 @@ class UpdateIntegratedAgentUseCase:
     def __init__(self, global_rule_handler: Optional[GlobalRuleHandler] = None):
         self.global_rule_handler = global_rule_handler or GlobalRuleHandler()
 
-    def _get_integrated_agent(self, integrated_agent_uuid: UUID) -> IntegratedAgent:
+    def get_integrated_agent(self, integrated_agent_uuid: UUID) -> IntegratedAgent:
         try:
             return IntegratedAgent.objects.get(
                 uuid=integrated_agent_uuid, is_active=True
@@ -111,9 +111,8 @@ class UpdateIntegratedAgentUseCase:
         return 0 <= percentage <= 100
 
     def execute(
-        self, integrated_agent_uuid: UUID, data: UpdateIntegratedAgentData
+        self, integrated_agent: IntegratedAgent, data: UpdateIntegratedAgentData
     ) -> IntegratedAgent:
-        integrated_agent = self._get_integrated_agent(integrated_agent_uuid)
 
         if "contact_percentage" in data:
             contact_percentage = data.get("contact_percentage")
