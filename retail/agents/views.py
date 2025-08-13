@@ -256,8 +256,12 @@ class IntegratedAgentViewSet(ViewSet):
         serialized_data: UpdateIntegratedAgentData = request_serializer.data
 
         use_case = UpdateIntegratedAgentUseCase()
-        integrated_agent = use_case.execute(pk, serialized_data)
+        integrated_agent = use_case.get_integrated_agent(pk)
 
-        response_serializer = ReadIntegratedAgentSerializer(integrated_agent)
+        self.check_object_permissions(request, integrated_agent)
+
+        updated_integrated_agent = use_case.execute(integrated_agent, serialized_data)
+
+        response_serializer = ReadIntegratedAgentSerializer(updated_integrated_agent)
 
         return Response(response_serializer.data, status=status.HTTP_200_OK)

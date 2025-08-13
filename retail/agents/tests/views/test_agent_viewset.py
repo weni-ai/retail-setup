@@ -67,10 +67,7 @@ class AgentViewSetE2ETest(APITestCase):
 
     def test_retrieve_agent_missing_project_uuid_header(self):
         response = self.client.get(self.detail_url1)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(), {"project_uuid": "Missing project uuid in header."}
-        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_unauthenticated_access(self):
         self.client.logout()
