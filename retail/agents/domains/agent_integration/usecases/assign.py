@@ -9,8 +9,7 @@ from django.db import transaction
 from rest_framework.exceptions import NotFound, ValidationError
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent, Credential
-from retail.agents.domains.agent_management.models import Agent
-from retail.templates.models import PreApprovedTemplate
+from retail.agents.domains.agent_management.models import Agent, PreApprovedTemplate
 from retail.services.integrations.service import IntegrationsService
 from retail.interfaces.services.integrations import IntegrationsServiceInterface
 from retail.projects.models import Project

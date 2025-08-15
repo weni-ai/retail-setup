@@ -19,7 +19,6 @@ from retail.agents.domains.agent_integration.serializers import (
     ReadIntegratedAgentSerializer,
     UpdateIntegratedAgentSerializer,
     RetrieveIntegratedAgentQueryParamsSerializer,
-    RetrieveIntegratedAgentQueryParams,
 )
 from retail.agents.domains.agent_integration.usecases.assign import AssignAgentUseCase
 from retail.agents.domains.agent_integration.usecases.list import (
@@ -119,7 +118,7 @@ class IntegratedAgentViewSet(ViewSet):
         )
         query_params_serializer.is_valid(raise_exception=True)
         query_params_data = cast(
-            RetrieveIntegratedAgentQueryParams, query_params_serializer.data
+            RetrieveIntegratedAgentQueryParamsSerializer, query_params_serializer.data
         )
 
         use_case = RetrieveIntegratedAgentUseCase()

@@ -15,7 +15,7 @@ from rest_framework.exceptions import NotFound
 
 from retail.agents.domains.agent_management.exceptions import AgentFileNotSent
 from retail.agents.domains.agent_management.models import Agent
-from retail.templates.models import PreApprovedTemplate
+from retail.agents.domains.agent_management.models import PreApprovedTemplate
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
 from retail.projects.models import Project

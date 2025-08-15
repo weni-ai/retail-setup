@@ -1,7 +1,5 @@
 from rest_framework import serializers
 
-from retail.templates.serializers import PreApprovedTemplateSerializer
-
 
 class SourceSerializer(serializers.Serializer):
     entrypoint = serializers.CharField()
