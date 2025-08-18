@@ -1,10 +1,11 @@
 import uuid
+
 from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
-from retail.agents.models import IntegratedAgent
-from retail.agents.handlers.cache.integrated_agent_webhook import (
+from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.agents.shared.cache import (
     IntegratedAgentCacheHandlerRedis,
 )
 
