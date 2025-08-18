@@ -8,7 +8,7 @@ from uuid import UUID
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_webhook.services.broadcast import (
-    BroadcastHandler,
+    Broadcast,
 )
 from retail.agents.domains.agent_webhook.services.active_agent import (
     ActiveAgent,
@@ -27,12 +27,12 @@ class AgentWebhookUseCase:
     def __init__(
         self,
         active_agent: Optional[ActiveAgent] = None,
-        broadcast_handler: Optional[BroadcastHandler] = None,
-        cache_handler: Optional[IntegratedAgentCacheHandler] = None,
+        broadcast: Optional[Broadcast] = None,
+        cache: Optional[IntegratedAgentCacheHandler] = None,
     ):
         self.active_agent = active_agent or ActiveAgent()
-        self.broadcast_handler = broadcast_handler or BroadcastHandler()
-        self.cache_handler = cache_handler or IntegratedAgentCacheHandlerRedis()
+        self.broadcast_handler = broadcast or Broadcast()
+        self.cache_handler = cache or IntegratedAgentCacheHandlerRedis()
         self.IGNORE_INTEGRATED_AGENT_UUID = "d30bcce8-ce67-4677-8a33-c12b62a51d4f"
 
     def _get_integrated_agent(self, uuid: UUID):

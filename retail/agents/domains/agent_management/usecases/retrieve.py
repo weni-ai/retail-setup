@@ -11,6 +11,6 @@ class RetrieveAgentUseCase:
     @staticmethod
     def execute(agent_uuid: UUID) -> QuerySet[Agent]:
         try:
-            return Agent.objects.get(uuid=agent_uuid).prefetch_related("templates")
+            return Agent.objects.prefetch_related("templates").get(uuid=agent_uuid)
         except Agent.DoesNotExist:
             raise NotFound(f"Agent not found: {str(agent_uuid)}")

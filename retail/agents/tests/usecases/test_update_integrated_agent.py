@@ -6,7 +6,8 @@ from uuid import uuid4
 
 from rest_framework.exceptions import NotFound, ValidationError
 
-from retail.agents.usecases.update_integrated_agent import (
+from retail.agents.domains.agent_integration.services import global_rule
+from retail.agents.domains.agent_integration.usecases.update import (
     UpdateIntegratedAgentUseCase,
 )
 
@@ -22,7 +23,7 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         )
         self.mock_global_rule_handler.get_global_rule.return_value = "mocked_rule_code"
         self.usecase = UpdateIntegratedAgentUseCase(
-            global_rule_handler=self.mock_global_rule_handler
+            global_rule=self.mock_global_rule_handler
         )
         self.mock_integrated_agent = MagicMock()
         self.mock_integrated_agent.uuid = uuid4()
@@ -39,7 +40,7 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         self.mock_integrated_agent.save.assert_called_once()
         self.mock_global_rule_handler.generate.assert_not_called()
 
-    @patch("retail.agents.usecases.update_integrated_agent.IntegratedAgent")
+    @patch("retail.agents.domains.agent_integration.usecases.update.IntegratedAgent")
     def test_get_integrated_agent_raises_not_found_when_integrated_agent_does_not_exist(
         self, mock_integrated_agent_cls
     ):
@@ -55,7 +56,7 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         self.assertIn(str(fake_uuid), str(context.exception))
         self.assertIn("Integrated agent not found", str(context.exception))
 
-    @patch("retail.agents.usecases.update_integrated_agent.IntegratedAgent")
+    @patch("retail.agents.domains.agent_integration.usecases.update.IntegratedAgent")
     def test_get_integrated_agent_returns_agent_when_found(
         self, mock_integrated_agent_cls
     ):

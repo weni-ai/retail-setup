@@ -18,7 +18,7 @@ from weni_datalake_sdk.paths.commerce_webhook import CommerceWebhookPath
 logger = logging.getLogger(__name__)
 
 
-class BroadcastHandler:
+class Broadcast:
     def __init__(
         self, flows_service: Optional[FlowsService] = None, audit_func: Callable = None
     ):

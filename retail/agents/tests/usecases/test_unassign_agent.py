@@ -4,9 +4,12 @@ from django.test import TestCase
 
 from rest_framework.exceptions import NotFound
 
-from retail.agents.models import Agent, IntegratedAgent
+from retail.agents.domains.agent_management.models import Agent
+from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.agents.domains.agent_integration.usecases.unsassign import (
+    UnassignAgentUseCase,
+)
 from retail.projects.models import Project
-from retail.agents.usecases import UnassignAgentUseCase
 
 
 class UnassignAgentUseCaseTest(TestCase):

@@ -5,8 +5,10 @@ from django.test import TestCase
 from uuid import uuid4
 
 from retail.projects.models import Project
-from retail.agents.models import Agent, PreApprovedTemplate
-from retail.agents.usecases import ValidatePreApprovedTemplatesUseCase
+from retail.agents.domains.agent_management.models import Agent, PreApprovedTemplate
+from retail.agents.domains.agent_management.usecases.validate_templates import (
+    ValidatePreApprovedTemplatesUseCase,
+)
 
 
 class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
