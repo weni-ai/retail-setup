@@ -6,7 +6,7 @@ from rest_framework.exceptions import NotFound
 
 from retail.agents.domains.agent_management.models import Agent
 from retail.agents.domains.agent_integration.models import IntegratedAgent
-from retail.agents.domains.agent_integration.usecases.unsassign import (
+from retail.agents.domains.agent_integration.usecases.unassign import (
     UnassignAgentUseCase,
 )
 from retail.projects.models import Project

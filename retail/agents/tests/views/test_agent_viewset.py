@@ -7,7 +7,7 @@ from rest_framework import status
 from uuid import uuid4
 
 from retail.projects.models import Project
-from retail.agents.models import Agent
+from retail.agents.domains.agent_management.models import Agent
 from retail.internal.test_mixins import BaseTestMixin, with_test_settings
 
 

@@ -27,7 +27,7 @@ from retail.agents.domains.agent_integration.usecases.list import (
 from retail.agents.domains.agent_integration.usecases.retrieve import (
     RetrieveIntegratedAgentUseCase,
 )
-from retail.agents.domains.agent_integration.usecases.unsassign import (
+from retail.agents.domains.agent_integration.usecases.unassign import (
     UnassignAgentUseCase,
 )
 from retail.agents.domains.agent_integration.usecases.update import (
