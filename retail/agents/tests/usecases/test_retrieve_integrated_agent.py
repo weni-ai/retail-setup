@@ -94,7 +94,7 @@ class RetrieveIntegratedAgentUseCaseTest(TestCase):
         self.deleted_template = Template.objects.create(
             name="deleted-template",
             integrated_agent=self.integrated_agent,
-            is_active=True,
+            is_active=False,
             display_name="Deleted Template",
             start_condition="deleted",
             metadata={"category": "deleted"},

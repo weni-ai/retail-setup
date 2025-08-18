@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from uuid import uuid4
 
-from retail.agents.domains.agent_webhook.services.broadcast import BroadcastHandler
+from retail.agents.domains.agent_webhook.services.broadcast import Broadcast
 
 from retail.templates.models import Template
 
@@ -15,7 +15,7 @@ class BroadcastHandlerTest(TestCase):
     def setUp(self):
         self.mock_flows_service = MagicMock()
         self.mock_audit = MagicMock()
-        self.handler = BroadcastHandler(
+        self.handler = Broadcast(
             flows_service=self.mock_flows_service, audit_func=self.mock_audit
         )
         self.mock_agent = MagicMock()

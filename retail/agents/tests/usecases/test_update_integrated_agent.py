@@ -6,7 +6,6 @@ from uuid import uuid4
 
 from rest_framework.exceptions import NotFound, ValidationError
 
-from retail.agents.domains.agent_integration.services import global_rule
 from retail.agents.domains.agent_integration.usecases.update import (
     UpdateIntegratedAgentUseCase,
 )
