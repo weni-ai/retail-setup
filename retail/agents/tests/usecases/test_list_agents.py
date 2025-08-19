@@ -3,8 +3,10 @@ from django.test import TestCase
 from uuid import uuid4
 
 from retail.projects.models import Project
-from retail.agents.models import Agent
-from retail.agents.usecases import ListAgentsUseCase
+from retail.agents.domains.agent_management.models import Agent
+from retail.agents.domains.agent_management.usecases.list import (
+    ListAgentsUseCase,
+)
 
 
 class ListAgentsUseCaseTest(TestCase):

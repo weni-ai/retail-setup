@@ -2,7 +2,7 @@ from typing import TypedDict, Optional, List, Dict, Any
 
 from uuid import UUID
 
-from retail.agents.models import IntegratedAgent
+from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.templates.tasks import task_create_library_template
 
 

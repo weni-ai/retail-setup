@@ -4,7 +4,9 @@ from uuid import uuid4
 
 from django.test import TestCase
 
-from retail.agents.usecases.list_integrated_agents import ListIntegratedAgentUseCase
+from retail.agents.domains.agent_integration.usecases.list import (
+    ListIntegratedAgentUseCase,
+)
 
 
 class ListIntegratedAgentUseCaseTest(TestCase):
@@ -12,7 +14,7 @@ class ListIntegratedAgentUseCaseTest(TestCase):
         self.usecase = ListIntegratedAgentUseCase()
         self.project_uuid = uuid4()
 
-    @patch("retail.agents.models.IntegratedAgent.objects")
+    @patch("retail.agents.domains.agent_integration.models.IntegratedAgent.objects")
     def test_get_queryset_filters_by_project_and_active(self, mock_objects):
         mock_qs = MagicMock()
         mock_prefetch_qs = MagicMock()
@@ -27,7 +29,7 @@ class ListIntegratedAgentUseCaseTest(TestCase):
         mock_qs.prefetch_related.assert_called_once()
         self.assertEqual(result, mock_prefetch_qs)
 
-    @patch("retail.agents.models.IntegratedAgent.objects")
+    @patch("retail.agents.domains.agent_integration.models.IntegratedAgent.objects")
     def test_execute_returns_queryset(self, mock_objects):
         mock_qs = MagicMock()
         mock_prefetch_qs = MagicMock()

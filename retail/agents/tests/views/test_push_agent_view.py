@@ -108,8 +108,10 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
             HTTP_PROJECT_UUID=str(self.project.uuid),
         )
 
-    @patch("retail.agents.views.validate_pre_approved_templates.delay")
-    @patch("retail.agents.views.PushAgentUseCase")
+    @patch(
+        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
+    )
+    @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_success(self, mock_push_agent_usecase, mock_validate_task):
         """Test successful agent push using contributor permissions"""
         self.setup_connect_service_mock(
@@ -148,8 +150,10 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("retail.agents.views.validate_pre_approved_templates.delay")
-    @patch("retail.agents.views.PushAgentUseCase")
+    @patch(
+        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
+    )
+    @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_missing_project_permission(
         self, mock_push_agent_usecase, mock_validate_task
     ):
@@ -186,8 +190,10 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("retail.agents.views.validate_pre_approved_templates.delay")
-    @patch("retail.agents.views.PushAgentUseCase")
+    @patch(
+        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
+    )
+    @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_connect_service_error(
         self, mock_push_agent_usecase, mock_validate_task
     ):
@@ -205,8 +211,10 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
             str(self.project.uuid), "test@example.com"
         )
 
-    @patch("retail.agents.views.validate_pre_approved_templates.delay")
-    @patch("retail.agents.views.PushAgentUseCase")
+    @patch(
+        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
+    )
+    @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_internal_user_success(
         self, mock_push_agent_usecase, mock_validate_task
     ):
@@ -231,8 +239,10 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
             str(self.project.uuid), "other@example.com"
         )
 
-    @patch("retail.agents.views.validate_pre_approved_templates.delay")
-    @patch("retail.agents.views.PushAgentUseCase")
+    @patch(
+        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
+    )
+    @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_moderator_permission_success(
         self, mock_push_agent_usecase, mock_validate_task
     ):
@@ -256,8 +266,10 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
             str(self.project.uuid), "test@example.com"
         )
 
-    @patch("retail.agents.views.validate_pre_approved_templates.delay")
-    @patch("retail.agents.views.PushAgentUseCase")
+    @patch(
+        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
+    )
+    @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_server_error_scenario(
         self, mock_push_agent_usecase, mock_validate_task
     ):

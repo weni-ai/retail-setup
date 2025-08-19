@@ -15,7 +15,7 @@ from rest_framework import status
 
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
-from retail.agents.models import IntegratedAgent
+from retail.agents.domains.agent_integration.models import IntegratedAgent
 
 
 class RuleGeneratorBadRequest(APIException):
