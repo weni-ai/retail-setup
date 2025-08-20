@@ -15,7 +15,6 @@ from uuid import uuid4
 from retail.projects.models import Project
 from retail.internal.test_mixins import (
     BaseTestMixin,
-    ConnectServicePermissionScenarios,
     with_test_settings,
 )
 
@@ -105,7 +104,6 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
             data=data,
             files=files,
             format="multipart",
-            HTTP_PROJECT_UUID=str(self.project.uuid),
         )
 
     @patch(
@@ -113,12 +111,7 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
     )
     @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_success(self, mock_push_agent_usecase, mock_validate_task):
-        """Test successful agent push using contributor permissions"""
-        self.setup_connect_service_mock(
-            status_code=200,
-            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
-        )
-
+        """Test successful agent push with authenticated user"""
         mock_agent = self._create_mock_agent_response()
         mock_push_agent_instance = mock_push_agent_usecase.return_value
         mock_push_agent_instance.execute.return_value = [mock_agent]
@@ -130,9 +123,6 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
 
         mock_push_agent_instance.execute.assert_called_once()
         mock_validate_task.assert_called_once_with([str(mock_agent.uuid)])
-        self._mock_connect_instance.get_user_permissions.assert_called_once_with(
-            str(self.project.uuid), "test@example.com"
-        )
 
     def test_push_agent_unauthenticated(self):
         """Test that unauthenticated user cannot push agent"""
@@ -154,76 +144,10 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
         "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
     )
     @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
-    def test_push_agent_missing_project_permission(
-        self, mock_push_agent_usecase, mock_validate_task
-    ):
-        """Test that user without project permission cannot push agent"""
-        self.setup_connect_service_mock(
-            status_code=200,
-            permissions=ConnectServicePermissionScenarios.NO_PERMISSIONS,
-        )
-
-        response = self._make_push_request()
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        mock_push_agent_usecase.assert_not_called()
-        mock_validate_task.assert_not_called()
-        self._mock_connect_instance.get_user_permissions.assert_called_once_with(
-            str(self.project.uuid), "test@example.com"
-        )
-
-    def test_push_agent_missing_project_uuid_header(self):
-        """Test that request without Project-Uuid header is rejected"""
-        data = {
-            "project_uuid": str(self.project.uuid),
-            "agents": json.dumps(self.agent_data),
-        }
-        files = {"agent1": self.uploaded_file}
-
-        response = self.client.post(
-            self.url,
-            data=data,
-            files=files,
-            format="multipart",
-            HTTP_AUTHORIZATION="Bearer valid-jwt-token",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    @patch(
-        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
-    )
-    @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
-    def test_push_agent_connect_service_error(
-        self, mock_push_agent_usecase, mock_validate_task
-    ):
-        """Test behavior when ConnectService returns error"""
-        self.setup_connect_service_mock(
-            *ConnectServicePermissionScenarios.USER_NOT_FOUND
-        )
-
-        response = self._make_push_request()
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        mock_push_agent_usecase.assert_not_called()
-        mock_validate_task.assert_not_called()
-        self._mock_connect_instance.get_user_permissions.assert_called_once_with(
-            str(self.project.uuid), "test@example.com"
-        )
-
-    @patch(
-        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
-    )
-    @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_internal_user_success(
         self, mock_push_agent_usecase, mock_validate_task
     ):
         """Test agent push by internal user querying another user"""
-        self.setup_connect_service_mock(
-            status_code=200,
-            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
-        )
-
         mock_agent = self._create_mock_agent_response()
         mock_push_agent_instance = mock_push_agent_usecase.return_value
         mock_push_agent_instance.execute.return_value = [mock_agent]
@@ -235,51 +159,78 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
 
         mock_push_agent_instance.execute.assert_called_once()
         mock_validate_task.assert_called_once_with([str(mock_agent.uuid)])
-        self._mock_connect_instance.get_user_permissions.assert_called_once_with(
-            str(self.project.uuid), "other@example.com"
+
+    def test_push_agent_invalid_json(self):
+        """Test that invalid JSON in agents field returns validation error"""
+        data = {
+            "project_uuid": str(self.project.uuid),
+            "agents": "invalid json",
+        }
+        files = {"agent1": self.uploaded_file}
+
+        response = self.client.post(
+            self.url, data=data, files=files, format="multipart"
         )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("agents", response.json())
+
+    def test_push_agent_missing_agents_field(self):
+        """Test that missing agents field returns validation error"""
+        data = {
+            "project_uuid": str(self.project.uuid),
+        }
+
+        response = self.client.post(self.url, data=data, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @patch(
         "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
     )
     @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
-    def test_push_agent_moderator_permission_success(
+    def test_push_agent_with_credentials(
         self, mock_push_agent_usecase, mock_validate_task
     ):
-        """Test agent push with moderator permissions"""
-        self.setup_connect_service_mock(
-            *ConnectServicePermissionScenarios.success_scenario(permission_level=3)
-        )
+        """Test agent push with credentials parsing"""
+        agent_data_with_credentials = {
+            "agents": {
+                "agent1": {
+                    **self.agent_data["agents"]["agent1"],
+                    "credentials": {
+                        "api_key": {
+                            "credentials": ["key1", "key2"],
+                            "label": "API Key",
+                            "placeholder": "Enter your API key",
+                            "is_confidential": True,
+                        }
+                    },
+                }
+            }
+        }
 
         mock_agent = self._create_mock_agent_response()
         mock_push_agent_instance = mock_push_agent_usecase.return_value
         mock_push_agent_instance.execute.return_value = [mock_agent]
 
-        response = self._make_push_request()
+        data = {
+            "project_uuid": str(self.project.uuid),
+            "agents": json.dumps(agent_data_with_credentials),
+        }
+        files = {"agent1": self.uploaded_file}
+
+        response = self.client.post(
+            self.url, data=data, files=files, format="multipart"
+        )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()[0]["name"], self.agent_name)
-
         mock_push_agent_instance.execute.assert_called_once()
-        mock_validate_task.assert_called_once_with([str(mock_agent.uuid)])
-        self._mock_connect_instance.get_user_permissions.assert_called_once_with(
-            str(self.project.uuid), "test@example.com"
-        )
 
-    @patch(
-        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
-    )
-    @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
-    def test_push_agent_server_error_scenario(
-        self, mock_push_agent_usecase, mock_validate_task
-    ):
-        """Test behavior when ConnectService has internal error"""
-        self.setup_connect_service_mock(
-            *ConnectServicePermissionScenarios.INTERNAL_ERROR
-        )
+        call_args = mock_push_agent_instance.execute.call_args
+        payload = call_args[1]["payload"]
+        agent = payload["agents"]["agent1"]
 
-        response = self._make_push_request()
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        mock_push_agent_usecase.assert_not_called()
-        mock_validate_task.assert_not_called()
+        self.assertEqual(len(agent["credentials"]), 1)
+        self.assertEqual(agent["credentials"][0]["key"], "api_key")
+        self.assertEqual(agent["credentials"][0]["label"], "API Key")
+        self.assertTrue(agent["credentials"][0]["is_confidential"])
