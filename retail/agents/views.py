@@ -43,7 +43,7 @@ from retail.internal.permissions import HasProjectPermission
 
 
 class PushAgentView(APIView):
-    permission_classes = [IsAuthenticated, HasProjectPermission]
+    permission_classes = [IsAuthenticated]
 
     def __parse_credentials(self, agent: dict) -> list[dict]:
         credentials = []
