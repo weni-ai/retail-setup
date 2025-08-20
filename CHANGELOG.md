@@ -1,3 +1,9 @@
+# 3.17.0
+
+## *Feature*
+  - feat: implement project permission
+  - feat: proxy for permissions
+
 # 3.16.0
 
 ## *Feature*
