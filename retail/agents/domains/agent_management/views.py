@@ -22,7 +22,6 @@ from retail.agents.domains.agent_management.usecases.list import ListAgentsUseCa
 from retail.agents.domains.agent_management.usecases.retrieve import (
     RetrieveAgentUseCase,
 )
-from retail.internal.permissions import HasProjectPermission
 
 
 class PushAgentView(APIView):
