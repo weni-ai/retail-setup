@@ -1,11 +1,10 @@
 import json
 
 from unittest.mock import patch, MagicMock
-
 from types import SimpleNamespace
 
 from django.urls import reverse
-from django.contrib.auth.models import User, Permission, ContentType
+from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from rest_framework import status
@@ -14,21 +13,28 @@ from rest_framework.test import APITestCase, APIClient
 from uuid import uuid4
 
 from retail.projects.models import Project
+from retail.internal.test_mixins import (
+    BaseTestMixin,
+    with_test_settings,
+)
 
 
-class PushAgentViewE2ETest(APITestCase):
+@with_test_settings
+class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
     def setUp(self):
-        self.project = Project.objects.create(uuid=uuid4(), name="Test Project")
+        super().setUp()
 
-        content_type = ContentType.objects.get_for_model(User)
-        self.permission = Permission.objects.create(
-            codename="can_communicate_internally",
-            name="Can Communicate Internally",
-            content_type=content_type,
+        self.project = Project.objects.create(uuid=uuid4(), name="Test Project")
+        self.user = User.objects.create_user(
+            username="testuser", password="12345", email="test@example.com"
         )
-        self.user = User.objects.create_user(username="testuser", password="12345")
-        self.user.user_permissions.add(self.permission)
-        self.user.save()
+        self.setup_internal_user_permissions(self.user)
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        self._setup_test_data()
+
+    def _setup_test_data(self):
         self.url = reverse("push-agent")
         self.agent_name = "Test Agent"
         self.agent_data = {
@@ -54,12 +60,9 @@ class PushAgentViewE2ETest(APITestCase):
         }
         self.file_content = b"print('hello world')"
         self.uploaded_file = SimpleUploadedFile("test.py", self.file_content)
-        self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
 
-    @patch("retail.agents.views.PushAgentUseCase")
-    @patch("retail.agents.views.validate_pre_approved_templates.delay")
-    def test_push_agent_success(self, mock_validate_task, mock_push_agent_usecase):
+    def _create_mock_agent_response(self) -> SimpleNamespace:
+        """Creates a standard mock agent response"""
         mock_template = SimpleNamespace(
             uuid=uuid4(),
             name="approved_status",
@@ -76,7 +79,7 @@ class PushAgentViewE2ETest(APITestCase):
         mock_templates_manager = MagicMock()
         mock_templates_manager.all.return_value = [mock_template]
 
-        mock_agent = SimpleNamespace(
+        return SimpleNamespace(
             uuid=uuid4(),
             slug="test_agent",
             name=self.agent_name,
@@ -88,21 +91,30 @@ class PushAgentViewE2ETest(APITestCase):
             examples=[{"name": "example1", "value": "value1"}],
         )
 
-        mock_push_agent_instance = mock_push_agent_usecase.return_value
-        mock_push_agent_instance.execute.return_value = [mock_agent]
-
+    def _make_push_request(self, user_email: str = "test@example.com") -> dict:
+        """Makes a standard push agent request"""
         data = {
             "project_uuid": str(self.project.uuid),
             "agents": json.dumps(self.agent_data),
         }
         files = {"agent1": self.uploaded_file}
 
-        response = self.client.post(
-            self.url,
+        return self.client.post(
+            f"{self.url}?user_email={user_email}",
             data=data,
             files=files,
             format="multipart",
         )
+
+    @patch("retail.agents.views.validate_pre_approved_templates.delay")
+    @patch("retail.agents.views.PushAgentUseCase")
+    def test_push_agent_success(self, mock_push_agent_usecase, mock_validate_task):
+        """Test successful agent push with authenticated user"""
+        mock_agent = self._create_mock_agent_response()
+        mock_push_agent_instance = mock_push_agent_usecase.return_value
+        mock_push_agent_instance.execute.return_value = [mock_agent]
+
+        response = self._make_push_request()
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()[0]["name"], self.agent_name)
@@ -110,18 +122,14 @@ class PushAgentViewE2ETest(APITestCase):
         mock_push_agent_instance.execute.assert_called_once()
         mock_validate_task.assert_called_once_with([str(mock_agent.uuid)])
 
-    @patch("retail.agents.views.PushAgentUseCase")
-    @patch("retail.agents.views.validate_pre_approved_templates.delay")
-    def test_push_agent_unauthenticated(
-        self, mock_validate_task, mock_push_agent_usecase
-    ):
+    def test_push_agent_unauthenticated(self):
+        """Test that unauthenticated user cannot push agent"""
         self.client.force_authenticate(user=None)
 
         data = {
             "project_uuid": str(self.project.uuid),
             "agents": json.dumps(self.agent_data),
         }
-
         files = {"agent1": self.uploaded_file}
 
         response = self.client.post(
@@ -130,5 +138,93 @@ class PushAgentViewE2ETest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        mock_push_agent_usecase.assert_not_called()
-        mock_validate_task.assert_not_called()
+    @patch("retail.agents.views.validate_pre_approved_templates.delay")
+    @patch("retail.agents.views.PushAgentUseCase")
+    def test_push_agent_internal_user_success(
+        self, mock_push_agent_usecase, mock_validate_task
+    ):
+        """Test agent push by internal user querying another user"""
+        mock_agent = self._create_mock_agent_response()
+        mock_push_agent_instance = mock_push_agent_usecase.return_value
+        mock_push_agent_instance.execute.return_value = [mock_agent]
+
+        response = self._make_push_request(user_email="other@example.com")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()[0]["name"], self.agent_name)
+
+        mock_push_agent_instance.execute.assert_called_once()
+        mock_validate_task.assert_called_once_with([str(mock_agent.uuid)])
+
+    def test_push_agent_invalid_json(self):
+        """Test that invalid JSON in agents field returns validation error"""
+        data = {
+            "project_uuid": str(self.project.uuid),
+            "agents": "invalid json",
+        }
+        files = {"agent1": self.uploaded_file}
+
+        response = self.client.post(
+            self.url, data=data, files=files, format="multipart"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("agents", response.json())
+
+    def test_push_agent_missing_agents_field(self):
+        """Test that missing agents field returns validation error"""
+        data = {
+            "project_uuid": str(self.project.uuid),
+        }
+
+        response = self.client.post(self.url, data=data, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("retail.agents.views.validate_pre_approved_templates.delay")
+    @patch("retail.agents.views.PushAgentUseCase")
+    def test_push_agent_with_credentials(
+        self, mock_push_agent_usecase, mock_validate_task
+    ):
+        """Test agent push with credentials parsing"""
+        agent_data_with_credentials = {
+            "agents": {
+                "agent1": {
+                    **self.agent_data["agents"]["agent1"],
+                    "credentials": {
+                        "api_key": {
+                            "credentials": ["key1", "key2"],
+                            "label": "API Key",
+                            "placeholder": "Enter your API key",
+                            "is_confidential": True,
+                        }
+                    },
+                }
+            }
+        }
+
+        mock_agent = self._create_mock_agent_response()
+        mock_push_agent_instance = mock_push_agent_usecase.return_value
+        mock_push_agent_instance.execute.return_value = [mock_agent]
+
+        data = {
+            "project_uuid": str(self.project.uuid),
+            "agents": json.dumps(agent_data_with_credentials),
+        }
+        files = {"agent1": self.uploaded_file}
+
+        response = self.client.post(
+            self.url, data=data, files=files, format="multipart"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_push_agent_instance.execute.assert_called_once()
+
+        call_args = mock_push_agent_instance.execute.call_args
+        payload = call_args[1]["payload"]
+        agent = payload["agents"]["agent1"]
+
+        self.assertEqual(len(agent["credentials"]), 1)
+        self.assertEqual(agent["credentials"][0]["key"], "api_key")
+        self.assertEqual(agent["credentials"][0]["label"], "API Key")
+        self.assertTrue(agent["credentials"][0]["is_confidential"])

@@ -2,8 +2,6 @@ from uuid import uuid4
 from unittest.mock import patch, MagicMock
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
-from django.contrib.contenttypes.models import ContentType
 from django.urls import reverse
 
 from rest_framework.test import APITestCase, APIClient
@@ -12,21 +10,35 @@ from rest_framework import status
 from retail.agents.models import PreApprovedTemplate, Agent, IntegratedAgent
 from retail.templates.models import Template
 from retail.projects.models import Project
+from retail.internal.test_mixins import (
+    BaseTestMixin,
+    ConnectServicePermissionScenarios,
+    with_test_settings,
+)
 
 User = get_user_model()
 
 
-class TemplateViewSetStrategyIntegrationTest(APITestCase):
+@with_test_settings
+class TemplateViewSetStrategyIntegrationTest(BaseTestMixin, APITestCase):
+    """
+    Integration tests for Template ViewSet strategy pattern.
+
+    Tests the strategy pattern implementation for template updates, including:
+    - Normal template update strategy selection and execution
+    - Custom template update strategy selection and execution
+    - Strategy factory creation and dependency injection
+    - Parameter handling for different template types
+    - Integration with external services and handlers
+    - Proper strategy selection based on template characteristics
+    """
+
     def setUp(self):
-        self.user = User.objects.create_user(username="testuser", password="testpass")
-        content_type = ContentType.objects.get_for_model(User)
-        permission, _ = Permission.objects.get_or_create(
-            codename="can_communicate_internally",
-            name="Can communicate internally",
-            content_type=content_type,
+        super().setUp()
+
+        self.user = User.objects.create_user(
+            username="testuser", password="testpass", email="test@example.com"
         )
-        self.user.user_permissions.add(permission)
-        self.user.save()
 
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
@@ -62,14 +74,30 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
             uuid=uuid4(), agent=self.agent, project=self.project, is_active=True
         )
 
+    def _get_project_headers_and_params(self):
+        """Helper method to get standard headers and params for HasProjectPermission"""
+        return {"HTTP_PROJECT_UUID": str(self.project.uuid)}, {
+            "user_email": self.user.email
+        }
+
     @patch("retail.templates.handlers.template_metadata.S3Service")
     @patch("retail.templates.handlers.TemplateMetadataHandler")
     @patch(
         "retail.templates.strategies.update_template_strategies.UpdateNormalTemplateStrategy.update_template"
     )
     def test_normal_template_update_uses_normal_strategy(
-        self, mock_update_method, mock_metadata_handler_class, mock_s3_service
+        self,
+        mock_update_method,
+        mock_metadata_handler_class,
+        mock_s3_service,
     ):
+        """Test that normal templates use the normal update strategy"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
+        )
+
         template = Template.objects.create(
             uuid=uuid4(),
             name="normal_template",
@@ -86,15 +114,20 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
         }
 
         template_uuid = str(template.uuid)
-        response = self.client.patch(
-            reverse("template-detail", args=[template_uuid]), payload, format="json"
+        headers, params = self._get_project_headers_and_params()
+        url = (
+            reverse("template-detail", args=[template_uuid])
+            + "?"
+            + "&".join([f"{k}={v}" for k, v in params.items()])
         )
+
+        response = self.client.patch(url, payload, format="json", **headers)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         mock_update_method.assert_called_once()
         call_args = mock_update_method.call_args
-        self.assertEqual(call_args[0][0], template)  # First argument is the template
+        self.assertEqual(call_args[0][0], template)
         self.assertEqual(
             call_args[0][1]["template_body"], "Updated body for normal template"
         )
@@ -112,6 +145,13 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
         mock_metadata_handler_class,
         mock_s3_service,
     ):
+        """Test that custom templates use the custom update strategy"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
+        )
+
         template = Template.objects.create(
             uuid=uuid4(),
             name="custom_template",
@@ -135,15 +175,20 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
         }
 
         template_uuid = str(template.uuid)
-        response = self.client.patch(
-            reverse("template-detail", args=[template_uuid]), payload, format="json"
+        headers, params = self._get_project_headers_and_params()
+        url = (
+            reverse("template-detail", args=[template_uuid])
+            + "?"
+            + "&".join([f"{k}={v}" for k, v in params.items()])
         )
+
+        response = self.client.patch(url, payload, format="json", **headers)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         mock_update_method.assert_called_once()
         call_args = mock_update_method.call_args
-        self.assertEqual(call_args[0][0], template)  # First argument is the template
+        self.assertEqual(call_args[0][0], template)
         self.assertEqual(
             call_args[0][1]["template_body"], "Updated body for custom template"
         )
@@ -163,6 +208,13 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
         mock_metadata_handler_class,
         mock_s3_service,
     ):
+        """Test that the strategy factory is called with correct parameters"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
+        )
+
         template = Template.objects.create(
             uuid=uuid4(),
             name="test_template",
@@ -181,9 +233,14 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
         }
 
         template_uuid = str(template.uuid)
-        response = self.client.patch(
-            reverse("template-detail", args=[template_uuid]), payload, format="json"
+        headers, params = self._get_project_headers_and_params()
+        url = (
+            reverse("template-detail", args=[template_uuid])
+            + "?"
+            + "&".join([f"{k}={v}" for k, v in params.items()])
         )
+
+        response = self.client.patch(url, payload, format="json", **headers)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -201,8 +258,18 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
         "retail.templates.strategies.update_template_strategies.UpdateNormalTemplateStrategy.update_template"
     )
     def test_normal_template_ignores_parameters(
-        self, mock_update_method, mock_metadata_handler_class, mock_s3_service
+        self,
+        mock_update_method,
+        mock_metadata_handler_class,
+        mock_s3_service,
     ):
+        """Test that normal templates ignore parameters in the payload"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
+        )
+
         template = Template.objects.create(
             uuid=uuid4(),
             name="normal_template",
@@ -220,9 +287,14 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
         }
 
         template_uuid = str(template.uuid)
-        response = self.client.patch(
-            reverse("template-detail", args=[template_uuid]), payload, format="json"
+        headers, params = self._get_project_headers_and_params()
+        url = (
+            reverse("template-detail", args=[template_uuid])
+            + "?"
+            + "&".join([f"{k}={v}" for k, v in params.items()])
         )
+
+        response = self.client.patch(url, payload, format="json", **headers)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_update_method.assert_called_once()
@@ -231,8 +303,18 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
     @patch("retail.templates.handlers.TemplateMetadataHandler")
     @patch("retail.templates.strategies.update_template_strategies.RuleGenerator")
     def test_custom_template_with_parameters_is_allowed(
-        self, mock_rule_generator_class, mock_metadata_handler_class, mock_s3_service
+        self,
+        mock_rule_generator_class,
+        mock_metadata_handler_class,
+        mock_s3_service,
     ):
+        """Test that custom templates accept and process parameters correctly"""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
+        )
+
         template = Template.objects.create(
             uuid=uuid4(),
             name="custom_template",
@@ -255,9 +337,14 @@ class TemplateViewSetStrategyIntegrationTest(APITestCase):
             }
 
             template_uuid = str(template.uuid)
-            response = self.client.patch(
-                reverse("template-detail", args=[template_uuid]), payload, format="json"
+            headers, params = self._get_project_headers_and_params()
+            url = (
+                reverse("template-detail", args=[template_uuid])
+                + "?"
+                + "&".join([f"{k}={v}" for k, v in params.items()])
             )
+
+            response = self.client.patch(url, payload, format="json", **headers)
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             mock_update.assert_called_once()
