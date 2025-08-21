@@ -1,3 +1,8 @@
+# 3.18.0
+
+## *Refactor*
+  - refactor: agents app 
+
 # 3.17.0
 
 ## *Feature*
