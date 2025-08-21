@@ -4,6 +4,8 @@ import random
 
 from typing import Any, Dict, Optional
 
+from django.db.models import Prefetch
+
 from uuid import UUID
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
@@ -19,6 +21,7 @@ from retail.agents.shared.cache import (
     IntegratedAgentCacheHandlerRedis,
 )
 from retail.interfaces.clients.aws_lambda.client import RequestData
+from retail.templates.models import Template
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +39,7 @@ class AgentWebhookUseCase:
         self.IGNORE_INTEGRATED_AGENT_UUID = "d30bcce8-ce67-4677-8a33-c12b62a51d4f"
 
     def _get_integrated_agent(self, uuid: UUID):
-        """Get integrated agent by UUID if active and not blocked."""
+        """Get integrated agent by UUID if active and not blocked with optimized queries."""
         if str(uuid) == self.IGNORE_INTEGRATED_AGENT_UUID:
             logger.info(f"Integrated agent is blocked: {uuid}")
             return None
@@ -47,7 +50,16 @@ class AgentWebhookUseCase:
             return cached_integrated_agent
 
         try:
-            db_integrated_agent = IntegratedAgent.objects.get(uuid=uuid, is_active=True)
+            templates_prefetch = Prefetch(
+                "templates", queryset=Template.objects.filter(is_active=True)
+            )
+
+            db_integrated_agent = (
+                IntegratedAgent.objects.select_related("project", "agent")
+                .prefetch_related(templates_prefetch, "credentials")
+                .get(uuid=uuid, is_active=True)
+            )
+
             self.cache_handler.set_cached_agent(db_integrated_agent)
             return db_integrated_agent
         except IntegratedAgent.DoesNotExist:
