@@ -14,7 +14,8 @@ from retail.templates.strategies.update_template_strategies import (
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
-from retail.agents.models import IntegratedAgent, Agent, PreApprovedTemplate
+from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.agents.domains.agent_management.models import Agent, PreApprovedTemplate
 from retail.projects.models import Project
 from retail.services.rule_generator import RuleGenerator
 

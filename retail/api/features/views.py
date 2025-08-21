@@ -4,8 +4,10 @@ from django.conf import settings
 from rest_framework import status
 from rest_framework.response import Response
 
-from retail.agents.serializers import GalleryAgentSerializer
-from retail.agents.usecases.list_agents import ListAgentsUseCase
+from retail.agents.domains.agent_management.serializers import GalleryAgentSerializer
+from retail.agents.domains.agent_management.usecases.list import (
+    ListAgentsUseCase,
+)
 from retail.api.base_service_view import BaseServiceView
 from retail.api.features.serializers import (
     FeatureQueryParamsSerializer,

@@ -10,7 +10,13 @@ from django.contrib.auth import get_user_model
 
 from uuid import uuid4
 
-from retail.agents.models import IntegratedAgent, Agent, PreApprovedTemplate
+from retail.agents.domains.agent_integration.models import (
+    IntegratedAgent,
+)
+from retail.agents.domains.agent_management.models import (
+    Agent,
+    PreApprovedTemplate,
+)
 from retail.projects.models import Project
 from retail.templates.models import Template
 from retail.internal.test_mixins import (
@@ -198,7 +204,7 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
             deleted_at=deleted_at,
         )
 
-    @patch("retail.agents.views.ListIntegratedAgentUseCase")
+    @patch("retail.agents.domains.agent_integration.views.ListIntegratedAgentUseCase")
     def test_list_integrated_agents_with_valid_project_uuid(self, mock_use_case_class):
         """Test listing integrated agents with valid project UUID"""
         mock_use_case = MagicMock()
@@ -222,7 +228,9 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
         response = self._make_list_request()
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("retail.agents.views.RetrieveIntegratedAgentUseCase")
+    @patch(
+        "retail.agents.domains.agent_integration.views.RetrieveIntegratedAgentUseCase"
+    )
     def test_retrieve_integrated_agent_with_permission(self, mock_use_case):
         """Test retrieving integrated agent with proper permissions"""
         integrated_agent = IntegratedAgent.objects.create(
@@ -244,7 +252,9 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
             str(integrated_agent.uuid), {"show_all": False, "start": None, "end": None}
         )
 
-    @patch("retail.agents.views.RetrieveIntegratedAgentUseCase")
+    @patch(
+        "retail.agents.domains.agent_integration.views.RetrieveIntegratedAgentUseCase"
+    )
     def test_retrieve_integrated_agent_with_show_all_query_param(self, mock_use_case):
         """Test retrieving integrated agent with show_all parameter"""
         integrated_agent = IntegratedAgent.objects.create(
@@ -268,7 +278,9 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
             str(integrated_agent.uuid), {"show_all": True, "start": None, "end": None}
         )
 
-    @patch("retail.agents.views.RetrieveIntegratedAgentUseCase")
+    @patch(
+        "retail.agents.domains.agent_integration.views.RetrieveIntegratedAgentUseCase"
+    )
     def test_retrieve_integrated_agent_with_date_range_query_params(
         self, mock_use_case_class
     ):
@@ -304,7 +316,9 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("retail.agents.views.RetrieveIntegratedAgentUseCase")
+    @patch(
+        "retail.agents.domains.agent_integration.views.RetrieveIntegratedAgentUseCase"
+    )
     def test_retrieve_integrated_agent_without_permission(self, mock_use_case_class):
         """Test retrieving integrated agent fails without proper permissions"""
         mock_use_case = MagicMock()
@@ -322,7 +336,7 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
         response = self._make_detail_request(self.integrated_agent1.uuid)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("retail.agents.views.UpdateIntegratedAgentUseCase")
+    @patch("retail.agents.domains.agent_integration.views.UpdateIntegratedAgentUseCase")
     def test_partial_update_integrated_agent_success(self, mock_use_case_class):
         """Test successful partial update of integrated agent with contributor permissions"""
         self.setup_internal_user_permissions(self.user)
@@ -352,7 +366,7 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
             str(self.project1.uuid), "test@example.com"
         )
 
-    @patch("retail.agents.views.UpdateIntegratedAgentUseCase")
+    @patch("retail.agents.domains.agent_integration.views.UpdateIntegratedAgentUseCase")
     def test_partial_update_insufficient_project_permissions(self, mock_use_case_class):
         """Test partial update fails with insufficient permissions"""
         self.setup_internal_user_permissions(self.user)
@@ -380,7 +394,7 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
             str(self.project1.uuid), "test@example.com"
         )
 
-    @patch("retail.agents.views.UpdateIntegratedAgentUseCase")
+    @patch("retail.agents.domains.agent_integration.views.UpdateIntegratedAgentUseCase")
     def test_partial_update_connect_service_error(self, mock_use_case_class):
         """Test partial update fails when ConnectService returns error"""
         self.setup_internal_user_permissions(self.user)
@@ -407,7 +421,7 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
             str(self.project1.uuid), "test@example.com"
         )
 
-    @patch("retail.agents.views.UpdateIntegratedAgentUseCase")
+    @patch("retail.agents.domains.agent_integration.views.UpdateIntegratedAgentUseCase")
     def test_partial_update_moderator_permissions_success(self, mock_use_case_class):
         """Test successful partial update with moderator permissions"""
         self.setup_internal_user_permissions(self.user)

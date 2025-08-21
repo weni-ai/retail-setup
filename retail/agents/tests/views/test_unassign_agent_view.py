@@ -7,7 +7,8 @@ from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 
-from retail.agents.models import Agent, IntegratedAgent
+from retail.agents.domains.agent_management.models import Agent
+from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.projects.models import Project
 from retail.internal.test_mixins import (
     BaseTestMixin,
@@ -34,7 +35,7 @@ class UnassignAgentViewTest(BaseTestMixin, APITestCase):
         super().setUp()
 
         patcher = patch(
-            "retail.agents.usecases.unassign_agent.send_commerce_webhook_data"
+            "retail.agents.domains.agent_integration.usecases.unassign.send_commerce_webhook_data"
         )
         self.mock_audit = patcher.start()
         self.addCleanup(patcher.stop)

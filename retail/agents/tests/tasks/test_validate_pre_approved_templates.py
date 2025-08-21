@@ -1,9 +1,13 @@
 from unittest.mock import patch, MagicMock
+
 from django.test import TestCase
+
 from uuid import uuid4
 
-from retail.agents.models import Agent
-from retail.agents.tasks import validate_pre_approved_templates
+from retail.agents.domains.agent_management.models import Agent
+from retail.agents.domains.agent_management.tasks import (
+    validate_pre_approved_templates,
+)
 from retail.projects.models import Project
 
 
@@ -27,7 +31,9 @@ class ValidatePreApprovedTemplatesTaskTest(TestCase):
             project=self.project,
         )
 
-    @patch("retail.agents.tasks.ValidatePreApprovedTemplatesUseCase")
+    @patch(
+        "retail.agents.domains.agent_management.tasks.ValidatePreApprovedTemplatesUseCase"
+    )
     def test_validate_pre_approved_templates_success(self, mock_use_case_class):
         mock_use_case = MagicMock()
         mock_use_case_class.return_value = mock_use_case
@@ -41,7 +47,9 @@ class ValidatePreApprovedTemplatesTaskTest(TestCase):
         mock_use_case.execute.assert_any_call(self.agent1)
         mock_use_case.execute.assert_any_call(self.agent2)
 
-    @patch("retail.agents.tasks.ValidatePreApprovedTemplatesUseCase")
+    @patch(
+        "retail.agents.domains.agent_management.tasks.ValidatePreApprovedTemplatesUseCase"
+    )
     def test_validate_pre_approved_templates_with_nonexistent_agent_ids(
         self, mock_use_case_class
     ):
@@ -56,7 +64,9 @@ class ValidatePreApprovedTemplatesTaskTest(TestCase):
         mock_use_case_class.assert_called_once()
         mock_use_case.execute.assert_called_once_with(self.agent1)
 
-    @patch("retail.agents.tasks.ValidatePreApprovedTemplatesUseCase")
+    @patch(
+        "retail.agents.domains.agent_management.tasks.ValidatePreApprovedTemplatesUseCase"
+    )
     def test_validate_pre_approved_templates_with_empty_list(self, mock_use_case_class):
         mock_use_case = MagicMock()
         mock_use_case_class.return_value = mock_use_case

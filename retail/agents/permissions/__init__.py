@@ -1,2 +1,0 @@
-from .agent_permissions import IsAgentOficialOrFromProjet
-from .integrated_agent_permissions import IsIntegratedAgentFromProject

@@ -106,8 +106,10 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
             format="multipart",
         )
 
-    @patch("retail.agents.views.validate_pre_approved_templates.delay")
-    @patch("retail.agents.views.PushAgentUseCase")
+    @patch(
+        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
+    )
+    @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_success(self, mock_push_agent_usecase, mock_validate_task):
         """Test successful agent push with authenticated user"""
         mock_agent = self._create_mock_agent_response()
@@ -138,8 +140,10 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("retail.agents.views.validate_pre_approved_templates.delay")
-    @patch("retail.agents.views.PushAgentUseCase")
+    @patch(
+        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
+    )
+    @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_internal_user_success(
         self, mock_push_agent_usecase, mock_validate_task
     ):
@@ -181,8 +185,10 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("retail.agents.views.validate_pre_approved_templates.delay")
-    @patch("retail.agents.views.PushAgentUseCase")
+    @patch(
+        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
+    )
+    @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_with_credentials(
         self, mock_push_agent_usecase, mock_validate_task
     ):
