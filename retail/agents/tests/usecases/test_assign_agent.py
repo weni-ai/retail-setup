@@ -6,8 +6,13 @@ from django.test import TestCase
 
 from rest_framework.exceptions import NotFound, ValidationError
 
-from retail.agents.models import Agent, IntegratedAgent, Credential, PreApprovedTemplate
-from retail.agents.usecases import AssignAgentUseCase
+from retail.agents.domains.agent_management.models import Agent
+from retail.agents.domains.agent_integration.models import (
+    IntegratedAgent,
+    Credential,
+)
+from retail.agents.domains.agent_management.models import PreApprovedTemplate
+from retail.agents.domains.agent_integration.usecases.assign import AssignAgentUseCase
 from retail.projects.models import Project
 
 
@@ -192,7 +197,9 @@ class AssignAgentUseCaseTest(TestCase):
             1,
         )
 
-    @patch("retail.agents.usecases.assign_agent.CreateLibraryTemplateUseCase")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
+    )
     def test_create_templates_success(self, mock_create_library_use_case):
         mock_integrations_service = MagicMock()
         mock_integrations_service.fetch_templates_from_user.return_value = {}
@@ -285,7 +292,9 @@ class AssignAgentUseCaseTest(TestCase):
         self.assertIn("template1", result)
         self.assertIn("template2", result)
 
-    @patch("retail.agents.usecases.assign_agent.CreateLibraryTemplateUseCase")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
+    )
     def test_execute_integration(self, mock_create_library_use_case):
         mock_integrations_service = MagicMock()
         mock_integrations_service.fetch_templates_from_user.return_value = {}
@@ -360,7 +369,9 @@ class AssignAgentUseCaseTest(TestCase):
             "This agent is already assigned in this project", str(ctx.exception)
         )
 
-    @patch("retail.agents.usecases.assign_agent.CreateLibraryTemplateUseCase")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
+    )
     def test_execute_with_include_templates(self, mock_create_library_use_case):
         mock_integrations_service = MagicMock()
         mock_integrations_service.fetch_templates_from_user.return_value = {}
@@ -391,7 +402,9 @@ class AssignAgentUseCaseTest(TestCase):
         self.assertIsInstance(integrated_agent, IntegratedAgent)
         self.assertNotIn(template1.slug, integrated_agent.ignore_templates)
 
-    @patch("retail.agents.usecases.assign_agent.TemplateBuilderMixin")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.TemplateBuilderMixin"
+    )
     def test_create_invalid_templates_success(self, mock_template_builder):
         integrated_agent = IntegratedAgent.objects.create(
             agent=self.agent,
@@ -449,7 +462,9 @@ class AssignAgentUseCaseTest(TestCase):
 
         mock_template_builder.return_value.build_template_and_version.assert_called_once()
 
-    @patch("retail.agents.usecases.assign_agent.TemplateBuilderMixin")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.TemplateBuilderMixin"
+    )
     def test_create_invalid_templates_no_translations_found(
         self, mock_template_builder
     ):
@@ -481,8 +496,12 @@ class AssignAgentUseCaseTest(TestCase):
 
         mock_template_builder.return_value.build_template_and_version.assert_not_called()
 
-    @patch("retail.agents.usecases.assign_agent.CreateLibraryTemplateUseCase")
-    @patch("retail.agents.usecases.assign_agent.TemplateBuilderMixin")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
+    )
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.TemplateBuilderMixin"
+    )
     def test_create_templates_with_valid_and_invalid(
         self, mock_template_builder, mock_create_library_use_case
     ):
@@ -572,7 +591,9 @@ class AssignAgentUseCaseTest(TestCase):
 
         mock_integrations_service.fetch_templates_from_user.assert_called_once()
 
-    @patch("retail.agents.usecases.assign_agent.CreateLibraryTemplateUseCase")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
+    )
     def test_execute_integration_with_valid_and_invalid_templates(
         self, mock_create_library_use_case
     ):
@@ -642,7 +663,9 @@ class AssignAgentUseCaseTest(TestCase):
             app_uuid, str(self.project.uuid), ["invalid_template"], self.agent.language
         )
 
-    @patch("retail.agents.usecases.assign_agent.CreateLibraryTemplateUseCase")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
+    )
     def test_execute_integration_with_only_invalid_templates_no_translations(
         self, mock_create_library_use_case
     ):

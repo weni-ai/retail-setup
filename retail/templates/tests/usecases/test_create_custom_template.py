@@ -15,7 +15,8 @@ from retail.templates.usecases.create_custom_template import (
 from retail.templates.models import Template, Version
 from retail.templates.exceptions import CustomTemplateAlreadyExists
 from retail.projects.models import Project
-from retail.agents.models import Agent, IntegratedAgent
+from retail.agents.domains.agent_management.models import Agent
+from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.services.rule_generator import (
     RuleGenerator,
     RuleGeneratorBadRequest,

@@ -8,7 +8,7 @@ from uuid import uuid4
 from urllib.parse import urlencode
 from unittest.mock import patch, MagicMock
 
-from retail.agents.models import Agent
+from retail.agents.domains.agent_management.models import Agent
 from retail.projects.models import Project
 from retail.internal.test_mixins import (
     BaseTestMixin,
@@ -98,7 +98,9 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
         mock_integrations_service.fetch_templates_from_user.return_value = {}
         return mock_integrations_service
 
-    @patch("retail.agents.usecases.assign_agent.IntegrationsService")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.IntegrationsService"
+    )
     def test_assign_agent_oficial(self, mock_integrations_service_class):
         """Test official agent assignment with contributor permissions"""
         self.setup_connect_service_mock(
@@ -118,7 +120,9 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
             str(self.project.uuid), self.user.email
         )
 
-    @patch("retail.agents.usecases.assign_agent.IntegrationsService")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.IntegrationsService"
+    )
     def test_assign_agent_not_oficial_correct_project(
         self, mock_integrations_service_class
     ):
@@ -136,7 +140,9 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    @patch("retail.agents.usecases.assign_agent.IntegrationsService")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.IntegrationsService"
+    )
     def test_assign_agent_permission_denied_by_service(
         self, mock_integrations_service_class
     ):
@@ -154,7 +160,9 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("retail.agents.usecases.assign_agent.IntegrationsService")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.IntegrationsService"
+    )
     def test_assign_agent_permission_denied_by_service_error(
         self, mock_integrations_service_class
     ):
@@ -171,7 +179,9 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("retail.agents.usecases.assign_agent.IntegrationsService")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.IntegrationsService"
+    )
     def test_assign_agent_not_oficial_from_another_project(
         self, mock_integrations_service_class
     ):
@@ -198,7 +208,9 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("retail.agents.usecases.assign_agent.IntegrationsService")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.IntegrationsService"
+    )
     def test_missing_user_email(self, mock_integrations_service_class):
         """Test behavior when user_email is not provided"""
         mock_integrations_service_class.return_value = (
@@ -215,7 +227,9 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("retail.agents.usecases.assign_agent.IntegrationsService")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.IntegrationsService"
+    )
     def test_missing_app_uuid_param(self, mock_integrations_service_class):
         """Test behavior when app_uuid is not provided"""
         self.setup_connect_service_mock(
@@ -237,7 +251,9 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("retail.agents.usecases.assign_agent.IntegrationsService")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.IntegrationsService"
+    )
     def test_missing_channel_uuid_param(self, mock_integrations_service_class):
         """Test behavior when channel_uuid is not provided"""
         self.setup_connect_service_mock(
@@ -268,7 +284,9 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
             [status.HTTP_400_BAD_REQUEST, status.HTTP_403_FORBIDDEN],
         )
 
-    @patch("retail.agents.usecases.assign_agent.IntegrationsService")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.IntegrationsService"
+    )
     def test_agent_not_found(self, mock_integrations_service_class):
         """Test behavior when agent is not found"""
         self.setup_connect_service_mock(

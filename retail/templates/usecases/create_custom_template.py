@@ -11,7 +11,7 @@ from retail.templates.usecases import TemplateBuilderMixin
 from retail.templates.tasks import task_create_template
 from retail.templates.models import Template
 from retail.templates.exceptions import CustomTemplateAlreadyExists
-from retail.agents.models import IntegratedAgent
+from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.services.rule_generator import RuleGenerator
 from retail.templates.handlers import TemplateMetadataHandler
 

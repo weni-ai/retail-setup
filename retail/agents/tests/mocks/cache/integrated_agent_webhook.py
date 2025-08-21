@@ -2,10 +2,8 @@ from typing import Optional
 
 from uuid import UUID
 
-from retail.agents.handlers.cache.integrated_agent_webhook import (
-    IntegratedAgentCacheHandler,
-)
-from retail.agents.models import IntegratedAgent
+from retail.agents.shared.cache import IntegratedAgentCacheHandler
+from retail.agents.domains.agent_integration.models import IntegratedAgent
 
 
 class IntegratedAgentCacheHandlerMock(IntegratedAgentCacheHandler):
