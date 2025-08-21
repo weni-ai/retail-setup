@@ -116,7 +116,9 @@ class BroadcastHandlerTest(TestCase):
         result = self.handler.get_current_template(self.mock_agent, data)
 
         self.assertEqual(result, mock_template)
-        self.mock_agent.templates.get.assert_called_once_with(name="order_update")
+        self.mock_agent.templates.get.assert_called_once_with(
+            name="order_update", is_active=True
+        )
 
     def test_get_current_template_name_not_found(self):
         data = {"template": "non_existent_template"}
@@ -135,7 +137,9 @@ class BroadcastHandlerTest(TestCase):
         result = self.handler.get_current_template(self.mock_agent, data)
 
         self.assertFalse(result)
-        self.mock_agent.templates.get.assert_called_once_with(name="order_update")
+        self.mock_agent.templates.get.assert_called_once_with(
+            name="order_update", is_active=True
+        )
 
     def test_send_message(self):
         message = {"template": "test", "contact": "whatsapp:123"}

@@ -218,7 +218,9 @@ class Broadcast:
         """Get current template name from integrated agent templates."""
         template_name = data.get("template")
         try:
-            template = integrated_agent.templates.get(name=template_name)
+            template = integrated_agent.templates.get(
+                name=template_name, is_active=True
+            )
             if template.current_version is None:
                 logger.info(f"Template {template_name} has no current version.")
                 return False
