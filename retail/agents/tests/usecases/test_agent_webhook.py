@@ -145,6 +145,11 @@ class AgentWebhookUseCaseTest(TestCase):
         result = self.usecase.execute(self.mock_agent, MagicMock())
         self.assertIsNone(result)
 
+    def test_execute_template_not_active(self):
+        self.mock_agent.templates.get.return_value.is_active = False
+        result = self.usecase.execute(self.mock_agent, MagicMock())
+        self.assertIsNone(result)
+
     def test_execute_contact_not_allowed(self):
         mock_response = {"Payload": MagicMock()}
         self.mock_lambda_handler.invoke.return_value = mock_response
