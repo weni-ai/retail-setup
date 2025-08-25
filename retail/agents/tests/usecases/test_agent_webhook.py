@@ -89,29 +89,133 @@ class AgentWebhookUseCaseTest(TestCase):
         self.assertIsNone(result)
 
     @patch(
-        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects.get"
+        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects"
     )
-    def test_get_integrated_agent_found(self, mock_get):
+    def test_get_integrated_agent_found(self, mock_objects):
+        """Test successful retrieval of integrated agent with optimized queries."""
         mock_agent = MagicMock()
-        mock_get.return_value = mock_agent
         test_uuid = uuid4()
+
+        mock_queryset = MagicMock()
+        mock_objects.select_related.return_value = mock_queryset
+        mock_queryset.prefetch_related.return_value = mock_queryset
+        mock_queryset.get.return_value = mock_agent
 
         result = self.usecase._get_integrated_agent(test_uuid)
 
         self.assertEqual(result, mock_agent)
-        mock_get.assert_called_once_with(uuid=test_uuid, is_active=True)
+        mock_objects.select_related.assert_called_once_with("project", "agent")
+        mock_queryset.get.assert_called_once_with(uuid=test_uuid, is_active=True)
 
     @patch(
-        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects.get"
+        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects"
     )
-    def test_get_integrated_agent_not_found(self, mock_get):
-        mock_get.side_effect = IntegratedAgent.DoesNotExist()
+    def test_get_integrated_agent_not_found(self, mock_objects):
+        """Test handling of non-existent integrated agent."""
         test_uuid = uuid4()
+
+        mock_queryset = MagicMock()
+        mock_objects.select_related.return_value = mock_queryset
+        mock_queryset.prefetch_related.return_value = mock_queryset
+        mock_queryset.get.side_effect = IntegratedAgent.DoesNotExist()
 
         result = self.usecase._get_integrated_agent(test_uuid)
 
         self.assertIsNone(result)
-        mock_get.assert_called_once_with(uuid=test_uuid, is_active=True)
+        mock_objects.select_related.assert_called_once_with("project", "agent")
+        mock_queryset.get.assert_called_once_with(uuid=test_uuid, is_active=True)
+
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects"
+    )
+    def test_get_integrated_agent_from_cache(self, mock_objects):
+        """Test that cached agent is returned without database query."""
+        mock_agent = MagicMock()
+        test_uuid = uuid4()
+        mock_agent.uuid = test_uuid
+
+        self.mock_cache_handler.set_cached_agent(mock_agent)
+
+        result = self.usecase._get_integrated_agent(test_uuid)
+
+        self.assertEqual(result, mock_agent)
+        mock_objects.select_related.assert_not_called()
+
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects"
+    )
+    def test_get_integrated_agent_cache_miss_then_set(self, mock_objects):
+        """Test cache miss scenario with subsequent cache setting."""
+        mock_agent = MagicMock()
+        test_uuid = uuid4()
+        mock_agent.uuid = test_uuid
+
+        mock_queryset = MagicMock()
+        mock_objects.select_related.return_value = mock_queryset
+        mock_queryset.prefetch_related.return_value = mock_queryset
+        mock_queryset.get.return_value = mock_agent
+
+        result = self.usecase._get_integrated_agent(test_uuid)
+
+        self.assertEqual(result, mock_agent)
+        mock_objects.select_related.assert_called_once_with("project", "agent")
+        mock_queryset.get.assert_called_once_with(uuid=test_uuid, is_active=True)
+        cached_agent = self.mock_cache_handler.get_cached_agent(test_uuid)
+        self.assertEqual(cached_agent, mock_agent)
+
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects"
+    )
+    def test_get_integrated_agent_cache_miss_not_found(self, mock_objects):
+        """Test cache miss with non-existent agent."""
+        test_uuid = uuid4()
+
+        mock_queryset = MagicMock()
+        mock_objects.select_related.return_value = mock_queryset
+        mock_queryset.prefetch_related.return_value = mock_queryset
+        mock_queryset.get.side_effect = IntegratedAgent.DoesNotExist()
+
+        result = self.usecase._get_integrated_agent(test_uuid)
+
+        self.assertIsNone(result)
+        mock_objects.select_related.assert_called_once_with("project", "agent")
+        mock_queryset.get.assert_called_once_with(uuid=test_uuid, is_active=True)
+        cached_agent = self.mock_cache_handler.get_cached_agent(test_uuid)
+        self.assertIsNone(cached_agent)
+
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects"
+    )
+    def test_get_integrated_agent_cache_with_none_value(self, mock_objects):
+        """Test cache with None value (cache miss scenario)."""
+        mock_agent = MagicMock()
+        test_uuid = uuid4()
+        mock_agent.uuid = test_uuid
+
+        mock_queryset = MagicMock()
+        mock_objects.select_related.return_value = mock_queryset
+        mock_queryset.prefetch_related.return_value = mock_queryset
+        mock_queryset.get.return_value = mock_agent
+
+        self.mock_cache_handler.cache[str(test_uuid)] = None
+
+        result = self.usecase._get_integrated_agent(test_uuid)
+
+        self.assertEqual(result, mock_agent)
+        mock_objects.select_related.assert_called_once_with("project", "agent")
+        mock_queryset.get.assert_called_once_with(uuid=test_uuid, is_active=True)
+        cached_agent = self.mock_cache_handler.get_cached_agent(test_uuid)
+        self.assertEqual(cached_agent, mock_agent)
+
+    def test_get_integrated_agent_blocked_uuid_no_cache_interaction(self):
+        """Test blocked UUID handling without cache interaction."""
+        blocked_uuid = "d30bcce8-ce67-4677-8a33-c12b62a51d4f"
+
+        result = self.usecase._get_integrated_agent(blocked_uuid)
+
+        self.assertIsNone(result)
+        cached_agent = self.mock_cache_handler.get_cached_agent(blocked_uuid)
+        self.assertIsNone(cached_agent)
 
     def test_execute_successful(self):
         mock_response = {"Payload": MagicMock()}
@@ -235,73 +339,25 @@ class AgentWebhookUseCaseTest(TestCase):
         self.mock_broadcast_handler.send_message.assert_not_called()
 
     @patch(
-        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects.get"
+        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects"
     )
-    def test_get_integrated_agent_from_cache(self, mock_get):
+    def test_optimized_queries_are_used(self, mock_objects):
+        """Test that the optimized queries with select_related and prefetch_related are being used."""
         mock_agent = MagicMock()
         test_uuid = uuid4()
-        mock_agent.uuid = test_uuid
 
-        self.mock_cache_handler.set_cached_agent(mock_agent)
+        mock_queryset = MagicMock()
+        mock_objects.select_related.return_value = mock_queryset
+        mock_queryset.prefetch_related.return_value = mock_queryset
+        mock_queryset.get.return_value = mock_agent
 
         result = self.usecase._get_integrated_agent(test_uuid)
+
+        mock_objects.select_related.assert_called_once_with("project", "agent")
+        mock_queryset.prefetch_related.assert_called_once()
+
+        prefetch_call_args = mock_queryset.prefetch_related.call_args[0]
+        self.assertEqual(len(prefetch_call_args), 2)
+        self.assertEqual(prefetch_call_args[1], "credentials")
 
         self.assertEqual(result, mock_agent)
-        mock_get.assert_not_called()
-
-    @patch(
-        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects.get"
-    )
-    def test_get_integrated_agent_cache_miss_then_set(self, mock_get):
-        mock_agent = MagicMock()
-        test_uuid = uuid4()
-        mock_agent.uuid = test_uuid
-        mock_get.return_value = mock_agent
-
-        result = self.usecase._get_integrated_agent(test_uuid)
-
-        self.assertEqual(result, mock_agent)
-        mock_get.assert_called_once_with(uuid=test_uuid, is_active=True)
-        cached_agent = self.mock_cache_handler.get_cached_agent(test_uuid)
-        self.assertEqual(cached_agent, mock_agent)
-
-    @patch(
-        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects.get"
-    )
-    def test_get_integrated_agent_cache_miss_not_found(self, mock_get):
-        mock_get.side_effect = IntegratedAgent.DoesNotExist()
-        test_uuid = uuid4()
-
-        result = self.usecase._get_integrated_agent(test_uuid)
-
-        self.assertIsNone(result)
-        mock_get.assert_called_once_with(uuid=test_uuid, is_active=True)
-        cached_agent = self.mock_cache_handler.get_cached_agent(test_uuid)
-        self.assertIsNone(cached_agent)
-
-    @patch(
-        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects.get"
-    )
-    def test_get_integrated_agent_cache_with_none_value(self, mock_get):
-        mock_agent = MagicMock()
-        test_uuid = uuid4()
-        mock_agent.uuid = test_uuid
-        mock_get.return_value = mock_agent
-
-        self.mock_cache_handler.cache[str(test_uuid)] = None
-
-        result = self.usecase._get_integrated_agent(test_uuid)
-
-        self.assertEqual(result, mock_agent)
-        mock_get.assert_called_once_with(uuid=test_uuid, is_active=True)
-        cached_agent = self.mock_cache_handler.get_cached_agent(test_uuid)
-        self.assertEqual(cached_agent, mock_agent)
-
-    def test_get_integrated_agent_blocked_uuid_no_cache_interaction(self):
-        blocked_uuid = "d30bcce8-ce67-4677-8a33-c12b62a51d4f"
-
-        result = self.usecase._get_integrated_agent(blocked_uuid)
-
-        self.assertIsNone(result)
-        cached_agent = self.mock_cache_handler.get_cached_agent(blocked_uuid)
-        self.assertIsNone(cached_agent)
