@@ -1,3 +1,11 @@
+# 3.18.1
+
+## *Feature*
+  - feat: optimize webhook
+
+## *Fix*
+  - fix: disable templates triggering
+
 # 3.18.0
 
 ## *Refactor*
