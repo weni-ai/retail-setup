@@ -77,6 +77,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "weni.eda.django.eda_app",
     "corsheaders",
+    "elasticapm.contrib.django",
     "retail.projects",
     "retail.features",
     "retail.integrations",
@@ -303,3 +304,15 @@ JWT_SECRET_KEY = env.str("JWT_SECRET_KEY", default="")
 
 # Datalake server address
 DATALAKE_SERVER_ADDRESS = env.str("DATALAKE_SERVER_ADDRESS", default="")
+
+# APM
+
+USE_ELASTIC_APM = env.bool("USE_ELASTIC_APM", default=False)
+
+if USE_ELASTIC_APM:
+    ELASTIC_APM = {
+        "SERVICE_NAME": env.str("ELASTIC_APM_SERVICE_NAME", default="retail"),
+        "SECRET_TOKEN": env.str("ELASTIC_APM_SECRET_TOKEN"),
+        "SERVER_URL": env.str("ELASTIC_APM_SERVER_URL"),
+        "ENVIRONMENT": env.str("ELASTIC_APM_ENVIRONMENT", default="production"),
+    }
