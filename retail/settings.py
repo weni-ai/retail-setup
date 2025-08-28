@@ -11,14 +11,15 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 import os
-from pathlib import Path
-
 import environ
 import sentry_sdk
 import urllib
 
+from pathlib import Path
+
 from sentry_sdk.integrations.django import DjangoIntegration
 
+from corsheaders.defaults import default_headers, default_methods
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -90,6 +91,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -97,7 +99,6 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
 ]
 
@@ -177,7 +178,15 @@ USE_EDA = env.bool("USE_EDA", default=False)
 
 ACTION_TYPES = env.json("ACTION_TYPES", default={})
 
-CORS_ALLOW_ALL_ORIGINS = env.str("CORS_ALLOW_ALL_ORIGINS", default=True)
+# CORS configurations
+
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=False)
+CORS_ALLOW_CREDENTIALS = env.bool("CORS_ALLOW_CREDENTIALS", default=True)
+CORS_ALLOW_HEADERS = env.list("CORS_ALLOW_HEADERS", default=default_headers) + [
+    "project-uuid"
+]
+CORS_ALLOW_METHODS = env.list("CORS_ALLOW_METHODS", default=default_methods)
 
 if USE_EDA:
     EDA_CONSUMERS_HANDLE = "retail.event_driven.handle.handle_consumers"
