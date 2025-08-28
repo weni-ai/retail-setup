@@ -9,6 +9,9 @@ from rest_framework.exceptions import NotFound, ValidationError
 from retail.agents.domains.agent_integration.usecases.update import (
     UpdateIntegratedAgentUseCase,
 )
+from retail.agents.tests.mocks.cache.integrated_agent_webhook import (
+    IntegratedAgentCacheHandlerMock,
+)
 
 
 class UpdateIntegratedAgentUseCaseTest(TestCase):
@@ -21,8 +24,12 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
             self.mock_global_rule_handler
         )
         self.mock_global_rule_handler.get_global_rule.return_value = "mocked_rule_code"
+
+        self.mock_cache_handler = IntegratedAgentCacheHandlerMock()
+
         self.usecase = UpdateIntegratedAgentUseCase(
-            global_rule=self.mock_global_rule_handler
+            global_rule=self.mock_global_rule_handler,
+            cache_handler=self.mock_cache_handler,
         )
         self.mock_integrated_agent = MagicMock()
         self.mock_integrated_agent.uuid = uuid4()
@@ -30,6 +37,7 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         self.mock_integrated_agent.contact_percentage = 10
 
     def test_execute_successfully_updates_contact_percentage(self):
+        """Test successful contact percentage update and cache clearing"""
         data = {"contact_percentage": 50}
 
         result = self.usecase.execute(self.mock_integrated_agent, data)
@@ -38,6 +46,28 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         self.assertEqual(self.mock_integrated_agent.contact_percentage, 50)
         self.mock_integrated_agent.save.assert_called_once()
         self.mock_global_rule_handler.generate.assert_not_called()
+
+        self.assertNotIn(
+            str(self.mock_integrated_agent.uuid), self.mock_cache_handler.cache
+        )
+
+    def test_execute_updates_contact_percentage_and_clears_existing_cache(self):
+        """Test that existing cache is cleared when updating contact percentage"""
+        self.mock_cache_handler.set_cached_agent(self.mock_integrated_agent)
+        self.assertIn(
+            str(self.mock_integrated_agent.uuid), self.mock_cache_handler.cache
+        )
+
+        data = {"contact_percentage": 75}
+
+        result = self.usecase.execute(self.mock_integrated_agent, data)
+
+        self.assertEqual(result, self.mock_integrated_agent)
+        self.assertEqual(self.mock_integrated_agent.contact_percentage, 75)
+        self.mock_integrated_agent.save.assert_called_once()
+        self.assertNotIn(
+            str(self.mock_integrated_agent.uuid), self.mock_cache_handler.cache
+        )
 
     @patch("retail.agents.domains.agent_integration.usecases.update.IntegratedAgent")
     def test_get_integrated_agent_raises_not_found_when_integrated_agent_does_not_exist(
@@ -70,6 +100,7 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         self.assertEqual(result, self.mock_integrated_agent)
 
     def test_execute_raises_validation_error_for_invalid_percentage(self):
+        """Test validation error for invalid percentage and no cache clearing"""
         invalid_data = {"contact_percentage": 150}
 
         with self.assertRaises(ValidationError) as context:
@@ -79,7 +110,10 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
             "Invalid percentage", str(context.exception.detail["contact_percentage"])
         )
 
+        self.mock_integrated_agent.save.assert_not_called()
+
     def test_execute_raises_validation_error_for_negative_percentage(self):
+        """Test validation error for negative percentage"""
         invalid_data = {"contact_percentage": -10}
 
         with self.assertRaises(ValidationError) as context:
@@ -90,6 +124,7 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         )
 
     def test_execute_updates_global_rule(self):
+        """Test global rule update and cache clearing"""
         data = {"global_rule": "some rule"}
 
         self.usecase.execute(self.mock_integrated_agent, data)
@@ -102,7 +137,12 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         self.assertEqual(self.mock_integrated_agent.global_rule_prompt, "some rule")
         self.mock_integrated_agent.save.assert_called_once()
 
+        self.assertNotIn(
+            str(self.mock_integrated_agent.uuid), self.mock_cache_handler.cache
+        )
+
     def test_execute_sets_global_rule_to_none_when_global_rule_is_none(self):
+        """Test clearing global rule and cache"""
         data = {"global_rule": None}
 
         result = self.usecase.execute(self.mock_integrated_agent, data)
@@ -117,7 +157,12 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         self.mock_integrated_agent.save.assert_called_once()
         self.assertEqual(result, self.mock_integrated_agent)
 
+        self.assertNotIn(
+            str(self.mock_integrated_agent.uuid), self.mock_cache_handler.cache
+        )
+
     def test_execute_sets_global_rule_to_none_when_global_rule_is_empty_string(self):
+        """Test clearing global rule with empty string and cache"""
         data = {"global_rule": ""}
 
         result = self.usecase.execute(self.mock_integrated_agent, data)
@@ -132,7 +177,12 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         self.mock_integrated_agent.save.assert_called_once()
         self.assertEqual(result, self.mock_integrated_agent)
 
+        self.assertNotIn(
+            str(self.mock_integrated_agent.uuid), self.mock_cache_handler.cache
+        )
+
     def test_execute_updates_both_contact_percentage_and_global_rule(self):
+        """Test updating both fields and cache clearing"""
         data = {"contact_percentage": 75, "global_rule": "new rule"}
 
         result = self.usecase.execute(self.mock_integrated_agent, data)
@@ -152,7 +202,12 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         self.mock_integrated_agent.save.assert_called_once()
         self.assertEqual(result, self.mock_integrated_agent)
 
+        self.assertNotIn(
+            str(self.mock_integrated_agent.uuid), self.mock_cache_handler.cache
+        )
+
     def test_execute_updates_contact_percentage_and_clears_global_rule(self):
+        """Test updating contact percentage and clearing global rule"""
         data = {"contact_percentage": 25, "global_rule": None}
 
         result = self.usecase.execute(self.mock_integrated_agent, data)
@@ -165,3 +220,38 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
 
         self.mock_integrated_agent.save.assert_called_once()
         self.assertEqual(result, self.mock_integrated_agent)
+
+        self.assertNotIn(
+            str(self.mock_integrated_agent.uuid), self.mock_cache_handler.cache
+        )
+
+    def test_execute_with_no_changes_still_clears_cache(self):
+        """Test that cache is cleared even when no actual field changes are made"""
+        self.mock_cache_handler.set_cached_agent(self.mock_integrated_agent)
+        self.assertIn(
+            str(self.mock_integrated_agent.uuid), self.mock_cache_handler.cache
+        )
+
+        data = {}
+
+        result = self.usecase.execute(self.mock_integrated_agent, data)
+
+        self.assertEqual(result, self.mock_integrated_agent)
+        self.mock_integrated_agent.save.assert_called_once()
+
+        self.assertNotIn(
+            str(self.mock_integrated_agent.uuid), self.mock_cache_handler.cache
+        )
+
+    def test_cache_handler_default_initialization(self):
+        """Test that cache handler is properly initialized with default if not provided"""
+        usecase_without_cache = UpdateIntegratedAgentUseCase(
+            global_rule=self.mock_global_rule_handler
+        )
+
+        self.assertIsNotNone(usecase_without_cache.cache_handler)
+        from retail.agents.shared.cache import IntegratedAgentCacheHandlerRedis
+
+        self.assertIsInstance(
+            usecase_without_cache.cache_handler, IntegratedAgentCacheHandlerRedis
+        )

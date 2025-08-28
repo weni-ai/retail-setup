@@ -6,6 +6,10 @@ from uuid import UUID
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_integration.services.global_rule import GlobalRule
+from retail.agents.shared.cache import (
+    IntegratedAgentCacheHandler,
+    IntegratedAgentCacheHandlerRedis,
+)
 
 
 class UpdateIntegratedAgentData(TypedDict):
@@ -14,8 +18,13 @@ class UpdateIntegratedAgentData(TypedDict):
 
 
 class UpdateIntegratedAgentUseCase:
-    def __init__(self, global_rule: Optional[GlobalRule] = None):
+    def __init__(
+        self,
+        global_rule: Optional[GlobalRule] = None,
+        cache_handler: Optional[IntegratedAgentCacheHandler] = None,
+    ):
         self.global_rule = global_rule or GlobalRule()
+        self.cache_handler = cache_handler or IntegratedAgentCacheHandlerRedis()
 
     def get_integrated_agent(self, integrated_agent_uuid: UUID) -> IntegratedAgent:
         try:
@@ -31,7 +40,6 @@ class UpdateIntegratedAgentUseCase:
     def execute(
         self, integrated_agent: IntegratedAgent, data: UpdateIntegratedAgentData
     ) -> IntegratedAgent:
-
         if "contact_percentage" in data:
             contact_percentage = data.get("contact_percentage")
 
@@ -58,4 +66,7 @@ class UpdateIntegratedAgentUseCase:
             integrated_agent.global_rule_prompt = global_rule_prompt
 
         integrated_agent.save()
+
+        self.cache_handler.clear_cached_agent(integrated_agent.uuid)
+
         return integrated_agent
