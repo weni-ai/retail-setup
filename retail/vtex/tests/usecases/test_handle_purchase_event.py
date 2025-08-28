@@ -37,6 +37,8 @@ class HandlePurchaseEventUseCaseTest(TestCase):
         self.mock_cart.uuid = self.cart_uuid
         self.mock_cart.flows_channel_uuid = self.flows_channel_uuid
         self.mock_cart.status = "created"
+        self.mock_cart.capi_notification_sent = False
+        self.mock_cart.project = self.mock_project
 
         # Mock order details
         self.mock_order_details = {
@@ -50,6 +52,24 @@ class HandlePurchaseEventUseCaseTest(TestCase):
         self.mock_response = MagicMock()
         self.mock_response.status_code = 200
 
+        # Mock JWT token
+        self.mock_jwt_token = "mock_jwt_token_12345"
+
+        # Mock JWT generator
+        self.mock_jwt_generator = MagicMock()
+        self.mock_jwt_generator.generate_jwt_token.return_value = self.mock_jwt_token
+
+        # Helper method to create usecase with all mocked dependencies
+        def create_usecase():
+            return HandlePurchaseEventUseCase(
+                vtex_io_service=self.mock_vtex_io_service,
+                flows_service=self.mock_flows_service,
+                cart_repository=self.mock_cart_repository,
+                jwt_generator=self.mock_jwt_generator,
+            )
+
+        self.create_usecase = create_usecase
+
     def test_execute_successful_purchase_event(self):
         """Test successful execution of purchase event."""
         # Arrange
@@ -60,11 +80,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
                 self.mock_response
             )
 
-            usecase = HandlePurchaseEventUseCase(
-                vtex_io_service=self.mock_vtex_io_service,
-                flows_service=self.mock_flows_service,
-                cart_repository=self.mock_cart_repository,
-            )
+            usecase = self.create_usecase()
 
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 self.mock_order_details
@@ -81,10 +97,11 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             self.mock_cart_repository.find_by_order_form.assert_called_once_with(
                 self.order_form_id, self.mock_project
             )
-            self.mock_cart_repository.update_status.assert_called_once_with(
-                self.mock_cart, "purchased"
-            )
             self.mock_flows_service.send_purchase_event.assert_called_once()
+            # Should update CAPI notification when notification is sent successfully
+            self.mock_cart_repository.update_capi_notification_sent.assert_called_once_with(
+                self.mock_cart
+            )
 
     def test_execute_project_not_found(self):
         """Test execution when project is not found."""
@@ -93,11 +110,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             mock_cache.get.return_value = None
 
             with patch.object(Project.objects, "get", side_effect=Project.DoesNotExist):
-                usecase = HandlePurchaseEventUseCase(
-                    vtex_io_service=self.mock_vtex_io_service,
-                    flows_service=self.mock_flows_service,
-                    cart_repository=self.mock_cart_repository,
-                )
+                usecase = self.create_usecase()
 
                 # Act
                 usecase.execute(self.order_id, str(self.project_uuid))
@@ -117,11 +130,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
                 self.mock_response
             )
 
-            usecase = HandlePurchaseEventUseCase(
-                vtex_io_service=self.mock_vtex_io_service,
-                flows_service=self.mock_flows_service,
-                cart_repository=self.mock_cart_repository,
-            )
+            usecase = self.create_usecase()
 
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 self.mock_order_details
@@ -146,11 +155,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             with patch.object(
                 Project.objects, "get", side_effect=Project.MultipleObjectsReturned
             ):
-                usecase = HandlePurchaseEventUseCase(
-                    vtex_io_service=self.mock_vtex_io_service,
-                    flows_service=self.mock_flows_service,
-                    cart_repository=self.mock_cart_repository,
-                )
+                usecase = self.create_usecase()
 
                 # Act
                 usecase.execute(self.order_id, str(self.project_uuid))
@@ -166,11 +171,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
         with patch("retail.vtex.usecases.handle_purchase_event.cache") as mock_cache:
             mock_cache.get.return_value = self.mock_project
 
-            usecase = HandlePurchaseEventUseCase(
-                vtex_io_service=self.mock_vtex_io_service,
-                flows_service=self.mock_flows_service,
-                cart_repository=self.mock_cart_repository,
-            )
+            usecase = self.create_usecase()
 
             self.mock_vtex_io_service.get_order_details_by_id.return_value = None
 
@@ -194,11 +195,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
         with patch("retail.vtex.usecases.handle_purchase_event.cache") as mock_cache:
             mock_cache.get.return_value = self.mock_project
 
-            usecase = HandlePurchaseEventUseCase(
-                vtex_io_service=self.mock_vtex_io_service,
-                flows_service=self.mock_flows_service,
-                cart_repository=self.mock_cart_repository,
-            )
+            usecase = self.create_usecase()
 
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 order_details_without_form_id
@@ -218,11 +215,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
         with patch("retail.vtex.usecases.handle_purchase_event.cache") as mock_cache:
             mock_cache.get.return_value = self.mock_project
 
-            usecase = HandlePurchaseEventUseCase(
-                vtex_io_service=self.mock_vtex_io_service,
-                flows_service=self.mock_flows_service,
-                cart_repository=self.mock_cart_repository,
-            )
+            usecase = self.create_usecase()
 
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 self.mock_order_details
@@ -237,26 +230,23 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             self.mock_cart_repository.find_by_order_form.assert_called_once()
             self.mock_flows_service.send_purchase_event.assert_not_called()
 
-    def test_execute_cart_already_purchased(self):
-        """Test execution when cart is already marked as purchased."""
+    def test_execute_cart_already_notified(self):
+        """Test execution when cart notification was already sent to CAPI."""
         # Arrange
-        purchased_cart = MagicMock(spec=Cart)
-        purchased_cart.uuid = self.cart_uuid
-        purchased_cart.status = "purchased"
+        notified_cart = MagicMock(spec=Cart)
+        notified_cart.uuid = self.cart_uuid
+        notified_cart.status = "created"  # Status não importa mais
+        notified_cart.capi_notification_sent = True
 
         with patch("retail.vtex.usecases.handle_purchase_event.cache") as mock_cache:
             mock_cache.get.return_value = self.mock_project
 
-            usecase = HandlePurchaseEventUseCase(
-                vtex_io_service=self.mock_vtex_io_service,
-                flows_service=self.mock_flows_service,
-                cart_repository=self.mock_cart_repository,
-            )
+            usecase = self.create_usecase()
 
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 self.mock_order_details
             )
-            self.mock_cart_repository.find_by_order_form.return_value = purchased_cart
+            self.mock_cart_repository.find_by_order_form.return_value = notified_cart
 
             # Act
             usecase.execute(self.order_id, str(self.project_uuid))
@@ -264,8 +254,8 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             # Assert
             self.mock_vtex_io_service.get_order_details_by_id.assert_called_once()
             self.mock_cart_repository.find_by_order_form.assert_called_once()
-            self.mock_cart_repository.update_status.assert_not_called()
             self.mock_flows_service.send_purchase_event.assert_not_called()
+            self.mock_cart_repository.update_capi_notification_sent.assert_not_called()
 
     def test_execute_flows_service_failure(self):
         """Test execution when Flows service returns error."""
@@ -278,11 +268,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
 
             self.mock_flows_service.send_purchase_event.return_value = failed_response
 
-            usecase = HandlePurchaseEventUseCase(
-                vtex_io_service=self.mock_vtex_io_service,
-                flows_service=self.mock_flows_service,
-                cart_repository=self.mock_cart_repository,
-            )
+            usecase = self.create_usecase()
 
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 self.mock_order_details
@@ -293,10 +279,9 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             usecase.execute(self.order_id, str(self.project_uuid))
 
             # Assert
-            self.mock_cart_repository.update_status.assert_called_once_with(
-                self.mock_cart, "purchased"
-            )
             self.mock_flows_service.send_purchase_event.assert_called_once()
+            # Should not update CAPI notification when Flows service fails
+            self.mock_cart_repository.update_capi_notification_sent.assert_not_called()
 
     def test_execute_no_phone_number(self):
         """Test execution when no phone number is found in order details."""
@@ -311,11 +296,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
         with patch("retail.vtex.usecases.handle_purchase_event.cache") as mock_cache:
             mock_cache.get.return_value = self.mock_project
 
-            usecase = HandlePurchaseEventUseCase(
-                vtex_io_service=self.mock_vtex_io_service,
-                flows_service=self.mock_flows_service,
-                cart_repository=self.mock_cart_repository,
-            )
+            usecase = self.create_usecase()
 
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 order_details_without_phone
@@ -326,11 +307,10 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             usecase.execute(self.order_id, str(self.project_uuid))
 
             # Assert
-            self.mock_cart_repository.update_status.assert_called_once_with(
-                self.mock_cart, "purchased"
-            )
-            # The method still calls _send_to_flows with None payload
-            self.mock_flows_service.send_purchase_event.assert_called_once_with(None)
+            # Should not update CAPI notification when there's no phone number
+            self.mock_cart_repository.update_capi_notification_sent.assert_not_called()
+            # Should not call _send_to_flows when payload is None
+            self.mock_flows_service.send_purchase_event.assert_not_called()
 
     def test_execute_with_different_currency(self):
         """Test execution with different currency."""
@@ -349,11 +329,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
                 self.mock_response
             )
 
-            usecase = HandlePurchaseEventUseCase(
-                vtex_io_service=self.mock_vtex_io_service,
-                flows_service=self.mock_flows_service,
-                cart_repository=self.mock_cart_repository,
-            )
+            usecase = self.create_usecase()
 
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 order_details_usd
@@ -386,11 +362,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
                 self.mock_response
             )
 
-            usecase = HandlePurchaseEventUseCase(
-                vtex_io_service=self.mock_vtex_io_service,
-                flows_service=self.mock_flows_service,
-                cart_repository=self.mock_cart_repository,
-            )
+            usecase = self.create_usecase()
 
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 order_details_no_currency
@@ -416,11 +388,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
                 self.mock_response
             )
 
-            usecase = HandlePurchaseEventUseCase(
-                vtex_io_service=self.mock_vtex_io_service,
-                flows_service=self.mock_flows_service,
-                cart_repository=self.mock_cart_repository,
-            )
+            usecase = self.create_usecase()
 
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 self.mock_order_details
@@ -489,11 +457,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
                     self.mock_response
                 )
 
-                usecase = HandlePurchaseEventUseCase(
-                    vtex_io_service=self.mock_vtex_io_service,
-                    flows_service=self.mock_flows_service,
-                    cart_repository=self.mock_cart_repository,
-                )
+                usecase = self.create_usecase()
 
                 self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                     self.mock_order_details
@@ -543,11 +507,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
                     self.mock_response
                 )
 
-                usecase = HandlePurchaseEventUseCase(
-                    vtex_io_service=self.mock_vtex_io_service,
-                    flows_service=self.mock_flows_service,
-                    cart_repository=self.mock_cart_repository,
-                )
+                usecase = self.create_usecase()
 
                 self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                     self.mock_order_details
@@ -584,11 +544,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
 
             # Mock database query
             with patch.object(Project.objects, "get", return_value=self.mock_project):
-                usecase = HandlePurchaseEventUseCase(
-                    vtex_io_service=self.mock_vtex_io_service,
-                    flows_service=self.mock_flows_service,
-                    cart_repository=self.mock_cart_repository,
-                )
+                usecase = self.create_usecase()
 
                 self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                     self.mock_order_details

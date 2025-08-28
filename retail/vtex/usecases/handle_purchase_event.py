@@ -12,6 +12,8 @@ from retail.vtex.models import Cart
 
 from retail.vtex.usecases.phone_number_normalizer import PhoneNumberNormalizer
 
+from retail.jwt_keys.usecases.generate_jwt import JWTUsecase
+
 
 logger = logging.getLogger(__name__)
 
@@ -33,18 +35,21 @@ class HandlePurchaseEventUseCase:
         vtex_io_service: Optional[VtexIOService] = None,
         flows_service: Optional[FlowsService] = None,
         cart_repository: Optional[CartRepository] = None,
+        jwt_generator: Optional[JWTUsecase] = None,
     ) -> None:
         """
         Initializes the use case with its dependencies.
 
         Args:
-            order_service: Service to query VTEX for order details.
-            flows_client: Client to send events to Flows.
+            vtex_io_service: Service to query VTEX for order details.
+            flows_service: Client to send events to Flows.
             cart_repository: Repository to fetch Cart entities.
+            jwt_generator: JWT token generator for authentication.
         """
         self.vtex_io_service = vtex_io_service or VtexIOService()
         self.flows_service = flows_service or FlowsService()
         self.cart_repository = cart_repository or CartRepository()
+        self.jwt_generator = jwt_generator or JWTUsecase()
 
     def execute(self, order_id: str, project_uuid: str) -> None:
         """
@@ -79,15 +84,13 @@ class HandlePurchaseEventUseCase:
             )
             return
 
-        if cart.status == "purchased":
+        # Check if notification was already sent
+        if cart.capi_notification_sent:
             logger.info(
-                f"Cart {cart.uuid} already marked as 'purchased'. "
-                "Skipping Flows event to prevent duplicate notification."
+                f"Cart {cart.uuid} notification already sent to CAPI. "
+                "Skipping duplicate notification."
             )
             return
-
-        logger.info(f"Marking cart {cart.uuid} as purchased on purchase event.")
-        self.cart_repository.update_status(cart, "purchased")
 
         logger.info(f"Building purchase event payload for cart {cart.uuid}.")
         payload = self._build_purchase_event_payload(
@@ -96,8 +99,23 @@ class HandlePurchaseEventUseCase:
             order_form_id=order_form_id,
         )
 
+        # Check if payload was built successfully
+        if not payload:
+            logger.error(
+                f"Failed to build payload for cart {cart.uuid}. Cannot send notification."
+            )
+            return
+
         logger.info(f"Sending purchase event payload to Flows for cart {cart.uuid}.")
-        self._send_to_flows(payload)
+        if self._send_to_flows(payload, cart):
+            self.cart_repository.update_capi_notification_sent(cart)
+            logger.info(
+                f"Successfully marked cart {cart.uuid} as notification sent to CAPI."
+            )
+        else:
+            logger.error(
+                f"Failed to send notification for cart {cart.uuid}. CAPI notification not marked as sent."
+            )
 
     def _get_project(self, project_uuid: str) -> Optional[Project]:
         """
@@ -213,26 +231,35 @@ class HandlePurchaseEventUseCase:
             },
         }
 
-    def _send_to_flows(self, payload: dict) -> bool:
+    def _send_to_flows(self, payload: dict, cart: Cart) -> bool:
         """
-        Sends the constructed event payload to the Flows system.
+        Sends the constructed event payload to the Flows system using JWT authentication.
 
         Args:
             payload: The purchase event data to send.
+            cart: The Cart entity to get project for JWT token generation.
 
         Returns:
             True if the request was successful, False otherwise.
         """
-        response = self.flows_service.send_purchase_event(payload)
+        try:
+            # Generate JWT token for the project
+            jwt_token = self.jwt_generator.generate_jwt_token(str(cart.project.uuid))
 
-        if response.status_code == 200:
-            logger.info(
-                f"Successfully sent purchase event to Flows. " f"Payload: {payload}"
-            )
-            return True
-        else:
-            logger.error(
-                f"Failed to send purchase event to Flows. "
-                f"Payload: {payload} | Status: {response.status_code}"
-            )
+            # Send to Flows service with JWT token
+            response = self.flows_service.send_purchase_event(payload, jwt_token)
+
+            if response.status_code == 200:
+                logger.info(
+                    f"Successfully sent purchase event to Flows. " f"Payload: {payload}"
+                )
+                return True
+            else:
+                logger.error(
+                    f"Failed to send purchase event to Flows. "
+                    f"Payload: {payload} | Status: {response.status_code}"
+                )
+                return False
+        except Exception as e:
+            logger.error(f"Error generating JWT token or sending to Flows: {e}")
             return False

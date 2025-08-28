@@ -34,8 +34,15 @@ class FlowsService:
         """
         return self.client.send_whatsapp_broadcast(payload=payload)
 
-    def send_purchase_event(self, payload: dict) -> dict:
+    def send_purchase_event(self, payload: dict, jwt_token: str) -> dict:
         """
-        Send a purchase event to the Flows service.
+        Send a purchase event to the Flows service using JWT authentication.
+
+        Args:
+            payload (dict): The purchase event data to send.
+            jwt_token (str): JWT token for authentication.
+
+        Returns:
+            dict: API response from the Flows service.
         """
-        return self.client.send_purchase_event(payload=payload)
+        return self.client.send_purchase_event(payload=payload, jwt_token=jwt_token)
