@@ -53,15 +53,29 @@ class FlowsClient(RequestClient, FlowsClientInterface):
         )
         return response.json()
 
-    def send_purchase_event(self, payload: dict) -> dict:
+    def send_purchase_event(self, payload: dict, jwt_token: str) -> dict:
         """
-        Send a purchase event to the Flows API.
+        Send a purchase event to the Flows API using JWT authentication.
+
+        Args:
+            payload (dict): The purchase event data to send.
+            jwt_token (str): JWT token for authentication.
+
+        Returns:
+            dict: Response from the API.
         """
         url = f"{self.base_url}/conversion/"
+
+        # Create headers with Bearer token
+        headers = {
+            "Authorization": f"Bearer {jwt_token}",
+            "Content-Type": "application/json",
+        }
+
         response = self.make_request(
             url,
             method="POST",
             json=payload,
-            headers=self.authentication_instance.headers,
+            headers=headers,
         )
         return response

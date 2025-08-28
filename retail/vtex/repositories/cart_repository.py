@@ -87,3 +87,13 @@ class CartRepository:
         cart.save(update_fields=["status", "modified_on"])
         logger.info(f"Cart status updated to '{new_status}' for cart {cart.uuid}.")
         return cart
+
+    @staticmethod
+    def update_capi_notification_sent(cart: Cart) -> Cart:
+        """
+        Updates the notification sent to CAPI field of the provided cart.
+        """
+        cart.capi_notification_sent = True
+        cart.save(update_fields=["capi_notification_sent"])
+        logger.info(f"Cart {cart.uuid} notification sent to CAPI.")
+        return cart
