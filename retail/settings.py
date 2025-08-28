@@ -183,9 +183,9 @@ ACTION_TYPES = env.json("ACTION_TYPES", default={})
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
 CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=False)
 CORS_ALLOW_CREDENTIALS = env.bool("CORS_ALLOW_CREDENTIALS", default=True)
-CORS_ALLOW_HEADERS = env.list("CORS_ALLOW_HEADERS", default=default_headers) + [
-    "project-uuid"
-]
+CORS_ALLOW_HEADERS = env.list("CORS_ALLOW_HEADERS", default=default_headers) + (
+    "project-uuid",
+)
 CORS_ALLOW_METHODS = env.list("CORS_ALLOW_METHODS", default=default_methods)
 
 if USE_EDA:
