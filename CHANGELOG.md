@@ -1,3 +1,8 @@
+# 3.18.2
+
+## *Fix*
+  - fix: update order_id to order_form_id and add more logs in purchase event
+
 # 3.18.1
 
 ## *Feature*
@@ -9,7 +14,7 @@
 # 3.18.0
 
 ## *Refactor*
-  - refactor: agents app 
+  - refactor: agents app
 
 # 3.17.0
 
