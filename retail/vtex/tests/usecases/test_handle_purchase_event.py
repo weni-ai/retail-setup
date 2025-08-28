@@ -439,7 +439,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
                 "contact_urn": f"whatsapp:{self.phone_number}",
                 "channel_uuid": str(self.flows_channel_uuid),
                 "payload": {
-                    "order_id": self.order_id,
+                    "order_form_id": self.order_form_id,
                     "value": 100.0,
                     "currency": "BRL",
                 },

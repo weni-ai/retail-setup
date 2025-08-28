@@ -86,14 +86,17 @@ class HandlePurchaseEventUseCase:
             )
             return
 
+        logger.info(f"Marking cart {cart.uuid} as purchased on purchase event.")
         self.cart_repository.update_status(cart, "purchased")
 
+        logger.info(f"Building purchase event payload for cart {cart.uuid}.")
         payload = self._build_purchase_event_payload(
             cart=cart,
             order_details=order_details,
-            order_id=order_id,
+            order_form_id=order_form_id,
         )
 
+        logger.info(f"Sending purchase event payload to Flows for cart {cart.uuid}.")
         self._send_to_flows(payload)
 
     def _get_project(self, project_uuid: str) -> Optional[Project]:
@@ -166,7 +169,7 @@ class HandlePurchaseEventUseCase:
         return self.cart_repository.find_by_order_form(order_form_id, project)
 
     def _build_purchase_event_payload(
-        self, cart: Cart, order_details: dict, order_id: str
+        self, cart: Cart, order_details: dict, order_form_id: str
     ) -> dict:
         """
         Constructs the payload to be sent to the Flows system.
@@ -174,7 +177,7 @@ class HandlePurchaseEventUseCase:
         Args:
             cart: The Cart entity containing customer information.
             order_details: The VTEX order details dictionary.
-            order_id: The VTEX order ID.
+            order_form_id: The VTEX order form ID.
 
         Returns:
             A dictionary ready to be posted to the Flows endpoint.
@@ -196,7 +199,7 @@ class HandlePurchaseEventUseCase:
         value = round(value_cents / 100, 2)
 
         if not phone:
-            logger.warning(f"No phone number found for order {order_id}.")
+            logger.warning(f"No phone number found for order form {order_form_id}.")
             return
 
         return {
@@ -204,7 +207,7 @@ class HandlePurchaseEventUseCase:
             "contact_urn": f"whatsapp:{phone}",
             "channel_uuid": flows_channel_uuid,
             "payload": {
-                "order_id": order_id,
+                "order_form_id": order_form_id,
                 "value": value,
                 "currency": currency,
             },
