@@ -1,3 +1,8 @@
+# 3.18.3
+
+## *Fix*
+  - fix: remove purchase status verification and add JWT authentication to purchase event
+
 # 3.18.2
 
 ## *Fix*
