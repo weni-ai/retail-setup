@@ -40,7 +40,7 @@ class Cart(models.Model):
     )
     abandoned = models.BooleanField(default=False)
     error_message = models.TextField(blank=True, null=True)
-    flows_channel_uuid = models.UUIDField(default=uuid4, editable=False)
+    flows_channel_uuid = models.UUIDField(null=True, blank=True, editable=False)
     capi_notification_sent = models.BooleanField(default=False)
 
     def __str__(self):
