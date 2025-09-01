@@ -1,3 +1,11 @@
+# 3.18.4
+
+## *Fix*
+  - fix: update flows_channel_uuid field to allow null and blank values
+
+## *Feature*
+  - feat: add logging for request exceptions and response errors in RequestClient
+
 # 3.18.3
 
 ## *Fix*
