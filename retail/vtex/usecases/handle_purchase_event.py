@@ -245,21 +245,21 @@ class HandlePurchaseEventUseCase:
         try:
             # Generate JWT token for the project
             jwt_token = self.jwt_generator.generate_jwt_token(str(cart.project.uuid))
-
-            # Send to Flows service with JWT token
-            response = self.flows_service.send_purchase_event(payload, jwt_token)
-
-            if response.status_code == 200:
-                logger.info(
-                    f"Successfully sent purchase event to Flows. " f"Payload: {payload}"
-                )
-                return True
-            else:
-                logger.error(
-                    f"Failed to send purchase event to Flows. "
-                    f"Payload: {payload} | Status: {response.status_code}"
-                )
-                return False
         except Exception as e:
-            logger.error(f"Error generating JWT token or sending to Flows: {e}")
+            logger.error(f"Error generating JWT token: {e}")
+            return False
+
+        # Send to Flows service with JWT token
+        response = self.flows_service.send_purchase_event(payload, jwt_token)
+
+        if response.status_code == 200:
+            logger.info(
+                f"Successfully sent purchase event to Flows. " f"Payload: {payload}"
+            )
+            return True
+        else:
+            logger.error(
+                f"Failed to send purchase event to Flows. "
+                f"Payload: {payload} | Status: {response.status_code}"
+            )
             return False
