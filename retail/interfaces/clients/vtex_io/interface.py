@@ -30,3 +30,29 @@ class VtexIOClientInterface(ABC):
             dict: Account identifier details.
         """
         pass
+
+    @abstractmethod
+    def proxy_vtex(
+        self,
+        account_domain: str,
+        method: str,
+        path: str,
+        headers: dict = None,
+        data: dict = None,
+        params: dict = None,
+    ) -> dict:
+        """
+        Acts as a generic proxy to VTEX IO API endpoints.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            method (str): HTTP method (GET, POST, PUT, PATCH).
+            path (str): API endpoint path.
+            headers (dict, optional): Additional headers to be sent with the request.
+            data (dict, optional): Request body data for POST, PUT, PATCH requests.
+            params (dict, optional): Query parameters to be appended to the URL.
+
+        Returns:
+            dict: Response data from VTEX platform.
+        """
+        pass
