@@ -70,3 +70,35 @@ class VtexIOService:
         Retrieve account identifier from VTEX IO.
         """
         return self.client.get_account_identifier(account_domain)
+
+    def proxy_vtex(
+        self,
+        account_domain: str,
+        method: str,
+        path: str,
+        headers: dict = None,
+        data: dict = None,
+        params: dict = None,
+    ) -> dict:
+        """
+        Acts as a generic proxy to VTEX IO API endpoints.
+
+        Args:
+            account_domain (str): The domain of the VTEX account.
+            method (str): HTTP method (GET, POST, PUT, PATCH).
+            path (str): API endpoint path.
+            headers (dict, optional): Additional headers to be sent with the request.
+            data (dict, optional): Request body data for POST, PUT, PATCH requests.
+            params (dict, optional): Query parameters to be appended to the URL.
+
+        Returns:
+            dict: Response data from VTEX platform.
+        """
+        return self.client.proxy_vtex(
+            account_domain=account_domain,
+            method=method,
+            path=path,
+            headers=headers,
+            data=data,
+            params=params,
+        )

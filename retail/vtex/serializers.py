@@ -15,3 +15,20 @@ class OrderFormTrackingSerializer(serializers.Serializer):
 
     order_form_id = serializers.CharField(max_length=128, required=True)
     channel_uuid = serializers.UUIDField(required=True)
+
+
+class VtexProxySerializer(serializers.Serializer):
+    """
+    Validates the payload for VTEX proxy requests.
+
+    This serializer validates the method, path, and optional parameters
+    to be forwarded to VTEX IO proxy endpoint.
+    """
+
+    method = serializers.ChoiceField(
+        choices=["GET", "POST", "PUT", "PATCH"], required=True
+    )
+    path = serializers.CharField(required=True)
+    headers = serializers.DictField(required=False, allow_null=True)
+    data = serializers.DictField(required=False, allow_null=True)
+    params = serializers.DictField(required=False, allow_null=True)
