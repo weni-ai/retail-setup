@@ -1,4 +1,4 @@
-from rest_framework import viewsets
+from rest_framework import viewsets, mixins
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -11,27 +11,18 @@ from retail.internal.jwt_mixins import JWTModuleAuthMixin
 from retail.internal.views import InternalGenericViewSet
 from retail.projects.models import Project
 from retail.internal.permissions import CanCommunicateInternally
-from retail.projects.serializer import ProjectVtexConfigSerializer
+from retail.projects.serializer import ProjectSerializer, ProjectVtexConfigSerializer
 from retail.projects.usecases.get_project_vtex_account import (
     GetProjectVtexAccountUseCase,
 )
 from retail.projects.usecases.project_vtex import ProjectVtexConfigUseCase
 
 
-class ProjectViewSet(viewsets.ViewSet, InternalGenericViewSet):
+class ProjectViewSet(mixins.ListModelMixin, InternalGenericViewSet):
     permission_classes = [IsAuthenticated]
+    serializer_class = ProjectSerializer
 
-    def list(self, request):
-        projects = []
-        for project in Project.objects.all():
-            projects_data = {
-                "name": project.name,
-                "uuid": project.uuid,
-            }
-
-            projects.append(projects_data)
-
-        return Response(projects)
+    queryset = Project.objects.all()
 
 
 class ProjectVtexViewSet(viewsets.ViewSet):
