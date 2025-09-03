@@ -1,3 +1,14 @@
+# 3.18.5
+
+## *Feature*
+  - feat: Implement generic proxy functionality for VTEX IO API requests
+
+## *Fix*
+  - fix: add serializer_class to ProjectViewSet to resolver swagger error
+
+## *Fix*
+  - fix: Use direct imports in template model
+
 # 3.18.4
 
 ## *Fix*
