@@ -311,8 +311,8 @@ USE_ELASTIC_APM = env.bool("USE_ELASTIC_APM", default=False)
 
 if USE_ELASTIC_APM:
     ELASTIC_APM = {
-        "SERVICE_NAME": env.str("ELASTIC_APM_SERVICE_NAME", default="retail"),
-        "SECRET_TOKEN": env.str("ELASTIC_APM_SECRET_TOKEN"),
-        "SERVER_URL": env.str("ELASTIC_APM_SERVER_URL"),
-        "ENVIRONMENT": env.str("ELASTIC_APM_ENVIRONMENT", default="production"),
+        "SERVICE_NAME": env.str("APM_SERVICE_NAME", default="retail"),
+        "SECRET_TOKEN": env.str("APM_SECRET_TOKEN"),
+        "SERVER_URL": env.str("APM_SERVER_URL"),
+        "ENVIRONMENT": env.str("APM_SERVICE_ENVIRONMENT", default="production"),
     }
