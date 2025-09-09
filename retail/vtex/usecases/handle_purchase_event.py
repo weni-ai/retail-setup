@@ -12,6 +12,8 @@ from retail.vtex.models import Cart
 
 from retail.vtex.usecases.phone_number_normalizer import PhoneNumberNormalizer
 
+from retail.jwt_keys.usecases.generate_jwt import JWTUsecase
+
 
 logger = logging.getLogger(__name__)
 
@@ -33,18 +35,21 @@ class HandlePurchaseEventUseCase:
         vtex_io_service: Optional[VtexIOService] = None,
         flows_service: Optional[FlowsService] = None,
         cart_repository: Optional[CartRepository] = None,
+        jwt_generator: Optional[JWTUsecase] = None,
     ) -> None:
         """
         Initializes the use case with its dependencies.
 
         Args:
-            order_service: Service to query VTEX for order details.
-            flows_client: Client to send events to Flows.
+            vtex_io_service: Service to query VTEX for order details.
+            flows_service: Client to send events to Flows.
             cart_repository: Repository to fetch Cart entities.
+            jwt_generator: JWT token generator for authentication.
         """
         self.vtex_io_service = vtex_io_service or VtexIOService()
         self.flows_service = flows_service or FlowsService()
         self.cart_repository = cart_repository or CartRepository()
+        self.jwt_generator = jwt_generator or JWTUsecase()
 
     def execute(self, order_id: str, project_uuid: str) -> None:
         """
@@ -79,22 +84,38 @@ class HandlePurchaseEventUseCase:
             )
             return
 
-        if cart.status == "purchased":
+        # Check if notification was already sent
+        if cart.capi_notification_sent:
             logger.info(
-                f"Cart {cart.uuid} already marked as 'purchased'. "
-                "Skipping Flows event to prevent duplicate notification."
+                f"Cart {cart.uuid} notification already sent to CAPI. "
+                "Skipping duplicate notification."
             )
             return
 
-        self.cart_repository.update_status(cart, "purchased")
-
+        logger.info(f"Building purchase event payload for cart {cart.uuid}.")
         payload = self._build_purchase_event_payload(
             cart=cart,
             order_details=order_details,
-            order_id=order_id,
+            order_form_id=order_form_id,
         )
 
-        self._send_to_flows(payload)
+        # Check if payload was built successfully
+        if not payload:
+            logger.error(
+                f"Failed to build payload for cart {cart.uuid}. Cannot send notification."
+            )
+            return
+
+        logger.info(f"Sending purchase event payload to Flows for cart {cart.uuid}.")
+        if self._send_to_flows(payload, cart):
+            self.cart_repository.update_capi_notification_sent(cart)
+            logger.info(
+                f"Successfully marked cart {cart.uuid} as notification sent to CAPI."
+            )
+        else:
+            logger.error(
+                f"Failed to send notification for cart {cart.uuid}. CAPI notification not marked as sent."
+            )
 
     def _get_project(self, project_uuid: str) -> Optional[Project]:
         """
@@ -166,7 +187,7 @@ class HandlePurchaseEventUseCase:
         return self.cart_repository.find_by_order_form(order_form_id, project)
 
     def _build_purchase_event_payload(
-        self, cart: Cart, order_details: dict, order_id: str
+        self, cart: Cart, order_details: dict, order_form_id: str
     ) -> dict:
         """
         Constructs the payload to be sent to the Flows system.
@@ -174,7 +195,7 @@ class HandlePurchaseEventUseCase:
         Args:
             cart: The Cart entity containing customer information.
             order_details: The VTEX order details dictionary.
-            order_id: The VTEX order ID.
+            order_form_id: The VTEX order form ID.
 
         Returns:
             A dictionary ready to be posted to the Flows endpoint.
@@ -196,7 +217,7 @@ class HandlePurchaseEventUseCase:
         value = round(value_cents / 100, 2)
 
         if not phone:
-            logger.warning(f"No phone number found for order {order_id}.")
+            logger.warning(f"No phone number found for order form {order_form_id}.")
             return
 
         return {
@@ -204,23 +225,32 @@ class HandlePurchaseEventUseCase:
             "contact_urn": f"whatsapp:{phone}",
             "channel_uuid": flows_channel_uuid,
             "payload": {
-                "order_id": order_id,
+                "order_form_id": order_form_id,
                 "value": value,
                 "currency": currency,
             },
         }
 
-    def _send_to_flows(self, payload: dict) -> bool:
+    def _send_to_flows(self, payload: dict, cart: Cart) -> bool:
         """
-        Sends the constructed event payload to the Flows system.
+        Sends the constructed event payload to the Flows system using JWT authentication.
 
         Args:
             payload: The purchase event data to send.
+            cart: The Cart entity to get project for JWT token generation.
 
         Returns:
             True if the request was successful, False otherwise.
         """
-        response = self.flows_service.send_purchase_event(payload)
+        try:
+            # Generate JWT token for the project
+            jwt_token = self.jwt_generator.generate_jwt_token(str(cart.project.uuid))
+        except Exception as e:
+            logger.error(f"Error generating JWT token: {e}")
+            return False
+
+        # Send to Flows service with JWT token
+        response = self.flows_service.send_purchase_event(payload, jwt_token)
 
         if response.status_code == 200:
             logger.info(

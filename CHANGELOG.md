@@ -1,3 +1,32 @@
+# 3.18.5
+
+## *Feature*
+  - feat: Implement generic proxy functionality for VTEX IO API requests
+
+## *Fix*
+  - fix: add serializer_class to ProjectViewSet to resolver swagger error
+
+## *Fix*
+  - fix: Use direct imports in template model
+
+# 3.18.4
+
+## *Fix*
+  - fix: update flows_channel_uuid field to allow null and blank values
+
+## *Feature*
+  - feat: add logging for request exceptions and response errors in RequestClient
+
+# 3.18.3
+
+## *Fix*
+  - fix: remove purchase status verification and add JWT authentication to purchase event
+
+# 3.18.2
+
+## *Fix*
+  - fix: update order_id to order_form_id and add more logs in purchase event
+
 # 3.18.1
 
 ## *Feature*
@@ -9,7 +38,7 @@
 # 3.18.0
 
 ## *Refactor*
-  - refactor: agents app 
+  - refactor: agents app
 
 # 3.17.0
 

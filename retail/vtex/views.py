@@ -9,12 +9,14 @@ from retail.vtex.dtos.register_order_form_dto import RegisterOrderFormDTO
 from retail.vtex.serializers import (
     OrderFormTrackingSerializer,
     OrdersQueryParamsSerializer,
+    VtexProxySerializer,
 )
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.usecases.get_account_identifier import GetAccountIdentifierUsecase
 from retail.vtex.usecases.get_order_detail import GetOrderDetailsUsecase
 from retail.vtex.usecases.get_orders import GetOrdersUsecase
 from retail.vtex.usecases.register_order_form import RegisterOrderFormUseCase
+from retail.vtex.usecases.proxy_vtex import ProxyVtexUsecase
 
 
 class BaseVtexProxyView(JWTModuleAuthMixin, APIView):
@@ -195,3 +197,60 @@ class OrderFormTrackingView(BaseVtexProxyView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class VtexProxyView(BaseVtexProxyView):
+    """
+    Generic proxy endpoint for VTEX IO API requests.
+
+    This view acts as a proxy to forward requests to VTEX IO API endpoints,
+    handling authentication and request forwarding transparently.
+    """
+
+    def __init__(self, **kwargs):
+        """
+        Initialize the VtexProxyView.
+
+        Args:
+            **kwargs: Additional keyword arguments passed to parent classes.
+        """
+        super().__init__(**kwargs)
+        self._proxy_vtex_usecase = None
+
+    @property
+    def proxy_vtex_usecase(self) -> ProxyVtexUsecase:
+        """
+        Lazy-loaded property that returns the ProxyVtexUsecase instance.
+
+        Returns:
+            ProxyVtexUsecase: An instance of the ProxyVtexUsecase.
+        """
+        if not self._proxy_vtex_usecase:
+            self._proxy_vtex_usecase = ProxyVtexUsecase(vtex_io_service=VtexIOService())
+        return self._proxy_vtex_usecase
+
+    def post(self, request: Request) -> Response:
+        """
+        Handle POST requests to proxy VTEX IO API calls.
+
+        Args:
+            request (Request): The incoming request object containing method, path, and optional parameters.
+
+        Returns:
+            Response: The API response with VTEX platform data or error message.
+        """
+        serializer = VtexProxySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        validated_data = serializer.validated_data
+
+        result = self.proxy_vtex_usecase.execute(
+            method=validated_data["method"],
+            path=validated_data["path"],
+            headers=validated_data.get("headers"),
+            data=validated_data.get("data"),
+            params=validated_data.get("params"),
+            project_uuid=self.project_uuid,
+        )
+
+        return Response(result, status=status.HTTP_200_OK)

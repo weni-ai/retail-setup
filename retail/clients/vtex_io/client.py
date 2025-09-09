@@ -168,3 +168,68 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
             url, method="GET", headers=self.authentication.headers
         )
         return response.json()
+
+    def proxy_vtex(
+        self,
+        account_domain: str,
+        method: str,
+        path: str,
+        headers: dict = None,
+        data: dict = None,
+        params: dict = None,
+    ) -> dict:
+        """
+        Acts as a generic proxy to VTEX IO API endpoints.
+
+        This method forwards requests to the VTEX IO proxy endpoint and returns
+        the response from the VTEX platform.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            method (str): HTTP method (GET, POST, PUT, PATCH).
+            path (str): API endpoint path (e.g., '/api/orders/pvt/document/1557825995418-01').
+            headers (dict, optional): Additional headers to be sent with the request.
+            data (dict, optional): Request body data for POST, PUT, PATCH requests.
+            params (dict, optional): Query parameters to be appended to the URL.
+
+        Returns:
+            dict: Response data from VTEX platform.
+
+        Example:
+            # Get order details with query parameters
+            response = client.proxy_vtex(
+                account_domain="recorrenciacharlie.myvtex.com",
+                method="GET",
+                path="/api/oms/pvt/orders",
+                params={"f_Status": "ready-for-handling"}
+            )
+
+            # Post data with custom headers
+            response = client.proxy_vtex(
+                account_domain="recorrenciacharlie.myvtex.com",
+                method="POST",
+                path="/api/orders",
+                data={"customer": "john@example.com"},
+                headers={"Custom-Header": "value"}
+            )
+        """
+        url = self._get_url(account_domain, "/proxy-vtex")
+
+        # Prepare the request payload
+        payload = {
+            "method": method.upper(),
+            "path": path,
+        }
+
+        if headers:
+            payload["headers"] = headers
+        if data:
+            payload["data"] = data
+        if params:
+            payload["params"] = params
+
+        response = self.make_request(
+            url, method="POST", json=payload, headers=self.authentication.headers
+        )
+
+        return response.json()
