@@ -13,7 +13,10 @@ from retail.features.models import IntegratedFeature
 from retail.vtex.models import Cart
 
 from retail.webhooks.vtex.utils import PhoneNotificationLockService
-from retail.webhooks.vtex.usecases.typing import AbandonedCartDTO
+from retail.webhooks.vtex.usecases.typing import (
+    AbandonedCartDTO,
+    CartAbandonmentDataDTO,
+)
 
 from retail.services.vtex_io.service import VtexIOService
 
@@ -259,30 +262,17 @@ class CartAbandonmentService:
 
         self._update_cart_status(cart, "abandoned")
 
-        # Get both message and extra parameters
-        (
-            message_payload,
-            message_parameters,
-        ) = self._build_abandonment_message(cart, integration_config)
+        # Collect all cart abandonment data in a unified structure
+        cart_data = self._collect_cart_abandonment_data(
+            cart, order_form, client_profile, integration_config
+        )
 
-        # Build full extra payload
-        extra_payload = {
-            "order_form": order_form,
-            "client_profile": client_profile,
-            **message_parameters,  # Include extra message context
-        }
-
-        # For IntegratedAgent, we need to use the agent flow (webhook + broadcast)
-        # For IntegratedFeature, we use the legacy flow (code actions)
-        # TODO: Move _build_abandonment_message to legacy and before extract just one dict
+        # For IntegratedAgent, we send raw data (DTO) without message structure
+        # For IntegratedFeature, we use the legacy flow with message structure
         if isinstance(integration_config, IntegratedAgent):
-            self._execute_agent_flow(
-                cart, integration_config, message_payload, extra_payload
-            )
+            self._execute_agent_flow(cart, integration_config, cart_data)
         else:
-            self._execute_legacy_flow(
-                cart, integration_config, message_payload, extra_payload
-            )
+            self._execute_legacy_flow(cart, integration_config, cart_data)
 
         logger.info(
             f"Cart abandonment notification sent - Phone: {cart.phone_number}, "
@@ -290,35 +280,88 @@ class CartAbandonmentService:
             f"Project: {cart.project.name}"
         )
 
+    def _collect_cart_abandonment_data(
+        self,
+        cart: Cart,
+        order_form: dict,
+        client_profile: dict,
+        integration_config: Union[IntegratedFeature, IntegratedAgent],
+    ) -> CartAbandonmentDataDTO:
+        """
+        Collect all cart abandonment data in a unified DTO structure.
+        This method extracts all necessary information for both agent and legacy flows.
+
+        Args:
+            cart (Cart): The cart instance.
+            order_form (dict): Order form details.
+            client_profile (dict): Client profile data.
+            integration_config: Either IntegratedFeature or IntegratedAgent instance.
+
+        Returns:
+            CartAbandonmentDataDTO: Unified cart abandonment data structure.
+        """
+        config = self._get_config(integration_config)
+
+        return CartAbandonmentDataDTO(
+            # Cart basic info
+            cart_uuid=str(cart.uuid),
+            order_form_id=cart.order_form_id,
+            phone_number=cart.phone_number,
+            project_uuid=str(cart.project.uuid),
+            vtex_account=cart.project.vtex_account,
+            # Client info
+            client_name=cart.config.get("client_name", ""),
+            client_profile=client_profile,
+            locale=cart.config.get("locale", "pt-BR"),
+            # Cart content
+            cart_items=cart.config.get("cart_items", []),
+            total_value=self._calculate_total_value(cart),
+            # Order form data
+            order_form=order_form,
+            # Configuration (only for legacy flow - agent flow gets these from AWS Lambda)
+            template_name=config.get("abandoned_cart_template")
+            if isinstance(integration_config, IntegratedFeature)
+            else None,
+            channel_uuid=config.get("flow_channel_uuid")
+            if isinstance(integration_config, IntegratedFeature)
+            else None,
+            # Additional data
+            cart_link=f"{cart.order_form_id}/",
+            additional_data=cart.config,
+        )
+
     def _execute_agent_flow(
         self,
         cart: Cart,
         integrated_agent: IntegratedAgent,
-        message_payload: dict,
-        extra_payload: dict,
+        cart_data: CartAbandonmentDataDTO,
     ) -> None:
         """
         Execute the agent flow: webhook -> AWS Lambda -> Broadcast.
         Uses the centralized task to handle credentials and other centralized logic.
+        Sends raw cart data without message structure.
         """
-        # Create DTO for webhook
-        # TODO: fix is not acceessed warnings
-        # TODO: adjust build DTO
-        abandoned_cart_dto = self._create_abandoned_cart_dto(cart)
+        # Create DTO for webhook with raw cart data
+        abandoned_cart_dto = self._create_abandoned_cart_dto_from_data(cart_data)
 
         # Use the centralized task to execute the agent webhook
         # This task handles credentials, centralized logic, and broadcast
-        # TODO: fix circular import error
         from retail.vtex.tasks import task_agent_webhook
+
+        # Build complete payload with all necessary data
+        payload = {
+            **abandoned_cart_dto.__dict__,
+            "order_form": cart_data.order_form,
+            "client_profile": cart_data.client_profile,
+            "cart_link": cart_data.cart_link,
+            "locale": cart_data.locale,
+            "client_name": cart_data.client_name,
+        }
 
         task_agent_webhook(
             integrated_agent_uuid=str(integrated_agent.uuid),
-            payload=abandoned_cart_dto.__dict__,
-            params={
-                "project_uuid": str(cart.project.uuid),
-                "vtex_account": cart.project.vtex_account,
-                "additional_data": extra_payload,
-            },
+            payload=payload,
+            params={},  # Empty params - all data is in payload
         )
 
         self._update_cart_status(cart, "delivered_success")
@@ -327,22 +370,108 @@ class CartAbandonmentService:
         self,
         cart: Cart,
         integrated_feature: IntegratedFeature,
-        message_payload: dict,
-        extra_payload: dict,
+        cart_data: CartAbandonmentDataDTO,
     ) -> None:
         """
         Execute the legacy flow: code actions.
+        Builds message structure from collected cart data.
         """
+        # Build message structure for legacy flow
+        message_payload, extra_parameters = self._build_abandonment_message_from_data(
+            cart_data
+        )
+
+        # Build full extra payload
+        extra_payload = {
+            "order_form": cart_data.order_form,
+            "client_profile": cart_data.client_profile,
+            **extra_parameters,  # Include extra message context
+        }
+
         code_actions_service = CodeActionsService(CodeActionsClient())
 
         response = code_actions_service.run_code_action(
-            action_id=self._get_code_action_id_by_cart(cart, integrated_feature),
+            action_id=self._get_code_action_id_by_cart(integrated_feature),
             message_payload=message_payload,
             extra_payload=extra_payload,
         )
 
         self._update_cart_status(cart, "delivered_success", response)
         self._set_utm_source(cart)
+
+    def _create_abandoned_cart_dto_from_data(
+        self, cart_data: CartAbandonmentDataDTO
+    ) -> AbandonedCartDTO:
+        """
+        Create AbandonedCartDTO from collected cart data.
+
+        Args:
+            cart_data (CartAbandonmentDataDTO): Collected cart abandonment data.
+
+        Returns:
+            AbandonedCartDTO: The DTO with cart information.
+        """
+        return AbandonedCartDTO(
+            cart_uuid=cart_data.cart_uuid,
+            order_form_id=cart_data.order_form_id,
+            phone_number=cart_data.phone_number,
+            client_name=cart_data.client_name,
+            project_uuid=cart_data.project_uuid,
+            vtex_account=cart_data.vtex_account,
+            cart_items=cart_data.cart_items,
+            total_value=cart_data.total_value,
+            additional_data=cart_data.additional_data,
+        )
+
+    def _build_abandonment_message_from_data(
+        self, cart_data: CartAbandonmentDataDTO
+    ) -> Tuple[dict, dict]:
+        """
+        Build the message payload and extra parameters for legacy flow from collected data.
+        This method is ONLY used for IntegratedFeature (legacy flow).
+        Agent flow gets template_name and channel_uuid from AWS Lambda.
+
+        Args:
+            cart_data (CartAbandonmentDataDTO): Collected cart abandonment data.
+
+        Returns:
+            tuple: (message_payload, extra_parameters)
+        """
+        template_name = cart_data.template_name
+        channel_uuid = cart_data.channel_uuid
+        client_name = cart_data.client_name
+        locale = cart_data.locale
+        cart_link = cart_data.cart_link
+
+        message_payload = {
+            "project": cart_data.project_uuid,
+            "urns": [f"whatsapp:{cart_data.phone_number}"],
+            "channel": channel_uuid,
+            "msg": {
+                "template": {
+                    "locale": locale,
+                    "name": template_name,
+                    "variables": [f"{client_name}"],
+                },
+                "buttons": [
+                    {
+                        "sub_type": "url",
+                        "parameters": [{"type": "text", "text": cart_link}],
+                    }
+                ],
+            },
+        }
+
+        # Parameters that may help Code Action logic
+        extra_parameters = {
+            "project_uuid": cart_data.project_uuid,
+            "flow_channel_uuid": channel_uuid,
+            "client_name": client_name,
+            "locale": locale,
+            "cart_link": cart_link,
+        }
+
+        return message_payload, extra_parameters
 
     def _check_abandoned_cart_notification_cooldown(
         self, cart: Cart, integration_config: Union[IntegratedFeature, IntegratedAgent]
@@ -686,65 +815,31 @@ class CartAbandonmentService:
 
         cart.save()
 
-    def _build_abandonment_message(
-        self, cart: Cart, integration_config: Union[IntegratedFeature, IntegratedAgent]
-    ) -> Tuple[dict, dict]:
+    def _calculate_total_value(self, cart: Cart) -> float:
         """
-        Build the message payload and extra parameters for an abandoned cart notification.
+        Calculate total value from cart items.
 
         Args:
-            cart (Cart): The cart for which to build the message.
-            integration_config: Either IntegratedFeature or IntegratedAgent instance.
+            cart (Cart): The cart instance.
 
         Returns:
-            tuple: (message_payload, extra_parameters)
+            float: Total value of cart items.
         """
-        config = self._get_config(integration_config)
+        cart_items = cart.config.get("cart_items", [])
+        total = 0.0
 
-        template_name = config.get("abandoned_cart_template")
-        channel_uuid = config.get("flow_channel_uuid")
-        client_name = cart.config.get("client_name")
-        locale = cart.config.get("locale")
-        cart_link = f"{cart.order_form_id}/"
+        for item in cart_items:
+            price = item.get("price", 0)
+            quantity = item.get("quantity", 1)
+            total += price * quantity
 
-        message_payload = {
-            "project": str(cart.project.uuid),
-            "urns": [f"whatsapp:{cart.phone_number}"],
-            "channel": channel_uuid,
-            "msg": {
-                "template": {
-                    "locale": locale,
-                    "name": template_name,
-                    "variables": [f"{client_name}"],
-                },
-                "buttons": [
-                    {
-                        "sub_type": "url",
-                        "parameters": [{"type": "text", "text": cart_link}],
-                    }
-                ],
-            },
-        }
+        return total
 
-        # Parameters that may help Code Action logic
-        extra_parameters = {
-            "project_uuid": str(cart.project.uuid),
-            "flow_channel_uuid": channel_uuid,
-            "client_name": client_name,
-            "locale": locale,
-            "cart_link": cart_link,
-        }
-
-        return message_payload, extra_parameters
-
-    def _get_code_action_id_by_cart(
-        self, cart: Cart, integrated_feature: IntegratedFeature
-    ) -> str:
+    def _get_code_action_id_by_cart(self, integrated_feature: IntegratedFeature) -> str:
         """
         Get the code action ID for the cart based on feature type.
 
         Args:
-            cart (Cart): The cart instance.
             integrated_feature (IntegratedFeature): The integrated feature.
 
         Returns:
@@ -776,57 +871,3 @@ class CartAbandonmentService:
         vtex_service.set_order_form_marketing_data(
             domain, cart.order_form_id, "weniabandonedcart"
         )
-
-    def _create_abandoned_cart_dto(self, cart: Cart):
-        """
-        Create AbandonedCartDTO from cart instance.
-
-        Args:
-            cart (Cart): The cart instance.
-
-        Returns:
-            AbandonedCartDTO: The DTO with cart information.
-        """
-        return AbandonedCartDTO(
-            cart_uuid=str(cart.uuid),
-            order_form_id=cart.order_form_id,
-            phone_number=cart.phone_number,
-            client_name=cart.config.get("client_name", ""),
-            project_uuid=str(cart.project.uuid),
-            vtex_account=cart.project.vtex_account,
-            cart_items=self._get_cart_items(cart),
-            total_value=self._calculate_total_value(cart),
-            additional_data=cart.config,
-        )
-
-    def _get_cart_items(self, cart: Cart) -> list:
-        """
-        Get cart items from cart configuration.
-
-        Args:
-            cart (Cart): The cart instance.
-
-        Returns:
-            list: List of cart items.
-        """
-        return cart.config.get("cart_items", [])
-
-    def _calculate_total_value(self, cart: Cart) -> float:
-        """
-        Calculate total value from cart items.
-
-        Args:
-            cart (Cart): The cart instance.
-
-        Returns:
-            float: Total value of cart items.
-        """
-        cart_items = cart.config.get("cart_items", [])
-        total = 0.0
-
-        for item in cart_items:
-            price = item.get("price", 0)
-            quantity = item.get("quantity", 1)
-            total += price * quantity
-
-        return total
