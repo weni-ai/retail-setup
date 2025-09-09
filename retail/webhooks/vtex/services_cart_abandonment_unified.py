@@ -266,7 +266,7 @@ class CartAbandonmentService:
         cart_data = self._collect_cart_abandonment_data(
             cart, order_form, client_profile, integration_config
         )
-
+        print(f"cart_data: {cart_data}")
         # For IntegratedAgent, we send raw data (DTO) without message structure
         # For IntegratedFeature, we use the legacy flow with message structure
         if isinstance(integration_config, IntegratedAgent):
