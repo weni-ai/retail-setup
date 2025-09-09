@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from django.db import models
+from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.projects.models import Project
 from retail.features.models import IntegratedFeature
 
@@ -37,6 +38,13 @@ class Cart(models.Model):
         blank=True,
         on_delete=models.CASCADE,
         related_name="carts_by_feature",
+    )
+    integrated_agent = models.ForeignKey(
+        IntegratedAgent,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="carts_by_agent",
     )
     abandoned = models.BooleanField(default=False)
     error_message = models.TextField(blank=True, null=True)

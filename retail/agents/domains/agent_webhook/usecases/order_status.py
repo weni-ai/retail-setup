@@ -2,10 +2,12 @@ import logging
 
 from typing import Dict, Any, Optional
 
-from django.core.cache import cache
 from django.conf import settings
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.agents.domains.agent_webhook.usecases.base_agent_webhook import (
+    BaseAgentWebhookUseCase,
+)
 from retail.agents.domains.agent_webhook.usecases.webhook import (
     AgentWebhookUseCase,
 )
@@ -41,12 +43,10 @@ def adapt_order_status_to_webhook_payload(
     }
 
 
-class AgentOrderStatusUpdateUsecase:
-    def get_integrated_agent_if_exists(
-        self, project: Project
-    ) -> Optional[IntegratedAgent]:
+class AgentOrderStatusUpdateUsecase(BaseAgentWebhookUseCase):
+    def get_integrated_agent(self, project: Project) -> Optional[IntegratedAgent]:
         """
-        Retrieve the integrated agent if it exists, with caching for 6 hours.
+        Retrieve the integrated agent if it exists.
 
         Args:
             project (Project): The project instance.
@@ -58,55 +58,11 @@ class AgentOrderStatusUpdateUsecase:
             logger.warning("ORDER_STATUS_AGENT_UUID is not set in settings.")
             return None
 
-        cache_key = (
-            f"integrated_agent_{settings.ORDER_STATUS_AGENT_UUID}_{str(project.uuid)}"
+        integrated_agent = self.get_integrated_agent_if_exists(
+            project, settings.ORDER_STATUS_AGENT_UUID
         )
-        integrated_agent = cache.get(cache_key)
-
-        if integrated_agent:
-            return integrated_agent
-
-        try:
-            integrated_agent = IntegratedAgent.objects.get(
-                agent__uuid=settings.ORDER_STATUS_AGENT_UUID,
-                project=project,
-                is_active=True,
-            )
-            cache.set(cache_key, integrated_agent, timeout=21600)  # 6 hours
-        except IntegratedAgent.DoesNotExist:
-            logger.info(
-                f"No active integrated agent found for ORDER_STATUS_AGENT_UUID: {settings.ORDER_STATUS_AGENT_UUID}"
-            )
-            return None
 
         return integrated_agent
-
-    def get_project_by_vtex_account(self, vtex_account: str) -> Project:
-        """
-        Get the project by VTEX account, with caching.
-
-        Returns:
-            Project: The project associated with the VTEX account.
-        """
-        cache_key = f"project_by_vtex_account_{vtex_account}"
-        project = cache.get(cache_key)
-
-        if project:
-            return project
-
-        try:
-            project = Project.objects.get(vtex_account=vtex_account)
-            cache.set(cache_key, project, timeout=43200)  # 12 hours
-            return project
-        except Project.DoesNotExist:
-            logger.info(f"Project not found for VTEX account {vtex_account}.")
-            return None
-        except Project.MultipleObjectsReturned:
-            logger.error(
-                f"Multiple projects found for VTEX account {vtex_account}.",
-                exc_info=True,
-            )
-            return None
 
     def execute(
         self, integrated_agent: IntegratedAgent, order_status_dto: OrderStatusDTO
