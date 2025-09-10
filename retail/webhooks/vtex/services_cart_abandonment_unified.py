@@ -3,7 +3,6 @@ import logging
 from typing import Union, Tuple
 
 from django.utils import timezone
-from django.core.cache import cache
 
 from datetime import timedelta
 
@@ -11,6 +10,7 @@ from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.features.models import IntegratedFeature
 
 from retail.vtex.models import Cart
+from retail.vtex.usecases.base import BaseVtexUseCase
 
 from retail.webhooks.vtex.utils import PhoneNotificationLockService
 from retail.webhooks.vtex.usecases.typing import (
@@ -28,13 +28,11 @@ from retail.clients.vtex.client import VtexClient
 from retail.clients.exceptions import CustomAPIException
 from retail.clients.vtex_io.client import VtexIOClient
 
-from retail.projects.models import Project
-
 
 logger = logging.getLogger(__name__)
 
 
-class CartAbandonmentService:
+class CartAbandonmentService(BaseVtexUseCase):
     """
     Unified service for cart abandonment processing.
     This is the SINGLE SOURCE OF TRUTH for all cart abandonment rules.
@@ -772,30 +770,6 @@ class CartAbandonmentService:
             dict: Configuration dictionary.
         """
         return getattr(integration_config, "config", {}) or {}
-
-    def _get_account_domain(self, project_uuid: str) -> str:
-        """
-        Get account domain for VTEX IO service with caching.
-
-        Args:
-            project_uuid (str): The project UUID.
-
-        Returns:
-            str: The account domain.
-        """
-        cache_key = f"project_domain_{project_uuid}"
-        cached_domain = cache.get(cache_key)
-
-        if cached_domain:
-            return cached_domain
-
-        try:
-            project = Project.objects.get(uuid=project_uuid)
-            domain = project.vtex_account
-            cache.set(cache_key, domain, 300)  # Cache for 5 minutes
-            return domain
-        except Project.DoesNotExist:
-            raise ValueError("Project not found for given UUID.")
 
     def _update_cart_status(self, cart: Cart, status: str, response=None):
         """
