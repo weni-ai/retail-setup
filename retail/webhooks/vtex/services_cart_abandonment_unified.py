@@ -14,7 +14,6 @@ from retail.vtex.usecases.base import BaseVtexUseCase
 
 from retail.webhooks.vtex.utils import PhoneNotificationLockService
 from retail.webhooks.vtex.usecases.typing import (
-    AbandonedCartDTO,
     CartAbandonmentDataDTO,
 )
 
@@ -339,21 +338,18 @@ class CartAbandonmentService(BaseVtexUseCase):
         Uses the centralized task to handle credentials and other centralized logic.
         Sends raw cart data without message structure.
         """
-        # Create DTO for webhook with raw cart data
-        abandoned_cart_dto = self._create_abandoned_cart_dto_from_data(cart_data)
-
         # Use the centralized task to execute the agent webhook
         # This task handles credentials, centralized logic, and broadcast
         from retail.vtex.tasks import task_agent_webhook
 
-        # Build complete payload with all necessary data
+        # Build minimal payload with only essential data for agent flow
         payload = {
-            **abandoned_cart_dto.__dict__,
-            "order_form": cart_data.order_form,
-            "client_profile": cart_data.client_profile,
-            "cart_link": cart_data.cart_link,
-            "locale": cart_data.locale,
+            "cart_uuid": cart_data.cart_uuid,
+            "order_form_id": cart_data.order_form_id,
+            "phone_number": cart_data.phone_number,
             "client_name": cart_data.client_name,
+            "project_uuid": cart_data.project_uuid,
+            "vtex_account": cart_data.vtex_account,
         }
 
         task_agent_webhook(
@@ -396,30 +392,6 @@ class CartAbandonmentService(BaseVtexUseCase):
 
         self._update_cart_status(cart, "delivered_success", response)
         self._set_utm_source(cart)
-
-    def _create_abandoned_cart_dto_from_data(
-        self, cart_data: CartAbandonmentDataDTO
-    ) -> AbandonedCartDTO:
-        """
-        Create AbandonedCartDTO from collected cart data.
-
-        Args:
-            cart_data (CartAbandonmentDataDTO): Collected cart abandonment data.
-
-        Returns:
-            AbandonedCartDTO: The DTO with cart information.
-        """
-        return AbandonedCartDTO(
-            cart_uuid=cart_data.cart_uuid,
-            order_form_id=cart_data.order_form_id,
-            phone_number=cart_data.phone_number,
-            client_name=cart_data.client_name,
-            project_uuid=cart_data.project_uuid,
-            vtex_account=cart_data.vtex_account,
-            cart_items=cart_data.cart_items,
-            total_value=cart_data.total_value,
-            additional_data=cart_data.additional_data,
-        )
 
     def _build_abandonment_message_from_data(
         self, cart_data: CartAbandonmentDataDTO

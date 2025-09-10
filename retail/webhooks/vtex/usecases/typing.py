@@ -15,19 +15,6 @@ class OrderStatusDTO:
 
 
 @dataclass
-class AbandonedCartDTO:
-    cart_uuid: str
-    order_form_id: str
-    phone_number: str
-    client_name: str
-    project_uuid: str
-    vtex_account: str
-    cart_items: List[Dict[str, Any]]
-    total_value: float
-    additional_data: Dict[str, Any]
-
-
-@dataclass
 class CartAbandonmentDataDTO:
     """
     Complete cart abandonment data structure for both agent and legacy flows.
