@@ -339,9 +339,10 @@ class CartAbandonmentService(BaseVtexUseCase):
         Uses the centralized task to handle credentials and other centralized logic.
         Sends raw cart data without message structure.
         """
+        print("Initializing agent flow")
         # Create DTO for webhook with raw cart data
         abandoned_cart_dto = self._create_abandoned_cart_dto_from_data(cart_data)
-
+        print(f"abandoned_cart_dto: {abandoned_cart_dto}")
         # Use the centralized task to execute the agent webhook
         # This task handles credentials, centralized logic, and broadcast
         from retail.vtex.tasks import task_agent_webhook
@@ -355,13 +356,13 @@ class CartAbandonmentService(BaseVtexUseCase):
             "locale": cart_data.locale,
             "client_name": cart_data.client_name,
         }
-
+        print(f"payload: {payload}")
         task_agent_webhook(
             integrated_agent_uuid=str(integrated_agent.uuid),
             payload=payload,
             params={},  # Empty params - all data is in payload
         )
-
+        print("Running task_agent_webhook")
         self._update_cart_status(cart, "delivered_success")
 
     def _execute_legacy_flow(
@@ -374,6 +375,7 @@ class CartAbandonmentService(BaseVtexUseCase):
         Execute the legacy flow: code actions.
         Builds message structure from collected cart data.
         """
+        print("Initializing legacy flow")
         # Build message structure for legacy flow
         message_payload, extra_parameters = self._build_abandonment_message_from_data(
             cart_data
@@ -385,15 +387,15 @@ class CartAbandonmentService(BaseVtexUseCase):
             "client_profile": cart_data.client_profile,
             **extra_parameters,  # Include extra message context
         }
-
+        print(f"extra_payload: {extra_payload}")
         code_actions_service = CodeActionsService(CodeActionsClient())
-
+        print("Running code action")
         response = code_actions_service.run_code_action(
             action_id=self._get_code_action_id_by_cart(integrated_feature),
             message_payload=message_payload,
             extra_payload=extra_payload,
         )
-
+        print(f"Response: {response}")
         self._update_cart_status(cart, "delivered_success", response)
         self._set_utm_source(cart)
 
