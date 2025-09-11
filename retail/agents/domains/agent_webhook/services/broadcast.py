@@ -1,6 +1,7 @@
 import logging
 
 import mimetypes
+from urllib.parse import urlparse
 
 from typing import Any, Callable, Dict, Optional
 
@@ -65,6 +66,9 @@ class Broadcast:
         # Extract and remove button if present
         button = template_variables.pop("button", None)
 
+        # Extract image URL if present in template variables
+        image_url = template_variables.pop("image_url", None)
+
         # Extract image s3 key if present
         header = template.metadata.get("header", None)
         s3_key = None
@@ -116,24 +120,96 @@ class Broadcast:
                 }
             ]
 
-        if s3_key is not None and s3_key.strip():
-            content_type, _ = mimetypes.guess_type(s3_key)
+        # Process image attachment - prioritize direct URL over S3 key
+        attachment = None
+        if image_url:
+            # Handle direct image URL
+            attachment = self._build_image_attachment_from_url(image_url)
+        elif s3_key is not None and s3_key.strip():
+            # Handle S3 key (existing logic)
+            attachment = self._build_image_attachment_from_s3(s3_key, s3_service)
 
-            if content_type and content_type.startswith("image/"):
-                image_subtype = content_type.split("/")[-1]
-                if image_subtype == "jpg":
-                    image_subtype = "jpeg"
-            else:
-                image_subtype = "jpeg"
-                logger.warning(
-                    f"Could not detect image type for {s3_key}, using jpeg as fallback"
-                )
-
-            message["msg"]["attachments"] = [
-                f"image/{image_subtype}:{s3_service.generate_presigned_url(s3_key)}"
-            ]
+        # Add attachment to message if available
+        if attachment:
+            message["msg"]["attachments"] = [attachment]
 
         return message
+
+    def _build_image_attachment_from_url(self, image_url: str) -> str:
+        """
+        Build image attachment string from direct URL.
+
+        Args:
+            image_url (str): Direct URL to the image (e.g., "https://example.com/image.png").
+
+        Returns:
+            str: Formatted attachment string (e.g., "image/png:https://example.com/image.png").
+        """
+        # Extract file extension from URL using optimized approach
+        try:
+            # First try simple endswith for common cases (faster)
+            url_lower = image_url.lower()
+            if url_lower.endswith((".jpg", ".jpeg")):
+                return f"image/jpeg:{image_url}"
+            elif url_lower.endswith(".png"):
+                return f"image/png:{image_url}"
+            elif url_lower.endswith(".gif"):
+                return f"image/gif:{image_url}"
+            elif url_lower.endswith(".webp"):
+                return f"image/webp:{image_url}"
+            elif url_lower.endswith(".bmp"):
+                return f"image/bmp:{image_url}"
+
+            # Fallback to URL parsing for complex URLs or unknown extensions
+            parsed_url = urlparse(image_url)
+            path = parsed_url.path
+
+            if "." in path:
+                extension = path.split(".")[-1].lower()
+                # Map common extensions to MIME types
+                extension_map = {
+                    "jpg": "jpeg",
+                    "jpeg": "jpeg",
+                    "png": "png",
+                    "gif": "gif",
+                    "webp": "webp",
+                    "bmp": "bmp",
+                }
+                image_type = extension_map.get(extension, "jpeg")
+                return f"image/{image_type}:{image_url}"
+            else:
+                return f"image/jpeg:{image_url}"  # Default fallback
+
+        except Exception as e:
+            logger.warning(f"Error processing image URL {image_url}: {e}")
+            return f"image/jpeg:{image_url}"  # Fallback to jpeg
+
+    def _build_image_attachment_from_s3(
+        self, s3_key: str, s3_service: S3ServiceInterface
+    ) -> str:
+        """
+        Build image attachment string from S3 key (existing logic).
+
+        Args:
+            s3_key (str): S3 key for the image.
+            s3_service (S3ServiceInterface): S3 service instance.
+
+        Returns:
+            str: Formatted attachment string with presigned URL.
+        """
+        content_type, _ = mimetypes.guess_type(s3_key)
+
+        if content_type and content_type.startswith("image/"):
+            image_subtype = content_type.split("/")[-1]
+            if image_subtype == "jpg":
+                image_subtype = "jpeg"
+        else:
+            image_subtype = "jpeg"
+            logger.warning(
+                f"Could not detect image type for {s3_key}, using jpeg as fallback"
+            )
+
+        return f"image/{image_subtype}:{s3_service.generate_presigned_url(s3_key)}"
 
     def can_send_to_contact(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]

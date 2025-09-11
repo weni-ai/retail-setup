@@ -4,12 +4,59 @@ import logging
 from django.utils import timezone
 from django.utils.timezone import timedelta
 from django.conf import settings
+from abc import ABC, abstractmethod
+from typing import Dict, Any, Optional
+from dataclasses import dataclass
 
 from retail.features.models import IntegratedFeature
+from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.vtex.usecases.phone_number_normalizer import PhoneNumberNormalizer
 from sentry_sdk import capture_exception, capture_message
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CartServiceContext:
+    """
+    Context for cart services with all necessary information.
+    """
+
+    project_uuid: str
+    config: Dict[str, Any]
+    entity_type: str  # 'integrated_feature' or 'integrated_agent'
+    entity_uuid: Optional[str] = None
+
+
+class ConfigProvider(ABC):
+    """
+    Abstract base class for entities that provide configuration data.
+    """
+
+    @abstractmethod
+    def get_config(self) -> Dict[str, Any]:
+        """Return the configuration dictionary."""
+        pass
+
+
+class IntegratedFeatureConfigProvider(ConfigProvider):
+    """Config provider for IntegratedFeature."""
+
+    def __init__(self, integrated_feature: IntegratedFeature):
+        self.integrated_feature = integrated_feature
+
+    def get_config(self) -> Dict[str, Any]:
+        return self.integrated_feature.config
+
+
+class IntegratedAgentConfigProvider(ConfigProvider):
+    """Config provider for IntegratedAgent."""
+
+    def __init__(self, integrated_agent: IntegratedAgent):
+        self.integrated_agent = integrated_agent
+
+    def get_config(self) -> Dict[str, Any]:
+        return self.integrated_agent.config
 
 
 class CartTimeRestrictionService:
@@ -19,8 +66,8 @@ class CartTimeRestrictionService:
 
     default_abandoned_countdown = settings.ABANDONED_CART_COUNTDOWN * 60
 
-    def __init__(self, integrated_feature: IntegratedFeature):
-        self.integrated_feature = integrated_feature
+    def __init__(self, context: CartServiceContext):
+        self.context = context
 
     @staticmethod
     def is_weekday(day: int) -> bool:
@@ -197,10 +244,10 @@ class CartTimeRestrictionService:
         """
         Returns the countdown in seconds for the current time.
         """
-        feature_settings = self.integrated_feature.config.get(
-            "integration_settings", {}
-        )
-        message_time_restriction = feature_settings.get("message_time_restriction", {})
+        config = self.context.config
+
+        # Both integrated feature and integrated agent use the same structure
+        message_time_restriction = config.get("message_time_restriction", {})
         is_active = message_time_restriction.get("is_active", False)
 
         if not is_active:
@@ -211,7 +258,10 @@ class CartTimeRestrictionService:
         saturdays_period = periods.get("saturdays", {})
 
         if not weekdays_period or not saturdays_period:
-            error_message = f"Invalid message time restriction settings for abandoned cart feature (Integrated feature UUID: {self.integrated_feature.uuid})"  # noqa: E501
+            error_message = (
+                "Invalid message time restriction settings for abandoned cart. "
+                f"Project: {self.context.project_uuid}, Entity: {self.context.entity_type}"
+            )
             logger.error(error_message, exc_info=True)
             capture_message(error_message)
             return self.default_abandoned_countdown
@@ -225,7 +275,11 @@ class CartTimeRestrictionService:
                 saturdays_period=saturdays_period,
             )
         except Exception as e:
-            error_message = f"Could not calculate the next available time for the integrated feature with UUID {self.integrated_feature.uuid}. Error: {str(e)}"  # noqa: E501
+            error_message = (
+                "Could not calculate the next available time. "
+                f"Project: {self.context.project_uuid}, Entity: {self.context.entity_type}. "
+                f"Error: {str(e)}"
+            )
             logger.error(error_message, exc_info=True)
             capture_exception(e)
             return self.default_abandoned_countdown
@@ -238,8 +292,8 @@ class CartPhoneRestrictionService:
     This class is responsible for validating phone number restrictions for the abandoned cart feature.
     """
 
-    def __init__(self, integrated_feature: IntegratedFeature):
-        self.integrated_feature = integrated_feature
+    def __init__(self, context: CartServiceContext):
+        self.context = context
 
     def validate_phone_restriction(self, phone: str) -> bool:
         """
@@ -251,16 +305,14 @@ class CartPhoneRestrictionService:
         Returns:
             bool: True if the phone is allowed, False if it should be blocked.
         """
-        feature_settings = self.integrated_feature.config.get(
-            "integration_settings", {}
-        )
-        abandoned_cart_restriction = feature_settings.get(
-            "abandoned_cart_restriction", {}
-        )
+        config = self.context.config
+
+        # Both integrated feature and integrated agent use the same structure
+        abandoned_cart_restriction = config.get("abandoned_cart_restriction", {})
 
         if not abandoned_cart_restriction.get("is_active", False):
             logger.info(
-                f"No abandoned cart phone restriction active for integrated feature {self.integrated_feature.uuid}"
+                f"No abandoned cart phone restriction active for project: {self.context.project_uuid}"
             )
             return True
 
@@ -268,8 +320,8 @@ class CartPhoneRestrictionService:
 
         if not phone_list_restriction:
             logger.info(
-                f"Abandoned cart phone restriction active but no phone numbers configured "
-                f"for integrated feature {self.integrated_feature.uuid}. Blocking by default."
+                "Abandoned cart phone restriction active but no phone numbers configured "
+                f"for project: {self.context.project_uuid}. Blocking by default."
             )
             return False
 
@@ -280,10 +332,14 @@ class CartPhoneRestrictionService:
 
         if phone not in normalized_phones:
             logger.info(
-                f"Phone {phone} blocked due to abandoned cart phone restriction. "
+                f"Phone {phone} blocked due to abandoned cart phone "
+                f"restriction for project: {self.context.project_uuid}. "
                 f"Allowed numbers: {normalized_phones}"
             )
             return False
 
-        logger.info(f"Phone {phone} allowed through abandoned cart phone restriction")
+        logger.info(
+            f"Phone {phone} allowed through abandoned cart phone "
+            f"restriction for project: {self.context.project_uuid}."
+        )
         return True

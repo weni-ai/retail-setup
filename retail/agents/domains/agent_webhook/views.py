@@ -8,7 +8,7 @@ from rest_framework import status
 
 from uuid import UUID
 
-from retail.vtex.tasks import task_order_status_agent_webhook
+from retail.vtex.tasks import task_agent_webhook
 
 
 class AgentWebhookView(APIView):
@@ -17,7 +17,7 @@ class AgentWebhookView(APIView):
 
     def post(self, request: Request, webhook_uuid: UUID, *args, **kwargs) -> Response:
         if str(webhook_uuid) != self.IGNORE_AGENT_UUID:
-            task_order_status_agent_webhook.apply_async(
+            task_agent_webhook.apply_async(
                 args=[webhook_uuid, request.data, request.query_params],
                 queue="vtex-io-orders-update-events",
             )

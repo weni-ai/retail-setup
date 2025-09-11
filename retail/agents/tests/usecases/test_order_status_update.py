@@ -22,33 +22,33 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         self.mock_integrated_agent.uuid = uuid4()
         self.mock_integrated_agent.ignore_templates = False
 
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
-    def test_get_integrated_agent_if_exists_returns_from_cache(
-        self, mock_cache, mock_settings
-    ):
-        mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
+    @patch("retail.agents.domains.agent_webhook.usecases.base_agent_webhook.cache")
+    def test_get_integrated_agent_if_exists_returns_from_cache(self, mock_cache):
         mock_cache.get.return_value = self.mock_integrated_agent
 
-        result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
+        result = self.usecase.get_integrated_agent_if_exists(
+            self.mock_project, "test-agent-uuid"
+        )
 
         self.assertEqual(result, self.mock_integrated_agent)
         mock_cache.get.assert_called_once_with(
             f"integrated_agent_test-agent-uuid_{str(self.mock_project.uuid)}"
         )
 
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.IntegratedAgent")
+    @patch("retail.agents.domains.agent_webhook.usecases.base_agent_webhook.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.base_agent_webhook.IntegratedAgent"
+    )
     def test_get_integrated_agent_if_exists_fetches_and_sets_cache(
-        self, mock_integrated_agent_cls, mock_cache, mock_settings
+        self, mock_integrated_agent_cls, mock_cache
     ):
-        mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
         mock_cache.get.return_value = None
         mock_obj = MagicMock()
         mock_integrated_agent_cls.objects.get.return_value = mock_obj
 
-        result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
+        result = self.usecase.get_integrated_agent_if_exists(
+            self.mock_project, "test-agent-uuid"
+        )
 
         self.assertEqual(result, mock_obj)
         mock_integrated_agent_cls.objects.get.assert_called_once_with(
@@ -62,13 +62,13 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
             timeout=21600,
         )
 
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.IntegratedAgent")
+    @patch("retail.agents.domains.agent_webhook.usecases.base_agent_webhook.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.base_agent_webhook.IntegratedAgent"
+    )
     def test_get_integrated_agent_if_exists_returns_none_if_not_found(
-        self, mock_integrated_agent_cls, mock_cache, mock_settings
+        self, mock_integrated_agent_cls, mock_cache
     ):
-        mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
         mock_cache.get.return_value = None
 
         # Create a proper exception class that inherits from BaseException
@@ -76,7 +76,9 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         mock_integrated_agent_cls.DoesNotExist = does_not_exist_exception
         mock_integrated_agent_cls.objects.get.side_effect = does_not_exist_exception()
 
-        result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
+        result = self.usecase.get_integrated_agent_if_exists(
+            self.mock_project, "test-agent-uuid"
+        )
 
         self.assertIsNone(result)
         mock_integrated_agent_cls.objects.get.assert_called_once_with(
@@ -86,17 +88,15 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         )
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    def test_get_integrated_agent_if_exists_returns_none_if_setting_missing(
-        self, mock_settings
-    ):
+    def test_get_integrated_agent_returns_none_if_setting_missing(self, mock_settings):
         mock_settings.ORDER_STATUS_AGENT_UUID = None
 
-        result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
+        result = self.usecase.get_integrated_agent(self.mock_project)
 
         self.assertIsNone(result)
 
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.Project")
+    @patch("retail.agents.domains.agent_webhook.usecases.base_agent_webhook.cache")
+    @patch("retail.agents.domains.agent_webhook.usecases.base_agent_webhook.Project")
     def test_get_project_by_vtex_account_returns_from_cache(
         self, mock_project_cls, mock_cache
     ):
@@ -107,8 +107,8 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         self.assertEqual(result, self.mock_project)
         mock_cache.get.assert_called_once_with("project_by_vtex_account_vtex_account")
 
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.Project")
+    @patch("retail.agents.domains.agent_webhook.usecases.base_agent_webhook.cache")
+    @patch("retail.agents.domains.agent_webhook.usecases.base_agent_webhook.Project")
     def test_get_project_by_vtex_account_fetches_and_sets_cache(
         self, mock_project_cls, mock_cache
     ):
@@ -126,8 +126,8 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
             "project_by_vtex_account_vtex_account", mock_obj, timeout=43200
         )
 
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.Project")
+    @patch("retail.agents.domains.agent_webhook.usecases.base_agent_webhook.cache")
+    @patch("retail.agents.domains.agent_webhook.usecases.base_agent_webhook.Project")
     def test_get_project_by_vtex_account_returns_none_if_not_found(
         self, mock_project_cls, mock_cache
     ):
@@ -145,8 +145,8 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
             vtex_account="vtex_account"
         )
 
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.Project")
+    @patch("retail.agents.domains.agent_webhook.usecases.base_agent_webhook.cache")
+    @patch("retail.agents.domains.agent_webhook.usecases.base_agent_webhook.Project")
     def test_get_project_by_vtex_account_returns_none_if_multiple_found(
         self, mock_project_cls, mock_cache
     ):
