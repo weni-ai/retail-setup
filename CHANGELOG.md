@@ -1,3 +1,10 @@
+# 3.18.6
+
+## *Feature*
+  - feat: setup elastic apm
+  - feat: clears cache after updating integrated agent
+  - feat: add cors config
+
 # 3.18.5
 
 ## *Feature*

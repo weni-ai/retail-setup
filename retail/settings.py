@@ -78,7 +78,6 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "weni.eda.django.eda_app",
     "corsheaders",
-    "elasticapm.contrib.django",
     "retail.projects",
     "retail.features",
     "retail.integrations",
@@ -320,6 +319,7 @@ DATALAKE_SERVER_ADDRESS = env.str("DATALAKE_SERVER_ADDRESS", default="")
 USE_ELASTIC_APM = env.bool("USE_ELASTIC_APM", default=False)
 
 if USE_ELASTIC_APM:
+    INSTALLED_APPS.append("elasticapm.contrib.django")
     ELASTIC_APM = {
         "SERVICE_NAME": env.str("APM_SERVICE_NAME", default="retail"),
         "SECRET_TOKEN": env.str("APM_SECRET_TOKEN"),
