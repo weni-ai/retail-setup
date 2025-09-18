@@ -151,7 +151,7 @@ class AssignAgentUseCase:
         logger.info(
             "Fetching user templates in integrations service (non-pre-approved)..."
         )
-
+        print("Fetching user templates in integrations service (non-pre-approved)...")
         template_builder = TemplateBuilderMixin()
         language = integrated_agent.agent.language
 
