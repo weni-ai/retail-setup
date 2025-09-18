@@ -1,10 +1,6 @@
 """Client for connection with Integrations"""
 
-import concurrent.futures
-
 import logging
-
-import math
 
 from django.conf import settings
 
@@ -182,49 +178,63 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
 
         return response.json()
 
-    def fetch_templates_from_user(self, app_uuid: str, project_uuid: str) -> List[Dict]:
-        def fetch_single_page(app_uuid: str, page: int, page_size: int = 15) -> Dict:
-            url = f"{self.base_url}/api/v1/apps/{app_uuid}/templates/?page={page}&page_size={page_size}"
+    def fetch_templates_from_user(
+        self,
+        app_uuid: str,
+        project_uuid: str,
+        template_names: Optional[List[str]] = None,
+    ) -> List[Dict]:
+        """
+        Fetch templates from user with optional filtering by template names.
+        Uses simple sequential pagination instead of multi-threading.
+        """
+
+        def fetch_single_page(
+            app_uuid: str,
+            page: int,
+            page_size: int = 15,
+            template_names: Optional[List[str]] = None,
+        ) -> Dict:
+            url = f"{self.base_url}/api/v1/apps/{app_uuid}/templates/"
+
+            # Build query parameters
+            params = {"page": page, "page_size": page_size}
+
+            # Add template names filtering if provided
+            if template_names:
+                params["names"] = template_names
 
             headers = {
                 **self.authentication_instance.headers,
                 "Project-Uuid": project_uuid,
             }
 
-            response = self.make_request(url, method="GET", headers=headers).json()
+            response = self.make_request(
+                url, method="GET", headers=headers, params=params
+            ).json()
 
             return response
 
         page_size = 15
+        all_templates = []
+        page = 1
+        max_pages = 100  # Safety limit to prevent infinite loops
 
-        first_page_response = fetch_single_page(app_uuid, 1, page_size)
+        while page <= max_pages:
+            response = fetch_single_page(app_uuid, page, page_size, template_names)
+            results = response.get("results", [])
+            all_templates.extend(results)
 
-        all_templates = first_page_response.get("results", [])
-        total_count = first_page_response.get("count", 0)
+            # If no more pages or no results, break
+            if not response.get("next") or not results:
+                break
 
-        if total_count <= page_size:
-            return all_templates
+            page += 1
 
-        total_pages = math.ceil(total_count / page_size)
-
-        if total_pages > 1:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                future_to_page = {
-                    executor.submit(fetch_single_page, app_uuid, page, page_size): page
-                    for page in range(2, total_pages + 1)
-                }
-
-                page_results = {}
-                for future in concurrent.futures.as_completed(future_to_page):
-                    page_num = future_to_page[future]
-                    try:
-                        page_response = future.result()
-                        page_results[page_num] = page_response.get("results", [])
-                    except Exception as exc:
-                        logger.warning(f"Error fetching page {page_num}: {exc}")
-                        page_results[page_num] = []
-
-                for page_num in sorted(page_results.keys()):
-                    all_templates.extend(page_results[page_num])
+        # Log warning if we hit the safety limit
+        if page > max_pages:
+            logger.warning(
+                f"Reached maximum page limit ({max_pages}) for templates fetch. Some templates may be missing."
+            )
 
         return all_templates
