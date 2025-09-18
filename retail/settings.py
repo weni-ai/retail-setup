@@ -21,6 +21,9 @@ from sentry_sdk.integrations.django import DjangoIntegration
 
 from corsheaders.defaults import default_headers, default_methods
 
+# Celery Beat Schedule
+from celery.schedules import crontab
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -231,6 +234,13 @@ CELERY_ACCEPT_CONTENT = ["application/json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+
+CELERY_BEAT_SCHEDULE = {
+    "task-cleanup-old-carts": {
+        "task": "task_cleanup_old_carts",
+        "schedule": crontab(minute=0, hour=2),
+    },
+}
 
 
 # Cache
