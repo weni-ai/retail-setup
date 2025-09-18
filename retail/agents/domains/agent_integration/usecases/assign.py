@@ -151,17 +151,17 @@ class AssignAgentUseCase:
         logger.info(
             "Fetching user templates in integrations service (non-pre-approved)..."
         )
-        print("Fetching user templates in integrations service (non-pre-approved)...")
+        print("0000000000000000000")
         template_builder = TemplateBuilderMixin()
         language = integrated_agent.agent.language
-
+        print("1111111111111111111")
         translations_by_name = self.integrations_service.fetch_templates_from_user(
             app_uuid,
             str(project_uuid),
             [pre_approved.name for pre_approved in invalid_pre_approveds],
             language,
         )
-
+        print("2222222222222222222")
         logger.info(
             f"Found {len(translations_by_name)} templates in integrations service (non-pre-approved)"
         )
