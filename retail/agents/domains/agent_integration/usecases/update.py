@@ -89,6 +89,7 @@ class UpdateIntegratedAgentUseCase:
         This cache is used in AgentOrderStatusUpdateUsecase and has a 6-hour timeout.
         """
         if not settings.ORDER_STATUS_AGENT_UUID:
+            print("ORDER_STATUS_AGENT_UUID not set, skipping cache clear.")
             return
 
         # Check if this is an order status agent (official or custom with parent_agent_uuid)
@@ -102,7 +103,16 @@ class UpdateIntegratedAgentUseCase:
 
         if is_order_status_agent:
             cache_key = f"integrated_agent_{settings.ORDER_STATUS_AGENT_UUID}_{str(integrated_agent.project.uuid)}"
-            cache.delete(cache_key)
-            logger.info(
-                f"Cleared order status cache for agent {integrated_agent.uuid} with key: {cache_key}"
-            )
+            cache_value = cache.get(cache_key)
+            if cache_value is not None:
+                print(f"Cache found for key: {cache_key}. Proceeding to clear.")
+                cache.delete(cache_key)
+                print(f"Cache cleared for key: {cache_key}")
+                logger.info(
+                    f"Cleared order status cache for agent {integrated_agent.uuid} with key: {cache_key}"
+                )
+            else:
+                print(f"No cache found for key: {cache_key}. Nothing to clear.")
+                logger.info(
+                    f"No order status cache found for agent {integrated_agent.uuid} with key: {cache_key}"
+                )
