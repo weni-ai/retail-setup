@@ -94,13 +94,22 @@ class UpdateIntegratedAgentUseCase:
             return
 
         # Check if this is an order status agent (official or custom with parent_agent_uuid)
-        is_order_status_agent = str(
-            integrated_agent.agent.uuid
-        ) == settings.ORDER_STATUS_AGENT_UUID or (
-            integrated_agent.parent_agent_uuid
-            and str(integrated_agent.parent_agent_uuid)
-            == settings.ORDER_STATUS_AGENT_UUID
+        print(f"ORDER_STATUS_AGENT_UUID from settings: {settings.ORDER_STATUS_AGENT_UUID}")
+        print(f"integrated_agent.agent.uuid: {integrated_agent.agent.uuid}")
+        print(f"integrated_agent.parent_agent_uuid: {integrated_agent.parent_agent_uuid}")
+        
+        # Check official agent
+        is_official_agent = str(integrated_agent.agent.uuid) == settings.ORDER_STATUS_AGENT_UUID
+        print(f"is_official_agent: {is_official_agent}")
+        
+        # Check custom agent with parent_agent_uuid
+        is_custom_agent = (
+            integrated_agent.parent_agent_uuid and 
+            str(integrated_agent.parent_agent_uuid) == settings.ORDER_STATUS_AGENT_UUID
         )
+        print(f"is_custom_agent: {is_custom_agent}")
+        
+        is_order_status_agent = is_official_agent or is_custom_agent
         print("is_order_status_agent: YYYYYYYYYYYYYYY ", is_order_status_agent)
 
         if is_order_status_agent:
