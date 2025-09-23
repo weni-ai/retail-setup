@@ -91,16 +91,13 @@ class UpdateIntegratedAgentUseCase:
             return
 
         # Check if this is an order status agent (official or custom with parent_agent_uuid)
-        is_order_status_agent = str(
-            integrated_agent.agent.uuid
-        ) == settings.ORDER_STATUS_AGENT_UUID or (
-            integrated_agent.parent_agent_uuid
-            and str(integrated_agent.parent_agent_uuid)
-            == settings.ORDER_STATUS_AGENT_UUID
+        is_order_status_agent = (
+            str(integrated_agent.agent.uuid) == settings.ORDER_STATUS_AGENT_UUID
+            or integrated_agent.parent_agent_uuid is not None
         )
 
         if is_order_status_agent:
-            cache_key = f"integrated_agent_{settings.ORDER_STATUS_AGENT_UUID}_{str(integrated_agent.project.uuid)}"
+            cache_key = f"order_status_agent_{str(integrated_agent.project.uuid)}"
             cache.delete(cache_key)
             logger.info(
                 f"Cleared order status cache for agent {integrated_agent.uuid} with key: {cache_key}"
