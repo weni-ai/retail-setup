@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional
 
 from django.core.cache import cache
 from django.conf import settings
+from rest_framework.exceptions import ValidationError
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_webhook.usecases.webhook import (
@@ -48,6 +49,9 @@ class AgentOrderStatusUpdateUsecase:
         """
         Retrieve the integrated agent if it exists, with caching for 6 hours.
 
+        First tries to find the official agent, then looks for custom agents
+        that have the official agent as parent_agent_uuid.
+
         Args:
             project (Project): The project instance.
 
@@ -67,18 +71,49 @@ class AgentOrderStatusUpdateUsecase:
             return integrated_agent
 
         try:
+            # First try to find the official agent
             integrated_agent = IntegratedAgent.objects.get(
                 agent__uuid=settings.ORDER_STATUS_AGENT_UUID,
                 project=project,
                 is_active=True,
             )
-            cache.set(cache_key, integrated_agent, timeout=21600)  # 6 hours
+            logger.info(
+                f"Found official integrated agent for ORDER_STATUS_AGENT_UUID: {settings.ORDER_STATUS_AGENT_UUID}"
+            )
         except IntegratedAgent.DoesNotExist:
             logger.info(
-                f"No active integrated agent found for ORDER_STATUS_AGENT_UUID: {settings.ORDER_STATUS_AGENT_UUID}"
+                f"No official integrated agent found for ORDER_STATUS_AGENT_UUID: {settings.ORDER_STATUS_AGENT_UUID}. "
+                f"Looking for agents with parent_agent_uuid filled..."
             )
-            return None
 
+            # If official agent not found, look for any agent with parent_agent_uuid filled
+            try:
+                integrated_agent = IntegratedAgent.objects.get(
+                    parent_agent_uuid__isnull=False,
+                    project=project,
+                    is_active=True,
+                )
+                logger.info(
+                    f"Found integrated agent with parent_agent_uuid: {integrated_agent.parent_agent_uuid}"
+                )
+            except IntegratedAgent.DoesNotExist:
+                logger.info(
+                    f"No integrated agent found (official or with parent_agent_uuid) for project {project.uuid}"
+                )
+                return None
+            except IntegratedAgent.MultipleObjectsReturned:
+                logger.error(
+                    f"Multiple agents found with parent_agent_uuid for project {project.uuid}. "
+                    f"This should not happen - only one agent per project should have parent_agent_uuid."
+                )
+                raise ValidationError(
+                    {
+                        "error": "Multiple agents with parent_agent_uuid found for this project"
+                    },
+                    code="multiple_parent_agents",
+                )
+
+        cache.set(cache_key, integrated_agent, timeout=21600)  # 6 hours
         return integrated_agent
 
     def get_project_by_vtex_account(self, vtex_account: str) -> Project:
