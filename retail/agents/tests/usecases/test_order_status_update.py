@@ -2,6 +2,8 @@ from django.test import TestCase
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+from rest_framework.exceptions import ValidationError
+
 from retail.agents.domains.agent_webhook.usecases.order_status import (
     AgentOrderStatusUpdateUsecase,
     adapt_order_status_to_webhook_payload,
@@ -74,15 +76,97 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         # Create a proper exception class that inherits from BaseException
         does_not_exist_exception = type("DoesNotExist", (Exception,), {})
         mock_integrated_agent_cls.DoesNotExist = does_not_exist_exception
-        mock_integrated_agent_cls.objects.get.side_effect = does_not_exist_exception()
+
+        # Both calls (official agent and parent_agent_uuid search) raise DoesNotExist
+        mock_integrated_agent_cls.objects.get.side_effect = [
+            does_not_exist_exception(),  # Official agent not found
+            does_not_exist_exception(),  # Agent with parent_agent_uuid not found
+        ]
 
         result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
 
         self.assertIsNone(result)
-        mock_integrated_agent_cls.objects.get.assert_called_once_with(
-            agent__uuid="test-agent-uuid",
-            project=self.mock_project,
-            is_active=True,
+        # Should be called twice: once for official agent, once for parent_agent_uuid search
+        self.assertEqual(mock_integrated_agent_cls.objects.get.call_count, 2)
+
+        # Verify the first call was for official agent
+        first_call_args = mock_integrated_agent_cls.objects.get.call_args_list[0]
+        self.assertEqual(first_call_args[1]["agent__uuid"], "test-agent-uuid")
+        self.assertEqual(first_call_args[1]["project"], self.mock_project)
+        self.assertEqual(first_call_args[1]["is_active"], True)
+
+        # Verify the second call was for parent_agent_uuid search
+        second_call_args = mock_integrated_agent_cls.objects.get.call_args_list[1]
+        self.assertEqual(second_call_args[1]["parent_agent_uuid__isnull"], False)
+        self.assertEqual(second_call_args[1]["project"], self.mock_project)
+        self.assertEqual(second_call_args[1]["is_active"], True)
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.IntegratedAgent")
+    def test_get_integrated_agent_if_exists_finds_agent_with_parent_agent_uuid(
+        self, mock_integrated_agent_cls, mock_cache, mock_settings
+    ):
+        mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
+        mock_cache.get.return_value = None
+
+        # Mock official agent not found
+        does_not_exist_exception = type("DoesNotExist", (Exception,), {})
+        mock_integrated_agent_cls.DoesNotExist = does_not_exist_exception
+
+        # First call (official agent) raises DoesNotExist
+        # Second call (agent with parent_agent_uuid) returns a mock agent
+        mock_agent_with_parent = MagicMock()
+        mock_agent_with_parent.parent_agent_uuid = "parent-uuid-123"
+        mock_integrated_agent_cls.objects.get.side_effect = [
+            does_not_exist_exception(),  # Official agent not found
+            mock_agent_with_parent,  # Agent with parent_agent_uuid found
+        ]
+
+        result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
+
+        self.assertEqual(result, mock_agent_with_parent)
+        # Should be called twice: once for official agent, once for agent with parent_agent_uuid
+        self.assertEqual(mock_integrated_agent_cls.objects.get.call_count, 2)
+
+        # Verify the second call was for parent_agent_uuid__isnull=False
+        second_call_args = mock_integrated_agent_cls.objects.get.call_args_list[1]
+        self.assertEqual(second_call_args[1]["parent_agent_uuid__isnull"], False)
+        self.assertEqual(second_call_args[1]["project"], self.mock_project)
+        self.assertEqual(second_call_args[1]["is_active"], True)
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.IntegratedAgent")
+    def test_get_integrated_agent_if_exists_raises_error_on_multiple_parent_agents(
+        self, mock_integrated_agent_cls, mock_cache, mock_settings
+    ):
+        mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
+        mock_cache.get.return_value = None
+
+        # Mock official agent not found
+        does_not_exist_exception = type("DoesNotExist", (Exception,), {})
+        multiple_objects_exception = type("MultipleObjectsReturned", (Exception,), {})
+        mock_integrated_agent_cls.DoesNotExist = does_not_exist_exception
+        mock_integrated_agent_cls.MultipleObjectsReturned = multiple_objects_exception
+
+        # First call (official agent) raises DoesNotExist
+        # Second call (agents with parent_agent_uuid) raises MultipleObjectsReturned
+        mock_integrated_agent_cls.objects.get.side_effect = [
+            does_not_exist_exception(),  # Official agent not found
+            multiple_objects_exception(),  # Multiple agents with parent_agent_uuid found
+        ]
+
+        with self.assertRaises(ValidationError) as context:
+            self.usecase.get_integrated_agent_if_exists(self.mock_project)
+
+        self.assertEqual(
+            context.exception.detail["error"],
+            "Multiple agents with parent_agent_uuid found for this project",
+        )
+        # The code is stored in the ErrorDetail object within detail
+        self.assertEqual(
+            context.exception.detail["error"].code, "multiple_parent_agents"
         )
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")

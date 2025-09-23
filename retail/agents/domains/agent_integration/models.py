@@ -20,6 +20,12 @@ class IntegratedAgent(models.Model):
     global_rule_code = models.TextField(null=True)
     global_rule_prompt = models.TextField(null=True)
 
+    # UUID of the parent agent for inheriting functionalities like order status notifications
+    parent_agent_uuid = models.UUIDField(
+        null=True,
+        blank=True,
+    )
+
     def __str__(self):
         return f"{self.agent} - {self.project}"
 
