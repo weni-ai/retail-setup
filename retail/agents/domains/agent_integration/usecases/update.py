@@ -88,6 +88,7 @@ class UpdateIntegratedAgentUseCase:
 
         This cache is used in AgentOrderStatusUpdateUsecase and has a 6-hour timeout.
         """
+        print("Clearing order status cache XXXXXXXXXXXXXXXXXXXX")
         if not settings.ORDER_STATUS_AGENT_UUID:
             print("ORDER_STATUS_AGENT_UUID not set, skipping cache clear.")
             return
@@ -100,6 +101,7 @@ class UpdateIntegratedAgentUseCase:
             and str(integrated_agent.parent_agent_uuid)
             == settings.ORDER_STATUS_AGENT_UUID
         )
+        print("is_order_status_agent: YYYYYYYYYYYYYYY ", is_order_status_agent)
 
         if is_order_status_agent:
             cache_key = f"integrated_agent_{settings.ORDER_STATUS_AGENT_UUID}_{str(integrated_agent.project.uuid)}"

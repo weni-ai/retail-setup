@@ -54,5 +54,6 @@ class IntegratedAgentCacheHandlerRedis(IntegratedAgentCacheHandler):
         cache.set(cache_key, integrated_agent, timeout=self.cache_time)
 
     def clear_cached_agent(self, integrated_agent_uuid: UUID) -> None:
+        print(f"Clearing cache for key: {self.get_cache_key(integrated_agent_uuid)}")
         cache_key = self.get_cache_key(integrated_agent_uuid)
         cache.delete(cache_key)
