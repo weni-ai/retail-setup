@@ -87,18 +87,53 @@ class UpdateIntegratedAgentUseCase:
 
         This cache is used in AgentOrderStatusUpdateUsecase and has a 6-hour timeout.
         """
+        print("=== DEBUG _clear_order_status_cache START ===")
+        print(
+            f"ORDER_STATUS_AGENT_UUID from settings: {getattr(settings, 'ORDER_STATUS_AGENT_UUID', 'NOT_SET')}"
+        )
+
         if not settings.ORDER_STATUS_AGENT_UUID:
+            print("ORDER_STATUS_AGENT_UUID not set, returning early")
             return
 
-        # Check if this is an order status agent (official or custom with parent_agent_uuid)
-        is_order_status_agent = (
-            str(integrated_agent.agent.uuid) == settings.ORDER_STATUS_AGENT_UUID
-            or integrated_agent.parent_agent_uuid is not None
+        print(f"integrated_agent.uuid: {integrated_agent.uuid}")
+        print(f"integrated_agent.agent.uuid: {integrated_agent.agent.uuid}")
+        print(
+            f"integrated_agent.parent_agent_uuid: {integrated_agent.parent_agent_uuid}"
         )
+        print(f"integrated_agent.project.uuid: {integrated_agent.project.uuid}")
+
+        # Check if this is an order status agent (official or custom with parent_agent_uuid)
+        is_official_agent = (
+            str(integrated_agent.agent.uuid) == settings.ORDER_STATUS_AGENT_UUID
+        )
+        is_custom_agent = integrated_agent.parent_agent_uuid is not None
+
+        print(f"is_official_agent: {is_official_agent}")
+        print(f"is_custom_agent: {is_custom_agent}")
+
+        is_order_status_agent = is_official_agent or is_custom_agent
+        print(f"is_order_status_agent: {is_order_status_agent}")
 
         if is_order_status_agent:
             cache_key = f"order_status_agent_{str(integrated_agent.project.uuid)}"
+            print(f"Cache key to delete: {cache_key}")
+
+            # Check if cache exists before deleting
+            cache_value = cache.get(cache_key)
+            print(f"Cache value before delete: {cache_value is not None}")
+
             cache.delete(cache_key)
+            print("Cache deleted successfully")
+
+            # Verify cache was deleted
+            cache_value_after = cache.get(cache_key)
+            print(f"Cache value after delete: {cache_value_after is not None}")
+
             logger.info(
                 f"Cleared order status cache for agent {integrated_agent.uuid} with key: {cache_key}"
             )
+        else:
+            print("Agent is NOT an order status agent, skipping cache clear")
+
+        print("=== DEBUG _clear_order_status_cache END ===")
