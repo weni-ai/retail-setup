@@ -36,7 +36,7 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
 
         self.assertEqual(result, self.mock_integrated_agent)
         mock_cache.get.assert_called_once_with(
-            f"integrated_agent_test-agent-uuid_{str(self.mock_project.uuid)}"
+            f"order_status_agent_{str(self.mock_project.uuid)}"
         )
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
@@ -59,7 +59,7 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
             is_active=True,
         )
         mock_cache.set.assert_called_once_with(
-            f"integrated_agent_test-agent-uuid_{str(self.mock_project.uuid)}",
+            f"order_status_agent_{str(self.mock_project.uuid)}",
             mock_obj,
             timeout=21600,
         )

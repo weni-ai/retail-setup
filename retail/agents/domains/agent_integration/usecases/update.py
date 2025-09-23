@@ -46,7 +46,6 @@ class UpdateIntegratedAgentUseCase:
     def execute(
         self, integrated_agent: IntegratedAgent, data: UpdateIntegratedAgentData
     ) -> IntegratedAgent:
-        print("integrated_agent: 00000000000000000")
         if "contact_percentage" in data:
             contact_percentage = data.get("contact_percentage")
 
@@ -54,7 +53,7 @@ class UpdateIntegratedAgentUseCase:
                 raise ValidationError({"contact_percentage": "Invalid percentage"})
 
             integrated_agent.contact_percentage = contact_percentage
-        print("integrated_agent: 11111111111111111")
+
         if "global_rule" in data:
             global_rule = data.get("global_rule")
 
@@ -71,15 +70,15 @@ class UpdateIntegratedAgentUseCase:
 
             integrated_agent.global_rule_code = global_rule_code
             integrated_agent.global_rule_prompt = global_rule_prompt
-        print("integrated_agent: 22222222222222222")
+
         integrated_agent.save()
 
         # Clear the webhook cache (30 seconds)
         self.cache_handler.clear_cached_agent(integrated_agent.uuid)
-        print("integrated_agent: 33333333333333333")
+
         # Clear the order status cache (6 hours) if this is an order status agent
         self._clear_order_status_cache(integrated_agent)
-        print("integrated_agent: 44444444444444444")
+
         return integrated_agent
 
     def _clear_order_status_cache(self, integrated_agent: IntegratedAgent) -> None:
@@ -88,42 +87,18 @@ class UpdateIntegratedAgentUseCase:
 
         This cache is used in AgentOrderStatusUpdateUsecase and has a 6-hour timeout.
         """
-        print("Clearing order status cache XXXXXXXXXXXXXXXXXXXX")
         if not settings.ORDER_STATUS_AGENT_UUID:
-            print("ORDER_STATUS_AGENT_UUID not set, skipping cache clear.")
             return
 
         # Check if this is an order status agent (official or custom with parent_agent_uuid)
-        print(f"ORDER_STATUS_AGENT_UUID from settings: {settings.ORDER_STATUS_AGENT_UUID}")
-        print(f"integrated_agent.agent.uuid: {integrated_agent.agent.uuid}")
-        print(f"integrated_agent.parent_agent_uuid: {integrated_agent.parent_agent_uuid}")
-        
-        # Check official agent
-        is_official_agent = str(integrated_agent.agent.uuid) == settings.ORDER_STATUS_AGENT_UUID
-        print(f"is_official_agent: {is_official_agent}")
-        
-        # Check custom agent with parent_agent_uuid
-        is_custom_agent = (
-            integrated_agent.parent_agent_uuid and 
-            str(integrated_agent.parent_agent_uuid) == settings.ORDER_STATUS_AGENT_UUID
+        is_order_status_agent = (
+            str(integrated_agent.agent.uuid) == settings.ORDER_STATUS_AGENT_UUID
+            or integrated_agent.parent_agent_uuid is not None
         )
-        print(f"is_custom_agent: {is_custom_agent}")
-        
-        is_order_status_agent = is_official_agent or is_custom_agent
-        print("is_order_status_agent: YYYYYYYYYYYYYYY ", is_order_status_agent)
 
         if is_order_status_agent:
-            cache_key = f"integrated_agent_{settings.ORDER_STATUS_AGENT_UUID}_{str(integrated_agent.project.uuid)}"
-            cache_value = cache.get(cache_key)
-            if cache_value is not None:
-                print(f"Cache found for key: {cache_key}. Proceeding to clear.")
-                cache.delete(cache_key)
-                print(f"Cache cleared for key: {cache_key}")
-                logger.info(
-                    f"Cleared order status cache for agent {integrated_agent.uuid} with key: {cache_key}"
-                )
-            else:
-                print(f"No cache found for key: {cache_key}. Nothing to clear.")
-                logger.info(
-                    f"No order status cache found for agent {integrated_agent.uuid} with key: {cache_key}"
-                )
+            cache_key = f"order_status_agent_{str(integrated_agent.project.uuid)}"
+            cache.delete(cache_key)
+            logger.info(
+                f"Cleared order status cache for agent {integrated_agent.uuid} with key: {cache_key}"
+            )

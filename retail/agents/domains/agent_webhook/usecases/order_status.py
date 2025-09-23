@@ -62,9 +62,7 @@ class AgentOrderStatusUpdateUsecase:
             logger.warning("ORDER_STATUS_AGENT_UUID is not set in settings.")
             return None
 
-        cache_key = (
-            f"integrated_agent_{settings.ORDER_STATUS_AGENT_UUID}_{str(project.uuid)}"
-        )
+        cache_key = f"order_status_agent_{str(project.uuid)}"
         integrated_agent = cache.get(cache_key)
 
         if integrated_agent:
