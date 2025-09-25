@@ -366,8 +366,9 @@ class IntegrationsService:
                 "language": language,
             }
 
-        data = self.client.fetch_templates_from_user(app_uuid, project_uuid)
-        templates = filter(lambda obj: obj.get("name") in templates_names, data)
+        templates = self.client.fetch_templates_from_user(
+            app_uuid, project_uuid, templates_names
+        )
 
         translations_by_name = {}
 
