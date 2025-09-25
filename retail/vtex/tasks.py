@@ -1,5 +1,7 @@
 import logging
+from datetime import timedelta
 
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from celery import shared_task
@@ -8,6 +10,7 @@ from retail.agents.domains.agent_webhook.usecases.order_status import (
     AgentOrderStatusUpdateUsecase,
 )
 from retail.interfaces.clients.aws_lambda.client import RequestData
+from retail.vtex.models import Cart
 from retail.vtex.usecases.cart_abandonment import CartAbandonmentUseCase
 from retail.vtex.usecases.handle_purchase_event import HandlePurchaseEventUseCase
 from retail.webhooks.vtex.usecases.order_status import OrderStatusUseCase
@@ -111,3 +114,15 @@ def task_order_status_agent_webhook(
 def handle_purchase_event_task(order_id: str, project_uuid: str):
     use_case = HandlePurchaseEventUseCase()
     use_case.execute(order_id=order_id, project_uuid=project_uuid)
+
+
+@shared_task(name="task_cleanup_old_carts")
+def task_cleanup_old_carts():
+    try:
+        # Delete all Cart records older than 15 days
+        time_threshold = timezone.now() - timedelta(days=15)
+        Cart.objects.filter(created_on__lt=time_threshold).delete()
+
+        logger.info("Old cart records have been cleaned up.")
+    except Exception as e:
+        logger.error(f"Error cleaning up old cart records: {str(e)}", exc_info=True)
