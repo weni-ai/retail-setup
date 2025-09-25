@@ -1,3 +1,14 @@
+# 3.19.0
+
+## *Feature*
+  - feat: ensure unique UUID for projects and improve message consumption logging
+  - feat: add parent_agent_uuid field to IntegratedAgent model and update order status use case logic
+  - feat: add Celery Beat schedule for cleaning up old carts
+  - refactor: fetch_templates_from_user
+
+## *Fix*
+  - fix: Use direct imports in template model
+
 # 3.18.6
 
 ## *Feature*
