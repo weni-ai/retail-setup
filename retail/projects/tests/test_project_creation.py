@@ -77,12 +77,12 @@ class TestProjectCreationUseCase(TestCase):
         """
         Test that attempting to create/update a project with duplicate VTEX accounts raises an error
         """
-        # Create duplicate projects with same VTEX account
-        uuid = str(uuid4())
-        for _ in range(2):
+        # Create multiple projects with same VTEX account (different UUIDs to respect unique constraint)
+        # This simulates a data inconsistency scenario where multiple projects have the same vtex_account
+        for i in range(2):
             Project.objects.create(
-                name="Duplicate VTEX Project",
-                uuid=uuid,
+                name=f"Duplicate VTEX Project {i+1}",
+                uuid=str(uuid4()),
                 organization_uuid=self.vtex_project_dto.organization_uuid,
                 vtex_account=self.vtex_project_dto.vtex_account,
             )
