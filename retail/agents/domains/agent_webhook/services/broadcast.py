@@ -208,51 +208,95 @@ class Broadcast:
         lambda_data: Optional[Dict[str, Any]] = None,
     ):
         """Send broadcast message via flows service."""
+        project_uuid = str(integrated_agent.project.uuid)
+        vtex_account = integrated_agent.project.vtex_account
+        template_name = (
+            message.get("msg", {}).get("template", {}).get("name", "unknown")
+        )
+
         response = self.flows_service.send_whatsapp_broadcast(message)
         self._register_broadcast_event(message, response, integrated_agent, lambda_data)
-        logger.info(f"Broadcast message sent: {response}")
+        logger.info(
+            f"Broadcast message sent. "
+            f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
+            f"Template: {template_name}, Response: {response}"
+        )
 
     def get_current_template(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> Optional[str | bool]:
         """Get current template name from integrated agent templates."""
         template_name = data.get("template")
+        project_uuid = str(integrated_agent.project.uuid)
+        vtex_account = integrated_agent.project.vtex_account
+
         try:
             template = integrated_agent.templates.get(
                 name=template_name, is_active=True
             )
             if template.current_version is None:
-                logger.info(f"Template {template_name} has no current version.")
+                logger.info(
+                    f"Template {template_name} has no current version. "
+                    f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
+                    f"Data: {data}"
+                )
                 return False
             return template
         except Template.DoesNotExist:
+            logger.warning(
+                f"Template {template_name} does not exist in database. "
+                f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
+                f"Data: {data}"
+            )
             return None
 
     def build_message(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """Build broadcast message from lambda response data."""
-        logger.info("Retrieving current template name.")
+        project_uuid = str(integrated_agent.project.uuid)
+        vtex_account = integrated_agent.project.vtex_account
+        template_name = data.get("template", "unknown")
+
+        logger.info(
+            f"Retrieving current template name. "
+            f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
+            f"Template: {template_name}, Data: {data}"
+        )
         template = self.get_current_template(integrated_agent, data)
 
         if template is False:
             logger.info(
-                "Could not build message because template has no current version."
+                f"Could not build message because template has no current version. "
+                f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
+                f"Template: {template_name}, Data: {data}"
             )
             return
 
         if template is None:
-            logger.error(f"Template not found: {template}")
+            logger.error(
+                f"Template not found. "
+                f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
+                f"Template: {template_name}, Data: {data}"
+            )
             return
 
-        logger.info("Building broadcast template message.")
+        logger.info(
+            f"Building broadcast template message. "
+            f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
+            f"Template: {template_name}, Data: {data}"
+        )
         message = self.build_broadcast_template_message(
             data=data,
             channel_uuid=str(integrated_agent.channel_uuid),
-            project_uuid=str(integrated_agent.project.uuid),
+            project_uuid=project_uuid,
             template=template,
         )
-        logger.info(f"Broadcast template message built: {message}")
+        logger.info(
+            f"Broadcast template message built. "
+            f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
+            f"Template: {template_name}, Message: {message}"
+        )
         return message
 
     def _register_broadcast_event(
