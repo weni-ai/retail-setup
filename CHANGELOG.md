@@ -1,3 +1,8 @@
+# 3.19.1
+
+## *Feature*
+  - feat: add logs to broadcast service
+
 # 3.19.0
 
 ## *Feature*
