@@ -1,3 +1,8 @@
+# 3.19.2
+
+## *Feature*
+  - feat: add configuration to ignore empty carts for specific projects
+
 # 3.19.1
 
 ## *Feature*
