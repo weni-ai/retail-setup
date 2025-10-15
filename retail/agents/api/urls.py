@@ -8,6 +8,8 @@ from retail.agents.domains.agent_integration.views import (
     AssignAgentView,
     UnassignAgentView,
     IntegratedAgentViewSet,
+    DevEnvironmentConfigView,
+    DevEnvironmentRunView,
 )
 from retail.agents.domains.agent_webhook.views import AgentWebhookView
 
@@ -25,6 +27,16 @@ urlpatterns = [
     ),
     path(
         "webhook/<uuid:webhook_uuid>/", AgentWebhookView.as_view(), name="agent-webhook"
+    ),
+    path(
+        "assigneds/<uuid:pk>/dev-environment/config/",
+        DevEnvironmentConfigView.as_view(),
+        name="dev-environment-config",
+    ),
+    path(
+        "assigneds/<uuid:pk>/dev-environment/run/",
+        DevEnvironmentRunView.as_view(),
+        name="dev-environment-run",
     ),
 ]
 
