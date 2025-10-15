@@ -11,6 +11,7 @@ from retail.clients.exceptions import CustomAPIException
 from retail.vtex.usecases.base import BaseVtexUseCase
 from datetime import timedelta
 from django.utils import timezone
+from django.conf import settings
 
 from retail.webhooks.vtex.utils import PhoneNotificationLockService
 
@@ -72,10 +73,26 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
             )
 
             if not order_form.get("items", []):
-                # Mark cart as empty if no items are found
-                self._update_cart_status(cart, "empty")
-                logger.info(f"Cart {cart_uuid} is empty - marking as empty")
-                return
+                # Check if this project should ignore empty cart validation
+                project_uuid = str(cart.project.uuid)
+                ignore_empty_carts_projects = getattr(
+                    settings, "IGNORE_EMPTY_CARTS_FOR_PROJECTS", []
+                )
+
+                if project_uuid in ignore_empty_carts_projects:
+                    logger.info(
+                        f"Cart {cart_uuid} is empty but project {project_uuid} "
+                        f"(VTEX: {cart.project.vtex_account}) is configured to ignore empty carts - "
+                        "continuing processing"
+                    )
+                    # Continue processing instead of marking as empty
+                else:
+                    # Mark cart as empty if no items are found (original behavior)
+                    self._update_cart_status(cart, "empty")
+                    logger.info(
+                        f"Cart {cart_uuid} is empty - marking as empty (VTEX: {cart.project.vtex_account})"
+                    )
+                    return
 
             # Save cart items
             self._save_cart_items(cart, order_form)

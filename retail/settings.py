@@ -324,6 +324,12 @@ JWT_SECRET_KEY = env.str("JWT_SECRET_KEY", default="")
 # Datalake server address
 DATALAKE_SERVER_ADDRESS = env.str("DATALAKE_SERVER_ADDRESS", default="")
 
+# Temporary configuration to ignore empty carts for specific projects
+# This allows projects to bypass empty cart validation during cart abandonment processing
+IGNORE_EMPTY_CARTS_FOR_PROJECTS = env.list(
+    "IGNORE_EMPTY_CARTS_FOR_PROJECTS", default=[]
+)
+
 # APM
 
 USE_ELASTIC_APM = env.bool("USE_ELASTIC_APM", default=False)
