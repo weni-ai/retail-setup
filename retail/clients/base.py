@@ -62,6 +62,12 @@ class RequestClient:
                 detail = response.text
             raise CustomAPIException(detail=detail, status_code=response.status_code)
 
+        # Handle empty responses to prevent JSON parsing errors
+        if not response.text.strip():
+            # Create a mock response object with empty JSON content
+            response._content = b"{}"
+            response.encoding = "utf-8"
+
         return response
 
     def _generate_log(self, response, url, method, headers, json, data, params, files):

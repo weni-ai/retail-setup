@@ -5,6 +5,13 @@ from django.conf import settings
 from retail.templates.serializers import ReadTemplateSerializer
 
 
+class DeliveredOrderTrackingEnableSerializer(serializers.Serializer):
+    """Serializer for enabling delivered order tracking."""
+
+    vtex_app_key = serializers.CharField(max_length=100, required=True)
+    vtex_app_token = serializers.CharField(max_length=200, required=True)
+
+
 class RetrieveIntegratedAgentQueryParamsSerializer(serializers.Serializer):
     show_all = serializers.BooleanField(required=False, default=False)
     start = serializers.DateField(required=False, default=None)
@@ -24,6 +31,9 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
     description = serializers.SerializerMethodField("get_description")
     contact_percentage = serializers.IntegerField()
     global_rule_prompt = serializers.CharField()
+    delivered_order_tracking_config = serializers.SerializerMethodField(
+        "get_delivered_order_tracking_config"
+    )
 
     def get_webhook_url(self, obj):
         domain_url = settings.DOMAIN
@@ -34,3 +44,15 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
 
     def get_templates(self, obj):
         return ReadTemplateSerializer(obj.templates.all(), many=True).data
+
+    def get_delivered_order_tracking_config(self, obj):
+        """Get delivered order tracking configuration from agent config."""
+        # Get the configuration data directly from the agent config
+        tracking_config = obj.config.get(
+            "delivered_order_tracking", {"is_enabled": False}
+        )
+
+        return {
+            "is_enabled": tracking_config.get("is_enabled", False),
+            "webhook_url": tracking_config.get("webhook_url", ""),
+        }
