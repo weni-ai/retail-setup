@@ -3,6 +3,7 @@ from rest_framework import serializers
 from django.conf import settings
 
 from retail.templates.serializers import ReadTemplateSerializer
+from retail.agents.domains.agent_management.usecases.push import PushAgentUseCase
 
 
 class DeliveredOrderTrackingEnableSerializer(serializers.Serializer):
@@ -34,6 +35,9 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
     delivered_order_tracking_config = serializers.SerializerMethodField(
         "get_delivered_order_tracking_config"
     )
+    has_delivered_order_templates = serializers.SerializerMethodField(
+        "get_has_delivered_order_templates"
+    )
 
     def get_webhook_url(self, obj):
         domain_url = settings.DOMAIN
@@ -56,3 +60,7 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
             "is_enabled": tracking_config.get("is_enabled", False),
             "webhook_url": tracking_config.get("webhook_url", ""),
         }
+
+    def get_has_delivered_order_templates(self, obj):
+        """Check if the agent has delivered order templates."""
+        return PushAgentUseCase.has_delivered_order_templates(obj.agent)

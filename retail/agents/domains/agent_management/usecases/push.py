@@ -20,6 +20,9 @@ from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
 from retail.projects.models import Project
 
+from retail.templates.models import Template
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -119,10 +122,32 @@ class PushAgentUseCase:
 
         return f"retail-setup-{hash_13_digits}"
 
+    def _is_delivered_order_template(self, rule_slug: str, rule: RuleItemsData) -> bool:
+        """
+        Detect if a template is related to delivered order tracking.
+
+        Args:
+            rule_slug: The slug/key of the rule (e.g., "OrderDelivered")
+            rule: Rule data containing template information
+
+        Returns:
+            bool: True if template is for delivered order tracking
+        """
+        # Detection based on standardized rule slug
+        return rule_slug.lower() == "orderdelivered"
+
     def _update_or_create_pre_approved_templates(
         self, agent: Agent, agent_payload: AgentItemsData
     ) -> None:
         for slug, rule in agent_payload["rules"].items():
+            # Detect if this is a delivered order template
+            is_delivered_order = self._is_delivered_order_template(slug, rule)
+
+            # Prepare config
+            config = {}
+            if is_delivered_order:
+                config["is_delivered_order_template"] = True
+
             PreApprovedTemplate.objects.update_or_create(
                 slug=slug,
                 agent=agent,
@@ -130,8 +155,40 @@ class PushAgentUseCase:
                     "name": rule.get("template"),
                     "start_condition": rule.get("start_condition"),
                     "display_name": rule.get("display_name"),
+                    "config": config,
                 },
             )
+
+            # Log if delivered order template was detected
+            if is_delivered_order:
+                logger.info(
+                    f"Delivered order template detected for agent {agent.uuid}: "
+                    f"rule_slug='{slug}', template='{rule.get('template')}', "
+                    f"display_name='{rule.get('display_name')}'"
+                )
+
+    @staticmethod
+    def has_delivered_order_templates(agent: Agent) -> bool:
+        """
+        Check if an agent has any delivered order templates.
+
+        Args:
+            agent: Agent instance to check
+
+        Returns:
+            bool: True if agent has delivered order templates
+        """
+        # Check PreApprovedTemplate (for unassigned agents)
+        pre_approved_exists = agent.templates.filter(
+            config__is_delivered_order_template=True
+        ).exists()
+
+        # Check Template (for assigned agents)
+        template_exists = Template.objects.filter(
+            parent__agent=agent, config__is_delivered_order_template=True
+        ).exists()
+
+        return pre_approved_exists or template_exists
 
     @transaction.atomic
     def execute(

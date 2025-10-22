@@ -34,6 +34,7 @@ class Template(models.Model):
     start_condition = models.TextField(null=True, blank=True)
     display_name = models.TextField(null=True, blank=True)
     variables = models.JSONField(default=list, blank=True)
+    config = models.JSONField(default=dict, blank=True)
 
     @property
     def is_custom(self) -> bool:
