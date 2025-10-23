@@ -454,6 +454,10 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
     def test_partial_update_missing_user_email_query_param(self):
         """Test partial update fails when user_email parameter is missing"""
         self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=403,
+            permissions=ConnectServicePermissionScenarios.NO_PERMISSIONS,
+        )
 
         update_data = {"contact_percentage": 20}
 

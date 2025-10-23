@@ -206,6 +206,11 @@ class UnassignAgentViewTest(BaseTestMixin, APITestCase):
 
     def test_unassign_agent_missing_user_email(self):
         """Test unassignment fails when user_email parameter is missing"""
+        self.setup_connect_service_mock(
+            status_code=403,
+            permissions=ConnectServicePermissionScenarios.NO_PERMISSIONS,
+        )
+
         response = self._make_unassign_request(self.agent_oficial.uuid)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

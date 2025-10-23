@@ -64,9 +64,18 @@ class HasProjectPermissionTest(TestCase):
         django_request = self.factory.get("/", HTTP_PROJECT_UUID="test-uuid")
         request = self._make_drf_request(django_request, user=self.user)
 
+        # Configure mock to return 403 when user_email is None
+        self.mock_connect_service.get_user_permissions.return_value = (
+            403,
+            {"error": "User not found"},
+        )
+
         result = self.permission.has_permission(request, None)
 
         self.assertFalse(result)
+        self.mock_connect_service.get_user_permissions.assert_called_once_with(
+            "test-uuid", self.user.email
+        )
 
     def test_internal_user_with_user_email_success(self):
         """Test successful internal user permission check"""

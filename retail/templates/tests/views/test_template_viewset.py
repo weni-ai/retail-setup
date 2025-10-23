@@ -650,6 +650,10 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
     def test_missing_user_email_query_param_returns_403(self):
         """Test that missing user_email query parameter returns 403 Forbidden"""
         self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=403,
+            permissions=ConnectServicePermissionScenarios.NO_PERMISSIONS,
+        )
 
         payload = {
             "template_translation": {"en": {"text": "Hello"}},

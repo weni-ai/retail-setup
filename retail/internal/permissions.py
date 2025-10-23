@@ -73,7 +73,9 @@ class HasProjectPermission(permissions.BasePermission):
         is_internal_user = user.has_perm("auth.can_communicate_internally")
 
         if is_internal_user:
-            user_email = request.query_params.get("user_email")
+            email_from_params = request.query_params.get("user_email")
+
+            user_email = email_from_params if email_from_params else user.email
             if user_email is None:
                 return False
 
