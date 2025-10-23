@@ -37,8 +37,8 @@ from retail.agents.domains.agent_integration.usecases.update import (
 )
 from retail.agents.domains.agent_integration.usecases.delivered_order_tracking import (
     DeliveredOrderTrackingConfigUseCase,
-    DeliveredOrderTrackingWebhookUseCase,
 )
+from retail.agents.tasks import task_delivered_order_tracking_webhook
 
 from retail.internal.permissions import HasProjectPermission
 
@@ -286,29 +286,29 @@ class DeliveredOrderTrackingWebhookView(APIView):
         Returns:
             HTTP response confirming receipt
         """
-        webhook_use_case = DeliveredOrderTrackingWebhookUseCase()
+        # Check if this is a VTEX ping request
+        if request.data.get("hookConfig") == "ping":
+            logger.info(
+                f"VTEX ping received for delivered order tracking webhook - agent {pk}"
+            )
+            return Response({"message": "Webhook available"}, status=status.HTTP_200_OK)
 
+        # For actual webhook notifications, process asynchronously
         try:
-            # Get integrated agent (use case handles NotFound exception)
-            integrated_agent = webhook_use_case.get_integrated_agent(pk)
-
-            # Process webhook notification (use case handles validation and business logic)
-            result = webhook_use_case.process_webhook_notification(
-                integrated_agent, request.data
+            # Queue the webhook processing task
+            task_delivered_order_tracking_webhook.apply_async(
+                args=[pk, request.data],
+                queue="vtex-io-orders-update-events",
             )
 
-            return Response(result, status=status.HTTP_200_OK)
-
-        except ValidationError as e:
-            logger.warning(
-                f"Validation error in delivered order tracking webhook for agent {pk}: {e}"
+            logger.info(
+                f"Delivered order tracking webhook queued for processing - agent {pk}"
             )
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"message": "Webhook received"}, status=status.HTTP_200_OK)
+
         except Exception as e:
             logger.exception(
-                f"Unexpected error processing delivered order tracking webhook for agent {pk}: {e}"
+                f"Error queuing delivered order tracking webhook for agent {pk}: {e}"
             )
-            return Response(
-                {"error": "Internal server error"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+
+            return Response({"message": "Webhook received"}, status=status.HTTP_200_OK)
