@@ -213,11 +213,6 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
     )
     def test_missing_user_email(self, mock_integrations_service_class):
         """Test behavior when user_email is not provided"""
-        self.setup_connect_service_mock(
-            status_code=403,
-            permissions=ConnectServicePermissionScenarios.NO_PERMISSIONS,
-        )
-
         mock_integrations_service_class.return_value = (
             self._setup_integrations_service_mock()
         )

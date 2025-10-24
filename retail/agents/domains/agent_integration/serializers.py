@@ -58,6 +58,7 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
 
         return {
             "is_enabled": tracking_config.get("is_enabled", False),
+            "vtex_app_key": tracking_config.get("vtex_app_key", ""),
             "webhook_url": tracking_config.get("webhook_url", ""),
         }
 
