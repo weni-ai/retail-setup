@@ -335,6 +335,7 @@ class DeliveredOrderTrackingWebhookUseCase:
 
             # Create OrderStatusDTO with "delivered" status
             order_status_dto = OrderStatusDTO(
+                recorder=webhook_data.get("Origin", {}),
                 domain="OrdersDocumentUpdated",
                 orderId=webhook_data.get("OrderId"),
                 currentState="delivered",  # Force delivered status
