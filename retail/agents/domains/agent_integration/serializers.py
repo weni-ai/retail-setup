@@ -63,5 +63,7 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
         }
 
     def get_has_delivered_order_templates(self, obj):
-        """Check if the agent has delivered order templates."""
-        return PushAgentUseCase.has_delivered_order_templates(obj.agent)
+        """Check if the integrated agent has delivered order templates."""
+        return PushAgentUseCase.has_delivered_order_templates_by_integrated_agent(
+            str(obj.uuid)
+        )
