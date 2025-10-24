@@ -340,8 +340,8 @@ class DeliveredOrderTrackingWebhookUseCase:
                 currentState="delivered",  # Force delivered status
                 lastState=webhook_data.get("State"),  # Original state
                 vtexAccount=vtex_account,
-                lastChange=webhook_data.get("LastChange"),
-                currentChange=webhook_data.get("CurrentChange"),
+                lastChangeDate=webhook_data.get("LastChange"),
+                currentChangeDate=webhook_data.get("CurrentChange"),
             )
 
             logger.info(
