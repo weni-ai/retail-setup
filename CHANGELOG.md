@@ -1,3 +1,8 @@
+# 3.20.1
+
+## *Fix*
+  - fix: adjust method to check integrated delivered order template
+
 # 3.20.0
 
 ## *Feature*
