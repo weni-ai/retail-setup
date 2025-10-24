@@ -1,8 +1,12 @@
 import logging
 from typing import Dict, Any
-from uuid import UUID
 
 from celery import shared_task
+
+from retail.agents.domains.agent_integration.usecases.delivered_order_tracking import (
+    DeliveredOrderTrackingWebhookUseCase,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -23,19 +27,11 @@ def task_delivered_order_tracking_webhook(
             f"Processing delivered order tracking webhook task for agent {integrated_agent_uuid}"
         )
 
-        # Import here to avoid Django app registry issues
-        from retail.agents.domains.agent_integration.usecases.delivered_order_tracking import (
-            DeliveredOrderTrackingWebhookUseCase,
-        )
-
-        # Convert string UUID back to UUID object
-        agent_uuid = UUID(integrated_agent_uuid)
-
         # Initialize use case
         webhook_use_case = DeliveredOrderTrackingWebhookUseCase()
 
         # Get integrated agent
-        integrated_agent = webhook_use_case.get_integrated_agent(agent_uuid)
+        integrated_agent = webhook_use_case.get_integrated_agent(integrated_agent_uuid)
 
         # Process webhook notification
         result = webhook_use_case.process_webhook_notification(
