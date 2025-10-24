@@ -335,13 +335,14 @@ class DeliveredOrderTrackingWebhookUseCase:
 
             # Create OrderStatusDTO with "delivered" status
             order_status_dto = OrderStatusDTO(
+                recorder={},
                 domain="OrdersDocumentUpdated",
                 orderId=webhook_data.get("OrderId"),
                 currentState="delivered",  # Force delivered status
                 lastState=webhook_data.get("State"),  # Original state
-                vtexAccount=vtex_account,
-                lastChangeDate=webhook_data.get("LastChange"),
                 currentChangeDate=webhook_data.get("CurrentChange"),
+                lastChangeDate=webhook_data.get("LastChange"),
+                vtexAccount=vtex_account,
             )
 
             logger.info(

@@ -190,6 +190,33 @@ class PushAgentUseCase:
 
         return pre_approved_exists or template_exists
 
+    @staticmethod
+    def has_delivered_order_templates_by_integrated_agent(
+        integrated_agent_uuid: str,
+    ) -> bool:
+        """
+        Check if an integrated agent has any integrated delivered order templates.
+
+        A template is considered integrated when it has a current_version with APPROVED status,
+        meaning it's been successfully integrated and can be used.
+
+        Args:
+            integrated_agent_uuid: UUID of the integrated agent to check
+
+        Returns:
+            bool: True if integrated agent has integrated delivered order templates
+        """
+        # Check Template (for assigned agents) - only integrated templates with approved version
+        template_exists = Template.objects.filter(
+            integrated_agent__uuid=integrated_agent_uuid,
+            config__is_delivered_order_template=True,
+            current_version__isnull=False,  # Must have current_version (integrated)
+            current_version__status="APPROVED",  # Must have approved version
+            is_active=True,
+        ).exists()
+
+        return template_exists
+
     @transaction.atomic
     def execute(
         self, payload: PushAgentData, files: Dict[str, UploadedFile]
