@@ -1,3 +1,8 @@
+# 3.20.2
+
+## *Fix*
+  - fix: unify template search by name and version_name in get_current_template
+
 # 3.20.1
 
 ## *Fix*
