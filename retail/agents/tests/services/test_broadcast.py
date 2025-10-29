@@ -6,8 +6,6 @@ from uuid import uuid4
 
 from retail.agents.domains.agent_webhook.services.broadcast import Broadcast
 
-from retail.templates.models import Template
-
 
 class BroadcastHandlerTest(TestCase):
     """Test cases for BroadcastHandler service functionality."""
@@ -111,18 +109,22 @@ class BroadcastHandlerTest(TestCase):
         data = {"template": "order_update"}
         mock_template = MagicMock()
         mock_template.current_version.template_name = "order_update_v2"
-        self.mock_agent.templates.get.return_value = mock_template
+        mock_template.current_version.status = "APPROVED"
+
+        mock_filter = MagicMock()
+        mock_filter.first.return_value = mock_template
+        self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         result = self.handler.get_current_template(self.mock_agent, data)
 
         self.assertEqual(result, mock_template)
-        self.mock_agent.templates.get.assert_called_once_with(
-            name="order_update", is_active=True
-        )
+        self.mock_agent.templates.filter.assert_called_once()
 
     def test_get_current_template_name_not_found(self):
         data = {"template": "non_existent_template"}
-        self.mock_agent.templates.get.side_effect = Template.DoesNotExist()
+        mock_filter = MagicMock()
+        mock_filter.first.return_value = None
+        self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         result = self.handler.get_current_template(self.mock_agent, data)
 
@@ -130,16 +132,14 @@ class BroadcastHandlerTest(TestCase):
 
     def test_get_current_template_name_no_current_version(self):
         data = {"template": "order_update"}
-        mock_template = MagicMock()
-        mock_template.current_version = None
-        self.mock_agent.templates.get.return_value = mock_template
+        # Filter returns None when no template matches (because current_version__isnull=False filter)
+        mock_filter = MagicMock()
+        mock_filter.first.return_value = None
+        self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         result = self.handler.get_current_template(self.mock_agent, data)
 
-        self.assertFalse(result)
-        self.mock_agent.templates.get.assert_called_once_with(
-            name="order_update", is_active=True
-        )
+        self.assertIsNone(result)
 
     def test_send_message(self):
         message = {"template": "test", "contact": "whatsapp:123"}
@@ -159,7 +159,11 @@ class BroadcastHandlerTest(TestCase):
         data = {"template": "order_update", "contact_urn": "whatsapp:123"}
         mock_template = MagicMock()
         mock_template.current_version.template_name = "order_update_v2"
-        self.mock_agent.templates.get.return_value = mock_template
+        mock_template.current_version.status = "APPROVED"
+
+        mock_filter = MagicMock()
+        mock_filter.first.return_value = mock_template
+        self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         with patch.object(
             self.handler,
@@ -178,7 +182,9 @@ class BroadcastHandlerTest(TestCase):
 
     def test_build_message_template_not_found(self):
         data = {"template": "non_existent_template"}
-        self.mock_agent.templates.get.side_effect = Template.DoesNotExist()
+        mock_filter = MagicMock()
+        mock_filter.first.return_value = None
+        self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         result = self.handler.build_message(self.mock_agent, data)
 

@@ -6,6 +6,8 @@ from typing import Any, Callable, Dict, Optional
 
 from datetime import datetime
 
+from django.db.models import Q
+
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.services.flows.service import FlowsService
 from retail.templates.models import Template
@@ -225,30 +227,50 @@ class Broadcast:
     def get_current_template(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> Optional[str | bool]:
-        """Get current template name from integrated agent templates."""
+        """
+        Get current template from integrated agent templates.
+
+        Unified search by both Template.name OR Version.template_name to support:
+        - Library templates (official agents): Lambda returns Template.name (e.g., "payment_confirmation_2")
+          → Search matches: Template.name = lambda response
+        - Custom templates (custom agents): Lambda returns Version.template_name (e.g., "weni_payment_approved_12345")
+          → Search matches: Version.template_name = lambda response
+
+        Uses a single query with Q objects to avoid multiple database hits.
+        Only returns templates with APPROVED status and active current_version.
+        """
         template_name = data.get("template")
         project_uuid = str(integrated_agent.project.uuid)
         vtex_account = integrated_agent.project.vtex_account
 
-        try:
-            template = integrated_agent.templates.get(
-                name=template_name, is_active=True
-            )
-            if template.current_version is None:
-                logger.info(
-                    f"Template {template_name} has no current version. "
-                    f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
-                    f"Data: {data}"
-                )
-                return False
-            return template
-        except Template.DoesNotExist:
+        if not template_name:
             logger.warning(
-                f"Template {template_name} does not exist in database. "
+                f"No template name provided in data. "
                 f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
                 f"Data: {data}"
             )
             return None
+
+        # Single unified query: search by Template.name OR Version.template_name
+        # - Library templates (official): match by Template.name
+        # - Custom templates (custom): match by Version.template_name
+        # Only consider templates with approved versions
+        template = integrated_agent.templates.filter(
+            Q(name=template_name) | Q(current_version__template_name=template_name),
+            is_active=True,
+            current_version__isnull=False,
+            current_version__status="APPROVED",
+        ).first()
+
+        if template is None:
+            logger.warning(
+                f"Template {template_name} does not exist in database or has no approved version. "
+                f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
+                f"Data: {data}"
+            )
+            return None
+
+        return template
 
     def build_message(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
