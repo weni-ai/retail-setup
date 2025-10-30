@@ -6,8 +6,6 @@ from typing import Any, Callable, Dict, Optional
 
 from datetime import datetime
 
-from django.db.models import Q
-
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.services.flows.service import FlowsService
 from retail.templates.models import Template
@@ -89,10 +87,11 @@ class Broadcast:
         ]
 
         # Validate required fields before building the message
-        if not template_name or not contact_urn or not variables:
+        # variables are optional; template_name and contact_urn are mandatory
+        if not template_name or not contact_urn:
             logger.error(
                 f"Incomplete message data. "
-                f"Template: {template_name}, URN: {contact_urn}, Variables: {variables}"
+                f"Template: {template_name}, URN: {contact_urn}"
             )
             return {}
 
@@ -104,10 +103,13 @@ class Broadcast:
                 "template": {
                     "locale": language,
                     "name": template_name,
-                    "variables": variables,
                 }
             },
         }
+
+        # Only include variables if provided
+        if variables:
+            message["msg"]["template"]["variables"] = variables
 
         # Optionally add button if provided
         if button:
@@ -230,14 +232,12 @@ class Broadcast:
         """
         Get current template from integrated agent templates.
 
-        Unified search by both Template.name OR Version.template_name to support:
-        - Library templates (official agents): Lambda returns Template.name (e.g., "payment_confirmation_2")
-          → Search matches: Template.name = lambda response
-        - Custom templates (custom agents): Lambda returns Version.template_name (e.g., "weni_payment_approved_12345")
-          → Search matches: Version.template_name = lambda response
+        Expectation: the agent/Lambda must return the stable template base name
+        (Template.name), e.g., "payment_confirmation_2" or "payment_approved".
 
-        Uses a single query with Q objects to avoid multiple database hits.
-        Only returns templates with APPROVED status and active current_version.
+        The lookup uses only Template.name and ensures the template is active and
+        has an APPROVED current_version. Version.template_name is no longer used
+        for matching.
         """
         template_name = data.get("template")
         project_uuid = str(integrated_agent.project.uuid)
@@ -251,12 +251,10 @@ class Broadcast:
             )
             return None
 
-        # Single unified query: search by Template.name OR Version.template_name
-        # - Library templates (official): match by Template.name
-        # - Custom templates (custom): match by Version.template_name
-        # Only consider templates with approved versions
+        # Single query: search by Template.name only
+        # Only consider templates with approved current_version
         template = integrated_agent.templates.filter(
-            Q(name=template_name) | Q(current_version__template_name=template_name),
+            name=template_name,
             is_active=True,
             current_version__isnull=False,
             current_version__status="APPROVED",
@@ -296,7 +294,7 @@ class Broadcast:
             return
 
         if template is None:
-            logger.error(
+            logger.warning(
                 f"Template not found. "
                 f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
                 f"Template: {template_name}, Data: {data}"
