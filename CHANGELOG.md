@@ -1,3 +1,11 @@
+# 3.20.3
+
+## *Feature*
+  - Add beat entrypoint
+
+## *Fix*
+  - fix: remove template_variable from required fields
+
 # 3.20.2
 
 ## *Fix*
