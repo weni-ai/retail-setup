@@ -6,6 +6,7 @@ export LOG_LEVEL=${LOG_LEVEL:-"INFO"}
 export CELERY_APP=${CELERY_APP:-"retail"}
 export CELERY_MAX_WORKERS=${CELERY_MAX_WORKERS:-'4'}
 export HEALTHCHECK_TIMEOUT=${HEALTHCHECK_TIMEOUT:-"10"}
+export CELERY_BEAT_DATABASE_FILE=${CELERY_BEAT_DATABASE_FILE:-"/tmp/beat"}
 
 do_gosu(){
     user="$1"
@@ -53,6 +54,11 @@ elif [[ "celery-worker" == "$1" ]]; then
         -O fair \
         -l "${LOG_LEVEL}" \
         --autoscale=${CELERY_MAX_WORKERS},1
+elif [[ "celery-beat" == "$1" ]]; then
+    do_gosu "${APP_USER}:${APP_GROUP}" exec celery \
+        -A "${CELERY_APP}" --workdir="${PROJECT_PATH}" beat \
+        -l "${LOG_LEVEL}" \
+        -s "${CELERY_BEAT_DATABASE_FILE}"
 elif [[ "healthcheck-celery-worker" == "$1" ]]; then
     celery_queue="celery"
     if [ "${2}" ] ; then
