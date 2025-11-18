@@ -128,6 +128,10 @@ class AgentWebhookUseCase:
         """Execute agent webhook broadcast process."""
         logger.info(f"Executing broadcast for agent: {integrated_agent.uuid}")
 
+        print(
+            f"integrated_agent: {integrated_agent.uuid}, {integrated_agent.parent_agent_uuid}, {integrated_agent.is_active}, {integrated_agent.contact_percentage}"
+        )
+        print(f"should_send_broadcast: {self._should_send_broadcast(integrated_agent)}")
         if not self._should_send_broadcast(integrated_agent):
             logger.info("Broadcast not allowed for this agent.")
             return None

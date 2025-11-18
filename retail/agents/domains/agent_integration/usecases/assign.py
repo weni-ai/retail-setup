@@ -152,24 +152,26 @@ class AssignAgentUseCase:
         logger.info(
             "Fetching user templates in integrations service (non-pre-approved)..."
         )
-
+        print("0000000000000000000")
         template_builder = TemplateBuilderMixin()
         language = integrated_agent.agent.language
-
+        print(f"1111111111111111111 {invalid_pre_approveds}")
         translations_by_name = self.integrations_service.fetch_templates_from_user(
             app_uuid,
             str(project_uuid),
             [pre_approved.name for pre_approved in invalid_pre_approveds],
             language,
         )
-
+        print(f"2222222222222222222 {translations_by_name}")
         logger.info(
             f"Found {len(translations_by_name)} templates in integrations service (non-pre-approved)"
         )
 
         for pre_approved in invalid_pre_approveds:
+            print(f"3333333333333333333 {pre_approved.name}")
             translation = translations_by_name.get(pre_approved.name)
             if translation is not None:
+                print(f"4444444444444444444 {translation}")
                 template, version = template_builder.build_template_and_version(
                     payload={
                         "template_name": pre_approved.name,
@@ -178,6 +180,7 @@ class AssignAgentUseCase:
                     },
                     integrated_agent=integrated_agent,
                 )
+                print(f"5555555555555555555 {template}")
                 template.metadata = translation
                 template.config = pre_approved.config or {}
                 template.parent = pre_approved
