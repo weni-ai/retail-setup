@@ -134,6 +134,7 @@ class AssignAgentUseCase:
                 template.needs_button_edit = True
 
             template.metadata = pre_approved.metadata
+            template.config = pre_approved.config or {}
             template.parent = pre_approved
             template.integrated_agent = integrated_agent
             template.save()
@@ -178,6 +179,7 @@ class AssignAgentUseCase:
                     integrated_agent=integrated_agent,
                 )
                 template.metadata = translation
+                template.config = pre_approved.config or {}
                 template.parent = pre_approved
                 template.start_condition = pre_approved.start_condition
                 template.display_name = pre_approved.display_name

@@ -1,3 +1,31 @@
+# 3.20.3
+
+## *Feature*
+  - Add beat entrypoint
+
+## *Fix*
+  - fix: remove template_variable from required fields
+
+# 3.20.2
+
+## *Fix*
+  - fix: unify template search by name and version_name in get_current_template
+
+# 3.20.1
+
+## *Fix*
+  - fix: adjust method to check integrated delivered order template
+
+# 3.20.0
+
+## *Feature*
+  - feat: implement delivered order tracking functionality
+
+# 3.19.2
+
+## *Feature*
+  - feat: add configuration to ignore empty carts for specific projects
+
 # 3.19.1
 
 ## *Feature*

@@ -87,10 +87,11 @@ class Broadcast:
         ]
 
         # Validate required fields before building the message
-        if not template_name or not contact_urn or not variables:
+        # variables are optional; template_name and contact_urn are mandatory
+        if not template_name or not contact_urn:
             logger.error(
                 f"Incomplete message data. "
-                f"Template: {template_name}, URN: {contact_urn}, Variables: {variables}"
+                f"Template: {template_name}, URN: {contact_urn}"
             )
             return {}
 
@@ -102,10 +103,13 @@ class Broadcast:
                 "template": {
                     "locale": language,
                     "name": template_name,
-                    "variables": variables,
                 }
             },
         }
+
+        # Only include variables if provided
+        if variables:
+            message["msg"]["template"]["variables"] = variables
 
         # Optionally add button if provided
         if button:
@@ -225,30 +229,46 @@ class Broadcast:
     def get_current_template(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> Optional[str | bool]:
-        """Get current template name from integrated agent templates."""
+        """
+        Get current template from integrated agent templates.
+
+        Expectation: the agent/Lambda must return the stable template base name
+        (Template.name), e.g., "payment_confirmation_2" or "payment_approved".
+
+        The lookup uses only Template.name and ensures the template is active and
+        has an APPROVED current_version. Version.template_name is no longer used
+        for matching.
+        """
         template_name = data.get("template")
         project_uuid = str(integrated_agent.project.uuid)
         vtex_account = integrated_agent.project.vtex_account
 
-        try:
-            template = integrated_agent.templates.get(
-                name=template_name, is_active=True
-            )
-            if template.current_version is None:
-                logger.info(
-                    f"Template {template_name} has no current version. "
-                    f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
-                    f"Data: {data}"
-                )
-                return False
-            return template
-        except Template.DoesNotExist:
+        if not template_name:
             logger.warning(
-                f"Template {template_name} does not exist in database. "
+                f"No template name provided in data. "
                 f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
                 f"Data: {data}"
             )
             return None
+
+        # Single query: search by Template.name only
+        # Only consider templates with approved current_version
+        template = integrated_agent.templates.filter(
+            name=template_name,
+            is_active=True,
+            current_version__isnull=False,
+            current_version__status="APPROVED",
+        ).first()
+
+        if template is None:
+            logger.warning(
+                f"Template {template_name} does not exist in database or has no approved version. "
+                f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
+                f"Data: {data}"
+            )
+            return None
+
+        return template
 
     def build_message(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
@@ -274,7 +294,7 @@ class Broadcast:
             return
 
         if template is None:
-            logger.error(
+            logger.warning(
                 f"Template not found. "
                 f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
                 f"Template: {template_name}, Data: {data}"

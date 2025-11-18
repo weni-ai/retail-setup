@@ -3,6 +3,14 @@ from rest_framework import serializers
 from django.conf import settings
 
 from retail.templates.serializers import ReadTemplateSerializer
+from retail.agents.domains.agent_management.usecases.push import PushAgentUseCase
+
+
+class DeliveredOrderTrackingEnableSerializer(serializers.Serializer):
+    """Serializer for enabling delivered order tracking."""
+
+    vtex_app_key = serializers.CharField(max_length=100, required=True)
+    vtex_app_token = serializers.CharField(max_length=200, required=True)
 
 
 class DevEnvironmentConfigSerializer(serializers.Serializer):
@@ -36,6 +44,12 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
     dev_environment_config = serializers.SerializerMethodField(
         "get_dev_environment_config"
     )
+    delivered_order_tracking_config = serializers.SerializerMethodField(
+        "get_delivered_order_tracking_config"
+    )
+    has_delivered_order_templates = serializers.SerializerMethodField(
+        "get_has_delivered_order_templates"
+    )
 
     def get_webhook_url(self, obj):
         domain_url = settings.DOMAIN
@@ -53,3 +67,22 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
             "dev_environment", {"phone_numbers": [], "is_dev_mode": False}
         )
         return DevEnvironmentConfigSerializer(dev_config).data
+
+    def get_delivered_order_tracking_config(self, obj):
+        """Get delivered order tracking configuration from agent config."""
+        # Get the configuration data directly from the agent config
+        tracking_config = obj.config.get(
+            "delivered_order_tracking", {"is_enabled": False}
+        )
+
+        return {
+            "is_enabled": tracking_config.get("is_enabled", False),
+            "vtex_app_key": tracking_config.get("vtex_app_key", ""),
+            "webhook_url": tracking_config.get("webhook_url", ""),
+        }
+
+    def get_has_delivered_order_templates(self, obj):
+        """Check if the integrated agent has delivered order templates."""
+        return PushAgentUseCase.has_delivered_order_templates_by_integrated_agent(
+            str(obj.uuid)
+        )
