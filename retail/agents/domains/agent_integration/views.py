@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from retail.agents.domains.agent_management.models import Agent
+from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.shared.permissions import (
     IsAgentOficialOrFromProjet,
     IsIntegratedAgentFromProject,
@@ -35,12 +36,17 @@ from retail.agents.domains.agent_integration.usecases.update import (
     UpdateIntegratedAgentUseCase,
     UpdateIntegratedAgentData,
 )
+from retail.agents.domains.agent_integration.usecases.dev_environment import (
+    DevEnvironmentConfigUseCase,
+    DevEnvironmentRunUseCase,
+)
 from retail.agents.domains.agent_integration.usecases.delivered_order_tracking import (
     DeliveredOrderTrackingConfigUseCase,
 )
 from retail.agents.tasks import task_delivered_order_tracking_webhook
 
 from retail.internal.permissions import HasProjectPermission
+
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +169,82 @@ class IntegratedAgentViewSet(ViewSet):
         response_serializer = ReadIntegratedAgentSerializer(updated_integrated_agent)
 
         return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
+class DevEnvironmentConfigView(APIView):
+    """View for managing development environment configuration."""
+
+    permission_classes = [
+        IsAuthenticated,
+        HasProjectPermission,
+        IsIntegratedAgentFromProject,
+    ]
+
+    def get(self, request: Request, pk: UUID) -> Response:
+        """Get test environment configuration for an integrated agent."""
+        use_case = DevEnvironmentConfigUseCase()
+
+        try:
+            integrated_agent = use_case.get_integrated_agent(pk)
+        except IntegratedAgent.DoesNotExist:
+            raise NotFound(f"Integrated agent not found: {pk}")
+
+        self.check_object_permissions(request, integrated_agent)
+
+        config_data = use_case.get_dev_config(integrated_agent)
+        return Response(config_data, status=status.HTTP_200_OK)
+
+    def patch(self, request: Request, pk: UUID) -> Response:
+        """Update test environment configuration for an integrated agent."""
+        use_case = DevEnvironmentConfigUseCase()
+
+        try:
+            integrated_agent = use_case.get_integrated_agent(pk)
+        except IntegratedAgent.DoesNotExist:
+            raise NotFound(f"Integrated agent not found: {pk}")
+
+        self.check_object_permissions(request, integrated_agent)
+
+        try:
+            config_data = use_case.update_dev_config(integrated_agent, request.data)
+            return Response(config_data, status=status.HTTP_200_OK)
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class DevEnvironmentRunView(APIView):
+    """View for running development environment."""
+
+    permission_classes = [
+        IsAuthenticated,
+        HasProjectPermission,
+        IsIntegratedAgentFromProject,
+    ]
+
+    def post(self, request: Request, pk: UUID) -> Response:
+        """Run test environment with configured phone numbers."""
+        use_case = DevEnvironmentRunUseCase()
+        config_use_case = DevEnvironmentConfigUseCase()
+
+        try:
+            integrated_agent = config_use_case.get_integrated_agent(pk)
+        except IntegratedAgent.DoesNotExist:
+            raise NotFound(f"Integrated agent not found: {pk}")
+
+        self.check_object_permissions(request, integrated_agent)
+
+        try:
+            # Use request data if provided, otherwise empty dict
+            dev_data = request.data if request.data else {}
+            result = use_case.run_dev_environment(integrated_agent, dev_data)
+            return Response(result, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response(
+                {"error": f"Internal server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class DeliveredOrderTrackingConfigView(APIView):
