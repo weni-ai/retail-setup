@@ -292,7 +292,7 @@ class TestIntegrationsService(TestCase):
         )
 
         self.mock_client.fetch_templates_from_user.assert_called_once_with(
-            self.app_uuid, self.project_uuid
+            self.app_uuid, self.project_uuid, template_names
         )
         self.assertIn("template1", result)
         self.assertEqual(result["template1"]["body"], {"type": "BODY", "text": "Hi"})

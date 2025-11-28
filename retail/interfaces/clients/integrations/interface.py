@@ -49,6 +49,9 @@ class IntegrationsClientInterface(ABC):
 
     @abstractmethod
     def fetch_templates_from_user(
-        self, app_uuid: str, project_uuid: str
+        self,
+        app_uuid: str,
+        project_uuid: str,
+        template_names: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         pass

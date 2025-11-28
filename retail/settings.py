@@ -11,14 +11,18 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 import os
-from pathlib import Path
-
 import environ
 import sentry_sdk
 import urllib
 
+from pathlib import Path
+
 from sentry_sdk.integrations.django import DjangoIntegration
 
+from corsheaders.defaults import default_headers, default_methods
+
+# Celery Beat Schedule
+from celery.schedules import crontab
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -90,6 +94,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -97,7 +102,6 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
 ]
 
@@ -177,7 +181,15 @@ USE_EDA = env.bool("USE_EDA", default=False)
 
 ACTION_TYPES = env.json("ACTION_TYPES", default={})
 
-CORS_ALLOW_ALL_ORIGINS = env.str("CORS_ALLOW_ALL_ORIGINS", default=True)
+# CORS configurations
+
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=False)
+CORS_ALLOW_CREDENTIALS = env.bool("CORS_ALLOW_CREDENTIALS", default=True)
+CORS_ALLOW_HEADERS = env.list("CORS_ALLOW_HEADERS", default=default_headers) + (
+    "project-uuid",
+)
+CORS_ALLOW_METHODS = env.list("CORS_ALLOW_METHODS", default=default_methods)
 
 if USE_EDA:
     EDA_CONSUMERS_HANDLE = "retail.event_driven.handle.handle_consumers"
@@ -222,6 +234,13 @@ CELERY_ACCEPT_CONTENT = ["application/json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+
+CELERY_BEAT_SCHEDULE = {
+    "task-cleanup-old-carts": {
+        "task": "task_cleanup_old_carts",
+        "schedule": crontab(minute=0, hour=2),
+    },
+}
 
 
 # Cache
@@ -305,3 +324,22 @@ JWT_SECRET_KEY = env.str("JWT_SECRET_KEY", default="")
 
 # Datalake server address
 DATALAKE_SERVER_ADDRESS = env.str("DATALAKE_SERVER_ADDRESS", default="")
+
+# Temporary configuration to ignore empty carts for specific projects
+# This allows projects to bypass empty cart validation during cart abandonment processing
+IGNORE_EMPTY_CARTS_FOR_PROJECTS = env.list(
+    "IGNORE_EMPTY_CARTS_FOR_PROJECTS", default=[]
+)
+
+# APM
+
+USE_ELASTIC_APM = env.bool("USE_ELASTIC_APM", default=False)
+
+if USE_ELASTIC_APM:
+    INSTALLED_APPS.append("elasticapm.contrib.django")
+    ELASTIC_APM = {
+        "SERVICE_NAME": env.str("APM_SERVICE_NAME", default="retail"),
+        "SECRET_TOKEN": env.str("APM_SECRET_TOKEN"),
+        "SERVER_URL": env.str("APM_SERVER_URL"),
+        "ENVIRONMENT": env.str("APM_SERVICE_ENVIRONMENT", default="production"),
+    }

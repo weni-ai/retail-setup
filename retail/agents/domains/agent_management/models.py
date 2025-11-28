@@ -33,6 +33,7 @@ class PreApprovedTemplate(models.Model):
     is_valid = models.BooleanField(blank=True, null=True)
     start_condition = models.TextField()
     metadata = models.JSONField(null=True)
+    config = models.JSONField(default=dict)
 
     def __str__(self):
         return f"{self.display_name}/{self.slug}"
