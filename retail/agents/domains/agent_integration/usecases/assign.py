@@ -5,6 +5,7 @@ from typing import List, TypedDict, Mapping, Any, Optional
 from uuid import UUID
 
 from django.db import transaction
+from django.conf import settings
 
 from rest_framework.exceptions import NotFound, ValidationError
 
@@ -18,6 +19,11 @@ from retail.templates.usecases.create_library_template import (
     CreateLibraryTemplateUseCase,
 )
 from retail.templates.usecases._base_template_creator import TemplateBuilderMixin
+from retail.templates.usecases.create_custom_template import (
+    CreateCustomTemplateUseCase,
+    CreateCustomTemplateData,
+)
+from retail.templates.exceptions import CustomTemplateAlreadyExists
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +205,15 @@ class AssignAgentUseCase:
         app_uuid: UUID,
         ignore_templates: List[str],
     ) -> None:
+        """
+        Create templates for the integrated agent based on PreApprovedTemplate.
+
+        Responsibilities:
+        - Valid pre-approved: create library templates and notify integrations
+          (or flag for button edit when buttons are present).
+        - Invalid pre-approved: fetch user's approved translations and adapt them,
+          creating an approved version directly.
+        """
         pre_approveds = pre_approveds.exclude(uuid__in=ignore_templates)
         valid_pre_approveds = pre_approveds.filter(is_valid=True)
         invalid_pre_approveds = pre_approveds.filter(is_valid=False)
@@ -246,6 +261,16 @@ class AssignAgentUseCase:
         credentials: Mapping[str, Any],
         include_templates: List[str],
     ) -> IntegratedAgent:
+        """
+        Assign the agent to the project and materialize its templates.
+
+        Flow:
+        1) Create IntegratedAgent and credentials
+        2) Create templates from the agent's PreApprovedTemplate definitions
+        3) If the agent is the Abandoned Cart agent (ABANDONED_CART_AGENT_UUID),
+           create a default custom template using the custom template flow
+           (lifecycle PENDING -> APPROVED, versioning, etc.).
+        """
         project = self._get_project(project_uuid)
         self._validate_credentials(agent, credentials)
 
@@ -265,4 +290,104 @@ class AssignAgentUseCase:
             integrated_agent, templates, project_uuid, app_uuid, ignore_templates
         )
 
+        # If this is the abandoned cart agent, create a default custom template
+        abandoned_cart_agent_uuid = getattr(settings, "ABANDONED_CART_AGENT_UUID", "")
+        if abandoned_cart_agent_uuid and str(agent.uuid) == abandoned_cart_agent_uuid:
+            self._create_default_abandoned_cart_template(
+                integrated_agent=integrated_agent,
+                project=project,
+                project_uuid=project_uuid,
+                app_uuid=app_uuid,
+            )
+
         return integrated_agent
+
+    def _create_default_abandoned_cart_template(
+        self,
+        integrated_agent: IntegratedAgent,
+        project: Project,
+        project_uuid: UUID,
+        app_uuid: UUID,
+    ) -> None:
+        """
+        Create a default custom template for the abandoned cart agent.
+        Uses the existing custom template flow so the template follows the normal
+        lifecycle (PENDING -> APPROVED, versioning, etc.).
+        For now, the template is created only in pt-BR.
+        TODO: Add support for multiple languages (e.g., en, es) if needed.
+        """
+        try:
+            # Build store domain similar to legacy abandoned cart template creation
+            domain = f"{project.vtex_account}.vtexcommercestable.com.br"
+            button_base_url = f"https://{domain}/checkout?orderFormId="
+            button_url_example = f"{button_base_url}92421d4a70224658acaab0c172f6b6d7"
+
+            # Build translation payload in the format expected by TemplateMetadataHandler
+            template_translation = {
+                "template_body": (
+                    "Olá, {{1}} vimos que você deixou itens no seu carrinho 🛒. "
+                    "\nVamos fechar o pedido e garantir essas ofertas? "
+                    "\n\nClique em Finalizar Pedido para concluir sua compra 👇"
+                ),
+                # Example values for body variables used for preview
+                "template_body_params": ["João"],
+                "template_footer": "Finalizar Pedido",
+                "template_button": [
+                    {
+                        "type": "URL",
+                        "text": "Finalizar Pedido",
+                        "url": {
+                            "base_url": button_base_url,
+                            "url_suffix_example": button_url_example,
+                        },
+                    },
+                    {
+                        "type": "QUICK_REPLY",
+                        "text": "Parar Promoções",
+                    },
+                ],
+                "category": "MARKETING",
+                "language": integrated_agent.agent.language or "pt_BR",
+            }
+
+            payload: CreateCustomTemplateData = {
+                "template_translation": template_translation,
+                "category": "MARKETING",
+                "app_uuid": str(app_uuid),
+                "project_uuid": str(project_uuid),
+                "display_name": "Abandoned Cart",
+                # NOTE: start_condition is derived from parameters by TemplateMetadataHandler
+                "start_condition": "When the cart is evaluated as abandoned",
+                "parameters": [
+                    {
+                        "name": "start_condition",
+                        "value": "When the cart is evaluated as abandoned",
+                    },
+                    {
+                        "name": "variables",
+                        "value": [
+                            {"name": "1", "type": "text"},
+                        ],
+                    },
+                ],
+                "integrated_agent_uuid": integrated_agent.uuid,
+            }
+
+            logger.info(
+                "Creating default custom abandoned cart template for integrated agent %s",
+                integrated_agent.uuid,
+            )
+            use_case = CreateCustomTemplateUseCase()
+            use_case.execute(payload)
+        except CustomTemplateAlreadyExists:
+            logger.info(
+                "Custom abandoned cart template already exists for integrated agent %s",
+                integrated_agent.uuid,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Error while creating default custom abandoned cart template for "
+                "integrated agent %s: %s",
+                integrated_agent.uuid,
+                exc,
+            )
