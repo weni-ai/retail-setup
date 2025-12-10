@@ -274,12 +274,16 @@ class AssignAgentUseCase:
            create a default custom template using the custom template flow
            (lifecycle PENDING -> APPROVED, versioning, etc.).
         """
+        print(
+            f"[AssignAgent] Starting assignment for agent={agent.uuid} project={project_uuid} channel={channel_uuid}"
+        )
         project = self._get_project(project_uuid)
         self._validate_credentials(agent, credentials)
 
         templates = agent.templates.all()
 
         ignore_templates = self._get_ignore_templates(agent, include_templates)
+        print(f"[AssignAgent] ignore_templates computed={ignore_templates}")
 
         integrated_agent = self._create_integrated_agent(
             agent=agent,
@@ -287,15 +291,23 @@ class AssignAgentUseCase:
             channel_uuid=channel_uuid,
             ignore_templates=ignore_templates,
         )
+        print(f"[AssignAgent] integrated_agent created={integrated_agent.uuid}")
 
         self._create_credentials(integrated_agent, agent, credentials)
+        print(
+            f"[AssignAgent] credentials created for integrated_agent={integrated_agent.uuid} keys={list(credentials.keys())}"
+        )
         self._create_templates(
             integrated_agent, templates, project_uuid, app_uuid, ignore_templates
+        )
+        print(
+            f"[AssignAgent] pre-approved templates processed for integrated_agent={integrated_agent.uuid}"
         )
 
         # If this is the abandoned cart agent, create a default custom template
         abandoned_cart_agent_uuid = getattr(settings, "ABANDONED_CART_AGENT_UUID", "")
         if abandoned_cart_agent_uuid and str(agent.uuid) == abandoned_cart_agent_uuid:
+            print(f"[AssignAgent] abandoned cart agent detected={agent.uuid}")
             self._create_default_abandoned_cart_template(
                 integrated_agent=integrated_agent,
                 project=project,
@@ -320,6 +332,9 @@ class AssignAgentUseCase:
         TODO: Add support for multiple languages (e.g., en, es) if needed.
         """
         try:
+            print(
+                f"[AssignAgent] Default custom template flow start for integrated_agent={integrated_agent.uuid}"
+            )
             # Build store domain similar to legacy abandoned cart template creation
             domain = f"{project.vtex_account}.vtexcommercestable.com.br"
             button_base_url = f"https://{domain}/checkout?orderFormId="
@@ -375,6 +390,9 @@ class AssignAgentUseCase:
                 ],
                 "integrated_agent_uuid": integrated_agent.uuid,
             }
+            print(
+                f"[AssignAgent] Custom template payload ready display_name={payload['display_name']} language={template_translation['language']}"
+            )
 
             logger.info(
                 "Creating default custom abandoned cart template for integrated agent %s",
@@ -382,6 +400,9 @@ class AssignAgentUseCase:
             )
             use_case = CreateCustomTemplateUseCase()
             use_case.execute(payload)
+            print(
+                f"[AssignAgent] Custom template creation completed for integrated_agent={integrated_agent.uuid}"
+            )
         except CustomTemplateAlreadyExists:
             logger.info(
                 "Custom abandoned cart template already exists for integrated agent %s",

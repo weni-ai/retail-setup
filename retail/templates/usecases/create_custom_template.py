@@ -107,6 +107,10 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
         generated_code: str,
         integrated_agent: IntegratedAgent,
     ) -> Template:
+        print(
+            "[CreateCustomTemplate] Starting _handle_successful_code_generation "
+            f"display_name={payload.get('display_name')} agent={integrated_agent.uuid}"
+        )
         if Template.objects.filter(
             integrated_agent=integrated_agent,
             display_name=payload.get("display_name"),
@@ -117,8 +121,16 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
 
         payload["template_name"] = payload.get("display_name").replace(" ", "_").lower()
 
+        print(
+            "[CreateCustomTemplate] payload normalized template_name="
+            f"{payload['template_name']}"
+        )
         template, version = self.build_template_and_version(payload, integrated_agent)
 
+        print(
+            "[CreateCustomTemplate] Template and version created "
+            f"name={template.name} version={version.uuid}"
+        )
         metadata = self.metadata_handler.build_metadata(
             payload.get("template_translation", {}),
             payload.get("category"),
@@ -150,6 +162,10 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             start_condition,
             variables,
         )
+        print(
+            "[CreateCustomTemplate] Template updated "
+            f"display_name={template.display_name} start_condition={start_condition}"
+        )
         self._notify_integrations(
             version.template_name,
             version.uuid,
@@ -157,6 +173,10 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             payload.get("app_uuid"),
             payload.get("project_uuid"),
             payload.get("category"),
+        )
+        print(
+            "[CreateCustomTemplate] Integrations notified "
+            f"version={version.uuid} template={version.template_name}"
         )
         return template
 
