@@ -375,11 +375,11 @@ class AssignAgentUseCase:
                 "project_uuid": str(project_uuid),
                 "display_name": "Abandoned Cart",
                 # NOTE: start_condition is derived from parameters by TemplateMetadataHandler
-                "start_condition": "Abandoned cart data received upstream",
+                "start_condition": "If cart_link is not empty",
                 "parameters": [
                     {
                         "name": "start_condition",
-                        "value": "Abandoned cart data received upstream",
+                        "value": "If cart_link is not empty",
                     },
                     {
                         "name": "variables",
