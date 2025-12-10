@@ -1,4 +1,5 @@
 import logging
+
 from datetime import timedelta
 
 from django.utils import timezone
@@ -16,20 +17,54 @@ from retail.vtex.usecases.handle_purchase_event import HandlePurchaseEventUseCas
 from retail.webhooks.vtex.usecases.order_status import OrderStatusUseCase
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
+from retail.agents.domains.agent_webhook.usecases.abandoned_cart import (
+    AgentAbandonedCartUseCase,
+)
+
 
 logger = logging.getLogger(__name__)
 
 
 @shared_task
-def mark_cart_as_abandoned(cart_uuid: str):
+def task_abandoned_cart_update(cart_uuid: str):
     """
-    Mark a cart as abandoned and trigger the broadcast notification process.
+    Task to process an abandoned cart update.
+    """
+    try:
+        # Get the cart to access
+        cart = Cart.objects.get(uuid=cart_uuid, status="created")
 
-    Args:
-        cart_uuid (str): The UUID of the cart to process.
-    """
-    use_case = CartAbandonmentUseCase()
-    use_case.process_abandoned_cart(cart_uuid)
+        use_case = AgentAbandonedCartUseCase()
+        if not cart.project:
+            logger.info(
+                f"Project not found for cart {cart.uuid}. on task_abandoned_cart_update."
+            )
+            return
+
+        integrated_agent = use_case.get_integrated_agent(cart.project)
+
+        if integrated_agent:
+            logger.info(
+                f"Use integrated agent for VTEX account {cart.project.vtex_account}."
+            )
+            use_case.execute(cart, integrated_agent)
+        else:
+            logger.info(
+                f"Use legacy use case for VTEX account {cart.project.vtex_account}."
+            )
+            legacy_use_case = CartAbandonmentUseCase()
+            legacy_use_case.execute(cart)
+
+        logger.info(
+            f"Successfully processed abandoned cart for cart UUID: {cart.uuid} "
+            f"VTEX account: {cart.project.vtex_account}"
+        )
+    except Cart.DoesNotExist:
+        logger.warning(f"Cart with UUID {cart.uuid} does not exist.")
+    except Exception as e:
+        logger.error(
+            f"Unexpected error processing abandoned cart: {str(e)}", exc_info=True
+        )
 
 
 @shared_task
@@ -58,7 +93,7 @@ def task_order_status_update(order_update_data: dict):
                 queue="vtex-io-orders-update-events",
             )
 
-        integrated_agent = use_case.get_integrated_agent_if_exists(project)
+        integrated_agent = use_case.get_integrated_agent(project)
 
         if integrated_agent:
             logger.info(
@@ -89,9 +124,7 @@ def is_payment_approved(order_status: str) -> bool:
 
 
 @shared_task
-def task_order_status_agent_webhook(
-    integrated_agent_uuid: str, payload: dict, params: dict
-):
+def task_agent_webhook(integrated_agent_uuid: str, payload: dict, params: dict):
     use_case = AgentWebhookUseCase()
     request_data = RequestData(
         params=params,

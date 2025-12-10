@@ -33,8 +33,8 @@ class AbandonedCartNotification(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Check if the abandoned cart feature is integrated for the project
-        if not cart_use_case.integrated_feature:
+        # Check if either integrated agent or integrated feature is configured
+        if not cart_use_case.integrated_agent and not cart_use_case.integrated_feature:
             return Response(
                 {
                     "message": "Abandoned cart integration not configured for this account."
