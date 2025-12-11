@@ -366,7 +366,12 @@ class AssignAgentUseCase:
                     {
                         "name": "variables",
                         "value": [
-                            {"name": "1", "type": "text"},
+                            {
+                                "name": "1",
+                                "type": "text",
+                                "definition": "Client name for abandoned cart recovery",
+                                "fallback": "Cliente",
+                            },
                         ],
                     },
                 ],
