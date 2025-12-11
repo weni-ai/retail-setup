@@ -60,7 +60,10 @@ def task_abandoned_cart_update(cart_uuid: str):
             f"VTEX account: {cart.project.vtex_account}"
         )
     except Cart.DoesNotExist:
-        logger.warning(f"Cart with UUID {cart.uuid} does not exist.")
+        logger.warning(
+            f"Cart with UUID {cart_uuid} does not exist or has already been processed."
+        )
+        return
     except Exception as e:
         logger.error(
             f"Unexpected error processing abandoned cart: {str(e)}", exc_info=True
