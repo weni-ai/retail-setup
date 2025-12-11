@@ -281,17 +281,22 @@ class CartAbandonmentService(BaseVtexUseCase):
             cart, order_form, client_profile, integration_config
         )
 
-        # For IntegratedAgent, we send raw data (DTO) without message structure
-        # For IntegratedFeature, we use the legacy flow with message structure
+        # For IntegratedAgent, we send raw data (DTO) without message structure.
+        # For IntegratedFeature, we use the legacy flow with message structure.
         if isinstance(integration_config, IntegratedAgent):
-            self._execute_agent_flow(cart, integration_config, cart_data)
+            flow_type = "agent"
+            flow_success = self._execute_agent_flow(cart, integration_config, cart_data)
         else:
-            self._execute_legacy_flow(cart, integration_config, cart_data)
+            flow_type = "legacy"
+            flow_success = self._execute_legacy_flow(
+                cart, integration_config, cart_data
+            )
 
         logger.info(
-            f"Cart abandonment notification sent - Phone: {cart.phone_number}, "
-            f"Order Form: {cart.order_form_id}, Cart UUID: {cart.uuid}, "
-            f"Project: {cart.project.name}"
+            f"Cart abandonment notification {'sent' if flow_success else 'failed'} "
+            f"- flow={flow_type} phone={cart.phone_number} "
+            f"order_form={cart.order_form_id} cart={cart.uuid} "
+            f"project={cart.project.name}"
         )
 
     def _collect_cart_abandonment_data(
@@ -349,66 +354,107 @@ class CartAbandonmentService(BaseVtexUseCase):
         cart: Cart,
         integrated_agent: IntegratedAgent,
         cart_data: CartAbandonmentDataDTO,
-    ) -> None:
+    ) -> bool:
         """
         Execute the agent flow: webhook -> AWS Lambda -> Broadcast.
         Uses the centralized task to handle credentials and other centralized logic.
         Sends raw cart data without message structure.
         """
-        # Use the centralized task to execute the agent webhook
-        # This task handles credentials, centralized logic, and broadcast
-        from retail.vtex.tasks import task_agent_webhook
-
-        # Build minimal payload with only essential data for agent flow
-        payload = {
-            "cart_uuid": cart_data.cart_uuid,
-            "order_form_id": cart_data.order_form_id,
-            "phone_number": cart_data.phone_number,
-            "client_name": cart_data.client_name,
-            "project_uuid": cart_data.project_uuid,
-            "vtex_account": cart_data.vtex_account,
-        }
-
-        task_agent_webhook(
-            integrated_agent_uuid=str(integrated_agent.uuid),
-            payload=payload,
-            params={},  # Empty params - all data is in payload
+        logger.info(
+            "CartAbandonmentService: executing AGENT flow for cart=%s agent=%s project=%s",
+            cart.uuid,
+            integrated_agent.uuid,
+            cart.project.uuid,
         )
+        try:
+            # Use the centralized task to execute the agent webhook
+            # This task handles credentials, centralized logic, and broadcast
+            from retail.vtex.tasks import task_agent_webhook
 
-        self._update_cart_status(cart, "delivered_success")
+            # Build minimal payload with only essential data for agent flow
+            payload = {
+                "cart_uuid": cart_data.cart_uuid,
+                "order_form_id": cart_data.order_form_id,
+                "phone_number": cart_data.phone_number,
+                "client_name": cart_data.client_name,
+                "project_uuid": cart_data.project_uuid,
+                "vtex_account": cart_data.vtex_account,
+            }
+
+            task_agent_webhook(
+                integrated_agent_uuid=str(integrated_agent.uuid),
+                payload=payload,
+                params={},  # Empty params - all data is in payload
+            )
+
+            self._update_cart_status(cart, "delivered_success")
+            logger.info(
+                "CartAbandonmentService: AGENT flow dispatched successfully for cart=%s",
+                cart.uuid,
+            )
+            return True
+        except Exception as exc:
+            logger.exception(
+                "CartAbandonmentService: AGENT flow failed for cart=%s error=%s",
+                cart.uuid,
+                exc,
+            )
+            self._update_cart_status(cart, "delivered_error", str(exc))
+            return False
 
     def _execute_legacy_flow(
         self,
         cart: Cart,
         integrated_feature: IntegratedFeature,
         cart_data: CartAbandonmentDataDTO,
-    ) -> None:
+    ) -> bool:
         """
         Execute the legacy flow: code actions.
         Builds message structure from collected cart data.
         """
-        # Build message structure for legacy flow
-        message_payload, extra_parameters = self._build_abandonment_message_from_data(
-            cart_data
+        logger.info(
+            "CartAbandonmentService: executing LEGACY flow for cart=%s feature=%s project=%s",
+            cart.uuid,
+            integrated_feature.uuid,
+            cart.project.uuid,
         )
+        try:
+            # Build message structure for legacy flow
+            (
+                message_payload,
+                extra_parameters,
+            ) = self._build_abandonment_message_from_data(cart_data)
 
-        # Build full extra payload
-        extra_payload = {
-            "order_form": cart_data.order_form,
-            "client_profile": cart_data.client_profile,
-            **extra_parameters,  # Include extra message context
-        }
+            # Build full extra payload
+            extra_payload = {
+                "order_form": cart_data.order_form,
+                "client_profile": cart_data.client_profile,
+                **extra_parameters,  # Include extra message context
+            }
 
-        code_actions_service = CodeActionsService(CodeActionsClient())
+            code_actions_service = CodeActionsService(CodeActionsClient())
 
-        response = code_actions_service.run_code_action(
-            action_id=self._get_code_action_id_by_cart(integrated_feature),
-            message_payload=message_payload,
-            extra_payload=extra_payload,
-        )
+            response = code_actions_service.run_code_action(
+                action_id=self._get_code_action_id_by_cart(integrated_feature),
+                message_payload=message_payload,
+                extra_payload=extra_payload,
+            )
 
-        self._update_cart_status(cart, "delivered_success", response)
-        self._set_utm_source(cart)
+            self._update_cart_status(cart, "delivered_success", response)
+            self._set_utm_source(cart)
+            logger.info(
+                "CartAbandonmentService: LEGACY flow delivered_success for cart=%s",
+                cart.uuid,
+            )
+            return True
+        except Exception as exc:
+            logger.exception(
+                "CartAbandonmentService: LEGACY flow failed for cart=%s error=%s",
+                cart.uuid,
+                exc,
+            )
+            self._update_cart_status(cart, "delivered_error", str(exc))
+            return False
 
     def _build_abandonment_message_from_data(
         self, cart_data: CartAbandonmentDataDTO
