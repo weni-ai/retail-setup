@@ -84,6 +84,22 @@ class UnassignAgentUseCase:
                 exc,
             )
 
+        # Clear 6h per-project/agent cache used by BaseAgentWebhookUseCase
+        try:
+            cache_key = (
+                f"integrated_agent_{str(agent.uuid)}_"
+                f"{str(integrated_agent.project.uuid)}"
+            )
+            cache.delete(cache_key)
+            logger.info("Cleared per-project integrated agent cache key: %s", cache_key)
+        except Exception as exc:
+            logger.warning(
+                "Failed to clear per-project integrated agent cache for %s/%s: %s",
+                agent.uuid,
+                integrated_agent.project.uuid,
+                exc,
+            )
+
         # Clear order status cache if applicable
         if not settings.ORDER_STATUS_AGENT_UUID:
             logger.warning("ORDER_STATUS_AGENT_UUID is not set in settings.")
