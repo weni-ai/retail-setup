@@ -380,6 +380,7 @@ class CartAbandonmentService(BaseVtexUseCase):
                 "project_uuid": cart_data.project_uuid,
                 "vtex_account": cart_data.vtex_account,
             }
+            logger.info(f"Payload sent to agent webhook: {payload}")
 
             task_agent_webhook(
                 integrated_agent_uuid=str(integrated_agent.uuid),
