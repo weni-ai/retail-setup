@@ -372,10 +372,17 @@ class AssignAgentUseCase:
                                 "definition": "Client name for abandoned cart recovery",
                                 "fallback": "Cliente",
                             },
+                            {
+                                "name": "button",
+                                "type": "text",
+                                "definition": "Cart link (order_form_id) for checkout button",
+                                "fallback": "",
+                            },
                         ],
                     },
                 ],
                 "integrated_agent_uuid": integrated_agent.uuid,
+                "use_agent_rule": True,
             }
 
             logger.info(
