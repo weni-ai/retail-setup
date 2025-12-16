@@ -25,6 +25,11 @@ def task_create_template(
     try:
         integrations_service = IntegrationsService()
 
+        logger.info(
+            f"[task_create_template] Starting template creation: {template_name} "
+            f"app={app_uuid} version={version_uuid}"
+        )
+
         template_uuid = integrations_service.create_template(
             app_uuid=app_uuid,
             project_uuid=project_uuid,
@@ -32,18 +37,29 @@ def task_create_template(
             category=category,
             gallery_version=version_uuid,
         )
+
+        logger.info(
+            f"[task_create_template] Template created successfully: {template_name} "
+            f"template_uuid={template_uuid} - now creating translation..."
+        )
+
         integrations_service.create_template_translation(
             app_uuid=app_uuid,
             project_uuid=project_uuid,
             template_uuid=template_uuid,
             payload=template_translation,
         )
+
         logger.info(
-            f"Template created: {template_name} for App: {app_uuid} - {category} - version: {version_uuid}"
+            f"[task_create_template] Translation created successfully: {template_name} "
+            f"template_uuid={template_uuid} version={version_uuid}"
         )
     except Exception as e:
         logger.error(
-            f"Error creating template: {template_name} for App: {app_uuid} - {category} - version: {version_uuid} {e}"
+            f"Error creating template: {template_name} for App: {app_uuid} - {category} - version: {version_uuid}\n"
+            f"Error: {e}\n"
+            f"Traceback: {traceback.format_exc()}\n"
+            f"Translation payload: {template_translation}"
         )
         payload = {"version_uuid": version_uuid, "status": "REJECTED"}
         update_template_use_case = UpdateTemplateUseCase()

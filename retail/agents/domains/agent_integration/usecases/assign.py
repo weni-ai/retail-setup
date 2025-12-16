@@ -1,4 +1,6 @@
 import logging
+import base64
+import requests
 
 from typing import List, TypedDict, Mapping, Any, Optional
 
@@ -365,6 +367,29 @@ class AssignAgentUseCase:
 
         return integrated_agent
 
+    def _url_to_base64(self, url: str) -> str:
+        """
+        Download image from URL and convert to base64 data URI.
+
+        Args:
+            url: The image URL to download
+
+        Returns:
+            Base64 data URI string (e.g., "data:image/png;base64,...")
+
+        Raises:
+            Exception: If download or conversion fails
+        """
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+
+        content_type = response.headers.get("Content-Type", "image/png")
+        # Extract just the mime type (e.g., "image/png" from "image/png; charset=utf-8")
+        mime_type = content_type.split(";")[0].strip()
+
+        image_base64 = base64.b64encode(response.content).decode("utf-8")
+        return f"data:{mime_type};base64,{image_base64}"
+
     def _create_default_abandoned_cart_template(
         self,
         integrated_agent: IntegratedAgent,
@@ -396,18 +421,21 @@ class AssignAgentUseCase:
             button_url_example = f"{button_base_url}92421d4a70224658acaab0c172f6b6d7"
 
             # Placeholder image URL for template approval (configurable via env)
-            # This is a sample product image URL that Meta will use for template preview
-            # The actual product image will be sent dynamically by the agent via image_url
+            # Download and convert to base64 because integrations-engine expects base64, not URL
             placeholder_image_url = settings.ABANDONED_CART_DEFAULT_IMAGE_URL
+            logger.info(
+                f"[AssignAgent] Converting placeholder image to base64: {placeholder_image_url}"
+            )
+            placeholder_image_base64 = self._url_to_base64(placeholder_image_url)
 
             # Build translation payload in the format expected by TemplateMetadataHandler
             # NOTE: Use "template_header" (not "header") because build_metadata expects this key
             template_translation = {
                 # Header image - will be replaced dynamically by agent with product image
-                # Format must be {"header_type": "IMAGE", "text": url} for HeaderTransformer
+                # Format must be {"header_type": "IMAGE", "text": base64} for HeaderTransformer
                 "template_header": {
                     "header_type": "IMAGE",
-                    "text": placeholder_image_url,
+                    "text": placeholder_image_base64,
                 },
                 "template_body": (
                     "Olá, {{1}} vimos que você deixou itens no seu carrinho 🛒. "
