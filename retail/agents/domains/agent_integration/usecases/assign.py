@@ -66,6 +66,9 @@ class AssignAgentUseCase:
     ) -> IntegratedAgent:
         ignore_templates_slugs = self._get_ignore_templates_slugs(ignore_templates)
 
+        # Build initial config based on agent type
+        initial_config = self._build_initial_config(agent)
+
         integrated_agent, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
             project=project,
@@ -73,6 +76,7 @@ class AssignAgentUseCase:
             defaults={
                 "channel_uuid": channel_uuid,
                 "ignore_templates": ignore_templates_slugs,
+                "config": initial_config,
             },
         )
 
@@ -82,6 +86,50 @@ class AssignAgentUseCase:
             )
 
         return integrated_agent
+
+    def _build_initial_config(self, agent: Agent) -> dict:
+        """
+        Build initial configuration for the IntegratedAgent based on agent type.
+
+        This method creates a scalable configuration structure that can be extended
+        for different agent types. Currently supports abandoned cart agent with
+        specific default settings.
+
+        Returns:
+            dict: Initial configuration dictionary.
+        """
+        config = {}
+
+        # Check if this is the abandoned cart agent
+        abandoned_cart_agent_uuid = getattr(settings, "ABANDONED_CART_AGENT_UUID", "")
+        if abandoned_cart_agent_uuid and str(agent.uuid) == abandoned_cart_agent_uuid:
+            config["abandoned_cart"] = self._get_abandoned_cart_default_config()
+
+        return config
+
+    def _get_abandoned_cart_default_config(self) -> dict:
+        """
+        Get default configuration for the abandoned cart agent.
+
+        Configuration options:
+        - header_image_type: Type of image to show in template header
+            - "first_item": First item in the cart (DEFAULT)
+            - "most_expensive": Most expensive item in the cart
+            - "no_image": No image header (user chose not to use image)
+        - abandonment_time_minutes: Time in minutes to consider cart abandoned (default: 60)
+        - minimum_cart_value: Minimum cart value in BRL to trigger notification (default: 50.0)
+
+        Optional (not set by default, can be configured later):
+        - notification_cooldown_hours: Hours between notifications for same phone
+
+        Returns:
+            dict: Default abandoned cart configuration.
+        """
+        return {
+            "header_image_type": "first_item",
+            "abandonment_time_minutes": 60,
+            "minimum_cart_value": 50.0,
+        }
 
     def _validate_credentials(self, agent: Agent, credentials: dict):
         for key in agent.credentials.keys():
@@ -328,6 +376,13 @@ class AssignAgentUseCase:
         Create a default custom template for the abandoned cart agent.
         Uses the existing custom template flow so the template follows the normal
         lifecycle (PENDING -> APPROVED, versioning, etc.).
+
+        The template is created with:
+        - Header image support (product image from cart)
+        - Body with client name variable
+        - Button with cart checkout URL
+        - Quick reply for opt-out
+
         For now, the template is created only in pt-BR.
         TODO: Add support for multiple languages (e.g., en, es) if needed.
         """
@@ -340,8 +395,18 @@ class AssignAgentUseCase:
             button_base_url = f"https://{domain}/checkout?orderFormId="
             button_url_example = f"{button_base_url}92421d4a70224658acaab0c172f6b6d7"
 
+            # Placeholder image URL for template approval (configurable via env)
+            # This is a sample product image URL that Meta will use for template preview
+            # The actual product image will be sent dynamically by the agent via image_url
+            placeholder_image_url = settings.ABANDONED_CART_DEFAULT_IMAGE_URL
+
             # Build translation payload in the format expected by TemplateMetadataHandler
             template_translation = {
+                # Header image - will be replaced dynamically by agent with product image
+                "header": {
+                    "header_type": "IMAGE",
+                    "text": placeholder_image_url,
+                },
                 "template_body": (
                     "Olá, {{1}} vimos que você deixou itens no seu carrinho 🛒. "
                     "\nVamos fechar o pedido e garantir essas ofertas? "
@@ -390,10 +455,23 @@ class AssignAgentUseCase:
                                 "definition": "Client name for abandoned cart recovery",
                                 "fallback": "Cliente",
                             },
+                            {
+                                "name": "button",
+                                "type": "text",
+                                "definition": "Cart link (order_form_id) for checkout button",
+                                "fallback": "",
+                            },
+                            {
+                                "name": "image_url",
+                                "type": "text",
+                                "definition": "Product image URL from cart (first_item, most_expensive, or no_image)",
+                                "fallback": "",
+                            },
                         ],
                     },
                 ],
                 "integrated_agent_uuid": integrated_agent.uuid,
+                "use_agent_rule": True,
             }
             print(
                 f"[AssignAgent] Custom template payload ready display_name={payload['display_name']} language={template_translation['language']}"

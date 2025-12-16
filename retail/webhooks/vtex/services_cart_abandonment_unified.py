@@ -248,6 +248,11 @@ class CartAbandonmentService(BaseVtexUseCase):
         Returns:
             None
         """
+        # For IntegratedAgent, check minimum cart value before processing
+        if isinstance(integration_config, IntegratedAgent):
+            if self._check_minimum_cart_value(cart, integration_config):
+                return
+
         # Check if abandoned cart notification cooldown is configured and should be applied
         if self._check_abandoned_cart_notification_cooldown(cart, integration_config):
             logger.info(
@@ -359,6 +364,9 @@ class CartAbandonmentService(BaseVtexUseCase):
         Execute the agent flow: webhook -> AWS Lambda -> Broadcast.
         Uses the centralized task to handle credentials and other centralized logic.
         Sends raw cart data without message structure.
+
+        Includes agent configuration in the payload:
+        - image_config: Contains header_image_type for template image selection
         """
         logger.info(
             "CartAbandonmentService: executing AGENT flow for cart=%s agent=%s project=%s",
@@ -371,7 +379,14 @@ class CartAbandonmentService(BaseVtexUseCase):
             # This task handles credentials, centralized logic, and broadcast
             from retail.vtex.tasks import task_agent_webhook
 
-            # Build minimal payload with only essential data for agent flow
+            # Get abandoned cart configuration for agent
+            abandoned_cart_config = self._get_abandoned_cart_config(integrated_agent)
+
+            # Build image configuration for the agent
+            # Allows the CLI agent to determine which image to use in the template
+            image_config = self._build_image_config(abandoned_cart_config, cart_data)
+
+            # Build payload with essential data and configuration for agent flow
             payload = {
                 "cart_uuid": cart_data.cart_uuid,
                 "order_form_id": cart_data.order_form_id,
@@ -379,6 +394,10 @@ class CartAbandonmentService(BaseVtexUseCase):
                 "client_name": cart_data.client_name,
                 "project_uuid": cart_data.project_uuid,
                 "vtex_account": cart_data.vtex_account,
+                # Agent configuration
+                "image_config": image_config,
+                # Cart items for image selection logic in the agent
+                "cart_items": cart_data.cart_items,
             }
             logger.info(f"Payload sent to agent webhook: {payload}")
 
@@ -402,6 +421,42 @@ class CartAbandonmentService(BaseVtexUseCase):
             )
             self._update_cart_status(cart, "delivered_error", str(exc))
             return False
+
+    def _build_image_config(
+        self, abandoned_cart_config: dict, cart_data: CartAbandonmentDataDTO
+    ) -> dict:
+        """
+        Build the image configuration to send to the agent.
+
+        The agent will use this configuration to determine which image to include
+        in the template header.
+
+        Args:
+            abandoned_cart_config (dict): Abandoned cart config from IntegratedAgent.
+            cart_data (CartAbandonmentDataDTO): Cart data with items.
+
+        Returns:
+            dict: Image configuration with type and any pre-computed data.
+        """
+        header_image_type = abandoned_cart_config.get("header_image_type", "first_item")
+
+        # Valid options:
+        # - "first_item": Use first item's image from cart
+        # - "most_expensive": Use most expensive item's image from cart
+        # - "no_image": No image header (user explicitly chose not to use image)
+        valid_image_types = ("first_item", "most_expensive", "no_image")
+
+        if header_image_type not in valid_image_types:
+            logger.warning(
+                f"Invalid header_image_type '{header_image_type}', "
+                f"valid options are {valid_image_types}. Falling back to 'first_item'"
+            )
+            header_image_type = "first_item"
+
+        return {
+            "type": header_image_type,
+            # Additional image-related config can be added here in the future
+        }
 
     def _execute_legacy_flow(
         self,
@@ -507,6 +562,64 @@ class CartAbandonmentService(BaseVtexUseCase):
 
         return message_payload, extra_parameters
 
+    def _check_minimum_cart_value(
+        self, cart: Cart, integration_config: IntegratedAgent
+    ) -> bool:
+        """
+        Check if the cart value meets the minimum threshold for notification.
+
+        Only applies to IntegratedAgent. Extracts minimum_cart_value from
+        config['abandoned_cart']['minimum_cart_value'].
+
+        Args:
+            cart (Cart): The cart being processed.
+            integration_config (IntegratedAgent): The integrated agent instance.
+
+        Returns:
+            bool: True if notification should be skipped (cart value below minimum).
+        """
+        abandoned_cart_config = self._get_abandoned_cart_config(integration_config)
+        minimum_value = abandoned_cart_config.get("minimum_cart_value")
+
+        if minimum_value is None:
+            logger.warning(
+                f"Minimum cart value not configured for integrated agent "
+                f"{integration_config.uuid}, skipping value check"
+            )
+            return False
+
+        cart_total = self._calculate_total_value(cart)
+        # VTEX stores values in cents, convert to BRL
+        cart_total_brl = cart_total / 100
+
+        if cart_total_brl < minimum_value:
+            logger.info(
+                f"Skipping notification for cart {cart.uuid} - "
+                f"cart value R${cart_total_brl:.2f} is below minimum R${minimum_value:.2f} "
+                f"(vtex_account={cart.project.vtex_account})"
+            )
+            self._update_cart_status(cart, "skipped_below_minimum_value")
+            return True
+
+        logger.info(
+            f"Cart {cart.uuid} value R${cart_total_brl:.2f} meets minimum "
+            f"threshold R${minimum_value:.2f}"
+        )
+        return False
+
+    def _get_abandoned_cart_config(self, integration_config: IntegratedAgent) -> dict:
+        """
+        Get the abandoned cart specific configuration from IntegratedAgent.
+
+        Args:
+            integration_config (IntegratedAgent): The integrated agent instance.
+
+        Returns:
+            dict: Abandoned cart configuration or empty dict if not found.
+        """
+        config = getattr(integration_config, "config", {}) or {}
+        return config.get("abandoned_cart", {})
+
     def _check_abandoned_cart_notification_cooldown(
         self, cart: Cart, integration_config: Union[IntegratedFeature, IntegratedAgent]
     ) -> bool:
@@ -521,8 +634,13 @@ class CartAbandonmentService(BaseVtexUseCase):
             bool: True if notification should be skipped due to cooldown.
         """
         # Get configuration from either integrated feature or integrated agent
-        config = self._get_config(integration_config)
-        cooldown_hours = config.get("abandoned_cart_notification_cooldown_hours")
+        # For IntegratedAgent, check abandoned_cart config first
+        if isinstance(integration_config, IntegratedAgent):
+            abandoned_cart_config = self._get_abandoned_cart_config(integration_config)
+            cooldown_hours = abandoned_cart_config.get("notification_cooldown_hours")
+        else:
+            config = self._get_config(integration_config)
+            cooldown_hours = config.get("abandoned_cart_notification_cooldown_hours")
 
         if not cooldown_hours:
             logger.info(
