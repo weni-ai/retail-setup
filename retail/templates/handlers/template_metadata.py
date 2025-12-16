@@ -43,12 +43,9 @@ class TemplateMetadataHandler:
                 "header_type" in translation_payload_copy["header"]
                 and translation_payload_copy["header"]["header_type"] == "IMAGE"
             ):
-                header_text = translation_payload_copy["header"].get("text", "")
-                # Skip upload if already a URL (http/https) - used for placeholder images
-                if not header_text.startswith(("http://", "https://")):
-                    metadata["header"]["text"] = self._upload_header_image(
-                        translation_payload_copy["header"]
-                    )
+                metadata["header"]["text"] = self._upload_header_image(
+                    translation_payload_copy["header"]
+                )
 
         return metadata
 
