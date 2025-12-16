@@ -383,9 +383,11 @@ class AssignAgentUseCase:
             placeholder_image_url = settings.ABANDONED_CART_DEFAULT_IMAGE_URL
 
             # Build translation payload in the format expected by TemplateMetadataHandler
+            # NOTE: Use "template_header" (not "header") because build_metadata expects this key
             template_translation = {
                 # Header image - will be replaced dynamically by agent with product image
-                "header": {
+                # Format must be {"header_type": "IMAGE", "text": url} for HeaderTransformer
+                "template_header": {
                     "header_type": "IMAGE",
                     "text": placeholder_image_url,
                 },
