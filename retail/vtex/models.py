@@ -15,6 +15,7 @@ class Cart(models.Model):
         ("empty", "Empty"),
         ("skipped_identical_cart", "Skipped Identical Cart"),
         ("skipped_abandoned_cart_cooldown", "Skipped Abandoned Cart Cooldown"),
+        ("skipped_below_minimum_value", "Skipped Below Minimum Value"),
     ]
 
     uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
