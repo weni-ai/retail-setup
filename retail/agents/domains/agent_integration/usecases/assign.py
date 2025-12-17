@@ -465,12 +465,20 @@ class AssignAgentUseCase:
                     },
                     {
                         "name": "variables",
-                        # Variables are returned dynamically by the agent (CLI):
-                        # - "1": client name
-                        # - "button": order_form_id for checkout URL
-                        # - "image_url": product image URL (if header_image_type is configured)
-                        # No fallbacks needed - agent always provides values
-                        "value": [],
+                        "value": [
+                            # Variable {{1}} in body - required for is_custom=true templates
+                            # Frontend validates that body variables are declared
+                            {
+                                "name": "1",
+                                "type": "text",
+                                "definition": "Client name",
+                                "fallback": "Cliente",
+                            },
+                            # NOTE: "button" and "image_url" are NOT body variables
+                            # They are special variables returned by agent for:
+                            # - button: checkout URL suffix (order_form_id)
+                            # - image_url: header image (product image from cart)
+                        ],
                     },
                 ],
                 "integrated_agent_uuid": integrated_agent.uuid,
