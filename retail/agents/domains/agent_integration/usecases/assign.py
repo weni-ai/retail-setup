@@ -334,6 +334,7 @@ class AssignAgentUseCase:
             channel_uuid=channel_uuid,
             ignore_templates=ignore_templates,
         )
+        logger.info(f"[AssignAgent] integrated_agent created={integrated_agent.uuid}")
 
         self._create_credentials(integrated_agent, agent, credentials)
         self._create_templates(
@@ -343,6 +344,7 @@ class AssignAgentUseCase:
         # If this is the abandoned cart agent, create a default custom template
         abandoned_cart_agent_uuid = getattr(settings, "ABANDONED_CART_AGENT_UUID", "")
         if abandoned_cart_agent_uuid and str(agent.uuid) == abandoned_cart_agent_uuid:
+            logger.info(f"[AssignAgent] abandoned cart agent detected={agent.uuid}")
             self._create_default_abandoned_cart_template(
                 integrated_agent=integrated_agent,
                 project=project,
@@ -397,6 +399,9 @@ class AssignAgentUseCase:
         TODO: Add support for multiple languages (e.g., en, es) if needed.
         """
         try:
+            logger.info(
+                f"[AssignAgent] Default custom template flow start for integrated_agent={integrated_agent.uuid}"
+            )
             # Build store domain similar to legacy abandoned cart template creation
             domain = f"{project.vtex_account}.vtexcommercestable.com.br"
             button_base_url = f"https://{domain}/checkout?orderFormId="
@@ -460,31 +465,22 @@ class AssignAgentUseCase:
                     },
                     {
                         "name": "variables",
-                        "value": [
-                            {
-                                "name": "1",
-                                "type": "text",
-                                "definition": "Client name for abandoned cart recovery",
-                                "fallback": "Cliente",
-                            },
-                            {
-                                "name": "button",
-                                "type": "text",
-                                "definition": "Cart link (order_form_id) for checkout button",
-                                "fallback": "",
-                            },
-                            {
-                                "name": "image_url",
-                                "type": "text",
-                                "definition": "Product image URL from cart (first_item, most_expensive, or no_image)",
-                                "fallback": "",
-                            },
-                        ],
+                        # Variables are returned dynamically by the agent (CLI):
+                        # - "1": client name
+                        # - "button": order_form_id for checkout URL
+                        # - "image_url": product image URL (if header_image_type is configured)
+                        # No fallbacks needed - agent always provides values
+                        "value": [],
                     },
                 ],
                 "integrated_agent_uuid": integrated_agent.uuid,
                 "use_agent_rule": True,
             }
+            logger.info(
+                f"[AssignAgent] Custom template payload ready "
+                f"display_name={payload['display_name']} "
+                f"language={template_translation['language']}"
+            )
 
             logger.info(
                 "Creating default custom abandoned cart template for integrated agent %s",
@@ -492,6 +488,9 @@ class AssignAgentUseCase:
             )
             use_case = CreateCustomTemplateUseCase()
             use_case.execute(payload)
+            logger.info(
+                f"[AssignAgent] Custom template creation completed for integrated_agent={integrated_agent.uuid}"
+            )
         except CustomTemplateAlreadyExists:
             logger.info(
                 "Custom abandoned cart template already exists for integrated agent %s",
