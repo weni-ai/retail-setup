@@ -2,14 +2,15 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 
-from retail.internal.permissions import CanCommunicateInternally
 from retail.vtex.tasks import task_order_status_update
 from retail.webhooks.vtex.serializers import OrderStatusSerializer
 
 
 class OrderStatusWebhook(APIView):
-    permission_classes = [CanCommunicateInternally]
+    # TODO: Authentication temporarily disabled. Re-enable before production.
+    permission_classes = [AllowAny]
 
     def post(self, request: Request) -> Response:
         """
