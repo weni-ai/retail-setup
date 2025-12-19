@@ -384,7 +384,10 @@ class CartAbandonmentService(BaseVtexUseCase):
 
             # Build image configuration for the agent
             # Allows the CLI agent to determine which image to use in the template
-            image_config = self._build_image_config(abandoned_cart_config, cart_data)
+            # Also validates if template actually supports image headers
+            image_config = self._build_image_config(
+                abandoned_cart_config, cart_data, integrated_agent
+            )
 
             # Build payload with essential data and configuration for agent flow
             payload = {
@@ -423,7 +426,10 @@ class CartAbandonmentService(BaseVtexUseCase):
             return False
 
     def _build_image_config(
-        self, abandoned_cart_config: dict, cart_data: CartAbandonmentDataDTO
+        self,
+        abandoned_cart_config: dict,
+        cart_data: CartAbandonmentDataDTO,
+        integrated_agent: IntegratedAgent,
     ) -> dict:
         """
         Build the image configuration to send to the agent.
@@ -431,9 +437,14 @@ class CartAbandonmentService(BaseVtexUseCase):
         The agent will use this configuration to determine which image to include
         in the template header.
 
+        This method also validates if the template actually supports image headers.
+        If the template doesn't have an image header, it forces 'no_image' regardless
+        of the user's configuration.
+
         Args:
             abandoned_cart_config (dict): Abandoned cart config from IntegratedAgent.
             cart_data (CartAbandonmentDataDTO): Cart data with items.
+            integrated_agent (IntegratedAgent): The integrated agent instance.
 
         Returns:
             dict: Image configuration with type and any pre-computed data.
@@ -453,10 +464,56 @@ class CartAbandonmentService(BaseVtexUseCase):
             )
             header_image_type = "first_item"
 
+        # Validate if template actually supports image header
+        # If template doesn't have image header, force 'no_image' to avoid errors
+        if header_image_type != "no_image":
+            template_has_image = self._check_template_has_image_header(integrated_agent)
+            if not template_has_image:
+                logger.info(
+                    f"Template for agent {integrated_agent.uuid} doesn't have image header. "
+                    f"Forcing image_config to 'no_image' (config was '{header_image_type}')"
+                )
+                header_image_type = "no_image"
+
         return {
             "type": header_image_type,
             # Additional image-related config can be added here in the future
         }
+
+    def _check_template_has_image_header(
+        self, integrated_agent: IntegratedAgent
+    ) -> bool:
+        """
+        Check if the agent's template has an image header.
+
+        Args:
+            integrated_agent (IntegratedAgent): The integrated agent instance.
+
+        Returns:
+            bool: True if template has image header, False otherwise.
+        """
+        # Get the first active template for this agent
+        template = integrated_agent.templates.filter(is_active=True).first()
+
+        if not template:
+            logger.warning(
+                f"No active template found for agent {integrated_agent.uuid}"
+            )
+            return False
+
+        # Check if template metadata has an image header
+        metadata = template.metadata or {}
+        header = metadata.get("header")
+
+        if not header:
+            return False
+
+        # Header can be a dict with header_type or just a string (for TEXT)
+        if isinstance(header, dict):
+            return header.get("header_type") == "IMAGE"
+
+        # If header is a string, it's TEXT type
+        return False
 
     def _execute_legacy_flow(
         self,
