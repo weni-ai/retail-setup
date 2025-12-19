@@ -18,9 +18,17 @@ from retail.agents.shared.cache import (
 logger = logging.getLogger(__name__)
 
 
-class UpdateIntegratedAgentData(TypedDict):
+class AbandonedCartConfigData(TypedDict, total=False):
+    header_image_type: str
+    abandonment_time_minutes: int
+    minimum_cart_value: Optional[float]
+    notification_cooldown_hours: Optional[int]
+
+
+class UpdateIntegratedAgentData(TypedDict, total=False):
     contact_percentage: Optional[int]
     global_rule: Optional[str]
+    abandoned_cart_config: Optional[AbandonedCartConfigData]
 
 
 class UpdateIntegratedAgentUseCase:
@@ -71,6 +79,10 @@ class UpdateIntegratedAgentUseCase:
             integrated_agent.global_rule_code = global_rule_code
             integrated_agent.global_rule_prompt = global_rule_prompt
 
+        if "abandoned_cart_config" in data:
+            abandoned_cart_config = data.get("abandoned_cart_config")
+            self._update_abandoned_cart_config(integrated_agent, abandoned_cart_config)
+
         integrated_agent.save()
 
         # Clear the webhook cache (30 seconds)
@@ -80,6 +92,50 @@ class UpdateIntegratedAgentUseCase:
         self._clear_order_status_cache(integrated_agent)
 
         return integrated_agent
+
+    def _update_abandoned_cart_config(
+        self,
+        integrated_agent: IntegratedAgent,
+        config_data: Optional[AbandonedCartConfigData],
+    ) -> None:
+        """
+        Update abandoned cart configuration in the integrated agent's config.
+
+        Only updates the fields that are provided in config_data.
+        """
+        if config_data is None:
+            return
+
+        # Initialize config if not present
+        if integrated_agent.config is None:
+            integrated_agent.config = {}
+
+        # Get existing abandoned_cart config or create empty one
+        abandoned_cart = integrated_agent.config.get("abandoned_cart", {})
+
+        # Update only the fields that are provided
+        if "header_image_type" in config_data:
+            abandoned_cart["header_image_type"] = config_data["header_image_type"]
+
+        if "abandonment_time_minutes" in config_data:
+            abandoned_cart["abandonment_time_minutes"] = config_data[
+                "abandonment_time_minutes"
+            ]
+
+        if "minimum_cart_value" in config_data:
+            abandoned_cart["minimum_cart_value"] = config_data["minimum_cart_value"]
+
+        if "notification_cooldown_hours" in config_data:
+            abandoned_cart["notification_cooldown_hours"] = config_data[
+                "notification_cooldown_hours"
+            ]
+
+        integrated_agent.config["abandoned_cart"] = abandoned_cart
+
+        logger.info(
+            f"Updated abandoned cart config for agent {integrated_agent.uuid}: "
+            f"{abandoned_cart}"
+        )
 
     def _clear_order_status_cache(self, integrated_agent: IntegratedAgent) -> None:
         """

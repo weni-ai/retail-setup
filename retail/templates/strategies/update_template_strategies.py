@@ -1,8 +1,11 @@
 # retail/templates/strategies/update_template_strategies.py
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 from uuid import UUID
+
+from django.conf import settings
 
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
@@ -12,6 +15,9 @@ from retail.templates.usecases import TemplateBuilderMixin
 from retail.services.rule_generator import RuleGenerator
 from retail.templates.handlers import TemplateMetadataHandler
 from retail.templates.tasks import task_create_template
+from retail.agents.shared.cache import IntegratedAgentCacheHandlerRedis
+
+logger = logging.getLogger(__name__)
 
 
 class UpdateTemplateStrategy(ABC):
@@ -94,6 +100,76 @@ class UpdateTemplateStrategy(ABC):
             category=category,
         )
 
+    def _sync_abandoned_cart_image_config(
+        self, template: Template, translation_payload: Dict[str, Any]
+    ) -> None:
+        """
+        Sync the abandoned cart agent's header_image_type config based on template header.
+
+        If the template belongs to an abandoned cart agent and the header image is removed,
+        automatically update the agent's config to 'no_image' to prevent runtime errors.
+
+        Args:
+            template: The template being updated.
+            translation_payload: The translation payload with header info.
+        """
+        # Check if template has an integrated agent
+        if not template.integrated_agent:
+            return
+
+        integrated_agent = template.integrated_agent
+
+        # Check if this is an abandoned cart agent
+        abandoned_cart_agent_uuid = getattr(settings, "ABANDONED_CART_AGENT_UUID", "")
+        if not abandoned_cart_agent_uuid:
+            return
+
+        if str(integrated_agent.agent.uuid) != abandoned_cart_agent_uuid:
+            return
+
+        # Check if header has image or not
+        header = translation_payload.get("header", {})
+        has_image_header = (
+            isinstance(header, dict) and header.get("header_type") == "IMAGE"
+        )
+
+        # Get current config
+        config = integrated_agent.config or {}
+        abandoned_cart_config = config.get("abandoned_cart", {})
+        current_image_type = abandoned_cart_config.get(
+            "header_image_type", "first_item"
+        )
+
+        # Determine new image type based on template header
+        new_image_type = None
+
+        if not has_image_header and current_image_type != "no_image":
+            # Template has no image but config expects image -> update to no_image
+            new_image_type = "no_image"
+        elif has_image_header and current_image_type == "no_image":
+            # Template has image but config is no_image -> update to first_item (default)
+            new_image_type = "first_item"
+
+        # Update config if needed
+        if new_image_type:
+            abandoned_cart_config["header_image_type"] = new_image_type
+            config["abandoned_cart"] = abandoned_cart_config
+            integrated_agent.config = config
+            integrated_agent.save(update_fields=["config"])
+
+            # Clear webhook cache (30 seconds) so new config is used immediately
+            self._clear_agent_cache(integrated_agent.uuid)
+
+            logger.info(
+                f"Synced abandoned cart config for agent {integrated_agent.uuid}: "
+                f"header_image_type changed from '{current_image_type}' to '{new_image_type}'"
+            )
+
+    def _clear_agent_cache(self, integrated_agent_uuid) -> None:
+        """Clear the webhook cache for the integrated agent."""
+        cache_handler = IntegratedAgentCacheHandlerRedis()
+        cache_handler.clear_cached_agent(integrated_agent_uuid)
+
 
 class UpdateNormalTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin):
     """Strategy for updating normal templates"""
@@ -112,6 +188,9 @@ class UpdateNormalTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
 
         template.metadata = updated_metadata
         template.save(update_fields=["metadata"])
+
+        # Sync abandoned cart agent config if header image was added/removed
+        self._sync_abandoned_cart_image_config(template, translation_payload)
 
         self._create_version_and_notify(template, payload, translation_payload)
 
@@ -158,6 +237,9 @@ class UpdateCustomTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
 
         template.metadata = updated_metadata
         template.save()
+
+        # Sync abandoned cart agent config if header image was added/removed
+        self._sync_abandoned_cart_image_config(template, translation_payload)
 
         self._create_version_and_notify(template, payload, translation_payload)
 
