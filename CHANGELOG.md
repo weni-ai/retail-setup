@@ -1,3 +1,8 @@
+# 3.20.4
+
+## *Feature*
+  - Update OrderStatusWebhook to allow any permissions temporarily
+
 # 3.20.3
 
 ## *Feature*
