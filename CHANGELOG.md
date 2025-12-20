@@ -1,3 +1,8 @@
+# 3.20.5
+
+## *Feature*
+  - feat: replace OIDC auth with JWT for all VTEX IO requests
+
 # 3.20.4
 
 ## *Feature*
