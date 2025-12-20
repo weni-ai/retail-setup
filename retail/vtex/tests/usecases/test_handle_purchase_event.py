@@ -92,7 +92,9 @@ class HandlePurchaseEventUseCaseTest(TestCase):
 
             # Assert
             self.mock_vtex_io_service.get_order_details_by_id.assert_called_once_with(
-                f"{self.mock_project.vtex_account}.myvtex.com", self.order_id
+                account_domain=f"{self.mock_project.vtex_account}.myvtex.com",
+                project_uuid=str(self.mock_project.uuid),
+                order_id=self.order_id,
             )
             self.mock_cart_repository.find_by_order_form.assert_called_once_with(
                 self.order_form_id, self.mock_project
