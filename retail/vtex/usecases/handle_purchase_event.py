@@ -159,7 +159,11 @@ class HandlePurchaseEventUseCase:
             A dictionary containing the order details, or None if not found.
         """
         account_domain = f"{project.vtex_account}.myvtex.com"
-        return self.vtex_io_service.get_order_details_by_id(account_domain, order_id)
+        return self.vtex_io_service.get_order_details_by_id(
+            account_domain=account_domain,
+            project_uuid=str(project.uuid),
+            order_id=order_id,
+        )
 
     def _extract_order_form_id(self, order_details: dict) -> Optional[str]:
         """

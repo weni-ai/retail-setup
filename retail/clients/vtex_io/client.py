@@ -1,61 +1,31 @@
 """Client for connection with Vtex IO"""
 
+from typing import Optional
+
 from django.conf import settings
 
 from retail.clients.base import RequestClient
 from retail.interfaces.clients.vtex_io.interface import VtexIOClientInterface
+from retail.jwt_keys.usecases.generate_jwt import JWTUsecase
 
 
-class InternalVtexIOAuthentication(RequestClient):
-    """
-    Handles authentication with VTEX IO using client credentials.
-    """
-
-    def __get_module_token(self) -> str:
-        """
-        Retrieves the access token from the VTEX IO OIDC endpoint.
-        """
-        # Authentication payload
-        data = {
-            "client_id": settings.VTEX_IO_OIDC_RP_CLIENT_ID,
-            "client_secret": settings.VTEX_IO_OIDC_RP_CLIENT_SECRET,
-            "grant_type": "client_credentials",
-        }
-        response = self.make_request(
-            url=settings.OIDC_OP_TOKEN_ENDPOINT, method="POST", data=data
-        )
-        # Extracts the token
-        token = response.json().get("access_token")
-        if not token:
-            raise ValueError("Failed to retrieve access token.")
-
-        return token
-
-    @property
-    def token(self) -> str:
-        """
-        Returns the access token to be used in requests.
-        """
-        return self.__get_module_token()
-
-    @property
-    def headers(self):
-        return {
-            "Content-Type": "application/json; charset: utf-8",
-            "X-Weni-Auth": f"Bearer {self.token}",
-        }
+JWT_EXPIRATION_MINUTES = 1
 
 
 class VtexIOClient(RequestClient, VtexIOClientInterface):
     """
-    Handles API communication with VTEX IO.
+    Handles API communication with VTEX IO using JWT authentication.
     """
 
-    def __init__(self):
+    def __init__(self, jwt_usecase: Optional[JWTUsecase] = None):
         """
-        Initializes the authentication instance.
+        Initializes the JWT usecase for authentication.
+
+        Args:
+            jwt_usecase: Optional JWTUsecase instance for JWT token generation.
+                        If not provided, a new instance will be created.
         """
-        self.authentication = InternalVtexIOAuthentication()
+        self.jwt_usecase = jwt_usecase or JWTUsecase()
 
     def _get_url(self, account_domain: str, path: str) -> str:
         """
@@ -77,12 +47,34 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
 
         return f"https://{domain}/_v{path}"
 
-    def get_order_form_details(self, account_domain: str, order_form_id: str) -> dict:
+    def _get_jwt_headers(self, project_uuid: str) -> dict:
+        """
+        Generates headers with JWT authentication for inter-module communication.
+
+        Args:
+            project_uuid: The project UUID to include in the JWT token.
+
+        Returns:
+            dict: Headers with X-Weni-Auth JWT token.
+        """
+        token = self.jwt_usecase.generate_jwt_token(
+            project_uuid=project_uuid,
+            expiration_minutes=JWT_EXPIRATION_MINUTES,
+        )
+        return {
+            "Content-Type": "application/json; charset: utf-8",
+            "X-Weni-Auth": token,
+        }
+
+    def get_order_form_details(
+        self, account_domain: str, project_uuid: str, order_form_id: str
+    ) -> dict:
         """
         Fetches order form details by ID.
 
         Args:
             account_domain (str): VTEX account domain.
+            project_uuid (str): Project UUID for JWT token generation.
             order_form_id (str): Unique identifier for the order form.
 
         Returns:
@@ -92,18 +84,20 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         params = {
             "orderFormId": order_form_id,
         }
-        response = self.make_request(
-            url, method="GET", params=params, headers=self.authentication.headers
-        )
+        headers = self._get_jwt_headers(project_uuid)
+        response = self.make_request(url, method="GET", params=params, headers=headers)
 
         return response.json()
 
-    def get_order_details(self, account_domain: str, user_email: str) -> dict:
+    def get_order_details(
+        self, account_domain: str, project_uuid: str, user_email: str
+    ) -> dict:
         """
         Fetches order details by user email.
 
         Args:
             account_domain (str): VTEX account domain.
+            project_uuid (str): Project UUID for JWT token generation.
             user_email (str): Email address of the user.
 
         Returns:
@@ -113,28 +107,37 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         params = {
             "user_email": user_email,
         }
-        response = self.make_request(
-            url, method="GET", params=params, headers=self.authentication.headers
-        )
+        headers = self._get_jwt_headers(project_uuid)
+        response = self.make_request(url, method="GET", params=params, headers=headers)
 
         return response.json()
 
-    def get_order_details_by_id(self, account_domain: str, order_id: str) -> dict:
+    def get_order_details_by_id(
+        self, account_domain: str, project_uuid: str, order_id: str
+    ) -> dict:
         """
         Fetches order details by order ID.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            project_uuid (str): Project UUID for JWT token generation.
+            order_id (str): The order ID to fetch details for.
+
+        Returns:
+            dict: Order details.
         """
         url = self._get_url(account_domain, "/order-by-id")
         params = {
             "orderId": order_id,
         }
-
-        response = self.make_request(
-            url, method="GET", params=params, headers=self.authentication.headers
-        )
+        headers = self._get_jwt_headers(project_uuid)
+        response = self.make_request(url, method="GET", params=params, headers=headers)
 
         return response.json()
 
-    def get_orders(self, account_domain: str, query_params: str) -> dict:
+    def get_orders(
+        self, account_domain: str, project_uuid: str, query_params: str
+    ) -> dict:
         """
         Acts as a proxy to fetch orders from VTEX IO OMS API.
 
@@ -143,7 +146,8 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
 
         Args:
             account_domain (str): VTEX account domain.
-            query_params (dict): Query parameters to filter orders.
+            project_uuid (str): Project UUID for JWT token generation.
+            query_params (str): Query parameters to filter orders.
 
         Returns:
             dict: Orders data from VTEX IO.
@@ -153,25 +157,31 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         data = {
             "raw_query": query_params,
         }
-        response = self.make_request(
-            url, method="POST", json=data, headers=self.authentication.headers
-        )
+        headers = self._get_jwt_headers(project_uuid)
+        response = self.make_request(url, method="POST", json=data, headers=headers)
 
         return response.json()
 
-    def get_account_identifier(self, account_domain: str) -> dict:
+    def get_account_identifier(self, account_domain: str, project_uuid: str) -> dict:
         """
         Retrieves the VTEX account identifier.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            project_uuid (str): Project UUID for JWT token generation.
+
+        Returns:
+            dict: Account identifier details.
         """
         url = self._get_url(account_domain, "/account-identifier")
-        response = self.make_request(
-            url, method="GET", headers=self.authentication.headers
-        )
+        headers = self._get_jwt_headers(project_uuid)
+        response = self.make_request(url, method="GET", headers=headers)
         return response.json()
 
     def proxy_vtex(
         self,
         account_domain: str,
+        project_uuid: str,
         method: str,
         path: str,
         headers: dict = None,
@@ -182,10 +192,12 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         Acts as a generic proxy to VTEX IO API endpoints.
 
         This method forwards requests to the VTEX IO proxy endpoint and returns
-        the response from the VTEX platform.
+        the response from the VTEX platform. Uses JWT authentication for
+        secure inter-module communication.
 
         Args:
             account_domain (str): VTEX account domain.
+            project_uuid (str): Project UUID for JWT token generation.
             method (str): HTTP method (GET, POST, PUT, PATCH).
             path (str): API endpoint path (e.g., '/api/orders/pvt/document/1557825995418-01').
             headers (dict, optional): Additional headers to be sent with the request.
@@ -199,6 +211,7 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
             # Get order details with query parameters
             response = client.proxy_vtex(
                 account_domain="recorrenciacharlie.myvtex.com",
+                project_uuid="550e8400-e29b-41d4-a716-446655440000",
                 method="GET",
                 path="/api/oms/pvt/orders",
                 params={"f_Status": "ready-for-handling"}
@@ -207,6 +220,7 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
             # Post data with custom headers
             response = client.proxy_vtex(
                 account_domain="recorrenciacharlie.myvtex.com",
+                project_uuid="550e8400-e29b-41d4-a716-446655440000",
                 method="POST",
                 path="/api/orders",
                 data={"customer": "john@example.com"},
@@ -228,8 +242,9 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         if params:
             payload["params"] = params
 
+        jwt_headers = self._get_jwt_headers(project_uuid)
         response = self.make_request(
-            url, method="POST", json=payload, headers=self.authentication.headers
+            url, method="POST", json=payload, headers=jwt_headers
         )
 
         return response.json()

@@ -140,8 +140,10 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
             CustomAPIException: If the API request fails.
         """
 
+        project_uuid = str(cart.project.uuid)
         order_form = self.vtex_io_service.get_order_form_details(
-            account_domain=self._get_account_domain(str(cart.project.uuid)),
+            account_domain=self._get_account_domain(project_uuid),
+            project_uuid=project_uuid,
             order_form_id=cart.order_form_id,
         )
         if not order_form:
@@ -194,8 +196,10 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
         Returns:
             dict: List of orders associated with the email.
         """
+        project_uuid = str(cart.project.uuid)
         orders = self.vtex_io_service.get_order_details(
-            account_domain=self._get_account_domain(str(cart.project.uuid)),
+            account_domain=self._get_account_domain(project_uuid),
+            project_uuid=project_uuid,
             user_email=email,
         )
         return orders or {"list": []}
@@ -554,8 +558,10 @@ class CartAbandonmentUseCase(BaseVtexUseCase):
         """
         try:
             # Use the VTEX IO service to fetch order details
+            project_uuid = str(cart.project.uuid)
             order_details = self.vtex_io_service.get_order_details_by_id(
-                account_domain=self._get_account_domain(str(cart.project.uuid)),
+                account_domain=self._get_account_domain(project_uuid),
+                project_uuid=project_uuid,
                 order_id=order_id,
             )
 
