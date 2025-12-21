@@ -2,15 +2,18 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
-from rest_framework.permissions import AllowAny
 
+from retail.internal.jwt_mixins import JWTModuleAuthMixin
 from retail.vtex.tasks import task_order_status_update
 from retail.webhooks.vtex.serializers import OrderStatusSerializer
 
 
-class OrderStatusWebhook(APIView):
-    # TODO: Authentication temporarily disabled. Re-enable before production.
-    permission_classes = [AllowAny]
+class OrderStatusWebhook(JWTModuleAuthMixin, APIView):
+    """
+    Webhook endpoint for VTEX order status updates.
+
+    Expects JWT token with vtex_account in the payload.
+    """
 
     def post(self, request: Request) -> Response:
         """
