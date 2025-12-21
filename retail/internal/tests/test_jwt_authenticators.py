@@ -58,29 +58,28 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...
             with self.assertRaises(AuthenticationFailed) as context:
                 self.auth.authenticate(request)
 
-            self.assertIn(
-                "Missing or invalid Authorization header", str(context.exception)
-            )
+            self.assertIn("Missing Authorization header", str(context.exception))
 
-    def test_authenticate_invalid_authorization_header(self):
-        """Test authentication fails when Authorization header format is invalid."""
+    def test_authenticate_invalid_token_format(self):
+        """Test authentication fails when token is invalid (raw token without Bearer)."""
         with patch("retail.internal.jwt_authenticators.settings") as mock_settings:
             mock_settings.JWT_PUBLIC_KEY = self.mock_public_key
 
             request = self.factory.get("/")
-            request.headers = {"Authorization": "InvalidFormat"}
+            # Raw token (without Bearer) is now accepted, but will fail on decode
+            request.headers = {"Authorization": "InvalidTokenValue"}
 
             with self.assertRaises(AuthenticationFailed) as context:
                 self.auth.authenticate(request)
 
-            self.assertIn(
-                "Missing or invalid Authorization header", str(context.exception)
-            )
+            self.assertIn("Invalid token", str(context.exception))
 
     @patch("retail.internal.jwt_authenticators.jwt.decode")
     @patch("retail.internal.jwt_authenticators.settings")
-    def test_authenticate_missing_project_uuid(self, mock_settings, mock_jwt_decode):
-        """Test authentication fails when project_uuid is missing from payload."""
+    def test_authenticate_missing_required_payload_fields(
+        self, mock_settings, mock_jwt_decode
+    ):
+        """Test authentication fails when neither project_uuid nor vtex_account is in payload."""
         mock_settings.JWT_PUBLIC_KEY = self.mock_public_key
         mock_jwt_decode.return_value = {"some_other_field": "value"}
 
@@ -90,12 +89,17 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...
         with self.assertRaises(AuthenticationFailed) as context:
             self.auth.authenticate(request)
 
-        self.assertIn("project_uuid not found in token payload", str(context.exception))
+        self.assertIn(
+            "Token must contain 'project_uuid' or 'vtex_account'",
+            str(context.exception),
+        )
 
     @patch("retail.internal.jwt_authenticators.jwt.decode")
     @patch("retail.internal.jwt_authenticators.settings")
-    def test_authenticate_success(self, mock_settings, mock_jwt_decode):
-        """Test successful authentication with valid JWT token for inter-module communication."""
+    def test_authenticate_success_with_project_uuid(
+        self, mock_settings, mock_jwt_decode
+    ):
+        """Test successful authentication with project_uuid in payload."""
         mock_settings.JWT_PUBLIC_KEY = self.mock_public_key
         mock_jwt_decode.return_value = self.sample_payload
 
@@ -109,7 +113,28 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...
 
         # Check that project_uuid and jwt_payload are attached to request
         self.assertEqual(request.project_uuid, "test-project-123")
+        self.assertIsNone(request.vtex_account)
         self.assertEqual(request.jwt_payload, self.sample_payload)
+
+    @patch("retail.internal.jwt_authenticators.jwt.decode")
+    @patch("retail.internal.jwt_authenticators.settings")
+    def test_authenticate_success_with_vtex_account(
+        self, mock_settings, mock_jwt_decode
+    ):
+        """Test successful authentication with vtex_account in payload."""
+        mock_settings.JWT_PUBLIC_KEY = self.mock_public_key
+        vtex_payload = {"vtex_account": "mystore", "exp": 9999999999}
+        mock_jwt_decode.return_value = vtex_payload
+
+        request = self.factory.get("/")
+        request.headers = {"Authorization": "Bearer valid-token"}
+
+        result = self.auth.authenticate(request)
+
+        self.assertEqual(result, (None, None))
+        self.assertIsNone(request.project_uuid)
+        self.assertEqual(request.vtex_account, "mystore")
+        self.assertEqual(request.jwt_payload, vtex_payload)
 
     @patch("retail.internal.jwt_authenticators.jwt.decode")
     @patch("retail.internal.jwt_authenticators.settings")
