@@ -1,3 +1,8 @@
+# 3.20.6
+
+## *Feature*
+  - feat: extend JWT auth to support vtex_account in payload
+
 # 3.20.5
 
 ## *Feature*
