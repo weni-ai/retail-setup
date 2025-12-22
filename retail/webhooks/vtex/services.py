@@ -43,14 +43,16 @@ class CartTimeRestrictionService:
         """
         return timezone.datetime.strptime(time_str, "%H:%M").time()
 
-    @staticmethod
+    @classmethod
     def combine_date_and_time_with_shift(
-        dt: date, t: time, shift: int
+        cls, dt: date, t: time, shift: int
     ) -> timezone.datetime:
         """
         Combines a date and time with a shift to calculate the next available time.
+        Always returns a timezone-aware datetime.
         """
-        return timezone.datetime.combine(dt + timezone.timedelta(days=shift), t)
+        naive_dt = timezone.datetime.combine(dt + timezone.timedelta(days=shift), t)
+        return cls.make_aware_if_naive(naive_dt)
 
     @staticmethod
     def make_aware_if_naive(dt: timezone.datetime) -> timezone.datetime:
@@ -97,15 +99,15 @@ class CartTimeRestrictionService:
             # The first time allowed for the day is the "from" time configured for
             # the weekdays period.
             # Example: 08:00 AM
-            first_time_allowed_for_day = cls.make_aware_if_naive(
-                cls.combine_date_and_time_with_shift(now.date(), from_time, 0)
+            first_time_allowed_for_day = cls.combine_date_and_time_with_shift(
+                now.date(), from_time, 0
             )
 
             # The last time allowed for the day is the "to" time configured for
             # the weekdays period.
             # Example: 18:00 PM
-            last_time_allowed_for_day = cls.make_aware_if_naive(
-                cls.combine_date_and_time_with_shift(now.date(), to_time, 0)
+            last_time_allowed_for_day = cls.combine_date_and_time_with_shift(
+                now.date(), to_time, 0
             )
 
             # If the current time is before the first time allowed for the day,
@@ -156,14 +158,14 @@ class CartTimeRestrictionService:
 
             # The first time allowed for the day is the "from" time configured for
             # the saturdays period.
-            first_time_allowed_for_day = cls.make_aware_if_naive(
-                cls.combine_date_and_time_with_shift(now.date(), from_time, 0)
+            first_time_allowed_for_day = cls.combine_date_and_time_with_shift(
+                now.date(), from_time, 0
             )
 
             # The last time allowed for the day is the "to" time configured for
             # the saturdays period.
-            last_time_allowed_for_day = cls.make_aware_if_naive(
-                cls.combine_date_and_time_with_shift(now.date(), to_time, 0)
+            last_time_allowed_for_day = cls.combine_date_and_time_with_shift(
+                now.date(), to_time, 0
             )
 
             # If the current time is before the first time allowed for the day,
