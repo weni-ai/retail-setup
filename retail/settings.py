@@ -305,6 +305,11 @@ if USE_META:
     )
 
 ORDER_STATUS_AGENT_UUID = env.str("ORDER_STATUS_AGENT_UUID", default="")
+ABANDONED_CART_AGENT_UUID = env.str("ABANDONED_CART_AGENT_UUID", default="")
+ABANDONED_CART_DEFAULT_IMAGE_URL = env.str(
+    "ABANDONED_CART_DEFAULT_IMAGE_URL",
+    default="https://placehold.co/1200x628/png?text=Your+Product",
+)
 
 CONNECT_REST_ENDPOINT = env.str("CONNECT_REST_ENDPOINT", default="")
 

@@ -11,6 +11,10 @@ from rest_framework.exceptions import NotFound
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_management.models import Agent
+from retail.agents.shared.cache import (
+    IntegratedAgentCacheHandler,
+    IntegratedAgentCacheHandlerRedis,
+)
 
 from weni_datalake_sdk.clients.client import send_commerce_webhook_data
 from weni_datalake_sdk.paths.commerce_webhook import CommerceWebhookPath
@@ -19,8 +23,13 @@ logger = logging.getLogger(__name__)
 
 
 class UnassignAgentUseCase:
-    def __init__(self, audit_func: Callable = None):
+    def __init__(
+        self,
+        audit_func: Callable = None,
+        cache_handler: IntegratedAgentCacheHandler | None = None,
+    ):
         self.audit_func = audit_func or send_commerce_webhook_data
+        self.cache_handler = cache_handler or IntegratedAgentCacheHandlerRedis()
 
     def _get_integrated_agent(self, agent: Agent, project_uuid: str) -> IntegratedAgent:
         try:
@@ -62,6 +71,36 @@ class UnassignAgentUseCase:
         logger.info(f"Agent unassignment event registered for agent {agent.uuid}")
 
     def _clear_cache(self, agent: Agent, integrated_agent: IntegratedAgent) -> None:
+        # Clear webhook cache (used by AgentWebhookUseCase)
+        try:
+            self.cache_handler.clear_cached_agent(integrated_agent.uuid)
+            logger.info(
+                "Cleared integrated agent webhook cache for %s", integrated_agent.uuid
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to clear integrated agent webhook cache for %s: %s",
+                integrated_agent.uuid,
+                exc,
+            )
+
+        # Clear 6h per-project/agent cache used by BaseAgentWebhookUseCase
+        try:
+            cache_key = (
+                f"integrated_agent_{str(agent.uuid)}_"
+                f"{str(integrated_agent.project.uuid)}"
+            )
+            cache.delete(cache_key)
+            logger.info("Cleared per-project integrated agent cache key: %s", cache_key)
+        except Exception as exc:
+            logger.warning(
+                "Failed to clear per-project integrated agent cache for %s/%s: %s",
+                agent.uuid,
+                integrated_agent.project.uuid,
+                exc,
+            )
+
+        # Clear order status cache if applicable
         if not settings.ORDER_STATUS_AGENT_UUID:
             logger.warning("ORDER_STATUS_AGENT_UUID is not set in settings.")
             return

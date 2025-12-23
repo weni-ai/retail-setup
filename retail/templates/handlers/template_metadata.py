@@ -10,6 +10,12 @@ class TemplateMetadataHandler:
     def __init__(self, s3_service: Optional[S3ServiceInterface] = None):
         self.s3_service = s3_service or S3Service()
 
+    def _is_s3_url(self, text: str) -> bool:
+        """Check if the text is an S3 URL (already uploaded image)."""
+        if not text or not isinstance(text, str):
+            return False
+        return text.startswith(("http://", "https://"))
+
     def _upload_header_image(self, header: Dict[str, Any]) -> str:
         """Upload header image to S3 and return the unique file key."""
         file = self.s3_service.base_64_converter.convert(header.get("text"))
@@ -39,13 +45,13 @@ class TemplateMetadataHandler:
             metadata["buttons"] = translation_payload_copy["buttons"]
         if "header" in translation_payload_copy:
             metadata["header"] = translation_payload_copy["header"]
-            if (
-                "header_type" in translation_payload_copy["header"]
-                and translation_payload_copy["header"]["header_type"] == "IMAGE"
-            ):
-                metadata["header"]["text"] = self._upload_header_image(
-                    translation_payload_copy["header"]
-                )
+            header = translation_payload_copy["header"]
+            if "header_type" in header and header["header_type"] == "IMAGE":
+                header_text = header.get("text", "")
+                # Only upload if it's base64 (new image), not if it's already an S3 URL
+                if not self._is_s3_url(header_text):
+                    metadata["header"]["text"] = self._upload_header_image(header)
+                # If it's already an S3 URL, keep the existing URL (no re-upload needed)
 
         return metadata
 

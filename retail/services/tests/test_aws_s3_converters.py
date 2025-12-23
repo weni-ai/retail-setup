@@ -1,5 +1,5 @@
 import base64
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from django.test import TestCase
 from django.core.files.uploadedfile import InMemoryUploadedFile
@@ -7,6 +7,7 @@ from django.core.files.uploadedfile import InMemoryUploadedFile
 from retail.services.aws_s3.converters import (
     Base64ToUploadedFileConverter,
     ConverterInterface,
+    ImageUrlToBase64Converter,
 )
 
 
@@ -172,3 +173,139 @@ class TestBase64ToUploadedFileConverter(TestCase):
         self.assertEqual(result.tell(), 0)
         result.seek(0, 2)
         self.assertEqual(result.tell(), len(test_data))
+
+
+class TestImageUrlToBase64Converter(TestCase):
+    def setUp(self):
+        self.converter = ImageUrlToBase64Converter()
+
+    # Tests for is_image_url method
+    def test_is_image_url_with_png(self):
+        url = "https://example.com/image.png"
+        self.assertTrue(self.converter.is_image_url(url))
+
+    def test_is_image_url_with_jpg(self):
+        url = "https://example.com/photo.jpg"
+        self.assertTrue(self.converter.is_image_url(url))
+
+    def test_is_image_url_with_jpeg(self):
+        url = "https://example.com/photo.jpeg"
+        self.assertTrue(self.converter.is_image_url(url))
+
+    def test_is_image_url_with_s3_presigned_url(self):
+        """S3 presigned URLs with query string should be detected."""
+        url = (
+            "https://bucket.s3.amazonaws.com/image.png?AWSAccessKeyId=xxx&Signature=yyy"
+        )
+        self.assertTrue(self.converter.is_image_url(url))
+
+    def test_is_image_url_with_non_image(self):
+        url = "https://example.com/page.html"
+        self.assertFalse(self.converter.is_image_url(url))
+
+    def test_is_image_url_with_non_url(self):
+        text = "just some text"
+        self.assertFalse(self.converter.is_image_url(text))
+
+    def test_is_image_url_with_none(self):
+        self.assertFalse(self.converter.is_image_url(None))
+
+    def test_is_image_url_with_empty_string(self):
+        self.assertFalse(self.converter.is_image_url(""))
+
+    def test_is_image_url_case_insensitive(self):
+        url = "https://example.com/image.PNG"
+        self.assertTrue(self.converter.is_image_url(url))
+
+    # Tests for convert method
+    @patch("retail.services.aws_s3.converters.requests.get")
+    def test_convert_success(self, mock_get):
+        """Successful conversion returns base64 Data URI."""
+        mock_response = Mock()
+        mock_response.content = b"fake image content"
+        mock_response.headers = {"Content-Type": "image/png"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        url = "https://example.com/image.png"
+        result = self.converter.convert(url)
+
+        self.assertIsNotNone(result)
+        self.assertTrue(result.startswith("data:image/png;base64,"))
+        # Verify the base64 content is correct
+        expected_base64 = base64.b64encode(b"fake image content").decode("utf-8")
+        self.assertIn(expected_base64, result)
+
+    @patch("retail.services.aws_s3.converters.requests.get")
+    def test_convert_with_content_type_charset(self, mock_get):
+        """Content-Type with charset should be cleaned."""
+        mock_response = Mock()
+        mock_response.content = b"image data"
+        mock_response.headers = {"Content-Type": "image/jpeg; charset=utf-8"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        url = "https://example.com/image.jpg"
+        result = self.converter.convert(url)
+
+        self.assertTrue(result.startswith("data:image/jpeg;base64,"))
+
+    @patch("retail.services.aws_s3.converters.requests.get")
+    def test_convert_with_missing_content_type(self, mock_get):
+        """Missing Content-Type should use default."""
+        mock_response = Mock()
+        mock_response.content = b"image data"
+        mock_response.headers = {}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        url = "https://example.com/image.png"
+        result = self.converter.convert(url)
+
+        self.assertTrue(result.startswith("data:image/png;base64,"))
+
+    def test_convert_with_non_image_url(self):
+        """Non-image URL should return None."""
+        url = "https://example.com/page.html"
+        result = self.converter.convert(url)
+        self.assertIsNone(result)
+
+    @patch("retail.services.aws_s3.converters.requests.get")
+    def test_convert_request_failure(self, mock_get):
+        """Request failure should return None."""
+        import requests
+
+        mock_get.side_effect = requests.RequestException("Connection error")
+
+        url = "https://example.com/image.png"
+        result = self.converter.convert(url)
+
+        self.assertIsNone(result)
+
+    @patch("retail.services.aws_s3.converters.requests.get")
+    def test_convert_http_error(self, mock_get):
+        """HTTP error should return None."""
+        import requests
+
+        mock_response = Mock()
+        mock_response.raise_for_status.side_effect = requests.HTTPError("404 Not Found")
+        mock_get.return_value = mock_response
+
+        url = "https://example.com/image.png"
+        result = self.converter.convert(url)
+
+        self.assertIsNone(result)
+
+    @patch("retail.services.aws_s3.converters.requests.get")
+    def test_convert_uses_timeout(self, mock_get):
+        """Request should use timeout."""
+        mock_response = Mock()
+        mock_response.content = b"image data"
+        mock_response.headers = {"Content-Type": "image/png"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        url = "https://example.com/image.png"
+        self.converter.convert(url)
+
+        mock_get.assert_called_once_with(url, timeout=30)

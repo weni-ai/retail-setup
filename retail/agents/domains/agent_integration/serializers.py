@@ -19,9 +19,36 @@ class RetrieveIntegratedAgentQueryParamsSerializer(serializers.Serializer):
     end = serializers.DateField(required=False, default=None)
 
 
+class AbandonedCartConfigSerializer(serializers.Serializer):
+    """Serializer for abandoned cart configuration."""
+
+    header_image_type = serializers.ChoiceField(
+        # Options: first_item (first cart item image), most_expensive, no_image
+        choices=["first_item", "most_expensive", "no_image"],
+        required=False,
+    )
+    abandonment_time_minutes = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=1440,  # Max 24 hours
+    )
+    minimum_cart_value = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+    )
+    notification_cooldown_hours = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=168,  # Max 7 days
+    )
+
+
 class UpdateIntegratedAgentSerializer(serializers.Serializer):
     contact_percentage = serializers.IntegerField(required=False)
     global_rule = serializers.CharField(required=False, allow_null=True)
+    abandoned_cart_config = AbandonedCartConfigSerializer(required=False)
 
 
 class ReadIntegratedAgentSerializer(serializers.Serializer):
@@ -37,6 +64,9 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
     )
     has_delivered_order_templates = serializers.SerializerMethodField(
         "get_has_delivered_order_templates"
+    )
+    abandoned_cart_config = serializers.SerializerMethodField(
+        "get_abandoned_cart_config"
     )
 
     def get_webhook_url(self, obj):
@@ -67,3 +97,24 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
         return PushAgentUseCase.has_delivered_order_templates_by_integrated_agent(
             str(obj.uuid)
         )
+
+    def get_abandoned_cart_config(self, obj):
+        """Get abandoned cart configuration from agent config."""
+        abandoned_cart_config = obj.config.get("abandoned_cart", {})
+
+        # Only return if there's actual configuration
+        if not abandoned_cart_config:
+            return None
+
+        return {
+            "header_image_type": abandoned_cart_config.get(
+                "header_image_type", "first_item"
+            ),
+            "abandonment_time_minutes": abandoned_cart_config.get(
+                "abandonment_time_minutes", 60
+            ),
+            "minimum_cart_value": abandoned_cart_config.get("minimum_cart_value"),
+            "notification_cooldown_hours": abandoned_cart_config.get(
+                "notification_cooldown_hours"
+            ),
+        }

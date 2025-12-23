@@ -170,9 +170,7 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         )
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    def test_get_integrated_agent_if_exists_returns_none_if_setting_missing(
-        self, mock_settings
-    ):
+    def test_get_integrated_agent_returns_none_if_setting_missing(self, mock_settings):
         mock_settings.ORDER_STATUS_AGENT_UUID = None
 
         result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
