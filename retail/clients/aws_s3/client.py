@@ -46,8 +46,21 @@ class S3Client(S3ClientInterface):
 
     def generate_presigned_url(self, key: str, expiration: int = 3600) -> str:
         """Generates a presigned URL for accessing a private S3 object."""
-        return self.s3.generate_presigned_url(
+        # DEBUG: Log the parameters being used
+        logger.info(
+            f"[DEBUG] S3Client.generate_presigned_url - "
+            f"bucket_name={self.bucket_name}, key={key}, expiration={expiration}"
+        )
+
+        presigned_url = self.s3.generate_presigned_url(
             "get_object",
             Params={"Bucket": self.bucket_name, "Key": key},
             ExpiresIn=expiration,
         )
+
+        # DEBUG: Log the generated URL
+        logger.info(
+            f"[DEBUG] S3Client.generate_presigned_url - GENERATED URL: {presigned_url[:200]}..."
+        )
+
+        return presigned_url

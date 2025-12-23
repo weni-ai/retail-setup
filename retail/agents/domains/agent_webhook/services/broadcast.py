@@ -63,17 +63,38 @@ class Broadcast:
         language = data.get("language", "pt-BR")
         template_name = template.current_version.template_name
 
+        # DEBUG: Log input data
+        logger.info(
+            f"[DEBUG] build_broadcast_template_message - INPUT DATA: "
+            f"template_variables={template_variables}, "
+            f"contact_urn={contact_urn}, "
+            f"language={language}, "
+            f"template_name={template_name}"
+        )
+
         # Extract and remove button if present
         button = template_variables.pop("button", None)
 
         # Extract image URL if present in template variables
         image_url = template_variables.pop("image_url", None)
 
+        # DEBUG: Log extracted image_url from agent
+        logger.info(
+            f"[DEBUG] build_broadcast_template_message - EXTRACTED FROM AGENT: "
+            f"button={button}, image_url={image_url}"
+        )
+
         # Extract image s3 key if present
         header = template.metadata.get("header", None)
         s3_key = None
         if header and header["header_type"] == "IMAGE":
             s3_key = header["text"]
+
+        # DEBUG: Log template metadata header info
+        logger.info(
+            f"[DEBUG] build_broadcast_template_message - TEMPLATE METADATA: "
+            f"header={header}, s3_key={s3_key}"
+        )
 
         # Sort template variables by numeric key
         sorted_keys = []
@@ -126,16 +147,45 @@ class Broadcast:
 
         # Process image attachment - prioritize direct URL over S3 key
         attachment = None
+        logger.info(
+            f"[DEBUG] build_broadcast_template_message - PROCESSING IMAGE: "
+            f"image_url={image_url}, s3_key={s3_key}"
+        )
+
         if image_url:
-            # Handle direct image URL
+            # Handle direct image URL from agent response
+            logger.info(f"[DEBUG] Using image_url from agent: {image_url}")
             attachment = self._build_image_attachment_from_url(image_url)
         elif s3_key is not None and s3_key.strip():
-            # Handle S3 key (existing logic)
-            attachment = self._build_image_attachment_from_s3(s3_key, s3_service)
+            # Check if s3_key is actually an S3 key or already a complete URL
+            if s3_key.startswith(("http://", "https://")):
+                # It's already a URL (e.g., VTEX image URL stored in metadata)
+                logger.info(
+                    f"[DEBUG] s3_key is already a URL, using directly: {s3_key}"
+                )
+                attachment = self._build_image_attachment_from_url(s3_key)
+            else:
+                # It's an S3 key - generate presigned URL
+                logger.info(
+                    f"[DEBUG] s3_key is S3 key, generating presigned URL: {s3_key}"
+                )
+                attachment = self._build_image_attachment_from_s3(s3_key, s3_service)
+
+        # DEBUG: Log generated attachment
+        logger.info(
+            f"[DEBUG] build_broadcast_template_message - ATTACHMENT GENERATED: "
+            f"{attachment[:100] if attachment else None}..."
+        )
 
         # Add attachment to message if available
         if attachment:
             message["msg"]["attachments"] = [attachment]
+
+        # DEBUG: Log final message payload
+        logger.info(
+            f"[DEBUG] build_broadcast_template_message - FINAL MESSAGE PAYLOAD: "
+            f"{message}"
+        )
 
         return message
 
@@ -201,6 +251,11 @@ class Broadcast:
         Returns:
             str: Formatted attachment string with presigned URL.
         """
+        # DEBUG: Log the s3_key being processed
+        logger.info(
+            f"[DEBUG] _build_image_attachment_from_s3 - RECEIVED s3_key: {s3_key}"
+        )
+
         content_type, _ = mimetypes.guess_type(s3_key)
 
         if content_type and content_type.startswith("image/"):
@@ -213,7 +268,19 @@ class Broadcast:
                 f"Could not detect image type for {s3_key}, using jpeg as fallback"
             )
 
-        return f"image/{image_subtype}:{s3_service.generate_presigned_url(s3_key)}"
+        # DEBUG: Log before generating presigned URL
+        logger.info(
+            f"[DEBUG] _build_image_attachment_from_s3 - GENERATING presigned URL for key: {s3_key}"
+        )
+
+        presigned_url = s3_service.generate_presigned_url(s3_key)
+
+        # DEBUG: Log the generated presigned URL
+        logger.info(
+            f"[DEBUG] _build_image_attachment_from_s3 - GENERATED presigned URL: {presigned_url[:150]}..."
+        )
+
+        return f"image/{image_subtype}:{presigned_url}"
 
     def can_send_to_contact(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
@@ -294,7 +361,17 @@ class Broadcast:
             message.get("msg", {}).get("template", {}).get("name", "unknown")
         )
 
+        # DEBUG: Log message being sent to Flows
+        logger.info(
+            f"[DEBUG] send_message - SENDING TO FLOWS: "
+            f"project={project_uuid}, vtex_account={vtex_account}, "
+            f"template={template_name}, message={message}"
+        )
+
         response = self.flows_service.send_whatsapp_broadcast(message)
+
+        # DEBUG: Log Flows response
+        logger.info(f"[DEBUG] send_message - FLOWS RESPONSE: {response}")
         self._register_broadcast_event(message, response, integrated_agent, lambda_data)
         logger.info(
             f"Broadcast message sent. "
