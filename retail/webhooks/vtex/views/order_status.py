@@ -3,13 +3,17 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
 
-from retail.internal.permissions import CanCommunicateInternally
+from retail.internal.jwt_mixins import JWTModuleAuthMixin
 from retail.vtex.tasks import task_order_status_update
 from retail.webhooks.vtex.serializers import OrderStatusSerializer
 
 
-class OrderStatusWebhook(APIView):
-    permission_classes = [CanCommunicateInternally]
+class OrderStatusWebhook(JWTModuleAuthMixin, APIView):
+    """
+    Webhook endpoint for VTEX order status updates.
+
+    Expects JWT token with vtex_account in the payload.
+    """
 
     def post(self, request: Request) -> Response:
         """

@@ -11,17 +11,31 @@ from django.conf import settings
 class JWTModuleAuthentication(BaseAuthentication):
     """
     DRF authentication class for inter-module communication using JWT tokens.
+
     This class handles JWT authentication for secure communication between modules:
     - Validates the JWT signature using the public key from settings
-    - Extracts 'project_uuid' from the payload and attaches it to the request object
-    - Raises AuthenticationFailed for any missing/invalid cases
+    - Extracts 'project_uuid' or 'vtex_account' from the payload
+    - Supports Authorization header with or without 'Bearer' prefix
+
     Usage:
         authentication_classes = [JWTModuleAuthentication]
     """
 
+    def _extract_token(self, request: Request) -> str:
+        """Extract JWT token from Authorization header."""
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header:
+            raise AuthenticationFailed("Missing Authorization header.")
+
+        # Support both "Bearer <token>" and raw token
+        if auth_header.startswith("Bearer "):
+            return auth_header.split(" ", 1)[1]
+        return auth_header
+
     def authenticate(self, request: Request) -> Optional[Tuple[Any, None]]:
         """
         Authenticate the request using JWT token for inter-module communication.
+
         Returns:
             Tuple of (user, auth) where user is None (no user model needed)
             and auth is None (no auth object needed)
@@ -33,11 +47,8 @@ class JWTModuleAuthentication(BaseAuthentication):
                 "Please add the public key for JWT validation."
             )
 
-        auth_header: str = request.headers.get("Authorization", "")
-        if not isinstance(auth_header, str) or not auth_header.startswith("Bearer "):
-            raise AuthenticationFailed("Missing or invalid Authorization header.")
+        token = self._extract_token(request)
 
-        token: str = auth_header.split(" ", 1)[1]
         try:
             payload: dict = jwt.decode(
                 token,
@@ -50,13 +61,18 @@ class JWTModuleAuthentication(BaseAuthentication):
         except jwt.InvalidTokenError:
             raise AuthenticationFailed("Invalid token.")
 
+        # Accept either project_uuid or vtex_account
         project_uuid: Optional[str] = payload.get("project_uuid")
-        if not project_uuid:
-            raise AuthenticationFailed("project_uuid not found in token payload.")
+        vtex_account: Optional[str] = payload.get("vtex_account")
 
-        # Inject project_uuid and payload for use in the view/mixin
+        if not project_uuid and not vtex_account:
+            raise AuthenticationFailed(
+                "Token must contain 'project_uuid' or 'vtex_account'."
+            )
+
+        # Inject values for use in the view/mixin
         request.project_uuid = project_uuid
+        request.vtex_account = vtex_account
         request.jwt_payload = payload
 
-        # Return None for user since we don't need a user model for JWT auth
         return (None, None)

@@ -1,3 +1,18 @@
+# 3.20.6
+
+## *Feature*
+  - feat: extend JWT auth to support vtex_account in payload
+
+# 3.20.5
+
+## *Feature*
+  - feat: replace OIDC auth with JWT for all VTEX IO requests
+
+# 3.20.4
+
+## *Feature*
+  - Update OrderStatusWebhook to allow any permissions temporarily
+
 # 3.20.3
 
 ## *Feature*

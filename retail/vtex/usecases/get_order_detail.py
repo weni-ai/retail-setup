@@ -34,7 +34,9 @@ class GetOrderDetailsUsecase(BaseVtexUseCase):
 
         try:
             return self.vtex_io_service.get_order_details_by_id(
-                account_domain=self._get_account_domain(project_uuid), order_id=order_id
+                account_domain=self._get_account_domain(project_uuid),
+                project_uuid=project_uuid,
+                order_id=order_id,
             )
         except Exception as e:
             raise ValueError(f"Error fetching order details: {str(e)}")

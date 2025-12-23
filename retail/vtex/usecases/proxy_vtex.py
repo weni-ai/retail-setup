@@ -42,6 +42,7 @@ class ProxyVtexUsecase(BaseVtexUseCase):
         account_domain = self._get_account_domain(project_uuid)
         return self.vtex_io_service.proxy_vtex(
             account_domain=account_domain,
+            project_uuid=project_uuid,
             method=method,
             path=path,
             headers=headers,

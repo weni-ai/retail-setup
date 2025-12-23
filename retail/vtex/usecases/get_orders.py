@@ -16,9 +16,10 @@ class GetOrdersUsecase(BaseVtexUseCase):
         Returns:
             dict: Orders data from VTEX IO
         """
-        # Remove project_uuid from params as it's not needed for the VTEX API call
         raw_query = data.get("raw_query")
         account_domain = self._get_account_domain(project_uuid)
         return self.vtex_io_service.get_orders(
-            account_domain=account_domain, query_params=raw_query
+            account_domain=account_domain,
+            project_uuid=project_uuid,
+            query_params=raw_query,
         )
