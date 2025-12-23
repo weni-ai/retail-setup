@@ -60,6 +60,54 @@ class TestHeaderTransformer(TestCase):
         result = self.transformer._is_base_64(data_prefix_header)
         self.assertTrue(result)
 
+    # Tests for _is_image_url method
+    def test_is_image_url_with_s3_png_url(self):
+        """S3 presigned URL with .png extension should be detected as image."""
+        url = "https://weni-staging-retail.s3.amazonaws.com/template_headers/image.png?AWSAccessKeyId=xxx"
+        result = self.transformer._is_image_url(url)
+        self.assertTrue(result)
+
+    def test_is_image_url_with_jpg(self):
+        url = "https://example.com/images/photo.jpg"
+        result = self.transformer._is_image_url(url)
+        self.assertTrue(result)
+
+    def test_is_image_url_with_jpeg(self):
+        url = "https://example.com/images/photo.jpeg"
+        result = self.transformer._is_image_url(url)
+        self.assertTrue(result)
+
+    def test_is_image_url_with_webp(self):
+        url = "https://example.com/images/photo.webp"
+        result = self.transformer._is_image_url(url)
+        self.assertTrue(result)
+
+    def test_is_image_url_with_non_image_url(self):
+        url = "https://example.com/page.html"
+        result = self.transformer._is_image_url(url)
+        self.assertFalse(result)
+
+    def test_is_image_url_with_non_url_string(self):
+        text = "Just some text"
+        result = self.transformer._is_image_url(text)
+        self.assertFalse(result)
+
+    # Integration tests for transform with image URLs
+    def test_transform_with_image_url_header(self):
+        """URL pointing to image should be transformed with header_type IMAGE."""
+        template_data = {
+            "header": "https://weni-staging-retail.s3.amazonaws.com/template_headers/image.png?token=abc"
+        }
+        result = self.transformer.transform(template_data)
+        self.assertEqual(result["header_type"], "IMAGE")
+        self.assertEqual(result["text"], template_data["header"])
+
+    def test_transform_with_non_image_url_header(self):
+        """URL not pointing to image should be transformed with header_type TEXT."""
+        template_data = {"header": "https://example.com/page"}
+        result = self.transformer.transform(template_data)
+        self.assertEqual(result["header_type"], "TEXT")
+
 
 class TestBodyTransformer(TestCase):
     def setUp(self):

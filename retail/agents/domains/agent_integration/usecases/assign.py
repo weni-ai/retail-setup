@@ -1,6 +1,4 @@
 import logging
-import base64
-import requests
 
 from typing import List, TypedDict, Mapping, Any, Optional
 
@@ -26,6 +24,7 @@ from retail.templates.usecases.create_custom_template import (
     CreateCustomTemplateData,
 )
 from retail.templates.exceptions import CustomTemplateAlreadyExists
+from retail.services.aws_s3.converters import ImageUrlToBase64Converter
 
 logger = logging.getLogger(__name__)
 
@@ -354,29 +353,6 @@ class AssignAgentUseCase:
 
         return integrated_agent
 
-    def _url_to_base64(self, url: str) -> str:
-        """
-        Download image from URL and convert to base64 data URI.
-
-        Args:
-            url: The image URL to download
-
-        Returns:
-            Base64 data URI string (e.g., "data:image/png;base64,...")
-
-        Raises:
-            Exception: If download or conversion fails
-        """
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
-
-        content_type = response.headers.get("Content-Type", "image/png")
-        # Extract just the mime type (e.g., "image/png" from "image/png; charset=utf-8")
-        mime_type = content_type.split(";")[0].strip()
-
-        image_base64 = base64.b64encode(response.content).decode("utf-8")
-        return f"data:{mime_type};base64,{image_base64}"
-
     def _create_default_abandoned_cart_template(
         self,
         integrated_agent: IntegratedAgent,
@@ -413,7 +389,12 @@ class AssignAgentUseCase:
             logger.info(
                 f"[AssignAgent] Converting placeholder image to base64: {placeholder_image_url}"
             )
-            placeholder_image_base64 = self._url_to_base64(placeholder_image_url)
+            image_converter = ImageUrlToBase64Converter()
+            placeholder_image_base64 = image_converter.convert(placeholder_image_url)
+            if not placeholder_image_base64:
+                raise ValueError(
+                    f"Failed to convert placeholder image URL to base64: {placeholder_image_url}"
+                )
 
             # Build translation payload in the format expected by TemplateMetadataHandler
             # NOTE: Use "template_header" (not "header") because build_metadata expects this key

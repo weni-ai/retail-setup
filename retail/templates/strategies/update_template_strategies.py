@@ -16,6 +16,7 @@ from retail.services.rule_generator import RuleGenerator
 from retail.templates.handlers import TemplateMetadataHandler
 from retail.templates.tasks import task_create_template
 from retail.agents.shared.cache import IntegratedAgentCacheHandlerRedis
+from retail.services.aws_s3.converters import ImageUrlToBase64Converter
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,10 @@ class UpdateTemplateStrategy(ABC):
         header = translation_payload.get("header")
 
         if isinstance(header, dict) and header.get("header_type") == "IMAGE":
-            header["example"] = header.pop("text", None)
+            header_content = header.pop("text", None)
+            header["example"] = self._convert_image_url_to_base64_if_needed(
+                header_content
+            )
 
         task_create_template.delay(
             template_name=version_name,
@@ -62,6 +66,32 @@ class UpdateTemplateStrategy(ABC):
             version_uuid=str(version_uuid),
             template_translation=translation_payload,
         )
+
+    def _convert_image_url_to_base64_if_needed(self, image_content: str) -> str:
+        """
+        Convert image URL to base64 Data URI if content is a URL.
+        Returns the original content if it's already base64 or conversion fails.
+        """
+        if not image_content:
+            return image_content
+
+        # Already in base64 Data URI format
+        if image_content.startswith("data:"):
+            return image_content
+
+        # Try to convert URL to base64
+        converter = ImageUrlToBase64Converter()
+        if converter.is_image_url(image_content):
+            converted = converter.convert(image_content)
+            if converted:
+                logger.info("Successfully converted image URL to base64 for template")
+                return converted
+            else:
+                logger.warning(
+                    "Failed to convert image URL to base64, using original content"
+                )
+
+        return image_content
 
     def _update_common_metadata(
         self, template: Template, payload: Dict[str, Any]

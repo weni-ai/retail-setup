@@ -106,7 +106,7 @@ class UpdateTemplateStrategyTest(TestCase):
         version_uuid = uuid4()
         translation_payload = {
             "body": "Test body",
-            "header": {"header_type": "IMAGE", "text": "base64_image_data"},
+            "header": {"header_type": "IMAGE", "text": "data:image/png;base64,abc123"},
         }
         app_uuid = str(uuid4())
         project_uuid = str(uuid4())
@@ -128,9 +128,106 @@ class UpdateTemplateStrategyTest(TestCase):
             call_args = mock_task.delay.call_args
             template_translation = call_args.kwargs["template_translation"]
             self.assertEqual(
-                template_translation["header"]["example"], "base64_image_data"
+                template_translation["header"]["example"],
+                "data:image/png;base64,abc123",
             )
             self.assertNotIn("text", template_translation["header"])
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.ImageUrlToBase64Converter"
+    )
+    def test_notify_integrations_with_image_url_converts_to_base64(
+        self, mock_converter_class
+    ):
+        """When header is an image URL, it should be converted to base64."""
+        mock_converter = Mock()
+        mock_converter.is_image_url.return_value = True
+        mock_converter.convert.return_value = "data:image/png;base64,converted123"
+        mock_converter_class.return_value = mock_converter
+
+        strategy = UpdateNormalTemplateStrategy(
+            template_adapter=self.template_adapter,
+            template_metadata_handler=self.metadata_handler,
+        )
+
+        version_name = "test_template"
+        version_uuid = uuid4()
+        translation_payload = {
+            "body": "Test body",
+            "header": {
+                "header_type": "IMAGE",
+                "text": "https://bucket.s3.amazonaws.com/image.png?token=xyz",
+            },
+        }
+        app_uuid = str(uuid4())
+        project_uuid = str(uuid4())
+        category = "UTILITY"
+
+        with patch(
+            "retail.templates.strategies.update_template_strategies.task_create_template"
+        ) as mock_task:
+            strategy._notify_integrations(
+                version_name,
+                version_uuid,
+                translation_payload,
+                app_uuid,
+                project_uuid,
+                category,
+            )
+
+            mock_task.delay.assert_called_once()
+            call_args = mock_task.delay.call_args
+            template_translation = call_args.kwargs["template_translation"]
+            self.assertEqual(
+                template_translation["header"]["example"],
+                "data:image/png;base64,converted123",
+            )
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.ImageUrlToBase64Converter"
+    )
+    def test_notify_integrations_with_image_url_conversion_failure_uses_original(
+        self, mock_converter_class
+    ):
+        """When URL conversion fails, original URL should be used."""
+        mock_converter = Mock()
+        mock_converter.is_image_url.return_value = True
+        mock_converter.convert.return_value = None  # Conversion failed
+        mock_converter_class.return_value = mock_converter
+
+        strategy = UpdateNormalTemplateStrategy(
+            template_adapter=self.template_adapter,
+            template_metadata_handler=self.metadata_handler,
+        )
+
+        version_name = "test_template"
+        version_uuid = uuid4()
+        image_url = "https://bucket.s3.amazonaws.com/image.png?token=xyz"
+        translation_payload = {
+            "body": "Test body",
+            "header": {"header_type": "IMAGE", "text": image_url},
+        }
+        app_uuid = str(uuid4())
+        project_uuid = str(uuid4())
+        category = "UTILITY"
+
+        with patch(
+            "retail.templates.strategies.update_template_strategies.task_create_template"
+        ) as mock_task:
+            strategy._notify_integrations(
+                version_name,
+                version_uuid,
+                translation_payload,
+                app_uuid,
+                project_uuid,
+                category,
+            )
+
+            mock_task.delay.assert_called_once()
+            call_args = mock_task.delay.call_args
+            template_translation = call_args.kwargs["template_translation"]
+            # Falls back to original URL when conversion fails
+            self.assertEqual(template_translation["header"]["example"], image_url)
 
     def test_notify_integrations_with_non_image_header(self):
         strategy = UpdateNormalTemplateStrategy(

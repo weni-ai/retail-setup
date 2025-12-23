@@ -18,6 +18,8 @@ class ComponentTransformer(Protocol):
 class HeaderTransformer(ComponentTransformer):
     """Transforms header component from library to translation format."""
 
+    IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
+
     def _is_base_64(self, header: str) -> bool:
         HEURISTIC_MIN_LENGTH = 100
 
@@ -37,6 +39,14 @@ class HeaderTransformer(ComponentTransformer):
         except (binascii.Error, ValueError, UnicodeDecodeError):
             return False
 
+    def _is_image_url(self, header: str) -> bool:
+        """Check if header is a URL pointing to an image file."""
+        if not header.startswith(("http://", "https://")):
+            return False
+        # Remove query string to check file extension
+        url_without_query = header.split("?")[0]
+        return url_without_query.lower().endswith(self.IMAGE_EXTENSIONS)
+
     def _is_header_format_already_translated(self, header) -> bool:
         return isinstance(header, dict) and "header_type" in header and "text" in header
 
@@ -44,13 +54,18 @@ class HeaderTransformer(ComponentTransformer):
         if not template_data.get("header"):
             return None
 
-        if self._is_header_format_already_translated(template_data["header"]):
-            return template_data["header"]
+        header = template_data["header"]
 
-        if self._is_base_64(template_data["header"]):
-            return {"header_type": "IMAGE", "text": template_data["header"]}
+        if self._is_header_format_already_translated(header):
+            return header
 
-        return {"header_type": "TEXT", "text": template_data["header"]}
+        if self._is_base_64(header):
+            return {"header_type": "IMAGE", "text": header}
+
+        if self._is_image_url(header):
+            return {"header_type": "IMAGE", "text": header}
+
+        return {"header_type": "TEXT", "text": header}
 
 
 class BodyTransformer(ComponentTransformer):
