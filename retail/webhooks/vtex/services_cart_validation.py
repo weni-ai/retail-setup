@@ -255,8 +255,10 @@ class CartValidationService:
                     return False
 
                 try:
+                    project_uuid = str(cart.project.uuid)
                     orders = self.vtex_io_service.get_order_details(
-                        account_domain=self._get_account_domain(str(cart.project.uuid)),
+                        account_domain=self._get_account_domain(project_uuid),
+                        project_uuid=project_uuid,
                         user_email=email,
                     )
                     recent_orders = orders.get("list", [])[:5] if orders else []
@@ -287,11 +289,13 @@ class CartValidationService:
         recent_orders_details = []
 
         # Check each order for matching items
+        project_uuid = str(cart.project.uuid)
         for order_id in order_ids:
             try:
                 logger.info(f"Fetching details for order {order_id}")
                 order_details = self.vtex_io_service.get_order_details_by_id(
-                    account_domain=self._get_account_domain(str(cart.project.uuid)),
+                    account_domain=self._get_account_domain(project_uuid),
+                    project_uuid=project_uuid,
                     order_id=order_id,
                 )
 
