@@ -1,9 +1,14 @@
 """Client for connection with flows"""
 
+import os
+import logging
+
 from django.conf import settings
 
 from retail.clients.base import RequestClient, InternalAuthentication
 from retail.interfaces.clients.flows.interface import FlowsClientInterface
+
+logger = logging.getLogger(__name__)
 
 
 class FlowsClient(RequestClient, FlowsClientInterface):
@@ -51,11 +56,23 @@ class FlowsClient(RequestClient, FlowsClientInterface):
 
         # Get production token from environment variable
         # Set FLOWS_PROD_TOKEN in Rancher secrets
-        prod_token = getattr(settings, "FLOWS_PROD_TOKEN", None)
+        prod_token = os.environ.get("FLOWS_PROD_TOKEN")
+
+        # DEBUG: Log token status
+        logger.info(
+            f"[DEBUG] send_whatsapp_broadcast - PROD_TOKEN exists: {bool(prod_token)}, "
+            f"token_length: {len(prod_token) if prod_token else 0}"
+        )
 
         # Override payload with production values
         payload["project"] = prod_project
         payload["channel"] = prod_channel
+
+        # DEBUG: Log overridden payload
+        logger.info(
+            f"[DEBUG] send_whatsapp_broadcast - OVERRIDDEN payload: "
+            f"project={payload['project']}, channel={payload['channel']}"
+        )
 
         url = f"{prod_base_url}/api/v2/internals/whatsapp_broadcasts"
 
@@ -65,8 +82,14 @@ class FlowsClient(RequestClient, FlowsClientInterface):
                 "Content-Type": "application/json; charset: utf-8",
                 "Authorization": f"Bearer {prod_token}",
             }
+            logger.info("[DEBUG] send_whatsapp_broadcast - Using PROD token")
         else:
             prod_headers = self.authentication_instance.headers
+            logger.info(
+                "[DEBUG] send_whatsapp_broadcast - Using STAGING token (fallback)"
+            )
+
+        logger.info(f"[DEBUG] send_whatsapp_broadcast - URL: {url}")
 
         response = self.make_request(
             url,
