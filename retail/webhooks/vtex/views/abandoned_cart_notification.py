@@ -1,21 +1,22 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.request import Request
 from rest_framework import status
 
-from retail.internal.permissions import CanCommunicateInternally
+from retail.internal.jwt_mixins import JWTModuleAuthMixin
 from retail.webhooks.vtex.serializers import CartSerializer
 from retail.webhooks.vtex.usecases.cart import CartUseCase
 from retail.vtex.usecases.phone_number_normalizer import PhoneNumberNormalizer
 
 
-class AbandonedCartNotification(APIView):
+class AbandonedCartNotification(JWTModuleAuthMixin, APIView):
     """
     Handle abandoned cart notifications.
+
+    Expects JWT token with vtex_account in the payload.
     """
 
-    permission_classes = [CanCommunicateInternally]
-
-    def post(self, request):
+    def post(self, request: Request):
         serializer = CartSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
