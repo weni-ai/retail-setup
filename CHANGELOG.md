@@ -1,3 +1,12 @@
+# 4.0.0
+
+## *Feature*
+  - feat: integrate JWT authentication into AbandonedCartNotification view
+  - feat: Add abandoned cart handling with integrated agent and feature support
+
+## *Fix*
+  - fix: ensure datetime is timezone-aware in CartTimeRestrictionService
+
 # 3.20.6
 
 ## *Feature*
