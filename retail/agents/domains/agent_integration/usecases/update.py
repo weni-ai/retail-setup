@@ -31,6 +31,11 @@ class UpdateIntegratedAgentData(TypedDict, total=False):
     abandoned_cart_config: Optional[AbandonedCartConfigData]
 
 
+# TODO: Refactor cache clearing logic - currently we have 3 separate cache keys
+# (webhook, order_status, abandoned_cart) that should be centralized in
+# IntegratedAgentCacheHandler.clear_all_agent_caches() method.
+
+
 class UpdateIntegratedAgentUseCase:
     def __init__(
         self,
@@ -90,6 +95,9 @@ class UpdateIntegratedAgentUseCase:
 
         # Clear the order status cache (6 hours) if this is an order status agent
         self._clear_order_status_cache(integrated_agent)
+
+        # Clear the abandoned cart cache (6 hours) if this is an abandoned cart agent
+        self._clear_abandoned_cart_cache(integrated_agent)
 
         return integrated_agent
 
@@ -157,4 +165,25 @@ class UpdateIntegratedAgentUseCase:
             cache.delete(cache_key)
             logger.info(
                 f"Cleared order status cache for agent {integrated_agent.uuid} with key: {cache_key}"
+            )
+
+    def _clear_abandoned_cart_cache(self, integrated_agent: IntegratedAgent) -> None:
+        """
+        Clear the abandoned cart cache if this is an abandoned cart agent.
+
+        This cache is used in BaseAgentWebhookUseCase.get_integrated_agent_if_exists()
+        and has a 6-hour timeout.
+        """
+        if not settings.ABANDONED_CART_AGENT_UUID:
+            return
+
+        is_abandoned_cart_agent = (
+            str(integrated_agent.agent.uuid) == settings.ABANDONED_CART_AGENT_UUID
+        )
+
+        if is_abandoned_cart_agent:
+            cache_key = f"integrated_agent_{settings.ABANDONED_CART_AGENT_UUID}_{str(integrated_agent.project.uuid)}"
+            cache.delete(cache_key)
+            logger.info(
+                f"Cleared abandoned cart cache for agent {integrated_agent.uuid} with key: {cache_key}"
             )
