@@ -68,9 +68,31 @@ class AbandonedCartConfigSerializer(serializers.Serializer):
 
 
 class UpdateIntegratedAgentSerializer(serializers.Serializer):
+    """
+    Serializer for updating integrated agent.
+
+    Supports partial updates - only fields that are explicitly sent will be updated.
+    """
+
     contact_percentage = serializers.IntegerField(required=False)
     global_rule = serializers.CharField(required=False, allow_null=True)
     abandoned_cart_config = AbandonedCartConfigSerializer(required=False)
+
+    def to_internal_value(self, data):
+        """
+        Override to only include fields that were actually sent in the request.
+        This enables true partial updates where only specified fields are modified.
+        """
+        validated_data = {}
+
+        for field_name, field in self.fields.items():
+            if field_name in data:
+                try:
+                    validated_data[field_name] = field.run_validation(data[field_name])
+                except serializers.ValidationError as exc:
+                    raise serializers.ValidationError({field_name: exc.detail})
+
+        return validated_data
 
 
 class ReadIntegratedAgentSerializer(serializers.Serializer):
