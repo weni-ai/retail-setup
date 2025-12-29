@@ -19,9 +19,80 @@ class RetrieveIntegratedAgentQueryParamsSerializer(serializers.Serializer):
     end = serializers.DateField(required=False, default=None)
 
 
+class AbandonedCartConfigSerializer(serializers.Serializer):
+    """
+    Serializer for abandoned cart configuration.
+
+    Supports partial updates - only fields that are explicitly sent will be updated.
+    Fields not included in the request will not be modified.
+    """
+
+    header_image_type = serializers.ChoiceField(
+        # Options: first_item (first cart item image), most_expensive, no_image
+        choices=["first_item", "most_expensive", "no_image"],
+        required=False,
+    )
+    abandonment_time_minutes = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        # No max_value - user can set any value >= 1
+    )
+    minimum_cart_value = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+    )
+    notification_cooldown_hours = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=168,  # Max 7 days
+    )
+
+    def to_internal_value(self, data):
+        """
+        Override to only include fields that were actually sent in the request.
+        This enables true partial updates where only specified fields are modified.
+        """
+        # Get the validated data for fields that were actually provided
+        validated_data = {}
+
+        for field_name, field in self.fields.items():
+            if field_name in data:
+                try:
+                    validated_data[field_name] = field.run_validation(data[field_name])
+                except serializers.ValidationError as exc:
+                    raise serializers.ValidationError({field_name: exc.detail})
+
+        return validated_data
+
+
 class UpdateIntegratedAgentSerializer(serializers.Serializer):
+    """
+    Serializer for updating integrated agent.
+
+    Supports partial updates - only fields that are explicitly sent will be updated.
+    """
+
     contact_percentage = serializers.IntegerField(required=False)
     global_rule = serializers.CharField(required=False, allow_null=True)
+    abandoned_cart_config = AbandonedCartConfigSerializer(required=False)
+
+    def to_internal_value(self, data):
+        """
+        Override to only include fields that were actually sent in the request.
+        This enables true partial updates where only specified fields are modified.
+        """
+        validated_data = {}
+
+        for field_name, field in self.fields.items():
+            if field_name in data:
+                try:
+                    validated_data[field_name] = field.run_validation(data[field_name])
+                except serializers.ValidationError as exc:
+                    raise serializers.ValidationError({field_name: exc.detail})
+
+        return validated_data
 
 
 class ReadIntegratedAgentSerializer(serializers.Serializer):
@@ -37,6 +108,9 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
     )
     has_delivered_order_templates = serializers.SerializerMethodField(
         "get_has_delivered_order_templates"
+    )
+    abandoned_cart_config = serializers.SerializerMethodField(
+        "get_abandoned_cart_config"
     )
 
     def get_webhook_url(self, obj):
@@ -67,3 +141,24 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
         return PushAgentUseCase.has_delivered_order_templates_by_integrated_agent(
             str(obj.uuid)
         )
+
+    def get_abandoned_cart_config(self, obj):
+        """Get abandoned cart configuration from agent config."""
+        abandoned_cart_config = obj.config.get("abandoned_cart", {})
+
+        # Only return if there's actual configuration
+        if not abandoned_cart_config:
+            return None
+
+        return {
+            "header_image_type": abandoned_cart_config.get(
+                "header_image_type", "first_item"
+            ),
+            "abandonment_time_minutes": abandoned_cart_config.get(
+                "abandonment_time_minutes", 60
+            ),
+            "minimum_cart_value": abandoned_cart_config.get("minimum_cart_value"),
+            "notification_cooldown_hours": abandoned_cart_config.get(
+                "notification_cooldown_hours"
+            ),
+        }

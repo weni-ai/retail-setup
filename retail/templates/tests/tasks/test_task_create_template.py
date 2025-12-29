@@ -46,9 +46,8 @@ class TestTaskCreateTemplate(TestCase):
             template_uuid="template-uuid-123",
             payload=self.template_translation,
         )
-        mock_logger.info.assert_called_once_with(
-            f"Template created: {self.template_name} for App: {self.app_uuid} - {self.category} - version: {self.version_uuid}"  # noqa: E501
-        )
+        # Verify info logs were called (3 times: start, template created, translation created)
+        self.assertEqual(mock_logger.info.call_count, 3)
         mock_update_use_case.assert_not_called()
 
     @patch("retail.templates.tasks.IntegrationsService")
@@ -79,9 +78,11 @@ class TestTaskCreateTemplate(TestCase):
 
         mock_service_instance.create_template.assert_called_once()
         mock_service_instance.create_template_translation.assert_not_called()
-        mock_logger.error.assert_called_once_with(
-            f"Error creating template: {self.template_name} for App: {self.app_uuid} - {self.category} - version: {self.version_uuid} Template creation failed"  # noqa: E501
-        )
+        # Verify error was logged (format includes traceback and payload)
+        mock_logger.error.assert_called_once()
+        error_call_args = mock_logger.error.call_args[0][0]
+        self.assertIn("Error creating template: Test Template", error_call_args)
+        self.assertIn("Template creation failed", error_call_args)
         mock_update_use_case.assert_called_once()
         mock_update_use_case_instance.execute.assert_called_once_with(
             payload={"version_uuid": self.version_uuid, "status": "REJECTED"}
@@ -119,9 +120,11 @@ class TestTaskCreateTemplate(TestCase):
 
         mock_service_instance.create_template.assert_called_once()
         mock_service_instance.create_template_translation.assert_called_once()
-        mock_logger.error.assert_called_once_with(
-            f"Error creating template: {self.template_name} for App: {self.app_uuid} - {self.category} - version: {self.version_uuid} Translation creation failed"  # noqa: E501
-        )
+        # Verify error was logged (format includes traceback and payload)
+        mock_logger.error.assert_called_once()
+        error_call_args = mock_logger.error.call_args[0][0]
+        self.assertIn("Error creating template: Test Template", error_call_args)
+        self.assertIn("Translation creation failed", error_call_args)
         mock_update_use_case.assert_called_once()
         mock_update_use_case_instance.execute.assert_called_once_with(
             payload={"version_uuid": self.version_uuid, "status": "REJECTED"}

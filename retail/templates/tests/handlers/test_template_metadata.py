@@ -199,6 +199,39 @@ class TestTemplateMetadataHandler(TestCase):
         self.assertEqual(result["body"], "Test")
         self.assertEqual(result["category"], "UTILITY")
 
+    def test_post_process_translation_with_s3_url_does_not_reupload(self):
+        """When header text is already an S3 URL, should not re-upload."""
+        s3_url = "https://weni-staging-retail.s3.amazonaws.com/template_headers/image.png?token=abc"
+        metadata = {"body": "Test"}
+        translation_payload = {"header": {"header_type": "IMAGE", "text": s3_url}}
+
+        with patch.object(self.handler, "_upload_header_image") as mock_upload:
+            result = self.handler.post_process_translation(
+                metadata, translation_payload
+            )
+
+            # Should NOT call upload when it's already an S3 URL
+            mock_upload.assert_not_called()
+
+        # Should keep the original S3 URL
+        self.assertEqual(result["header"]["text"], s3_url)
+        self.assertEqual(result["header"]["header_type"], "IMAGE")
+
+    def test_is_s3_url_with_https(self):
+        self.assertTrue(self.handler._is_s3_url("https://example.com/image.png"))
+
+    def test_is_s3_url_with_http(self):
+        self.assertTrue(self.handler._is_s3_url("http://example.com/image.png"))
+
+    def test_is_s3_url_with_base64(self):
+        self.assertFalse(self.handler._is_s3_url("data:image/png;base64,iVBOR..."))
+
+    def test_is_s3_url_with_none(self):
+        self.assertFalse(self.handler._is_s3_url(None))
+
+    def test_is_s3_url_with_empty_string(self):
+        self.assertFalse(self.handler._is_s3_url(""))
+
     def test_post_process_translation_preserves_metadata(self):
         original_metadata = {"body": "Original", "footer": "Footer"}
         translation_payload = {}

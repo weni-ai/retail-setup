@@ -151,7 +151,8 @@ class IntegratedAgentViewSet(ViewSet):
         request_serializer = UpdateIntegratedAgentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
 
-        serialized_data: UpdateIntegratedAgentData = request_serializer.data
+        # Use validated_data instead of .data to get only the fields that were actually sent
+        serialized_data: UpdateIntegratedAgentData = request_serializer.validated_data
 
         use_case = UpdateIntegratedAgentUseCase()
         integrated_agent = use_case.get_integrated_agent(pk)

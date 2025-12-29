@@ -60,6 +60,54 @@ class TestHeaderTransformer(TestCase):
         result = self.transformer._is_base_64(data_prefix_header)
         self.assertTrue(result)
 
+    # Tests for _is_image_url method
+    def test_is_image_url_with_s3_png_url(self):
+        """S3 presigned URL with .png extension should be detected as image."""
+        url = "https://weni-staging-retail.s3.amazonaws.com/template_headers/image.png?AWSAccessKeyId=xxx"
+        result = self.transformer._is_image_url(url)
+        self.assertTrue(result)
+
+    def test_is_image_url_with_jpg(self):
+        url = "https://example.com/images/photo.jpg"
+        result = self.transformer._is_image_url(url)
+        self.assertTrue(result)
+
+    def test_is_image_url_with_jpeg(self):
+        url = "https://example.com/images/photo.jpeg"
+        result = self.transformer._is_image_url(url)
+        self.assertTrue(result)
+
+    def test_is_image_url_with_webp(self):
+        url = "https://example.com/images/photo.webp"
+        result = self.transformer._is_image_url(url)
+        self.assertTrue(result)
+
+    def test_is_image_url_with_non_image_url(self):
+        url = "https://example.com/page.html"
+        result = self.transformer._is_image_url(url)
+        self.assertFalse(result)
+
+    def test_is_image_url_with_non_url_string(self):
+        text = "Just some text"
+        result = self.transformer._is_image_url(text)
+        self.assertFalse(result)
+
+    # Integration tests for transform with image URLs
+    def test_transform_with_image_url_header(self):
+        """URL pointing to image should be transformed with header_type IMAGE."""
+        template_data = {
+            "header": "https://weni-staging-retail.s3.amazonaws.com/template_headers/image.png?token=abc"
+        }
+        result = self.transformer.transform(template_data)
+        self.assertEqual(result["header_type"], "IMAGE")
+        self.assertEqual(result["text"], template_data["header"])
+
+    def test_transform_with_non_image_url_header(self):
+        """URL not pointing to image should be transformed with header_type TEXT."""
+        template_data = {"header": "https://example.com/page"}
+        result = self.transformer.transform(template_data)
+        self.assertEqual(result["header_type"], "TEXT")
+
 
 class TestBodyTransformer(TestCase):
     def setUp(self):
@@ -237,6 +285,160 @@ class TestButtonTransformer(TestCase):
 
         button = {"type": "URL", "url": {"base_url": "https://example.com"}}
         self.assertFalse(self.transformer._is_button_format_already_translated(button))
+
+    # Tests for _ensure_protocol method
+    def test_ensure_protocol_without_protocol(self):
+        url = "example.com/checkout?id="
+        result = self.transformer._ensure_protocol(url)
+        self.assertEqual(result, "https://example.com/checkout?id=")
+
+    def test_ensure_protocol_with_https_protocol(self):
+        url = "https://example.com/checkout"
+        result = self.transformer._ensure_protocol(url)
+        self.assertEqual(result, "https://example.com/checkout")
+
+    def test_ensure_protocol_with_http_protocol(self):
+        url = "http://example.com/checkout"
+        result = self.transformer._ensure_protocol(url)
+        self.assertEqual(result, "http://example.com/checkout")
+
+    def test_ensure_protocol_empty_string(self):
+        url = ""
+        result = self.transformer._ensure_protocol(url)
+        self.assertEqual(result, "")
+
+    def test_ensure_protocol_none(self):
+        result = self.transformer._ensure_protocol(None)
+        self.assertIsNone(result)
+
+    # Tests for _normalize_url_if_needed method
+    def test_normalize_url_if_needed_with_full_url(self):
+        url = "example.com/checkout?id=123"
+        result = self.transformer._normalize_url_if_needed(url)
+        self.assertEqual(result, "https://example.com/checkout?id=123")
+
+    def test_normalize_url_if_needed_with_simple_suffix(self):
+        """Simple suffix without domain pattern should not be normalized."""
+        suffix = "123"
+        result = self.transformer._normalize_url_if_needed(suffix)
+        self.assertEqual(result, "123")
+
+    def test_normalize_url_if_needed_with_already_https(self):
+        url = "https://example.com/page"
+        result = self.transformer._normalize_url_if_needed(url)
+        self.assertEqual(result, "https://example.com/page")
+
+    def test_normalize_url_if_needed_with_empty_string(self):
+        """Empty string should be returned as is."""
+        result = self.transformer._normalize_url_if_needed("")
+        self.assertEqual(result, "")
+
+    def test_normalize_url_if_needed_with_none(self):
+        """None should be returned as is."""
+        result = self.transformer._normalize_url_if_needed(None)
+        self.assertIsNone(result)
+
+    # Tests for _looks_like_url method
+    def test_looks_like_url_with_protocol(self):
+        self.assertTrue(self.transformer._looks_like_url("https://example.com"))
+        self.assertTrue(self.transformer._looks_like_url("http://example.com"))
+
+    def test_looks_like_url_without_protocol(self):
+        self.assertTrue(self.transformer._looks_like_url("example.com/path"))
+        self.assertFalse(self.transformer._looks_like_url("123"))
+        self.assertFalse(self.transformer._looks_like_url("simple-value"))
+
+    # Tests for _append_placeholder_if_needed method
+    def test_append_placeholder_when_not_present(self):
+        url = "https://example.com/checkout?id="
+        result = self.transformer._append_placeholder_if_needed(url)
+        self.assertEqual(result, "https://example.com/checkout?id={{1}}")
+
+    def test_append_placeholder_when_already_present(self):
+        url = "https://example.com/checkout?id={{1}}"
+        result = self.transformer._append_placeholder_if_needed(url)
+        self.assertEqual(result, "https://example.com/checkout?id={{1}}")
+
+    def test_append_placeholder_does_not_duplicate(self):
+        url = "https://example.com/path={{1}}"
+        result = self.transformer._append_placeholder_if_needed(url)
+        self.assertNotIn("{{1}}{{1}}", result)
+        self.assertEqual(result, "https://example.com/path={{1}}")
+
+    # Integration tests for transform with URL normalization
+    def test_transform_url_button_without_protocol(self):
+        template_data = {
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Visit Website",
+                    "url": {"base_url": "example.com/page"},
+                }
+            ]
+        }
+        result = self.transformer.transform(template_data)
+        expected = [
+            {"type": "URL", "text": "Visit Website", "url": "https://example.com/page"}
+        ]
+        self.assertEqual(result, expected)
+
+    def test_transform_url_button_with_suffix_without_protocol(self):
+        template_data = {
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Checkout",
+                    "url": {
+                        "base_url": "store.com/checkout?orderFormId=",
+                        "url_suffix_example": "store.com/checkout?orderFormId=abc123",
+                    },
+                }
+            ]
+        }
+        result = self.transformer.transform(template_data)
+        self.assertEqual(
+            result[0]["url"], "https://store.com/checkout?orderFormId={{1}}"
+        )
+        self.assertEqual(
+            result[0]["example"], ["https://store.com/checkout?orderFormId=abc123"]
+        )
+
+    def test_transform_url_button_with_existing_placeholder(self):
+        template_data = {
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Checkout",
+                    "url": {
+                        "base_url": "https://store.com/checkout?id={{1}}",
+                        "url_suffix_example": "https://store.com/checkout?id=abc123",
+                    },
+                }
+            ]
+        }
+        result = self.transformer.transform(template_data)
+        # Should NOT duplicate {{1}}
+        self.assertEqual(result[0]["url"], "https://store.com/checkout?id={{1}}")
+        self.assertNotIn("{{1}}{{1}}", result[0]["url"])
+
+    def test_transform_url_button_without_protocol_and_existing_placeholder(self):
+        template_data = {
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Checkout",
+                    "url": {
+                        "base_url": "store.com/checkout?id={{1}}",
+                        "url_suffix_example": "store.com/checkout?id=abc123",
+                    },
+                }
+            ]
+        }
+        result = self.transformer.transform(template_data)
+        # Should add protocol but NOT duplicate {{1}}
+        self.assertEqual(result[0]["url"], "https://store.com/checkout?id={{1}}")
+        self.assertTrue(result[0]["url"].startswith("https://"))
+        self.assertNotIn("{{1}}{{1}}", result[0]["url"])
 
 
 class TestTemplateTranslationAdapter(TestCase):
