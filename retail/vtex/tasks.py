@@ -1,4 +1,5 @@
 import logging
+
 from datetime import timedelta
 
 from django.utils import timezone
@@ -16,20 +17,76 @@ from retail.vtex.usecases.handle_purchase_event import HandlePurchaseEventUseCas
 from retail.webhooks.vtex.usecases.order_status import OrderStatusUseCase
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
+from retail.agents.domains.agent_webhook.usecases.abandoned_cart import (
+    AgentAbandonedCartUseCase,
+)
+
 
 logger = logging.getLogger(__name__)
 
 
 @shared_task
-def mark_cart_as_abandoned(cart_uuid: str):
+def task_abandoned_cart_update(cart_uuid: str):
     """
-    Mark a cart as abandoned and trigger the broadcast notification process.
+    Task to process an abandoned cart update.
+    """
+    try:
+        # Get the cart to access
+        cart = Cart.objects.get(uuid=cart_uuid, status="created")
 
-    Args:
-        cart_uuid (str): The UUID of the cart to process.
-    """
-    use_case = CartAbandonmentUseCase()
-    use_case.process_abandoned_cart(cart_uuid)
+        # Build log context with all relevant tracking info
+        vtex_account = cart.project.vtex_account if cart.project else "unknown"
+        project_uuid = str(cart.project.uuid) if cart.project else "unknown"
+        log_context = (
+            f"vtex_account={vtex_account} cart_uuid={cart_uuid} "
+            f"phone={cart.phone_number} project_uuid={project_uuid} "
+            f"order_form={cart.order_form_id}"
+        )
+
+        logger.info(f"[CART_TASK] Starting abandoned cart processing: {log_context}")
+
+        use_case = AgentAbandonedCartUseCase()
+        if not cart.project:
+            logger.warning(
+                f"[CART_TASK] Project not found: cart_uuid={cart_uuid} "
+                f"reason=cart_has_no_project"
+            )
+            return
+
+        integrated_agent = use_case.get_integrated_agent(cart.project)
+
+        if integrated_agent:
+            logger.info(
+                f"[CART_TASK] Using agent flow: {log_context} "
+                f"agent_uuid={integrated_agent.uuid}"
+            )
+            use_case.execute(cart, integrated_agent)
+        elif cart.integrated_feature:
+            logger.info(
+                f"[CART_TASK] Using feature flow (legacy): {log_context} "
+                f"feature_uuid={cart.integrated_feature.uuid}"
+            )
+            legacy_use_case = CartAbandonmentUseCase()
+            legacy_use_case.execute(cart)
+        else:
+            logger.warning(
+                f"[CART_TASK] No integration configured: {log_context} "
+                f"reason=no_agent_or_feature_configured"
+            )
+            return
+
+        logger.info(f"[CART_TASK] Completed abandoned cart processing: {log_context}")
+    except Cart.DoesNotExist:
+        logger.warning(
+            f"[CART_TASK] Cart not found or already processed: cart_uuid={cart_uuid} "
+            f"reason=cart_does_not_exist_or_status_changed"
+        )
+        return
+    except Exception as e:
+        logger.error(
+            f"[CART_TASK] Unexpected error: cart_uuid={cart_uuid} error={str(e)}",
+            exc_info=True,
+        )
 
 
 @shared_task
@@ -89,9 +146,7 @@ def is_payment_approved(order_status: str) -> bool:
 
 
 @shared_task
-def task_order_status_agent_webhook(
-    integrated_agent_uuid: str, payload: dict, params: dict
-):
+def task_agent_webhook(integrated_agent_uuid: str, payload: dict, params: dict):
     use_case = AgentWebhookUseCase()
     request_data = RequestData(
         params=params,

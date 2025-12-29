@@ -4,19 +4,21 @@ import string
 
 import binascii
 
-from typing import Dict, Optional, List, Protocol
+from typing import Dict, Optional, List, Protocol, Union
 
 
 class ComponentTransformer(Protocol):
     """Protocol for component transformers."""
 
-    def transform(self, template_data: Dict) -> Optional[Dict]:
+    def transform(self, template_data: Dict) -> Optional[Union[Dict, List[Dict]]]:
         """Transform component data from library format to translation format."""
         ...
 
 
 class HeaderTransformer(ComponentTransformer):
     """Transforms header component from library to translation format."""
+
+    IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
 
     def _is_base_64(self, header: str) -> bool:
         HEURISTIC_MIN_LENGTH = 100
@@ -37,6 +39,14 @@ class HeaderTransformer(ComponentTransformer):
         except (binascii.Error, ValueError, UnicodeDecodeError):
             return False
 
+    def _is_image_url(self, header: str) -> bool:
+        """Check if header is a URL pointing to an image file."""
+        if not header.startswith(("http://", "https://")):
+            return False
+        # Remove query string to check file extension
+        url_without_query = header.split("?")[0]
+        return url_without_query.lower().endswith(self.IMAGE_EXTENSIONS)
+
     def _is_header_format_already_translated(self, header) -> bool:
         return isinstance(header, dict) and "header_type" in header and "text" in header
 
@@ -44,13 +54,18 @@ class HeaderTransformer(ComponentTransformer):
         if not template_data.get("header"):
             return None
 
-        if self._is_header_format_already_translated(template_data["header"]):
-            return template_data["header"]
+        header = template_data["header"]
 
-        if self._is_base_64(template_data["header"]):
-            return {"header_type": "IMAGE", "text": template_data["header"]}
+        if self._is_header_format_already_translated(header):
+            return header
 
-        return {"header_type": "TEXT", "text": template_data["header"]}
+        if self._is_base_64(header):
+            return {"header_type": "IMAGE", "text": header}
+
+        if self._is_image_url(header):
+            return {"header_type": "IMAGE", "text": header}
+
+        return {"header_type": "TEXT", "text": header}
 
 
 class BodyTransformer(ComponentTransformer):
@@ -80,8 +95,40 @@ class FooterTransformer(ComponentTransformer):
 class ButtonTransformer(ComponentTransformer):
     """Transforms buttons component from library to translation format."""
 
+    PLACEHOLDER_PATTERN = "{{1}}"
+
     def _is_button_format_already_translated(self, button: Dict) -> bool:
         return button.get("type") == "URL" and isinstance(button.get("url"), str)
+
+    def _looks_like_url(self, value: str) -> bool:
+        """Check if value looks like a URL (contains domain pattern)."""
+        if not value:
+            return False
+        # Already has protocol
+        if value.startswith(("http://", "https://")):
+            return True
+        # Contains domain pattern (has a dot and slash indicating path)
+        return "." in value and "/" in value
+
+    def _ensure_protocol(self, url: str) -> str:
+        """Add https:// protocol prefix if not already present."""
+        if not url:
+            return url
+        if not url.startswith(("http://", "https://")):
+            return f"https://{url}"
+        return url
+
+    def _normalize_url_if_needed(self, value: str) -> str:
+        """Normalize URL only if it looks like a complete URL."""
+        if self._looks_like_url(value):
+            return self._ensure_protocol(value)
+        return value
+
+    def _append_placeholder_if_needed(self, url: str) -> str:
+        """Append placeholder {{1}} only if not already present in URL."""
+        if self.PLACEHOLDER_PATTERN in url:
+            return url
+        return url + self.PLACEHOLDER_PATTERN
 
     def transform(self, template_data: Dict) -> Optional[List[Dict]]:
         buttons = template_data.get("buttons")
@@ -98,11 +145,14 @@ class ButtonTransformer(ComponentTransformer):
             button = {"type": btn["type"], "text": btn["text"]}
 
             if btn["type"] == "URL":
+                base_url = self._ensure_protocol(btn["url"]["base_url"])
                 if "url_suffix_example" in btn["url"]:
-                    button["example"] = [btn["url"]["url_suffix_example"]]
-                    button["url"] = btn["url"]["base_url"] + "{{1}}"
+                    button["example"] = [
+                        self._normalize_url_if_needed(btn["url"]["url_suffix_example"])
+                    ]
+                    button["url"] = self._append_placeholder_if_needed(base_url)
                 else:
-                    button["url"] = btn["url"]["base_url"]
+                    button["url"] = base_url
 
             elif btn["type"] == "PHONE_NUMBER":
                 button["phone_number"] = btn["phone_number"]

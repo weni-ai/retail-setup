@@ -31,6 +31,7 @@ class CreateCustomTemplateData(TypedDict):
     parameters: List[ParameterData]
     integrated_agent_uuid: UUID
     template_name: Optional[str] = None
+    use_agent_rule: Optional[bool]  # When True, skip codegen and keep agent rule
 
 
 class CreateCustomTemplateUseCase(TemplateBuilderMixin):
@@ -75,7 +76,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
     def _update_template(
         self,
         template: Template,
-        generated_code: str,
+        generated_code: Optional[str],
         metadata: Dict[str, Any],
         category: str,
         integrated_agent: IntegratedAgent,
@@ -104,7 +105,7 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
     def _handle_successful_code_generation(
         self,
         payload: CreateCustomTemplateData,
-        generated_code: str,
+        generated_code: Optional[str],
         integrated_agent: IntegratedAgent,
     ) -> Template:
         if Template.objects.filter(
@@ -174,9 +175,15 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
             payload.get("integrated_agent_uuid")
         )
 
-        generated_code = self.rule_generator.generate_code(
-            payload["parameters"], integrated_agent
-        )
+        use_agent_rule = payload.get("use_agent_rule", False)
+
+        generated_code: Optional[str]
+        if use_agent_rule:
+            generated_code = None
+        else:
+            generated_code = self.rule_generator.generate_code(
+                payload["parameters"], integrated_agent
+            )
 
         return self._handle_successful_code_generation(
             payload, generated_code, integrated_agent

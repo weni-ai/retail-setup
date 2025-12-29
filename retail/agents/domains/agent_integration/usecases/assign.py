@@ -5,6 +5,7 @@ from typing import List, TypedDict, Mapping, Any, Optional
 from uuid import UUID
 
 from django.db import transaction
+from django.conf import settings
 
 from rest_framework.exceptions import NotFound, ValidationError
 
@@ -18,6 +19,12 @@ from retail.templates.usecases.create_library_template import (
     CreateLibraryTemplateUseCase,
 )
 from retail.templates.usecases._base_template_creator import TemplateBuilderMixin
+from retail.templates.usecases.create_custom_template import (
+    CreateCustomTemplateUseCase,
+    CreateCustomTemplateData,
+)
+from retail.templates.exceptions import CustomTemplateAlreadyExists
+from retail.services.aws_s3.converters import ImageUrlToBase64Converter
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +67,9 @@ class AssignAgentUseCase:
     ) -> IntegratedAgent:
         ignore_templates_slugs = self._get_ignore_templates_slugs(ignore_templates)
 
+        # Build initial config based on agent type
+        initial_config = self._build_initial_config(agent)
+
         integrated_agent, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
             project=project,
@@ -67,6 +77,7 @@ class AssignAgentUseCase:
             defaults={
                 "channel_uuid": channel_uuid,
                 "ignore_templates": ignore_templates_slugs,
+                "config": initial_config,
             },
         )
 
@@ -76,6 +87,50 @@ class AssignAgentUseCase:
             )
 
         return integrated_agent
+
+    def _build_initial_config(self, agent: Agent) -> dict:
+        """
+        Build initial configuration for the IntegratedAgent based on agent type.
+
+        This method creates a scalable configuration structure that can be extended
+        for different agent types. Currently supports abandoned cart agent with
+        specific default settings.
+
+        Returns:
+            dict: Initial configuration dictionary.
+        """
+        config = {}
+
+        # Check if this is the abandoned cart agent
+        abandoned_cart_agent_uuid = getattr(settings, "ABANDONED_CART_AGENT_UUID", "")
+        if abandoned_cart_agent_uuid and str(agent.uuid) == abandoned_cart_agent_uuid:
+            config["abandoned_cart"] = self._get_abandoned_cart_default_config()
+
+        return config
+
+    def _get_abandoned_cart_default_config(self) -> dict:
+        """
+        Get default configuration for the abandoned cart agent.
+
+        Configuration options:
+        - header_image_type: Type of image to show in template header
+            - "first_item": First item in the cart (DEFAULT)
+            - "most_expensive": Most expensive item in the cart
+            - "no_image": No image header (user chose not to use image)
+        - abandonment_time_minutes: Time in minutes to consider cart abandoned (default: 60)
+        - minimum_cart_value: Minimum cart value in BRL to trigger notification (default: 50.0)
+
+        Optional (not set by default, can be configured later):
+        - notification_cooldown_hours: Hours between notifications for same phone
+
+        Returns:
+            dict: Default abandoned cart configuration.
+        """
+        return {
+            "header_image_type": "first_item",
+            "abandonment_time_minutes": 60,
+            "minimum_cart_value": 50.0,
+        }
 
     def _validate_credentials(self, agent: Agent, credentials: dict):
         for key in agent.credentials.keys():
@@ -199,6 +254,15 @@ class AssignAgentUseCase:
         app_uuid: UUID,
         ignore_templates: List[str],
     ) -> None:
+        """
+        Create templates for the integrated agent based on PreApprovedTemplate.
+
+        Responsibilities:
+        - Valid pre-approved: create library templates and notify integrations
+          (or flag for button edit when buttons are present).
+        - Invalid pre-approved: fetch user's approved translations and adapt them,
+          creating an approved version directly.
+        """
         pre_approveds = pre_approveds.exclude(uuid__in=ignore_templates)
         valid_pre_approveds = pre_approveds.filter(is_valid=True)
         invalid_pre_approveds = pre_approveds.filter(is_valid=False)
@@ -246,6 +310,16 @@ class AssignAgentUseCase:
         credentials: Mapping[str, Any],
         include_templates: List[str],
     ) -> IntegratedAgent:
+        """
+        Assign the agent to the project and materialize its templates.
+
+        Flow:
+        1) Create IntegratedAgent and credentials
+        2) Create templates from the agent's PreApprovedTemplate definitions
+        3) If the agent is the Abandoned Cart agent (ABANDONED_CART_AGENT_UUID),
+           create a default custom template using the custom template flow
+           (lifecycle PENDING -> APPROVED, versioning, etc.).
+        """
         project = self._get_project(project_uuid)
         self._validate_credentials(agent, credentials)
 
@@ -259,10 +333,162 @@ class AssignAgentUseCase:
             channel_uuid=channel_uuid,
             ignore_templates=ignore_templates,
         )
+        logger.info(f"[AssignAgent] integrated_agent created={integrated_agent.uuid}")
 
         self._create_credentials(integrated_agent, agent, credentials)
         self._create_templates(
             integrated_agent, templates, project_uuid, app_uuid, ignore_templates
         )
 
+        # If this is the abandoned cart agent, create a default custom template
+        abandoned_cart_agent_uuid = getattr(settings, "ABANDONED_CART_AGENT_UUID", "")
+        if abandoned_cart_agent_uuid and str(agent.uuid) == abandoned_cart_agent_uuid:
+            logger.info(f"[AssignAgent] abandoned cart agent detected={agent.uuid}")
+            self._create_default_abandoned_cart_template(
+                integrated_agent=integrated_agent,
+                project=project,
+                project_uuid=project_uuid,
+                app_uuid=app_uuid,
+            )
+
         return integrated_agent
+
+    def _create_default_abandoned_cart_template(
+        self,
+        integrated_agent: IntegratedAgent,
+        project: Project,
+        project_uuid: UUID,
+        app_uuid: UUID,
+    ) -> None:
+        """
+        Create a default custom template for the abandoned cart agent.
+        Uses the existing custom template flow so the template follows the normal
+        lifecycle (PENDING -> APPROVED, versioning, etc.).
+
+        The template is created with:
+        - Header image support (product image from cart)
+        - Body with client name variable
+        - Button with cart checkout URL
+        - Quick reply for opt-out
+
+        For now, the template is created only in pt-BR.
+        TODO: Add support for multiple languages (e.g., en, es) if needed.
+        """
+        try:
+            logger.info(
+                f"[AssignAgent] Default custom template flow start for integrated_agent={integrated_agent.uuid}"
+            )
+            # Build store domain similar to legacy abandoned cart template creation
+            domain = f"{project.vtex_account}.vtexcommercestable.com.br"
+            button_base_url = f"https://{domain}/checkout?orderFormId="
+            button_url_example = f"{button_base_url}92421d4a70224658acaab0c172f6b6d7"
+
+            # Placeholder image URL for template approval (configurable via env)
+            # Download and convert to base64 because integrations-engine expects base64, not URL
+            placeholder_image_url = settings.ABANDONED_CART_DEFAULT_IMAGE_URL
+            logger.info(
+                f"[AssignAgent] Converting placeholder image to base64: {placeholder_image_url}"
+            )
+            image_converter = ImageUrlToBase64Converter()
+            placeholder_image_base64 = image_converter.convert(placeholder_image_url)
+            if not placeholder_image_base64:
+                raise ValueError(
+                    f"Failed to convert placeholder image URL to base64: {placeholder_image_url}"
+                )
+
+            # Build translation payload in the format expected by TemplateMetadataHandler
+            # NOTE: Use "template_header" (not "header") because build_metadata expects this key
+            template_translation = {
+                # Header image - will be replaced dynamically by agent with product image
+                # Format must be {"header_type": "IMAGE", "text": base64} for HeaderTransformer
+                "template_header": {
+                    "header_type": "IMAGE",
+                    "text": placeholder_image_base64,
+                },
+                "template_body": (
+                    "Olá, {{1}} vimos que você deixou itens no seu carrinho 🛒. "
+                    "\nVamos fechar o pedido e garantir essas ofertas? "
+                    "\n\nClique em Finalizar Pedido para concluir sua compra 👇"
+                ),
+                # Example values for body variables used for preview
+                "template_body_params": ["João"],
+                "template_footer": "Finalizar Pedido",
+                "template_button": [
+                    {
+                        "type": "URL",
+                        "text": "Finalizar Pedido",
+                        "url": {
+                            "base_url": button_base_url,
+                            "url_suffix_example": button_url_example,
+                        },
+                    },
+                    {
+                        "type": "QUICK_REPLY",
+                        "text": "Parar Promoções",
+                    },
+                ],
+                "category": "MARKETING",
+                "language": integrated_agent.agent.language or "pt_BR",
+            }
+
+            payload: CreateCustomTemplateData = {
+                "template_translation": template_translation,
+                "category": "MARKETING",
+                "app_uuid": str(app_uuid),
+                "project_uuid": str(project_uuid),
+                "display_name": "Abandoned Cart",
+                # NOTE: start_condition is derived from parameters by TemplateMetadataHandler
+                "start_condition": "If cart_link is not empty",
+                "parameters": [
+                    {
+                        "name": "start_condition",
+                        "value": "If cart_link is not empty",
+                    },
+                    {
+                        "name": "variables",
+                        "value": [
+                            # Variable {{1}} in body - required for is_custom=true templates
+                            # Frontend validates that body variables are declared
+                            {
+                                "name": "1",
+                                "type": "text",
+                                "definition": "Client name",
+                                "fallback": "Cliente",
+                            },
+                            # NOTE: "button" and "image_url" are NOT body variables
+                            # They are special variables returned by agent for:
+                            # - button: checkout URL suffix (order_form_id)
+                            # - image_url: header image (product image from cart)
+                        ],
+                    },
+                ],
+                "integrated_agent_uuid": integrated_agent.uuid,
+                "use_agent_rule": True,
+            }
+            logger.info(
+                f"[AssignAgent] Custom template payload ready "
+                f"display_name={payload['display_name']} "
+                f"language={template_translation['language']}"
+            )
+
+            logger.info(
+                "Creating default custom abandoned cart template for integrated agent %s",
+                integrated_agent.uuid,
+            )
+            use_case = CreateCustomTemplateUseCase()
+            use_case.execute(payload)
+            logger.info(
+                f"[AssignAgent] Custom template creation completed for integrated_agent={integrated_agent.uuid}"
+            )
+        except CustomTemplateAlreadyExists:
+            logger.info(
+                "Custom abandoned cart template already exists for integrated agent %s",
+                integrated_agent.uuid,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Error while creating default custom abandoned cart template for "
+                "integrated agent %s: %s",
+                integrated_agent.uuid,
+                exc,
+            )
