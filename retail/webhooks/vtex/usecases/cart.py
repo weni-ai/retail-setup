@@ -59,6 +59,7 @@ class CartUseCase(BaseAgentWebhookUseCase):
             logger.info("ABANDONED_CART_AGENT_UUID is not set in settings.")
             return None
 
+        # Base method already logs when agent is not found
         return self.get_integrated_agent_if_exists(
             self.project, settings.ABANDONED_CART_AGENT_UUID
         )
@@ -102,7 +103,8 @@ class CartUseCase(BaseAgentWebhookUseCase):
             return None
         except Exception as e:
             logger.error(
-                f"An unexpected error occurred while retrieving the feature: {str(e)}"
+                f"[CART_USECASE] Unexpected error retrieving feature: vtex_account={self.account} "
+                f"project_uuid={self.project.uuid} error={str(e)}"
             )
             return None
 
@@ -118,23 +120,40 @@ class CartUseCase(BaseAgentWebhookUseCase):
         Returns:
             Cart: The created or updated cart instance.
         """
+        log_context = (
+            f"vtex_account={self.account} order_form={order_form_id} "
+            f"phone={phone} project_uuid={self.project.uuid}"
+        )
+
         # Get Redis connection for distributed lock
         redis = get_redis_connection()
         lock_key = f"cart_creation_lock:{self.account}:{order_form_id}:{phone}"
 
         # Try to acquire distributed lock (30 seconds TTL)
         if not redis.set(lock_key, "locked", nx=True, ex=30):
-            logger.info(f"Cart creation already in progress for {order_form_id}")
+            logger.info(
+                f"[CART_USECASE] Lock acquisition failed (concurrent request): {log_context} "
+                f"reason=cart_creation_already_in_progress"
+            )
             # Wait a bit and try to get the existing cart
             time.sleep(1)
             try:
-                return Cart.objects.get(
+                cart = Cart.objects.get(
                     order_form_id=order_form_id,
                     project=self.project,
                     phone_number=phone,
                     status="created",
                 )
+                logger.info(
+                    f"[CART_USECASE] Found existing cart after lock wait: {log_context} "
+                    f"cart_uuid={cart.uuid}"
+                )
+                return cart
             except Cart.DoesNotExist:
+                logger.error(
+                    f"[CART_USECASE] Lock failed and no cart found: {log_context} "
+                    f"reason=cart_creation_lock_failed"
+                )
                 raise ValidationError(f"Cart creation failed to lock {lock_key}")
 
         try:
@@ -145,15 +164,24 @@ class CartUseCase(BaseAgentWebhookUseCase):
                 phone_number=phone,
                 status="created",
             )
+            logger.info(
+                f"[CART_USECASE] Existing cart found, renewing task: {log_context} "
+                f"cart_uuid={cart.uuid} action=renew_abandonment_task"
+            )
             # Renew abandonment task
             self._schedule_abandonment_task(str(cart.uuid))
             return cart
         except Cart.DoesNotExist:
+            logger.info(
+                f"[CART_USECASE] No existing cart, creating new: {log_context} "
+                f"action=create_new_cart"
+            )
             # Create new cart if it doesn't exist
             return self._create_cart(order_form_id, phone, name)
         except Exception as e:
             logger.error(
-                f"Unexpected error processing cart notification: {str(e)}",
+                f"[CART_USECASE] Unexpected error processing cart: {log_context} "
+                f"error={str(e)}",
                 exc_info=True,
             )
             raise
@@ -237,20 +265,28 @@ class CartUseCase(BaseAgentWebhookUseCase):
         Raises:
             ValidationError: If phone restriction is active and phone is not allowed.
         """
+        log_context = (
+            f"vtex_account={self.account} order_form={order_form_id} "
+            f"phone={phone} project_uuid={self.project.uuid}"
+        )
+
         # Decide whether to use integrated agent or integrated feature
         if self.integrated_agent:
             logger.info(
-                f"Using integrated agent for cart creation. Project: {self.project.uuid}"
+                f"[CART_USECASE] Creating cart with agent: {log_context} "
+                f"agent_uuid={self.integrated_agent.uuid}"
             )
             return self._create_cart_with_agent(order_form_id, phone, name)
         elif self.integrated_feature:
             logger.info(
-                f"Using integrated feature for cart creation. Project: {self.project.uuid}"
+                f"[CART_USECASE] Creating cart with feature: {log_context} "
+                f"feature_uuid={self.integrated_feature.uuid}"
             )
             return self._create_cart_with_feature(order_form_id, phone, name)
         else:
             logger.warning(
-                f"No integrated agent or feature found for project: {self.project.uuid}"
+                f"[CART_USECASE] No integration configured: {log_context} "
+                f"reason=no_integrated_agent_or_feature"
             )
             raise ValidationError(
                 {"error": "No abandoned cart integration configured"},
@@ -263,6 +299,12 @@ class CartUseCase(BaseAgentWebhookUseCase):
         """
         Create a cart using integrated agent (new flow).
         """
+        log_context = (
+            f"vtex_account={self.account} order_form={order_form_id} "
+            f"phone={phone} project_uuid={self.project.uuid} "
+            f"agent_uuid={self.integrated_agent.uuid}"
+        )
+
         # Validate phone restriction before creating cart (same as feature flow)
         self._validate_phone_restriction(
             phone,
@@ -281,6 +323,11 @@ class CartUseCase(BaseAgentWebhookUseCase):
             config={"client_name": name},
         )
 
+        logger.info(
+            f"[CART_USECASE] Cart created with agent: {log_context} "
+            f"cart_uuid={cart.uuid} cart_status={cart.status}"
+        )
+
         # Schedule abandonment task
         self._schedule_abandonment_task(str(cart.uuid))
         return cart
@@ -291,6 +338,12 @@ class CartUseCase(BaseAgentWebhookUseCase):
         """
         Create a cart using integrated feature (legacy flow).
         """
+        log_context = (
+            f"vtex_account={self.account} order_form={order_form_id} "
+            f"phone={phone} project_uuid={self.project.uuid} "
+            f"feature_uuid={self.integrated_feature.uuid}"
+        )
+
         # Check if templates are synchronized before proceeding
         sync_status = self.integrated_feature.config.get(
             "templates_synchronization_status", "pending"
@@ -298,8 +351,8 @@ class CartUseCase(BaseAgentWebhookUseCase):
 
         if sync_status != "synchronized":
             logger.info(
-                f"Templates are not ready (status: {sync_status}) for project {self.project.uuid}. "
-                f"Skipping cart creation for order form {order_form_id}."
+                f"[CART_USECASE] Templates not synchronized: {log_context} "
+                f"sync_status={sync_status} reason=templates_not_ready"
             )
             raise ValidationError(
                 {"error": "Templates are not synchronized"},
@@ -324,6 +377,11 @@ class CartUseCase(BaseAgentWebhookUseCase):
             config={"client_name": name},
         )
 
+        logger.info(
+            f"[CART_USECASE] Cart created with feature: {log_context} "
+            f"cart_uuid={cart.uuid} cart_status={cart.status}"
+        )
+
         # Schedule abandonment task
         self._schedule_abandonment_task(str(cart.uuid))
         return cart
@@ -343,6 +401,7 @@ class CartUseCase(BaseAgentWebhookUseCase):
                 self.integrated_agent.config,
             )
             integration_type = "agent"
+            integration_uuid = str(self.integrated_agent.uuid)
         elif self.integrated_feature:
             context = self._create_service_context(
                 "integrated_feature",
@@ -350,13 +409,14 @@ class CartUseCase(BaseAgentWebhookUseCase):
                 self.integrated_feature.config,
             )
             integration_type = "feature"
+            integration_uuid = str(self.integrated_feature.uuid)
         else:
             # No integration configured - should not proceed
-            error_message = (
-                "No abandoned cart integration configured for project "
-                f"{self.project.uuid}. Cannot schedule abandonment task."
+            logger.error(
+                f"[CART_USECASE] Cannot schedule task - no integration: "
+                f"vtex_account={self.account} project_uuid={self.project.uuid} "
+                f"cart_uuid={cart_uuid} reason=no_integration_configured"
             )
-            logger.error(error_message)
             raise ValidationError(
                 {"error": "No abandoned cart integration configured"},
                 code="no_integration_configured",
@@ -368,7 +428,10 @@ class CartUseCase(BaseAgentWebhookUseCase):
         countdown = time_restriction_service.get_countdown()
 
         logger.info(
-            f"Scheduling task for cart {cart_uuid} with {integration_type} flow, countdown {countdown}"
+            f"[CART_USECASE] Scheduling abandonment task: vtex_account={self.account} "
+            f"project_uuid={self.project.uuid} cart_uuid={cart_uuid} "
+            f"integration_type={integration_type} integration_uuid={integration_uuid} "
+            f"countdown_seconds={countdown} task_key={task_key}"
         )
 
         task_abandoned_cart_update.apply_async(
