@@ -115,7 +115,7 @@ def task_order_status_update(order_update_data: dict):
                 queue="vtex-io-orders-update-events",
             )
 
-        integrated_agent = use_case.get_integrated_agent(project)
+        integrated_agent = use_case.get_integrated_agent_if_exists(project)
 
         if integrated_agent:
             logger.info(
