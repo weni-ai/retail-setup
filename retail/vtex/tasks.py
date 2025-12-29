@@ -34,10 +34,22 @@ def task_abandoned_cart_update(cart_uuid: str):
         # Get the cart to access
         cart = Cart.objects.get(uuid=cart_uuid, status="created")
 
+        # Build log context with all relevant tracking info
+        vtex_account = cart.project.vtex_account if cart.project else "unknown"
+        project_uuid = str(cart.project.uuid) if cart.project else "unknown"
+        log_context = (
+            f"vtex_account={vtex_account} cart_uuid={cart_uuid} "
+            f"phone={cart.phone_number} project_uuid={project_uuid} "
+            f"order_form={cart.order_form_id}"
+        )
+
+        logger.info(f"[CART_TASK] Starting abandoned cart processing: {log_context}")
+
         use_case = AgentAbandonedCartUseCase()
         if not cart.project:
-            logger.info(
-                f"Project not found for cart {cart.uuid}. on task_abandoned_cart_update."
+            logger.warning(
+                f"[CART_TASK] Project not found: cart_uuid={cart_uuid} "
+                f"reason=cart_has_no_project"
             )
             return
 
@@ -45,28 +57,35 @@ def task_abandoned_cart_update(cart_uuid: str):
 
         if integrated_agent:
             logger.info(
-                f"Use integrated agent for VTEX account {cart.project.vtex_account}."
+                f"[CART_TASK] Using agent flow: {log_context} "
+                f"agent_uuid={integrated_agent.uuid}"
             )
             use_case.execute(cart, integrated_agent)
-        else:
+        elif cart.integrated_feature:
             logger.info(
-                f"Use legacy use case for VTEX account {cart.project.vtex_account}."
+                f"[CART_TASK] Using feature flow (legacy): {log_context} "
+                f"feature_uuid={cart.integrated_feature.uuid}"
             )
             legacy_use_case = CartAbandonmentUseCase()
             legacy_use_case.execute(cart)
+        else:
+            logger.warning(
+                f"[CART_TASK] No integration configured: {log_context} "
+                f"reason=no_agent_or_feature_configured"
+            )
+            return
 
-        logger.info(
-            f"Successfully processed abandoned cart for cart UUID: {cart.uuid} "
-            f"VTEX account: {cart.project.vtex_account}"
-        )
+        logger.info(f"[CART_TASK] Completed abandoned cart processing: {log_context}")
     except Cart.DoesNotExist:
         logger.warning(
-            f"Cart with UUID {cart_uuid} does not exist or has already been processed."
+            f"[CART_TASK] Cart not found or already processed: cart_uuid={cart_uuid} "
+            f"reason=cart_does_not_exist_or_status_changed"
         )
         return
     except Exception as e:
         logger.error(
-            f"Unexpected error processing abandoned cart: {str(e)}", exc_info=True
+            f"[CART_TASK] Unexpected error: cart_uuid={cart_uuid} error={str(e)}",
+            exc_info=True,
         )
 
 

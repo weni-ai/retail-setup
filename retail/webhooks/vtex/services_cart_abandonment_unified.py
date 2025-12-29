@@ -32,6 +32,28 @@ from retail.clients.vtex_io.client import VtexIOClient
 logger = logging.getLogger(__name__)
 
 
+def _build_log_context(cart: Cart, integration_config=None) -> str:
+    """Build a standardized log context string for cart operations."""
+    vtex_account = cart.project.vtex_account if cart.project else "unknown"
+    project_uuid = str(cart.project.uuid) if cart.project else "unknown"
+
+    context = (
+        f"vtex_account={vtex_account} cart_uuid={cart.uuid} "
+        f"phone={cart.phone_number} project_uuid={project_uuid} "
+        f"order_form={cart.order_form_id}"
+    )
+
+    if integration_config:
+        if isinstance(integration_config, IntegratedAgent):
+            context += f" integration_type=agent agent_uuid={integration_config.uuid}"
+        elif isinstance(integration_config, IntegratedFeature):
+            context += (
+                f" integration_type=feature feature_uuid={integration_config.uuid}"
+            )
+
+    return context
+
+
 class CartAbandonmentService(BaseVtexUseCase):
     """
     Unified service for cart abandonment processing.
@@ -57,15 +79,36 @@ class CartAbandonmentService(BaseVtexUseCase):
             cart (Cart): The cart instance to process.
             integration_config: Either IntegratedFeature or IntegratedAgent instance.
         """
+        log_context = _build_log_context(cart, integration_config)
+
         try:
-            logger.info(f"Starting abandoned cart processing for cart {cart.uuid}")
+            logger.info(f"[CART_SERVICE] Starting processing: {log_context}")
 
             # Fetch order form details from VTEX IO
             order_form = self._fetch_order_form(cart)
+            logger.info(
+                f"[CART_SERVICE] Order form fetched: {log_context} "
+                f"items_count={len(order_form.get('items', []))}"
+            )
 
             # Process and update cart information
             client_profile = self._extract_client_profile_and_save_locale(
                 cart, order_form
+            )
+            client_email = client_profile.get("email")
+
+            # Email is required to fetch orders and continue processing
+            if not client_email:
+                logger.info(
+                    f"[CART_SERVICE] Client email not found: {log_context} "
+                    f"reason=email_not_in_order_form final_status=empty"
+                )
+                self._update_cart_status(cart, "empty")
+                return
+
+            logger.info(
+                f"[CART_SERVICE] Client profile extracted: {log_context} "
+                f"email={client_email}"
             )
 
             if not order_form.get("items", []):
@@ -77,38 +120,56 @@ class CartAbandonmentService(BaseVtexUseCase):
 
                 if project_uuid in ignore_empty_carts_projects:
                     logger.info(
-                        f"Cart {cart.uuid} is empty but project {project_uuid} "
-                        f"(VTEX: {cart.project.vtex_account}) is configured to ignore empty carts - "
-                        "continuing processing"
+                        f"[CART_SERVICE] Empty cart but project whitelisted: {log_context} "
+                        f"reason=project_in_IGNORE_EMPTY_CARTS_FOR_PROJECTS action=continue_processing"
                     )
                     # Continue processing instead of marking as empty
                 else:
                     # Mark cart as empty if no items are found (original behavior)
                     self._update_cart_status(cart, "empty")
                     logger.info(
-                        f"Cart {cart.uuid} is empty - marking as empty (VTEX: {cart.project.vtex_account})"
+                        f"[CART_SERVICE] Cart is empty: {log_context} "
+                        f"reason=no_items_in_order_form final_status=empty"
                     )
                     return
 
             # Save cart items
+            cart_items = order_form.get("items", [])
             self._save_cart_items(cart, order_form)
+            logger.info(
+                f"[CART_SERVICE] Cart items saved: {log_context} "
+                f"items_count={len(cart_items)}"
+            )
 
-            # Check orders by email
-            orders = self._fetch_orders_by_email(cart, client_profile["email"])
+            # Check orders by email (email already validated above)
+            orders = self._fetch_orders_by_email(cart, client_email)
+            orders_count = len(orders.get("list", []))
+            logger.info(
+                f"[CART_SERVICE] Orders fetched by email: {log_context} "
+                f"email={client_email} orders_found={orders_count}"
+            )
+
             self._evaluate_orders(
                 cart, orders, order_form, client_profile, integration_config
             )
 
-            logger.info(f"Completed abandoned cart processing for cart {cart.uuid}")
+            logger.info(f"[CART_SERVICE] Completed processing: {log_context}")
 
         except Cart.DoesNotExist:
-            logger.error(f"Cart with UUID {cart.uuid} does not exist.")
+            logger.error(
+                f"[CART_SERVICE] Cart not found: {log_context} "
+                f"reason=cart_does_not_exist"
+            )
         except CustomAPIException as e:
-            logger.error(f"API error while processing cart {cart.uuid}: {str(e)}")
+            logger.error(
+                f"[CART_SERVICE] API error: {log_context} "
+                f"error={str(e)} final_status=delivered_error"
+            )
             self._update_cart_status(cart, "delivered_error", str(e))
         except Exception as e:
             logger.exception(
-                f"Unexpected error while processing cart {cart.uuid}: {str(e)}"
+                f"[CART_SERVICE] Unexpected error: {log_context} "
+                f"error={str(e)} final_status=delivered_error"
             )
             self._update_cart_status(cart, "delivered_error", str(e))
 
@@ -207,12 +268,15 @@ class CartAbandonmentService(BaseVtexUseCase):
             client_profile (dict): Client profile data.
             integration_config: Either IntegratedFeature or IntegratedAgent instance.
         """
+        log_context = _build_log_context(cart, integration_config)
+
         if not orders.get("list"):
+            logger.info(
+                f"[CART_SERVICE] No orders found for client: {log_context} "
+                f"action=mark_as_abandoned reason=client_has_no_orders"
+            )
             self._mark_cart_as_abandoned(
                 cart, order_form, client_profile, integration_config
-            )
-            logger.info(
-                f"Cart {cart.uuid} orders is empty - marking as abandoned to {cart.phone_number}"
             )
             return
 
@@ -220,11 +284,16 @@ class CartAbandonmentService(BaseVtexUseCase):
 
         if self._check_recent_purchases_for_cart_items(cart, recent_orders):
             logger.info(
-                f"Cart {cart.uuid} items already purchased recently - marking as purchased to {cart.phone_number}"
+                f"[CART_SERVICE] Cart items already purchased: {log_context} "
+                f"final_status=purchased reason=items_found_in_recent_orders"
             )
             self._update_cart_status(cart, "purchased")
             return
 
+        logger.info(
+            f"[CART_SERVICE] Orders found but items not purchased: {log_context} "
+            f"recent_orders_checked={len(recent_orders)} action=mark_as_abandoned"
+        )
         self._mark_cart_as_abandoned(
             cart, order_form, client_profile, integration_config
         )
@@ -252,15 +321,26 @@ class CartAbandonmentService(BaseVtexUseCase):
         Returns:
             None
         """
+        log_context = _build_log_context(cart, integration_config)
+        cart_value = self._calculate_total_value(cart)
+        items_count = len(cart.config.get("cart_items", []))
+
+        logger.info(
+            f"[CART_SERVICE] Evaluating cart for notification: {log_context} "
+            f"cart_value={cart_value} items_count={items_count}"
+        )
+
         # For IntegratedAgent, check minimum cart value before processing
         if isinstance(integration_config, IntegratedAgent):
             if self._check_minimum_cart_value(cart, integration_config):
+                # Log is already inside the method, just return
                 return
 
         # Check if abandoned cart notification cooldown is configured and should be applied
         if self._check_abandoned_cart_notification_cooldown(cart, integration_config):
             logger.info(
-                f"Skipping notification for cart {cart.uuid} - abandoned cart notification cooldown active"
+                f"[CART_SERVICE] SKIP - Cooldown active: {log_context} "
+                f"final_status=skipped_abandoned_cart_cooldown reason=notification_cooldown_active"
             )
             self._update_cart_status(cart, "skipped_abandoned_cart_cooldown")
             return
@@ -268,7 +348,8 @@ class CartAbandonmentService(BaseVtexUseCase):
         # Check if identical cart was already sent recently
         if self._check_identical_cart_sent_recently(cart):
             logger.info(
-                f"Skipping notification for cart {cart.uuid} - identical cart already sent recently"
+                f"[CART_SERVICE] SKIP - Identical cart: {log_context} "
+                f"final_status=skipped_identical_cart reason=identical_cart_sent_within_24h"
             )
             self._update_cart_status(cart, "skipped_identical_cart")
             return
@@ -278,11 +359,14 @@ class CartAbandonmentService(BaseVtexUseCase):
             cart.phone_number, cart.uuid
         ):
             logger.info(
-                f"Skipping notification for cart {cart.uuid} - "
-                f"notification already in progress for phone {cart.phone_number}"
+                f"[CART_SERVICE] SKIP - Lock failed: {log_context} "
+                f"reason=notification_already_in_progress_for_phone"
             )
             return
 
+        logger.info(
+            f"[CART_SERVICE] All checks passed, marking as abandoned: {log_context}"
+        )
         self._update_cart_status(cart, "abandoned")
 
         # Collect all cart abandonment data in a unified structure
@@ -302,10 +386,8 @@ class CartAbandonmentService(BaseVtexUseCase):
             )
 
         logger.info(
-            f"Cart abandonment notification {'sent' if flow_success else 'failed'} "
-            f"- flow={flow_type} phone={cart.phone_number} "
-            f"order_form={cart.order_form_id} cart={cart.uuid} "
-            f"project={cart.project.name}"
+            f"[CART_SERVICE] Notification {'SENT' if flow_success else 'FAILED'}: {log_context} "
+            f"flow_type={flow_type} final_status={cart.status}"
         )
 
     def _collect_cart_abandonment_data(
@@ -638,13 +720,14 @@ class CartAbandonmentService(BaseVtexUseCase):
         Returns:
             bool: True if notification should be skipped (cart value below minimum).
         """
+        log_context = _build_log_context(cart, integration_config)
         abandoned_cart_config = self._get_abandoned_cart_config(integration_config)
         minimum_value = abandoned_cart_config.get("minimum_cart_value")
 
         if minimum_value is None:
-            logger.warning(
-                f"Minimum cart value not configured for integrated agent "
-                f"{integration_config.uuid}, skipping value check"
+            logger.info(
+                f"[CART_SERVICE] Minimum value not configured: {log_context} "
+                f"action=skip_value_check reason=minimum_cart_value_not_set"
             )
             return False
 
@@ -654,16 +737,16 @@ class CartAbandonmentService(BaseVtexUseCase):
 
         if cart_total_brl < minimum_value:
             logger.info(
-                f"Skipping notification for cart {cart.uuid} - "
-                f"cart value R${cart_total_brl:.2f} is below minimum R${minimum_value:.2f} "
-                f"(vtex_account={cart.project.vtex_account})"
+                f"[CART_SERVICE] SKIP - Below minimum value: {log_context} "
+                f"cart_value_brl={cart_total_brl:.2f} minimum_value_brl={minimum_value:.2f} "
+                f"final_status=skipped_below_minimum_value reason=cart_value_below_threshold"
             )
             self._update_cart_status(cart, "skipped_below_minimum_value")
             return True
 
         logger.info(
-            f"Cart {cart.uuid} value R${cart_total_brl:.2f} meets minimum "
-            f"threshold R${minimum_value:.2f}"
+            f"[CART_SERVICE] Minimum value check passed: {log_context} "
+            f"cart_value_brl={cart_total_brl:.2f} minimum_value_brl={minimum_value:.2f}"
         )
         return False
 
@@ -693,6 +776,8 @@ class CartAbandonmentService(BaseVtexUseCase):
         Returns:
             bool: True if notification should be skipped due to cooldown.
         """
+        log_context = _build_log_context(cart, integration_config)
+
         # Get configuration from either integrated feature or integrated agent
         # For IntegratedAgent, check abandoned_cart config first
         if isinstance(integration_config, IntegratedAgent):
@@ -704,7 +789,8 @@ class CartAbandonmentService(BaseVtexUseCase):
 
         if not cooldown_hours:
             logger.info(
-                f"No abandoned cart notification cooldown configured for cart {cart.uuid}"
+                f"[CART_SERVICE] Cooldown not configured: {log_context} "
+                f"check=notification_cooldown result=skip_check"
             )
             return False
 
@@ -721,15 +807,17 @@ class CartAbandonmentService(BaseVtexUseCase):
 
         if recent_sent_cart:
             logger.info(
-                f"Abandoned cart notification cooldown applied for cart {cart.uuid} - "
-                f"Phone {cart.phone_number} had abandoned cart notification sent at {recent_sent_cart.modified_on} "
-                f"(cooldown: {cooldown_hours}h - maintaining 1 notification per {cooldown_hours} hours)"
+                f"[CART_SERVICE] Cooldown check FAILED: {log_context} "
+                f"cooldown_hours={cooldown_hours} "
+                f"previous_cart_uuid={recent_sent_cart.uuid} "
+                f"previous_sent_at={recent_sent_cart.modified_on} "
+                f"reason=notification_sent_within_cooldown_period"
             )
             return True
 
         logger.info(
-            f"No recent abandoned cart notifications found for phone {cart.phone_number} "
-            f"within {cooldown_hours}h cooldown"
+            f"[CART_SERVICE] Cooldown check PASSED: {log_context} "
+            f"cooldown_hours={cooldown_hours} reason=no_recent_notifications"
         )
         return False
 
@@ -743,9 +831,14 @@ class CartAbandonmentService(BaseVtexUseCase):
         Returns:
             bool: True if identical cart was already sent recently.
         """
+        log_context = _build_log_context(cart)
+
         cart_items = cart.config.get("cart_items", [])
         if not cart_items:
-            logger.info(f"Cart {cart.uuid} has no products to compare")
+            logger.info(
+                f"[CART_SERVICE] Identical cart check skipped: {log_context} "
+                f"reason=no_cart_items_to_compare"
+            )
             return False
 
         # Calculate 24 hours ago
@@ -759,30 +852,41 @@ class CartAbandonmentService(BaseVtexUseCase):
             modified_on__gte=twenty_four_hours_ago,
         )
 
+        recent_count = recent_sent_carts.count()
         if not recent_sent_carts:
-            logger.info(f"No recent sent carts found for phone {cart.phone_number}")
+            logger.info(
+                f"[CART_SERVICE] Identical cart check PASSED: {log_context} "
+                f"reason=no_recent_sent_carts_for_phone"
+            )
             return False
 
         # Create a normalized representation of current cart items
         current_items_normalized = self._normalize_cart_items(cart_items)
+        logger.info(
+            f"[CART_SERVICE] Checking for identical cart: {log_context} "
+            f"current_items={current_items_normalized} recent_carts_to_check={recent_count}"
+        )
 
         # Check each recent cart for identical items
         for recent_cart in recent_sent_carts:
             recent_items = recent_cart.config.get("cart_items", [])
             if recent_items:
                 recent_items_normalized = self._normalize_cart_items(recent_items)
-                logger.info(
-                    f"Recent cart {recent_cart.uuid} items normalized: {recent_items_normalized}"
-                )
 
                 if current_items_normalized == recent_items_normalized:
                     logger.info(
-                        f"Found identical cart {recent_cart.uuid} sent at {recent_cart.modified_on} "
-                        f"for cart {cart.uuid}"
+                        f"[CART_SERVICE] Identical cart check FAILED: {log_context} "
+                        f"matching_cart_uuid={recent_cart.uuid} "
+                        f"matching_cart_sent_at={recent_cart.modified_on} "
+                        f"matching_items={recent_items_normalized} "
+                        f"reason=identical_cart_sent_within_24h"
                     )
                     return True
 
-        logger.info("No identical carts found in recent sent carts")
+        logger.info(
+            f"[CART_SERVICE] Identical cart check PASSED: {log_context} "
+            f"carts_compared={recent_count} reason=no_identical_items_found"
+        )
         return False
 
     def _check_recent_purchases_for_cart_items(
