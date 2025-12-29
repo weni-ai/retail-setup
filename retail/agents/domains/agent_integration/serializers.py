@@ -20,7 +20,12 @@ class RetrieveIntegratedAgentQueryParamsSerializer(serializers.Serializer):
 
 
 class AbandonedCartConfigSerializer(serializers.Serializer):
-    """Serializer for abandoned cart configuration."""
+    """
+    Serializer for abandoned cart configuration.
+
+    Supports partial updates - only fields that are explicitly sent will be updated.
+    Fields not included in the request will not be modified.
+    """
 
     header_image_type = serializers.ChoiceField(
         # Options: first_item (first cart item image), most_expensive, no_image
@@ -30,7 +35,7 @@ class AbandonedCartConfigSerializer(serializers.Serializer):
     abandonment_time_minutes = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=1440,  # Max 24 hours
+        # No max_value - user can set any value >= 1
     )
     minimum_cart_value = serializers.FloatField(
         required=False,
@@ -43,6 +48,23 @@ class AbandonedCartConfigSerializer(serializers.Serializer):
         min_value=1,
         max_value=168,  # Max 7 days
     )
+
+    def to_internal_value(self, data):
+        """
+        Override to only include fields that were actually sent in the request.
+        This enables true partial updates where only specified fields are modified.
+        """
+        # Get the validated data for fields that were actually provided
+        validated_data = {}
+
+        for field_name, field in self.fields.items():
+            if field_name in data:
+                try:
+                    validated_data[field_name] = field.run_validation(data[field_name])
+                except serializers.ValidationError as exc:
+                    raise serializers.ValidationError({field_name: exc.detail})
+
+        return validated_data
 
 
 class UpdateIntegratedAgentSerializer(serializers.Serializer):
