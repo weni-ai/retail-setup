@@ -1,5 +1,6 @@
 from django.urls import path
 
+from retail.api.agents.views import AgentsView
 from retail.api.features.views import FeaturesView
 
 from .integrated_feature.views import (
@@ -17,6 +18,7 @@ urlpatterns = [
         name="integrated_feature",
     ),
     path("feature/<uuid:project_uuid>/", FeaturesView.as_view(), name="features"),
+    path("agents/<uuid:project_uuid>/", AgentsView.as_view(), name="agents"),
     path(
         "integrated_feature/<uuid:feature_uuid>/settings/",
         IntegratedFeatureSettingsView.as_view(),
