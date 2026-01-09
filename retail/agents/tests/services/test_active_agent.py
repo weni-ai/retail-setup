@@ -33,6 +33,7 @@ class ActiveAgentTest(TestCase):
         self.mock_agent.project.vtex_account = "test_account"
         self.mock_agent.ignore_templates = False
         self.mock_agent.global_rule_code = ""
+        self.mock_agent.config = {"country_phone_code": "55"}
 
     def test_invoke_lambda(self):
         mock_data = MagicMock()
@@ -56,6 +57,7 @@ class ActiveAgentTest(TestCase):
                 "uuid": str(self.mock_agent.project.uuid),
                 "vtex_account": self.mock_agent.project.vtex_account,
                 "auth_token": "mock_jwt_token",
+                "country_phone_code": "55",
             },
         }
 
@@ -67,6 +69,24 @@ class ActiveAgentTest(TestCase):
         self.mock_lambda_service.invoke.assert_called_once_with(
             self.mock_agent.agent.lambda_arn, expected_payload
         )
+
+    def test_invoke_lambda_without_country_phone_code(self):
+        """Test invoke when country_phone_code is not configured."""
+        self.mock_agent.config = {}
+        mock_data = MagicMock()
+        mock_data.configure_mock(
+            params={},
+            payload={},
+            credentials={},
+            project_rules=[],
+        )
+
+        self.mock_jwt_generator.generate_jwt_token.return_value = "mock_jwt_token"
+
+        self.handler.invoke(self.mock_agent, mock_data)
+
+        call_args = self.mock_lambda_service.invoke.call_args[0][1]
+        self.assertIsNone(call_args["project"]["country_phone_code"])
 
     def test_invoke_lambda_with_jwt_generator(self):
         mock_data = MagicMock()

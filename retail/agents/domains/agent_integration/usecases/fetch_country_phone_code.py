@@ -35,7 +35,7 @@ class FetchCountryPhoneCodeUseCase:
             project: Project with vtex_account configured.
 
         Returns:
-            Phone code string (e.g., '+55') or None if failed.
+            Phone code string (e.g., '55') or None if failed.
         """
         vtex_account = project.vtex_account
         if not vtex_account:

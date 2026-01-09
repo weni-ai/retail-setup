@@ -22,7 +22,7 @@ from retail.projects.models import Project
 class AssignAgentUseCaseTest(TestCase):
     def setUp(self):
         self.mock_fetch_phone_code = MagicMock(spec=FetchCountryPhoneCodeUseCase)
-        self.mock_fetch_phone_code.execute.return_value = "+55"
+        self.mock_fetch_phone_code.execute.return_value = "55"
         self.use_case = AssignAgentUseCase(
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code
         )
@@ -79,14 +79,14 @@ class AssignAgentUseCaseTest(TestCase):
         self.assertTrue(integrated_agent.is_active)
 
     def test_create_integrated_agent_sets_country_phone_code(self):
-        self.mock_fetch_phone_code.execute.return_value = "+54"
+        self.mock_fetch_phone_code.execute.return_value = "54"
         integrated_agent = self.use_case._create_integrated_agent(
             agent=self.agent,
             project=self.project,
             channel_uuid=uuid.uuid4(),
             ignore_templates=[],
         )
-        self.assertEqual(integrated_agent.config.get("country_phone_code"), "+54")
+        self.assertEqual(integrated_agent.config.get("country_phone_code"), "54")
         self.mock_fetch_phone_code.execute.assert_called_once_with(self.project)
 
     def test_create_integrated_agent_no_phone_code_when_fetch_fails(self):
