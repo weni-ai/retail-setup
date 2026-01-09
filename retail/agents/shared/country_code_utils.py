@@ -41,26 +41,26 @@ def get_phone_code_from_locale(locale: str) -> str:
         locale: VTEX locale (e.g., 'pt-BR', 'es-AR', 'en-US')
 
     Returns:
-        Phone code with + prefix (e.g., '+55', '+54', '+1')
+        Phone code without + prefix (e.g., '55', '54', '1')
 
     Examples:
         >>> get_phone_code_from_locale('pt-BR')
-        '+55'
+        '55'
         >>> get_phone_code_from_locale('es-AR')
-        '+54'
+        '54'
         >>> get_phone_code_from_locale('en-US')
-        '+1'
+        '1'
     """
     region = extract_region_from_locale(locale)
 
     try:
         country_code = phonenumbers.country_code_for_region(region)
         if country_code:
-            return f"+{country_code}"
+            return str(country_code)
     except Exception as e:
         logger.warning(
             f"Failed to get phone code for region={region} locale={locale}: {e}"
         )
 
     # Default to Brazil
-    return "+55"
+    return "55"

@@ -113,9 +113,18 @@ class AssignAgentUseCase:
         config = {}
 
         # Fetch and set country phone code from VTEX tenant
+        logger.info(
+            f"[AssignAgent] Fetching country phone code: "
+            f"project={project.uuid} vtex_account={project.vtex_account}"
+        )
         country_phone_code = self.fetch_country_phone_code_usecase.execute(project)
         if country_phone_code:
             config["country_phone_code"] = country_phone_code
+            logger.info(
+                f"[AssignAgent] Country phone code configured: "
+                f"project={project.uuid} vtex_account={project.vtex_account} "
+                f"phone_code={country_phone_code}"
+            )
 
         # Check if this is the abandoned cart agent
         abandoned_cart_agent_uuid = getattr(settings, "ABANDONED_CART_AGENT_UUID", "")

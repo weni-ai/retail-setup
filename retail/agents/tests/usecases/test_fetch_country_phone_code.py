@@ -31,7 +31,7 @@ class TestFetchCountryPhoneCodeUseCase(TestCase):
 
         result = self.use_case.execute(self.project)
 
-        self.assertEqual(result, "+55")
+        self.assertEqual(result, "55")
         self.mock_vtex_io_service.proxy_vtex.assert_called_once_with(
             account_domain="teststore.myvtex.com",
             project_uuid=str(self.project.uuid),
@@ -50,7 +50,7 @@ class TestFetchCountryPhoneCodeUseCase(TestCase):
 
         result = self.use_case.execute(self.project)
 
-        self.assertEqual(result, "+54")
+        self.assertEqual(result, "54")
 
     def test_execute_success_with_us_locale(self):
         self.mock_vtex_io_service.proxy_vtex.return_value = {
@@ -61,7 +61,7 @@ class TestFetchCountryPhoneCodeUseCase(TestCase):
 
         result = self.use_case.execute(self.project)
 
-        self.assertEqual(result, "+1")
+        self.assertEqual(result, "1")
 
     def test_execute_no_vtex_account_returns_none(self):
         project_without_vtex = Project.objects.create(
