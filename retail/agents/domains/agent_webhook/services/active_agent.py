@@ -45,6 +45,10 @@ class ActiveAgent:
         function_name = integrated_agent.agent.lambda_arn
         project = integrated_agent.project
         jwt_token = self.jwt_generator.generate_jwt_token(str(project.uuid))
+
+        # Get country phone code from integrated agent config
+        country_phone_code = integrated_agent.config.get("country_phone_code")
+
         return self.lambda_service.invoke(
             function_name,
             {
@@ -58,6 +62,7 @@ class ActiveAgent:
                     "uuid": str(project.uuid),
                     "vtex_account": project.vtex_account,
                     "auth_token": jwt_token,
+                    "country_phone_code": country_phone_code,
                 },
             },
         )

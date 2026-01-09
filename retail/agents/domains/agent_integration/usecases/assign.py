@@ -10,6 +10,9 @@ from django.conf import settings
 from rest_framework.exceptions import NotFound, ValidationError
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent, Credential
+from retail.agents.domains.agent_integration.usecases.fetch_country_phone_code import (
+    FetchCountryPhoneCodeUseCase,
+)
 from retail.agents.domains.agent_management.models import Agent, PreApprovedTemplate
 from retail.services.integrations.service import IntegrationsService
 from retail.interfaces.services.integrations import IntegrationsServiceInterface
@@ -49,8 +52,12 @@ class AssignAgentUseCase:
     def __init__(
         self,
         integrations_service: Optional[IntegrationsServiceInterface] = None,
+        fetch_country_phone_code_usecase: Optional[FetchCountryPhoneCodeUseCase] = None,
     ):
         self.integrations_service = integrations_service or IntegrationsService()
+        self.fetch_country_phone_code_usecase = (
+            fetch_country_phone_code_usecase or FetchCountryPhoneCodeUseCase()
+        )
 
     def _get_project(self, project_uuid: UUID):
         try:
@@ -67,8 +74,8 @@ class AssignAgentUseCase:
     ) -> IntegratedAgent:
         ignore_templates_slugs = self._get_ignore_templates_slugs(ignore_templates)
 
-        # Build initial config based on agent type
-        initial_config = self._build_initial_config(agent)
+        # Build initial config based on agent type and project
+        initial_config = self._build_initial_config(agent, project)
 
         integrated_agent, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
@@ -88,7 +95,7 @@ class AssignAgentUseCase:
 
         return integrated_agent
 
-    def _build_initial_config(self, agent: Agent) -> dict:
+    def _build_initial_config(self, agent: Agent, project: Project) -> dict:
         """
         Build initial configuration for the IntegratedAgent based on agent type.
 
@@ -96,10 +103,28 @@ class AssignAgentUseCase:
         for different agent types. Currently supports abandoned cart agent with
         specific default settings.
 
+        Args:
+            agent: The agent being assigned.
+            project: The project the agent is being assigned to.
+
         Returns:
             dict: Initial configuration dictionary.
         """
         config = {}
+
+        # Fetch and set country phone code from VTEX tenant
+        logger.info(
+            f"[AssignAgent] Fetching country phone code: "
+            f"project={project.uuid} vtex_account={project.vtex_account}"
+        )
+        country_phone_code = self.fetch_country_phone_code_usecase.execute(project)
+        if country_phone_code:
+            config["country_phone_code"] = country_phone_code
+            logger.info(
+                f"[AssignAgent] Country phone code configured: "
+                f"project={project.uuid} vtex_account={project.vtex_account} "
+                f"phone_code={country_phone_code}"
+            )
 
         # Check if this is the abandoned cart agent
         abandoned_cart_agent_uuid = getattr(settings, "ABANDONED_CART_AGENT_UUID", "")
