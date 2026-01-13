@@ -59,6 +59,11 @@ class ValidatePreApprovedTemplatesUseCase:
         templates = agent.templates.all()
 
         for template in templates:
+            # TODO: Currently uses agent.language (fixed pt_BR) to fetch templates from Meta.
+            # To support dynamic language per project, consider:
+            # 1. Validate in multiple languages (pt_BR, en, es) and save all in metadata
+            # 2. Or re-validate during integration using initial_template_language from project
+            # Ref: initial_template_language is saved in IntegratedAgent.config during integration
             template_info = self._get_template_info(template.name, agent.language)
 
             if template_info is None:

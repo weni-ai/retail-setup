@@ -20,6 +20,3 @@ TEMPLATE_LANGUAGES: List[TemplateLanguage] = [
     TemplateLanguage(code="en", display_name="English (US)"),
     TemplateLanguage(code="es", display_name="Español"),
 ]
-
-# Default language when none is specified
-DEFAULT_TEMPLATE_LANGUAGE_CODE = "pt_BR"

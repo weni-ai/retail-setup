@@ -15,6 +15,7 @@ from retail.agents.domains.agent_management.models import PreApprovedTemplate
 from retail.agents.domains.agent_integration.usecases.assign import AssignAgentUseCase
 from retail.agents.domains.agent_integration.usecases.fetch_country_phone_code import (
     FetchCountryPhoneCodeUseCase,
+    VtexLocaleInfo,
 )
 from retail.projects.models import Project
 
@@ -22,7 +23,12 @@ from retail.projects.models import Project
 class AssignAgentUseCaseTest(TestCase):
     def setUp(self):
         self.mock_fetch_phone_code = MagicMock(spec=FetchCountryPhoneCodeUseCase)
-        self.mock_fetch_phone_code.execute.return_value = "55"
+        # Mock fetch_locale_info to return VtexLocaleInfo object
+        self.mock_fetch_phone_code.fetch_locale_info.return_value = VtexLocaleInfo(
+            country_phone_code="55",
+            meta_language="pt_BR",
+            vtex_locale="pt-BR",
+        )
         self.use_case = AssignAgentUseCase(
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code
         )
@@ -78,8 +84,12 @@ class AssignAgentUseCaseTest(TestCase):
         self.assertEqual(integrated_agent.project, self.project)
         self.assertTrue(integrated_agent.is_active)
 
-    def test_create_integrated_agent_sets_country_phone_code(self):
-        self.mock_fetch_phone_code.execute.return_value = "54"
+    def test_create_integrated_agent_sets_country_phone_code_and_language(self):
+        self.mock_fetch_phone_code.fetch_locale_info.return_value = VtexLocaleInfo(
+            country_phone_code="54",
+            meta_language="es_AR",
+            vtex_locale="es-AR",
+        )
         integrated_agent = self.use_case._create_integrated_agent(
             agent=self.agent,
             project=self.project,
@@ -87,10 +97,15 @@ class AssignAgentUseCaseTest(TestCase):
             ignore_templates=[],
         )
         self.assertEqual(integrated_agent.config.get("country_phone_code"), "54")
-        self.mock_fetch_phone_code.execute.assert_called_once_with(self.project)
+        self.assertEqual(
+            integrated_agent.config.get("initial_template_language"), "es_AR"
+        )
+        self.mock_fetch_phone_code.fetch_locale_info.assert_called_once_with(
+            self.project
+        )
 
-    def test_create_integrated_agent_no_phone_code_when_fetch_fails(self):
-        self.mock_fetch_phone_code.execute.return_value = None
+    def test_create_integrated_agent_defaults_when_fetch_fails(self):
+        self.mock_fetch_phone_code.fetch_locale_info.return_value = None
         integrated_agent = self.use_case._create_integrated_agent(
             agent=self.agent,
             project=self.project,
@@ -98,6 +113,10 @@ class AssignAgentUseCaseTest(TestCase):
             ignore_templates=[],
         )
         self.assertNotIn("country_phone_code", integrated_agent.config)
+        # Should fallback to default language (pt_BR) when fetch fails
+        self.assertEqual(
+            integrated_agent.config.get("initial_template_language"), "pt_BR"
+        )
 
     def test_create_integrated_agent_with_ignore_templates(self):
         template1 = PreApprovedTemplate.objects.create(

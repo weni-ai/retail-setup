@@ -93,7 +93,6 @@ class AssignAgentView(GenericIntegratedAgentView):
 
         credentials = request.data.get("credentials", {})
         include_templates = request.data.get("templates", [])
-        initial_template_language = request.data.get("initial_template_language")
 
         agent = self.get_agent(agent_uuid)
 
@@ -107,7 +106,6 @@ class AssignAgentView(GenericIntegratedAgentView):
             channel_uuid=channel_uuid,
             credentials=credentials,
             include_templates=include_templates,
-            initial_template_language=initial_template_language,
         )
 
         response_serializer = ReadIntegratedAgentSerializer(integrated_agent)

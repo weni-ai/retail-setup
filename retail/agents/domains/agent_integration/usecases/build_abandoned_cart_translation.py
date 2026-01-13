@@ -7,7 +7,7 @@ in multiple languages supported by Meta/WhatsApp.
 
 from typing import Dict, Any, Optional
 
-from retail.agents.domains.agent_integration.utils import DEFAULT_TEMPLATE_LANGUAGE_CODE
+from retail.agents.shared.country_code_utils import DEFAULT_TEMPLATE_LANGUAGE
 
 
 class BuildAbandonedCartTranslationUseCase:
@@ -56,33 +56,68 @@ class BuildAbandonedCartTranslationUseCase:
     }
 
     @classmethod
+    def _normalize_language_code(cls, language_code: str) -> str:
+        """
+        Normalize language code to match available translations.
+
+        Tries exact match first, then falls back to base language code.
+        Example: 'en_US' -> 'en', 'es_MX' -> 'es'
+
+        Args:
+            language_code: The Meta language code (e.g., 'pt_BR', 'en_US', 'es_MX')
+
+        Returns:
+            Normalized language code that matches available translations.
+        """
+        # Try exact match first
+        if language_code in cls._TRANSLATIONS:
+            return language_code
+
+        # Try base language code (e.g., 'en_US' -> 'en')
+        if "_" in language_code:
+            base_code = language_code.split("_")[0]
+            if base_code in cls._TRANSLATIONS:
+                return base_code
+
+        return language_code
+
+    @classmethod
     def get_translation(cls, language_code: str) -> Optional[Dict[str, Any]]:
         """
         Get translation data for a specific language.
 
+        Tries exact match first, then falls back to base language code.
+        Example: 'es_AR' -> tries 'es_AR', then 'es'
+
         Args:
-            language_code: The Meta language code (e.g., 'pt_BR', 'en', 'es')
+            language_code: The Meta language code (e.g., 'pt_BR', 'en_US', 'es_MX')
 
         Returns:
             Translation dictionary if found, None otherwise.
         """
-        return cls._TRANSLATIONS.get(language_code)
+        normalized_code = cls._normalize_language_code(language_code)
+        return cls._TRANSLATIONS.get(normalized_code)
 
     @classmethod
     def get_translation_or_default(cls, language_code: str) -> Dict[str, Any]:
         """
         Get translation data for a language, falling back to default if not found.
 
+        Tries exact match first, then falls back to base language code.
+        If still not found, returns default (pt_BR) translation.
+
+        This allows templates to be created even for unsupported languages,
+        and users can later edit the template language via the languages API.
+
         Args:
-            language_code: The Meta language code (e.g., 'pt_BR', 'en', 'es')
+            language_code: The Meta language code (e.g., 'pt_BR', 'en_US', 'es_MX')
 
         Returns:
-            Translation dictionary for the language or default language.
+            Translation dictionary for the language or default (pt_BR).
         """
         translation = cls.get_translation(language_code)
         if translation is None:
-            default_code = DEFAULT_TEMPLATE_LANGUAGE_CODE
-            translation = cls._TRANSLATIONS[default_code]
+            translation = cls._TRANSLATIONS[DEFAULT_TEMPLATE_LANGUAGE]
         return translation
 
     @classmethod
@@ -100,7 +135,7 @@ class BuildAbandonedCartTranslationUseCase:
         CreateCustomTemplateUseCase's TemplateMetadataHandler.
 
         Args:
-            language_code: The Meta language code (e.g., 'pt_BR', 'en', 'es')
+            language_code: The Meta language code (e.g., 'pt_BR', 'en_US', 'es_MX')
             button_base_url: Base URL for the checkout button
             button_url_example: Example URL with order form ID
             header_image_base64: Optional base64 encoded header image
@@ -108,6 +143,7 @@ class BuildAbandonedCartTranslationUseCase:
         Returns:
             Translation dictionary ready for template creation.
         """
+        normalized_code = cls._normalize_language_code(language_code)
         translation_data = cls.get_translation_or_default(language_code)
 
         template_translation: Dict[str, Any] = {
@@ -129,7 +165,7 @@ class BuildAbandonedCartTranslationUseCase:
                 },
             ],
             "category": "MARKETING",
-            "language": language_code,
+            "language": normalized_code,
         }
 
         # Add header image if provided
@@ -155,17 +191,18 @@ class BuildAbandonedCartTranslationUseCase:
         in IntegrationsService.
 
         Args:
-            language_code: The Meta language code (e.g., 'pt_BR', 'en', 'es')
+            language_code: The Meta language code (e.g., 'pt_BR', 'en_US', 'es_MX')
             button_url: Full URL with variable placeholder for checkout
             button_url_example: Example URL with order form ID
 
         Returns:
             Translation dictionary in IntegrationsService format.
         """
+        normalized_code = cls._normalize_language_code(language_code)
         translation_data = cls.get_translation_or_default(language_code)
 
         return {
-            "language": language_code,
+            "language": normalized_code,
             "body": {
                 "type": "BODY",
                 "text": translation_data["body_text"],
