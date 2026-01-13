@@ -13,13 +13,22 @@ from retail.agents.domains.agent_integration.models import (
 )
 from retail.agents.domains.agent_management.models import PreApprovedTemplate
 from retail.agents.domains.agent_integration.usecases.assign import AssignAgentUseCase
+from retail.agents.domains.agent_integration.usecases.fetch_country_phone_code import (
+    FetchCountryPhoneCodeUseCase,
+)
 from retail.projects.models import Project
 
 
 class AssignAgentUseCaseTest(TestCase):
     def setUp(self):
-        self.use_case = AssignAgentUseCase()
-        self.project = Project.objects.create(uuid=uuid.uuid4(), name="Test Project")
+        self.mock_fetch_phone_code = MagicMock(spec=FetchCountryPhoneCodeUseCase)
+        self.mock_fetch_phone_code.execute.return_value = "55"
+        self.use_case = AssignAgentUseCase(
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code
+        )
+        self.project = Project.objects.create(
+            uuid=uuid.uuid4(), name="Test Project", vtex_account="teststore"
+        )
         self.agent = Agent.objects.create(
             name="Test Agent",
             lambda_arn="arn:aws:lambda:fake",
@@ -68,6 +77,27 @@ class AssignAgentUseCaseTest(TestCase):
         self.assertEqual(integrated_agent.agent, self.agent)
         self.assertEqual(integrated_agent.project, self.project)
         self.assertTrue(integrated_agent.is_active)
+
+    def test_create_integrated_agent_sets_country_phone_code(self):
+        self.mock_fetch_phone_code.execute.return_value = "54"
+        integrated_agent = self.use_case._create_integrated_agent(
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=uuid.uuid4(),
+            ignore_templates=[],
+        )
+        self.assertEqual(integrated_agent.config.get("country_phone_code"), "54")
+        self.mock_fetch_phone_code.execute.assert_called_once_with(self.project)
+
+    def test_create_integrated_agent_no_phone_code_when_fetch_fails(self):
+        self.mock_fetch_phone_code.execute.return_value = None
+        integrated_agent = self.use_case._create_integrated_agent(
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=uuid.uuid4(),
+            ignore_templates=[],
+        )
+        self.assertNotIn("country_phone_code", integrated_agent.config)
 
     def test_create_integrated_agent_with_ignore_templates(self):
         template1 = PreApprovedTemplate.objects.create(
@@ -203,7 +233,10 @@ class AssignAgentUseCaseTest(TestCase):
     def test_create_templates_success(self, mock_create_library_use_case):
         mock_integrations_service = MagicMock()
         mock_integrations_service.fetch_templates_from_user.return_value = {}
-        use_case = AssignAgentUseCase(integrations_service=mock_integrations_service)
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
 
         integrated_agent = IntegratedAgent.objects.create(
             agent=self.agent,
@@ -298,7 +331,10 @@ class AssignAgentUseCaseTest(TestCase):
     def test_execute_integration(self, mock_create_library_use_case):
         mock_integrations_service = MagicMock()
         mock_integrations_service.fetch_templates_from_user.return_value = {}
-        use_case = AssignAgentUseCase(integrations_service=mock_integrations_service)
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
 
         mock_use_case_instance = mock_create_library_use_case.return_value
         mock_template = MagicMock()
@@ -345,7 +381,10 @@ class AssignAgentUseCaseTest(TestCase):
     def test_execute_already_assigned_agent(self):
         mock_integrations_service = MagicMock()
         mock_integrations_service.fetch_templates_from_user.return_value = {}
-        use_case = AssignAgentUseCase(integrations_service=mock_integrations_service)
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
 
         use_case.execute(
             self.agent,
@@ -375,7 +414,10 @@ class AssignAgentUseCaseTest(TestCase):
     def test_execute_with_include_templates(self, mock_create_library_use_case):
         mock_integrations_service = MagicMock()
         mock_integrations_service.fetch_templates_from_user.return_value = {}
-        use_case = AssignAgentUseCase(integrations_service=mock_integrations_service)
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
 
         mock_use_case_instance = mock_create_library_use_case.return_value
         mock_template = MagicMock()
@@ -570,7 +612,8 @@ class AssignAgentUseCaseTest(TestCase):
     def test_create_templates_with_integrations_service_mock(self):
         mock_integrations_service = MagicMock()
         use_case_with_mock = AssignAgentUseCase(
-            integrations_service=mock_integrations_service
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
         )
 
         integrated_agent = IntegratedAgent.objects.create(
@@ -598,7 +641,10 @@ class AssignAgentUseCaseTest(TestCase):
         self, mock_create_library_use_case
     ):
         mock_integrations_service = MagicMock()
-        use_case = AssignAgentUseCase(integrations_service=mock_integrations_service)
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
 
         valid_template = PreApprovedTemplate.objects.create(
             agent=self.agent,
@@ -670,7 +716,10 @@ class AssignAgentUseCaseTest(TestCase):
         self, mock_create_library_use_case
     ):
         mock_integrations_service = MagicMock()
-        use_case = AssignAgentUseCase(integrations_service=mock_integrations_service)
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
 
         invalid_template1 = PreApprovedTemplate.objects.create(
             agent=self.agent,
