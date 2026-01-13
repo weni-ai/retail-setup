@@ -28,6 +28,10 @@ from retail.templates.usecases.create_custom_template import (
 )
 from retail.templates.exceptions import CustomTemplateAlreadyExists
 from retail.services.aws_s3.converters import ImageUrlToBase64Converter
+from retail.agents.domains.agent_integration.utils import DEFAULT_TEMPLATE_LANGUAGE_CODE
+from retail.agents.domains.agent_integration.usecases.build_abandoned_cart_translation import (
+    BuildAbandonedCartTranslationUseCase,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +75,14 @@ class AssignAgentUseCase:
         project: Project,
         channel_uuid: UUID,
         ignore_templates: List[str],
+        initial_template_language: str = DEFAULT_TEMPLATE_LANGUAGE_CODE,
     ) -> IntegratedAgent:
         ignore_templates_slugs = self._get_ignore_templates_slugs(ignore_templates)
 
         # Build initial config based on agent type and project
-        initial_config = self._build_initial_config(agent, project)
+        initial_config = self._build_initial_config(
+            agent, project, initial_template_language
+        )
 
         integrated_agent, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
@@ -95,7 +102,12 @@ class AssignAgentUseCase:
 
         return integrated_agent
 
-    def _build_initial_config(self, agent: Agent, project: Project) -> dict:
+    def _build_initial_config(
+        self,
+        agent: Agent,
+        project: Project,
+        initial_template_language: str = DEFAULT_TEMPLATE_LANGUAGE_CODE,
+    ) -> dict:
         """
         Build initial configuration for the IntegratedAgent based on agent type.
 
@@ -106,6 +118,7 @@ class AssignAgentUseCase:
         Args:
             agent: The agent being assigned.
             project: The project the agent is being assigned to.
+            initial_template_language: Language code used for initial template creation.
 
         Returns:
             dict: Initial configuration dictionary.
@@ -125,6 +138,9 @@ class AssignAgentUseCase:
                 f"project={project.uuid} vtex_account={project.vtex_account} "
                 f"phone_code={country_phone_code}"
             )
+
+        # Set initial template language (used for template creation during integration)
+        config["initial_template_language"] = initial_template_language
 
         # Check if this is the abandoned cart agent
         abandoned_cart_agent_uuid = getattr(settings, "ABANDONED_CART_AGENT_UUID", "")
@@ -334,6 +350,7 @@ class AssignAgentUseCase:
         channel_uuid: UUID,
         credentials: Mapping[str, Any],
         include_templates: List[str],
+        initial_template_language: Optional[str] = None,
     ) -> IntegratedAgent:
         """
         Assign the agent to the project and materialize its templates.
@@ -344,9 +361,25 @@ class AssignAgentUseCase:
         3) If the agent is the Abandoned Cart agent (ABANDONED_CART_AGENT_UUID),
            create a default custom template using the custom template flow
            (lifecycle PENDING -> APPROVED, versioning, etc.).
+
+        Args:
+            agent: The agent to assign.
+            project_uuid: UUID of the project to assign the agent to.
+            app_uuid: UUID of the WhatsApp app.
+            channel_uuid: UUID of the channel.
+            credentials: Agent credentials mapping.
+            include_templates: List of template UUIDs to include.
+            initial_template_language: Optional language code for initial template creation.
+                If not provided, defaults to pt_BR.
+
+        Returns:
+            The created IntegratedAgent instance.
         """
         project = self._get_project(project_uuid)
         self._validate_credentials(agent, credentials)
+
+        # Resolve initial template language once - use provided or default
+        resolved_language = initial_template_language or DEFAULT_TEMPLATE_LANGUAGE_CODE
 
         templates = agent.templates.all()
 
@@ -357,6 +390,7 @@ class AssignAgentUseCase:
             project=project,
             channel_uuid=channel_uuid,
             ignore_templates=ignore_templates,
+            initial_template_language=resolved_language,
         )
         logger.info(f"[AssignAgent] integrated_agent created={integrated_agent.uuid}")
 
@@ -374,6 +408,7 @@ class AssignAgentUseCase:
                 project=project,
                 project_uuid=project_uuid,
                 app_uuid=app_uuid,
+                initial_template_language=resolved_language,
             )
 
         return integrated_agent
@@ -384,9 +419,11 @@ class AssignAgentUseCase:
         project: Project,
         project_uuid: UUID,
         app_uuid: UUID,
+        initial_template_language: str = DEFAULT_TEMPLATE_LANGUAGE_CODE,
     ) -> None:
         """
         Create a default custom template for the abandoned cart agent.
+
         Uses the existing custom template flow so the template follows the normal
         lifecycle (PENDING -> APPROVED, versioning, etc.).
 
@@ -396,65 +433,48 @@ class AssignAgentUseCase:
         - Button with cart checkout URL
         - Quick reply for opt-out
 
-        For now, the template is created only in pt-BR.
-        TODO: Add support for multiple languages (e.g., en, es) if needed.
+        Args:
+            integrated_agent: The integrated agent instance.
+            project: The project instance.
+            project_uuid: UUID of the project.
+            app_uuid: UUID of the WhatsApp app.
+            initial_template_language: Language code for the initial template creation.
         """
         try:
             logger.info(
-                f"[AssignAgent] Default custom template flow start for integrated_agent={integrated_agent.uuid}"
+                f"[AssignAgent] Default custom template flow start for "
+                f"integrated_agent={integrated_agent.uuid}, language={initial_template_language}"
             )
+
             # Build store domain similar to legacy abandoned cart template creation
             domain = f"{project.vtex_account}.vtexcommercestable.com.br"
             button_base_url = f"https://{domain}/checkout?orderFormId="
             button_url_example = f"{button_base_url}92421d4a70224658acaab0c172f6b6d7"
 
             # Placeholder image URL for template approval (configurable via env)
-            # Download and convert to base64 because integrations-engine expects base64, not URL
+            # Download and convert to base64 because integrations-engine expects base64
             placeholder_image_url = settings.ABANDONED_CART_DEFAULT_IMAGE_URL
             logger.info(
-                f"[AssignAgent] Converting placeholder image to base64: {placeholder_image_url}"
+                f"[AssignAgent] Converting placeholder image to base64: "
+                f"{placeholder_image_url}"
             )
             image_converter = ImageUrlToBase64Converter()
             placeholder_image_base64 = image_converter.convert(placeholder_image_url)
             if not placeholder_image_base64:
                 raise ValueError(
-                    f"Failed to convert placeholder image URL to base64: {placeholder_image_url}"
+                    f"Failed to convert placeholder image URL to base64: "
+                    f"{placeholder_image_url}"
                 )
 
-            # Build translation payload in the format expected by TemplateMetadataHandler
-            # NOTE: Use "template_header" (not "header") because build_metadata expects this key
-            template_translation = {
-                # Header image - will be replaced dynamically by agent with product image
-                # Format must be {"header_type": "IMAGE", "text": base64} for HeaderTransformer
-                "template_header": {
-                    "header_type": "IMAGE",
-                    "text": placeholder_image_base64,
-                },
-                "template_body": (
-                    "Olá, {{1}} vimos que você deixou itens no seu carrinho 🛒. "
-                    "\nVamos fechar o pedido e garantir essas ofertas? "
-                    "\n\nClique em Finalizar Pedido para concluir sua compra 👇"
-                ),
-                # Example values for body variables used for preview
-                "template_body_params": ["João"],
-                "template_footer": "Finalizar Pedido",
-                "template_button": [
-                    {
-                        "type": "URL",
-                        "text": "Finalizar Pedido",
-                        "url": {
-                            "base_url": button_base_url,
-                            "url_suffix_example": button_url_example,
-                        },
-                    },
-                    {
-                        "type": "QUICK_REPLY",
-                        "text": "Parar Promoções",
-                    },
-                ],
-                "category": "MARKETING",
-                "language": integrated_agent.agent.language or "pt_BR",
-            }
+            # Build translation using the translation builder with selected language
+            template_translation = (
+                BuildAbandonedCartTranslationUseCase.build_template_translation(
+                    language_code=initial_template_language,
+                    button_base_url=button_base_url,
+                    button_url_example=button_url_example,
+                    header_image_base64=placeholder_image_base64,
+                )
+            )
 
             payload: CreateCustomTemplateData = {
                 "template_translation": template_translation,
@@ -493,7 +513,7 @@ class AssignAgentUseCase:
             logger.info(
                 f"[AssignAgent] Custom template payload ready "
                 f"display_name={payload['display_name']} "
-                f"language={template_translation['language']}"
+                f"language={initial_template_language}"
             )
 
             logger.info(
@@ -503,7 +523,8 @@ class AssignAgentUseCase:
             use_case = CreateCustomTemplateUseCase()
             use_case.execute(payload)
             logger.info(
-                f"[AssignAgent] Custom template creation completed for integrated_agent={integrated_agent.uuid}"
+                f"[AssignAgent] Custom template creation completed for "
+                f"integrated_agent={integrated_agent.uuid}, with language={initial_template_language}"
             )
         except CustomTemplateAlreadyExists:
             logger.info(

@@ -5,6 +5,9 @@ from datetime import datetime
 from retail.clients.exceptions import CustomAPIException
 from retail.clients.integrations.client import IntegrationsClient
 from retail.interfaces.clients.integrations.interface import IntegrationsClientInterface
+from retail.agents.domains.agent_integration.usecases.build_abandoned_cart_translation import (
+    BuildAbandonedCartTranslationUseCase,
+)
 
 
 class IntegrationsService:
@@ -29,6 +32,9 @@ class IntegrationsService:
     ) -> str:
         """
         Creates an abandoned cart template and translations for multiple languages.
+
+        This method creates translations for all available languages (pt_BR, en, es)
+        using the centralized AbandonedCartTranslationBuilder.
         """
         try:
             # Format the current datetime
@@ -44,85 +50,22 @@ class IntegrationsService:
                 name=template_name,
                 category="MARKETING",
             )
-            # Prepare translations for multiple languages
+
+            # Prepare translations for multiple languages using the translation builder
             button_url = f"https://{domain}/checkout?orderFormId=" + "{{1}}"
             button_url_example = f"https://{domain}/checkout?orderFormId=92421d4a70224658acaab0c172f6b6d7"
+
+            # Get translations for all available languages
+            available_languages = (
+                BuildAbandonedCartTranslationUseCase.get_available_language_codes()
+            )
             translations = [
-                {
-                    "language": "pt_BR",
-                    "body": {
-                        "type": "BODY",
-                        "text": (
-                            "Olá, {{1}} vimos que você deixou itens no seu carrinho 🛒. "
-                            "\nVamos fechar o pedido e garantir essas ofertas? "
-                            "\n\nClique em Finalizar Pedido para concluir sua compra 👇"
-                        ),
-                        "example": {"body_text": [["João"]]},
-                    },
-                    "footer": {"type": "FOOTER", "text": "Finalizar Pedido"},
-                    "buttons": [
-                        {
-                            "button_type": "URL",
-                            "text": "Finalizar Pedido",
-                            "url": button_url,
-                            "example": [button_url_example],
-                        },
-                        {
-                            "button_type": "QUICK_REPLY",
-                            "text": "Parar Promoções",
-                        },
-                    ],
-                },
-                {
-                    "language": "es",
-                    "body": {
-                        "type": "BODY",
-                        "text": (
-                            "Hola, {{1}} notamos que dejaste artículos en tu carrito 🛒. "
-                            "\n¿Listo para completar tu pedido y asegurar estas ofertas? "
-                            "\n\nHaz clic en Finalizar Pedido para completar tu compra 👇"
-                        ),
-                        "example": {"body_text": [["Juan"]]},
-                    },
-                    "footer": {"type": "FOOTER", "text": "Finalizar Pedido"},
-                    "buttons": [
-                        {
-                            "button_type": "URL",
-                            "text": "Finalizar Pedido",
-                            "url": button_url,
-                            "example": [button_url_example],
-                        },
-                        {
-                            "button_type": "QUICK_REPLY",
-                            "text": "Parar Promociones",
-                        },
-                    ],
-                },
-                {
-                    "language": "en",
-                    "body": {
-                        "type": "BODY",
-                        "text": (
-                            "Hello, {{1}} we noticed you left items in your cart 🛒. "
-                            "\nReady to complete your order and secure these deals? "
-                            "\n\nClick Finish Order to complete your purchase 👇"
-                        ),
-                        "example": {"body_text": [["John"]]},
-                    },
-                    "footer": {"type": "FOOTER", "text": "Finish Order"},
-                    "buttons": [
-                        {
-                            "button_type": "URL",
-                            "text": "Finish Order",
-                            "url": button_url,
-                            "example": [button_url_example],
-                        },
-                        {
-                            "button_type": "QUICK_REPLY",
-                            "text": "Stop Promotions",
-                        },
-                    ],
-                },
+                BuildAbandonedCartTranslationUseCase.build_integrations_translation(
+                    language_code=lang_code,
+                    button_url=button_url,
+                    button_url_example=button_url_example,
+                )
+                for lang_code in available_languages
             ]
 
             # Create translations for each language

@@ -103,6 +103,9 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
     description = serializers.SerializerMethodField("get_description")
     contact_percentage = serializers.IntegerField()
     global_rule_prompt = serializers.CharField()
+    initial_template_language = serializers.SerializerMethodField(
+        "get_initial_template_language"
+    )
     delivered_order_tracking_config = serializers.SerializerMethodField(
         "get_delivered_order_tracking_config"
     )
@@ -122,6 +125,10 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
 
     def get_templates(self, obj):
         return ReadTemplateSerializer(obj.templates.all(), many=True).data
+
+    def get_initial_template_language(self, obj):
+        """Get initial template language used during agent integration."""
+        return obj.config.get("initial_template_language")
 
     def get_delivered_order_tracking_config(self, obj):
         """Get delivered order tracking configuration from agent config."""
@@ -162,3 +169,18 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
                 "notification_cooldown_hours"
             ),
         }
+
+
+class TemplateLanguageSerializer(serializers.Serializer):
+    """
+    Serializer for template language representation.
+
+    Used to expose available template languages to the frontend.
+    """
+
+    code = serializers.CharField(
+        help_text="Language code expected by Meta (e.g., 'pt_BR', 'en', 'es')"
+    )
+    display_name = serializers.CharField(
+        help_text="Human-readable language name for display"
+    )
