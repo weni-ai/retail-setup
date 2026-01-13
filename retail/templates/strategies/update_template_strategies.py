@@ -12,6 +12,7 @@ from retail.templates.adapters.template_library_to_custom_adapter import (
 )
 from retail.templates.models import Template
 from retail.templates.usecases import TemplateBuilderMixin
+from retail.templates.utils import resolve_template_language
 from retail.services.rule_generator import RuleGenerator
 from retail.templates.handlers import TemplateMetadataHandler
 from retail.templates.tasks import task_create_template
@@ -100,6 +101,10 @@ class UpdateTemplateStrategy(ABC):
             payload,
             template.metadata.get("category"),
         )
+
+        # Add resolved language to metadata for adapter
+        updated_metadata["language"] = resolve_template_language(template, payload)
+
         translation_payload = self.template_adapter.adapt(updated_metadata)
 
         updated_metadata = self.metadata_handler.post_process_translation(

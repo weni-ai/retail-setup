@@ -162,6 +162,7 @@ class TemplateLibraryViewSet(ViewSet):
             "library_template_button_inputs": request_serializer.validated_data.get(
                 "library_template_button_inputs"
             ),
+            "language": request_serializer.validated_data.get("language"),
         }
 
         use_case = UpdateLibraryTemplateUseCase()
