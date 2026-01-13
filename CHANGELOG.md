@@ -1,3 +1,8 @@
+# 4.1.0
+- feat: remove deprecated script for populating country phone codes for
+- feat: add /v2/agents endpoint and deprecate features listing
+- feat: implement country phone code fetching for integrated agents
+
 # 4.0.0
 
 ## *Feature*
