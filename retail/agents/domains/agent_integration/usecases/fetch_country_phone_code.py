@@ -63,14 +63,14 @@ class FetchCountryPhoneCodeUseCase:
         Returns:
             VtexLocaleInfo with country_phone_code and meta_language, or None if failed.
         """
-        vtex_account = project.vtex_account
+        vtex_account = "martimx"
         if not vtex_account:
             logger.warning(
                 f"[FetchCountryPhoneCode] No vtex_account: project={project.uuid}"
             )
             return None
 
-        account_domain = f"{vtex_account}.myvtex.com"
+        account_domain = "recorrenciacharlie.myvtex.com"
         project_uuid = str(project.uuid)
 
         try:
