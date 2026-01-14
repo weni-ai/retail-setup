@@ -1,3 +1,6 @@
+# 4.1.2
+- feat: implement language resolution logic in Broadcast
+
 # 4.1.1
 - feat: add initial template language support for agent integration
 
