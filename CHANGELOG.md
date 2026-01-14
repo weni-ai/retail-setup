@@ -1,3 +1,6 @@
+# 4.1.1
+- feat: add initial template language support for agent integration
+
 # 4.1.0
 - feat: remove deprecated script for populating country phone codes for
 - feat: add /v2/agents endpoint and deprecate features listing
