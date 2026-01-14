@@ -152,6 +152,7 @@ class UpdateTemplateContentSerializer(serializers.Serializer):
     app_uuid = serializers.CharField(required=True)
     project_uuid = serializers.CharField(required=True)
     parameters = ParameterSerializer(many=True, required=False, allow_null=True)
+    language = serializers.CharField(required=False, allow_null=True)
 
     def validate(self, attrs):
         if not any(
@@ -176,6 +177,7 @@ class UpdateLibraryTemplateButtonSerializer(serializers.Serializer):
 
 class UpdateLibraryTemplateSerializer(serializers.Serializer):
     library_template_button_inputs = UpdateLibraryTemplateButtonSerializer(many=True)
+    language = serializers.CharField(required=False, allow_null=True)
 
 
 class CreateCustomTemplateSerializer(serializers.Serializer):

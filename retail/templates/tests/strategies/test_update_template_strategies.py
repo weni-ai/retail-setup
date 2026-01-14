@@ -35,7 +35,8 @@ class UpdateTemplateStrategyTest(TestCase):
             template_metadata_handler=self.metadata_handler,
         )
         template = Mock()
-        template.metadata = {"category": "test"}
+        template.metadata = {"category": "test", "language": "pt_BR"}
+        template.integrated_agent = None  # No integrated agent - uses metadata language
         payload = {"template_body": "body"}
 
         self.metadata_handler.build_metadata.return_value = {
@@ -50,11 +51,14 @@ class UpdateTemplateStrategyTest(TestCase):
         )
 
         self.metadata_handler.build_metadata.assert_called_once_with(payload, "test")
+        # Language is resolved and added to metadata before calling adapt
         self.template_adapter.adapt.assert_called_once_with(
-            {"body": "body", "category": "test"}
+            {"body": "body", "category": "test", "language": "pt_BR"}
         )
         self.metadata_handler.post_process_translation.assert_called_once()
-        self.assertEqual(updated_metadata, {"body": "body", "category": "test"})
+        self.assertEqual(
+            updated_metadata, {"body": "body", "category": "test", "language": "pt_BR"}
+        )
         self.assertEqual(translation_payload, {"body": "body", "category": "test"})
 
     def test_notify_integrations_with_buttons(self):

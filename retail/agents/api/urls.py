@@ -12,6 +12,7 @@ from retail.agents.domains.agent_integration.views import (
     DeliveredOrderTrackingEnableView,
     DeliveredOrderTrackingDisableView,
     DeliveredOrderTrackingWebhookView,
+    TemplateLanguagesView,
 )
 from retail.agents.domains.agent_webhook.views import AgentWebhookView
 
@@ -21,6 +22,11 @@ router.register(r"", AgentViewSet, basename="agents")
 
 urlpatterns = [
     path("push/", PushAgentView.as_view(), name="push-agent"),
+    path(
+        "template-languages/",
+        TemplateLanguagesView.as_view(),
+        name="template-languages",
+    ),
     path("<uuid:agent_uuid>/assign/", AssignAgentView.as_view(), name="assign-agent"),
     path(
         "<uuid:agent_uuid>/unassign/",

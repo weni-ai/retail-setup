@@ -1,25 +1,38 @@
 """
-Use case for fetching country phone code from VTEX tenant API.
+Use case for fetching country phone code and language from VTEX tenant API.
 """
 
 import logging
+from dataclasses import dataclass
 from typing import Optional
 
-from retail.agents.shared.country_code_utils import get_phone_code_from_locale
+from retail.agents.shared.country_code_utils import (
+    get_country_phone_code_from_locale,
+    convert_vtex_locale_to_meta_language,
+)
 from retail.projects.models import Project
 from retail.services.vtex_io.service import VtexIOService
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class VtexLocaleInfo:
+    """Information extracted from VTEX tenant locale."""
+
+    country_phone_code: Optional[str]
+    meta_language: Optional[str]
+    vtex_locale: Optional[str]
+
+
 class FetchCountryPhoneCodeUseCase:
     """
-    Use case responsible for fetching the country phone code from VTEX.
+    Use case responsible for fetching country phone code and language from VTEX.
 
     This use case:
     1. Calls VTEX proxy to get tenant info
     2. Extracts defaultLocale from response
-    3. Converts locale to phone code using phonenumbers
+    3. Converts locale to phone code and Meta language code
 
     Can be easily mocked in tests by injecting a mock VtexIOService.
     """
@@ -36,6 +49,19 @@ class FetchCountryPhoneCodeUseCase:
 
         Returns:
             Phone code string (e.g., '55') or None if failed.
+        """
+        locale_info = self.fetch_locale_info(project)
+        return locale_info.country_phone_code if locale_info else None
+
+    def fetch_locale_info(self, project: Project) -> Optional[VtexLocaleInfo]:
+        """
+        Fetch complete locale information from VTEX tenant.
+
+        Args:
+            project: Project with vtex_account configured.
+
+        Returns:
+            VtexLocaleInfo with country_phone_code and meta_language, or None if failed.
         """
         vtex_account = project.vtex_account
         if not vtex_account:
@@ -67,14 +93,19 @@ class FetchCountryPhoneCodeUseCase:
                 )
                 return None
 
-            phone_code = get_phone_code_from_locale(locale)
+            country_phone_code = get_country_phone_code_from_locale(locale)
+            meta_language = convert_vtex_locale_to_meta_language(locale)
 
             logger.info(
                 f"[FetchCountryPhoneCode] Success: project={project_uuid} "
-                f"locale={locale} phone_code={phone_code}"
+                f"locale={locale} country_phone_code={country_phone_code} meta_language={meta_language}"
             )
 
-            return phone_code
+            return VtexLocaleInfo(
+                country_phone_code=country_phone_code,
+                meta_language=meta_language,
+                vtex_locale=locale,
+            )
 
         except Exception as e:
             logger.error(

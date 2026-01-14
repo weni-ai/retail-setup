@@ -9,7 +9,7 @@ from retail.templates.adapters.template_library_to_custom_adapter import (
 from retail.services.rule_generator import RuleGenerator
 
 
-class UpdateTemplateContentData(TypedDict):
+class UpdateTemplateContentData(TypedDict, total=False):
     template_uuid: str
     template_body: str
     template_header: str
@@ -18,6 +18,7 @@ class UpdateTemplateContentData(TypedDict):
     app_uuid: str
     project_uuid: str
     parameters: Optional[List[Dict[str, Any]]]
+    language: str  # Optional: if not provided, uses integrated_agent.config or template.metadata
 
 
 class UpdateTemplateContentUseCase:

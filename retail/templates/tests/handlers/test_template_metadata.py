@@ -95,6 +95,7 @@ class TestTemplateMetadataHandler(TestCase):
             "template_footer": "Footer text",
             "template_button": [{"type": "QUICK_REPLY", "text": "Reply"}],
             "category": "MARKETING",
+            "language": "es_MX",
         }
         category = "UTILITY"
 
@@ -107,6 +108,7 @@ class TestTemplateMetadataHandler(TestCase):
             "footer": "Footer text",
             "buttons": [{"type": "QUICK_REPLY", "text": "Reply"}],
             "category": "UTILITY",
+            "language": "es_MX",
         }
         self.assertEqual(result, expected)
 
@@ -125,6 +127,7 @@ class TestTemplateMetadataHandler(TestCase):
             "footer": "Simple footer",
             "buttons": None,
             "category": None,
+            "language": None,
         }
         self.assertEqual(result, expected)
 
@@ -147,6 +150,7 @@ class TestTemplateMetadataHandler(TestCase):
             "footer": None,
             "buttons": None,
             "category": None,
+            "language": None,
         }
         self.assertEqual(result, expected)
 

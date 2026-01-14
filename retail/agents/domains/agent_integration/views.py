@@ -20,7 +20,9 @@ from retail.agents.domains.agent_integration.serializers import (
     UpdateIntegratedAgentSerializer,
     RetrieveIntegratedAgentQueryParamsSerializer,
     DeliveredOrderTrackingEnableSerializer,
+    TemplateLanguageSerializer,
 )
+from retail.agents.domains.agent_integration.utils import TEMPLATE_LANGUAGES
 from retail.agents.domains.agent_integration.usecases.assign import AssignAgentUseCase
 from retail.agents.domains.agent_integration.usecases.list import (
     ListIntegratedAgentUseCase,
@@ -53,6 +55,24 @@ class GenericIntegratedAgentView(APIView):
             raise NotFound(f"Agent not found: {agent_uuid}")
 
 
+class TemplateLanguagesView(APIView):
+    """View to list available template languages for agent integration."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        """
+        List all available template languages.
+
+        Returns a list of languages with their Meta codes and display names.
+        The frontend should display the display_name to users and send
+        the code value when assigning an agent.
+        """
+        languages = TEMPLATE_LANGUAGES
+        serializer = TemplateLanguageSerializer(languages, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
 class AssignAgentView(GenericIntegratedAgentView):
     permission_classes = [
         IsAuthenticated,
@@ -62,8 +82,6 @@ class AssignAgentView(GenericIntegratedAgentView):
 
     def post(self, request: Request, agent_uuid: UUID) -> Response:
         project_uuid = request.headers.get("Project-Uuid")
-        credentials = request.data.get("credentials", {})
-        include_templates = request.data.get("templates", [])
         app_uuid = request.query_params.get("app_uuid")
         channel_uuid = request.query_params.get("channel_uuid")
 
@@ -73,13 +91,21 @@ class AssignAgentView(GenericIntegratedAgentView):
         if channel_uuid is None:
             raise ValidationError({"channel_uuid": "Missing channel_uuid in params."})
 
+        credentials = request.data.get("credentials", {})
+        include_templates = request.data.get("templates", [])
+
         agent = self.get_agent(agent_uuid)
 
         self.check_object_permissions(request, agent)
 
         use_case = AssignAgentUseCase()
         integrated_agent = use_case.execute(
-            agent, project_uuid, app_uuid, channel_uuid, credentials, include_templates
+            agent=agent,
+            project_uuid=project_uuid,
+            app_uuid=app_uuid,
+            channel_uuid=channel_uuid,
+            credentials=credentials,
+            include_templates=include_templates,
         )
 
         response_serializer = ReadIntegratedAgentSerializer(integrated_agent)
