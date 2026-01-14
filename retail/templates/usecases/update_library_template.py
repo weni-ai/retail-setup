@@ -3,15 +3,16 @@ from typing import TypedDict, List, Dict, Any
 from rest_framework.exceptions import NotFound
 
 from retail.templates.models import Template, Version
-
 from retail.templates.usecases import LibraryTemplateData, BaseLibraryTemplateUseCase
+from retail.templates.utils import resolve_template_language
 
 
-class UpdateLibraryTemplateData(TypedDict):
+class UpdateLibraryTemplateData(TypedDict, total=False):
     template_uuid: str
     app_uuid: str
     project_uuid: str
     library_template_button_inputs: List[Dict[str, Any]]
+    language: str  # Optional: if not provided, uses integrated_agent.config or template.metadata
 
 
 class UpdateLibraryTemplateUseCase(BaseLibraryTemplateUseCase):
@@ -53,7 +54,7 @@ class UpdateLibraryTemplateUseCase(BaseLibraryTemplateUseCase):
         return {
             "library_template_name": template.name,
             "category": template.metadata.get("category"),
-            "language": template.metadata.get("language"),
+            "language": resolve_template_language(template, payload),
             "app_uuid": payload.get("app_uuid"),
             "project_uuid": payload.get("project_uuid"),
             "library_template_button_inputs": payload.get(

@@ -1,11 +1,13 @@
 """
-Utility functions for extracting country phone codes from VTEX locale.
+Utility functions for extracting country phone codes and language codes from VTEX locale.
 """
 
 import logging
 import phonenumbers
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_TEMPLATE_LANGUAGE = "pt_BR"
 
 
 def extract_region_from_locale(locale: str) -> str:
@@ -31,9 +33,37 @@ def extract_region_from_locale(locale: str) -> str:
     return parts[-1].upper() if len(parts) >= 2 else "BR"
 
 
-def get_phone_code_from_locale(locale: str) -> str:
+def convert_vtex_locale_to_meta_language(locale: str) -> str:
     """
-    Get the international phone code from a VTEX locale string.
+    Convert VTEX locale to Meta language code.
+
+    Simply replaces '-' with '_' to convert from VTEX format to Meta format.
+    Meta supports locale codes like: pt_BR, es_MX, es_AR, en_US, etc.
+
+    Args:
+        locale: VTEX locale (e.g., 'pt-BR', 'es-MX', 'en-US')
+
+    Returns:
+        Meta language code (e.g., 'pt_BR', 'es_MX', 'en_US')
+
+    Examples:
+        >>> convert_vtex_locale_to_meta_language('pt-BR')
+        'pt_BR'
+        >>> convert_vtex_locale_to_meta_language('es-MX')
+        'es_MX'
+        >>> convert_vtex_locale_to_meta_language('en-US')
+        'en_US'
+    """
+    if not locale:
+        return DEFAULT_TEMPLATE_LANGUAGE
+
+    # Simply replace '-' with '_' to convert VTEX format to Meta format
+    return locale.replace("-", "_")
+
+
+def get_country_phone_code_from_locale(locale: str) -> str:
+    """
+    Get the country phone code (DDI) from a VTEX locale string.
 
     Uses phonenumbers library to get the correct country calling code.
 
@@ -41,14 +71,14 @@ def get_phone_code_from_locale(locale: str) -> str:
         locale: VTEX locale (e.g., 'pt-BR', 'es-AR', 'en-US')
 
     Returns:
-        Phone code without + prefix (e.g., '55', '54', '1')
+        Country phone code without + prefix (e.g., '55', '54', '1')
 
     Examples:
-        >>> get_phone_code_from_locale('pt-BR')
+        >>> get_country_phone_code_from_locale('pt-BR')
         '55'
-        >>> get_phone_code_from_locale('es-AR')
+        >>> get_country_phone_code_from_locale('es-AR')
         '54'
-        >>> get_phone_code_from_locale('en-US')
+        >>> get_country_phone_code_from_locale('en-US')
         '1'
     """
     region = extract_region_from_locale(locale)
