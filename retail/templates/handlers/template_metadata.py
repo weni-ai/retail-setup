@@ -33,6 +33,7 @@ class TemplateMetadataHandler:
             "footer": translation.get("template_footer"),
             "buttons": translation.get("template_button"),
             "category": category or translation.get("category"),
+            "language": translation.get("language"),
         }
 
     def post_process_translation(
