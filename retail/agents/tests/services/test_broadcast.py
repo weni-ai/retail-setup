@@ -328,3 +328,53 @@ class BroadcastHandlerTest(TestCase):
 
         self.assertEqual(event_data["error"], {"message": "Simple string error"})
         self.assertEqual(event_data["data"], {"event_type": "template_broadcast_sent"})
+
+    def test_resolve_language_from_lambda_payload(self):
+        """Language from Lambda payload takes priority."""
+        mock_template = MagicMock()
+        mock_template.metadata = {"language": "pt_BR"}
+        data = {"language": "es-MX"}
+
+        result = self.handler._resolve_language(data, mock_template)
+
+        self.assertEqual(result, "es-MX")
+
+    def test_resolve_language_from_template_metadata(self):
+        """Falls back to template metadata when Lambda doesn't provide language."""
+        mock_template = MagicMock()
+        mock_template.metadata = {"language": "es_MX"}
+        data = {}
+
+        result = self.handler._resolve_language(data, mock_template)
+
+        self.assertEqual(result, "es-MX")  # Converted from es_MX
+
+    def test_resolve_language_converts_underscore_to_hyphen(self):
+        """Converts Meta format (es_MX) to Flows API format (es-MX)."""
+        mock_template = MagicMock()
+        mock_template.metadata = {"language": "pt_BR"}
+        data = {}
+
+        result = self.handler._resolve_language(data, mock_template)
+
+        self.assertEqual(result, "pt-BR")
+
+    def test_resolve_language_returns_none_when_not_available(self):
+        """Returns None when no language is available."""
+        mock_template = MagicMock()
+        mock_template.metadata = {}
+        data = {}
+
+        result = self.handler._resolve_language(data, mock_template)
+
+        self.assertIsNone(result)
+
+    def test_resolve_language_handles_none_metadata(self):
+        """Handles template with None metadata gracefully."""
+        mock_template = MagicMock()
+        mock_template.metadata = None
+        data = {}
+
+        result = self.handler._resolve_language(data, mock_template)
+
+        self.assertIsNone(result)
