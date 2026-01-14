@@ -60,8 +60,8 @@ class Broadcast:
         s3_service = s3_service or S3Service()
         template_variables = data.get("template_variables", {})
         contact_urn = data.get("contact_urn")
-        language = data.get("language", "pt-BR")
         template_name = template.current_version.template_name
+        language = self._resolve_language(data, template)
 
         # Extract and remove button if present
         button = template_variables.pop("button", None)
@@ -105,11 +105,14 @@ class Broadcast:
             "channel": channel_uuid,
             "msg": {
                 "template": {
-                    "locale": language,
                     "name": template_name,
-                }
+                },
             },
         }
+
+        # Only include locale if language is available
+        if language:
+            message["msg"]["template"]["locale"] = language
 
         # Only include variables if provided
         if variables:
@@ -138,6 +141,32 @@ class Broadcast:
             message["msg"]["attachments"] = [attachment]
 
         return message
+
+    def _resolve_language(
+        self, data: Dict[str, Any], template: Template
+    ) -> Optional[str]:
+        """
+        Resolve template language with fallback chain.
+
+        Priority:
+        1. Lambda payload (data["language"]) - explicit override
+        2. Template metadata (template.metadata["language"]) - stored language
+
+        Converts Meta format (es_MX) to Flows API format (es-MX).
+
+        Args:
+            data: Lambda payload data.
+            template: Template instance with metadata.
+
+        Returns:
+            Language code in Flows API format (e.g., "es-MX") or None.
+        """
+        language = data.get("language")
+        if not language and template.metadata:
+            meta_language = template.metadata.get("language")
+            if meta_language:
+                language = meta_language.replace("_", "-")
+        return language
 
     def _build_image_attachment_from_url(self, image_url: str) -> str:
         """
