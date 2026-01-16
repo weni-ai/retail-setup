@@ -92,14 +92,15 @@ class AgentWebhookUseCase:
 
     def _log_execution_trace(self, data: Dict[str, Any]) -> None:
         """Log execution trace from Lambda response."""
-        execution_trace = data.pop("_execution_trace", None)
+        # TODO: Temporary - _execution_trace is inside template_variables
+        # It will be moved to payload root in the future
+        template_vars = data.get("template_variables", {})
+        execution_trace = template_vars.pop("_execution_trace", None)
 
         if execution_trace:
-            logger.info(
-                f"[ExecutionTrace] FOUND: {json.dumps(execution_trace, default=str)}"
-            )
+            logger.info(f"[ExecutionTrace] {json.dumps(execution_trace, default=str)}")
         else:
-            logger.info("[ExecutionTrace] NOT FOUND in response")
+            logger.info("[ExecutionTrace] NOT FOUND")
 
     def _process_lambda_response(
         self, integrated_agent: IntegratedAgent, response: Dict[str, Any]
