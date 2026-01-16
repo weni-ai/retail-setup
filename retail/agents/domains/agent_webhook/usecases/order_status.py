@@ -37,7 +37,7 @@ def adapt_order_status_to_webhook_payload(
         "LastState": order_status_dto.lastState,
         "Origin": {
             "Account": order_status_dto.vtexAccount,
-            "Sender": "Gallery",
+            "Sender": "order-status-api",
         },
     }
 

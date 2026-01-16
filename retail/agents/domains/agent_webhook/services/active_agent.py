@@ -52,7 +52,7 @@ class ActiveAgent:
         logger.info(
             f"Invoking Lambda. "
             f"Project: {project.uuid}, VTEX Account: {project.vtex_account}, "
-            f"Integrated Agent: {integrated_agent.uuid}, Payload: {data.payload}"
+            f"Payload: {data.payload}"
         )
 
         return self.lambda_service.invoke(
