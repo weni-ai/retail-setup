@@ -95,13 +95,23 @@ class AgentWebhookUseCase:
         execution_trace = data.pop("_execution_trace", None)
 
         if execution_trace:
-            logger.info(f"[ExecutionTrace] {json.dumps(execution_trace, default=str)}")
+            logger.info(
+                f"[ExecutionTrace] FOUND: {json.dumps(execution_trace, default=str)}"
+            )
+        else:
+            logger.info("[ExecutionTrace] NOT FOUND in response")
 
     def _process_lambda_response(
         self, integrated_agent: IntegratedAgent, response: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """Process lambda response and build broadcast message."""
+        logger.info(f"[Lambda Response RAW] {json.dumps(response, default=str)}")
+
         data = self.active_agent.parse_response(response)
+
+        logger.info(
+            f"[Lambda Response PARSED] {json.dumps(data, default=str) if data else 'None'}"
+        )
 
         if not data:
             logger.info("Error in parsing lambda response.")
