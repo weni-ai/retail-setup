@@ -1,5 +1,5 @@
+import json
 import logging
-
 import random
 
 from typing import Any, Dict, Optional
@@ -90,6 +90,13 @@ class AgentWebhookUseCase:
         ]
         data.set_project_rules(project_rules)
 
+    def _log_execution_trace(self, data: Dict[str, Any]) -> None:
+        """Log execution trace from Lambda response."""
+        execution_trace = data.pop("_execution_trace", None)
+
+        if execution_trace:
+            logger.info(f"[ExecutionTrace] {json.dumps(execution_trace, default=str)}")
+
     def _process_lambda_response(
         self, integrated_agent: IntegratedAgent, response: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
@@ -99,6 +106,8 @@ class AgentWebhookUseCase:
         if not data:
             logger.info("Error in parsing lambda response.")
             return None
+
+        self._log_execution_trace(data)
 
         response["payload"] = data
 
