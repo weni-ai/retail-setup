@@ -119,12 +119,15 @@ def task_order_status_update(order_update_data: dict):
 
         if integrated_agent:
             logger.info(
-                f"Use integrated agent for VTEX account {order_status_dto.vtexAccount}."
+                f"Processing order status with integrated agent. "
+                f"VTEX Account: {order_status_dto.vtexAccount}, "
+                f"Integrated Agent: {integrated_agent.uuid}, DTO: {order_update_data}"
             )
             use_case.execute(integrated_agent, order_status_dto)
         else:
             logger.info(
-                f"Use legacy use case for VTEX account {order_status_dto.vtexAccount}."
+                f"Processing order status with legacy use case. "
+                f"VTEX Account: {order_status_dto.vtexAccount}, DTO: {order_update_data}"
             )
             legacy_use_case = OrderStatusUseCase(order_status_dto)
             legacy_use_case.process_notification(project)
@@ -147,6 +150,11 @@ def is_payment_approved(order_status: str) -> bool:
 
 @shared_task
 def task_agent_webhook(integrated_agent_uuid: str, payload: dict, params: dict):
+    logger.info(
+        f"Processing agent webhook. "
+        f"Integrated Agent: {integrated_agent_uuid}, Payload: {payload}, params: {params}"
+    )
+
     use_case = AgentWebhookUseCase()
     request_data = RequestData(
         params=params,

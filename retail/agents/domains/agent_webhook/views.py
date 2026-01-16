@@ -17,8 +17,11 @@ class AgentWebhookView(APIView):
 
     def post(self, request: Request, webhook_uuid: UUID, *args, **kwargs) -> Response:
         if str(webhook_uuid) != self.IGNORE_AGENT_UUID:
+            payload = dict(request.data)
+            payload["Origin"] = {"Sender": "agent-webhook"}
+
             task_agent_webhook.apply_async(
-                args=[webhook_uuid, request.data, request.query_params],
+                args=[webhook_uuid, payload, request.query_params],
                 queue="vtex-io-orders-update-events",
             )
 
