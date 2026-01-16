@@ -435,5 +435,8 @@ class CartUseCase(BaseAgentWebhookUseCase):
         )
 
         task_abandoned_cart_update.apply_async(
-            (cart_uuid,), countdown=countdown, task_id=task_key
+            (cart_uuid,),
+            countdown=countdown,
+            task_id=task_key,
+            queue="vtex-io-carts-events",
         )
