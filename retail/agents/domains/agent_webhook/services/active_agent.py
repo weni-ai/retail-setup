@@ -49,6 +49,12 @@ class ActiveAgent:
         # Get country phone code from integrated agent config
         country_phone_code = integrated_agent.config.get("country_phone_code")
 
+        logger.info(
+            f"Invoking Lambda. "
+            f"Project: {project.uuid}, VTEX Account: {project.vtex_account}, "
+            f"Payload: {data.payload}"
+        )
+
         return self.lambda_service.invoke(
             function_name,
             {

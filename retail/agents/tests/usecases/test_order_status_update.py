@@ -278,7 +278,7 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
             "LastState": "payment-approved",
             "Origin": {
                 "Account": "test-account",
-                "Sender": "Gallery",
+                "Sender": "order-status-api",
             },
         }
 
@@ -311,7 +311,7 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
             "LastState": "payment-approved",
             "Origin": {
                 "Account": "test-account",
-                "Sender": "Gallery",
+                "Sender": "order-status-api",
             },
         }
 
@@ -334,7 +334,7 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
             "LastState": None,
             "Origin": {
                 "Account": "test-account",
-                "Sender": "Gallery",
+                "Sender": "order-status-api",
             },
         }
 
