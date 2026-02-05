@@ -305,3 +305,56 @@ class CartRepositoryTest(TestCase):
                 project=self.project,
                 flows_channel_uuid=self.flows_channel_uuid,
             )
+
+    def test_find_abandoned_cart_for_conversion_found(self):
+        """Test finding abandoned cart eligible for conversion."""
+        mock_cart = MagicMock(spec=Cart)
+        mock_cart.uuid = self.cart_uuid
+        mock_cart.notification_sent_at = "2024-01-01T12:00:00Z"
+
+        with patch.object(Cart.objects, "filter") as mock_filter:
+            mock_filter.return_value.first.return_value = mock_cart
+
+            result = CartRepository.find_abandoned_cart_for_conversion(
+                self.order_form_id, self.project
+            )
+
+            self.assertEqual(result, mock_cart)
+            mock_filter.assert_called_once_with(
+                order_form_id=self.order_form_id,
+                project=self.project,
+                integrated_agent__isnull=False,
+                notification_sent_at__isnull=False,
+                capi_notification_sent=False,
+            )
+
+    def test_find_abandoned_cart_for_conversion_not_found(self):
+        """Test when no abandoned cart is eligible for conversion."""
+        with patch.object(Cart.objects, "filter") as mock_filter:
+            mock_filter.return_value.first.return_value = None
+
+            result = CartRepository.find_abandoned_cart_for_conversion(
+                self.order_form_id, self.project
+            )
+
+            self.assertIsNone(result)
+            mock_filter.assert_called_once_with(
+                order_form_id=self.order_form_id,
+                project=self.project,
+                integrated_agent__isnull=False,
+                notification_sent_at__isnull=False,
+                capi_notification_sent=False,
+            )
+
+    def test_find_abandoned_cart_for_conversion_already_sent(self):
+        """Test that carts with capi_notification_sent=True are not returned."""
+        with patch.object(Cart.objects, "filter") as mock_filter:
+            mock_filter.return_value.first.return_value = None
+
+            result = CartRepository.find_abandoned_cart_for_conversion(
+                self.order_form_id, self.project
+            )
+
+            self.assertIsNone(result)
+            call_kwargs = mock_filter.call_args[1]
+            self.assertEqual(call_kwargs["capi_notification_sent"], False)
