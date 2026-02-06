@@ -137,7 +137,7 @@ class HandleAbandonedCartConversionUseCase:
         value = round(order_details.get("value", 0) / 100, 2)
 
         return {
-            "event_type": "abandoned_cart_conversion",
+            "event_type": "purchase",  # "abandoned_cart_conversion",
             "contact_urn": f"whatsapp:{phone}",
             "channel_uuid": channel_uuid,
             "payload": {
