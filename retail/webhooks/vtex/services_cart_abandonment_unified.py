@@ -282,13 +282,13 @@ class CartAbandonmentService(BaseVtexUseCase):
 
         recent_orders = orders.get("list", [])[:5]
 
-        if self._check_recent_purchases_for_cart_items(cart, recent_orders):
-            logger.info(
-                f"[CART_SERVICE] Cart items already purchased: {log_context} "
-                f"final_status=purchased reason=items_found_in_recent_orders"
-            )
-            self._update_cart_status(cart, "purchased")
-            return
+        # if self._check_recent_purchases_for_cart_items(cart, recent_orders):
+        #     logger.info(
+        #         f"[CART_SERVICE] Cart items already purchased: {log_context} "
+        #         f"final_status=purchased reason=items_found_in_recent_orders"
+        #     )
+        #     self._update_cart_status(cart, "purchased")
+        #     return
 
         logger.info(
             f"[CART_SERVICE] Orders found but items not purchased: {log_context} "
