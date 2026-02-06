@@ -327,3 +327,149 @@ class PushAgentUseCaseTest(TestCase):
         files = {}
         with self.assertRaises(AgentFileNotSent):
             self.usecase.execute(payload, files)
+
+    def test_create_pre_approved_templates_with_variables_labels(self):
+        """Should save template_variables_labels in PreApprovedTemplate config."""
+        agent = Agent.objects.create(
+            slug=self.agent_slug,
+            name=self.agent_name,
+            language="pt_BR",
+            project=self.project,
+            description=self.agent_description,
+        )
+        payload = {
+            "name": self.agent_name,
+            "language": "pt_BR",
+            "description": self.agent_description,
+            "rules": {
+                "CartAbandonment": {
+                    "display_name": "Abandoned Cart",
+                    "template": "cart_abandonment",
+                    "start_condition": "When cart is abandoned",
+                    "source": {"entrypoint": "main.CartAbandonment", "path": "rules/"},
+                    "template_variables_labels": [
+                        "client_name",
+                        "order_value",
+                        "delivery_date",
+                    ],
+                }
+            },
+            "pre_processing": {},
+        }
+
+        self.usecase._update_or_create_pre_approved_templates(agent, payload)
+
+        template = PreApprovedTemplate.objects.get(name="cart_abandonment", agent=agent)
+        self.assertEqual(template.display_name, "Abandoned Cart")
+        # Stored in config (not metadata) - metadata is overwritten during validation
+        self.assertIsNotNone(template.config)
+        self.assertEqual(
+            template.config.get("template_variables_labels"),
+            ["client_name", "order_value", "delivery_date"],
+        )
+
+    def test_create_pre_approved_templates_without_variables_labels(self):
+        """Should work without template_variables_labels (backward compatibility)."""
+        agent = Agent.objects.create(
+            slug=self.agent_slug,
+            name=self.agent_name,
+            language="pt_BR",
+            project=self.project,
+            description=self.agent_description,
+        )
+        payload = {
+            "name": self.agent_name,
+            "language": "pt_BR",
+            "description": self.agent_description,
+            "rules": {
+                "LegacyRule": {
+                    "display_name": "Legacy Template",
+                    "template": "legacy_template",
+                    "start_condition": "Legacy condition",
+                    "source": {"entrypoint": "main.Legacy", "path": "rules/"},
+                    # No template_variables_labels - legacy agent
+                }
+            },
+            "pre_processing": {},
+        }
+
+        self.usecase._update_or_create_pre_approved_templates(agent, payload)
+
+        template = PreApprovedTemplate.objects.get(name="legacy_template", agent=agent)
+        self.assertEqual(template.display_name, "Legacy Template")
+        # config should be empty when no variables labels (and not delivered order)
+        self.assertEqual(template.config, {})
+
+    def test_execute_with_template_variables_labels(self):
+        """Full integration: execute push with template_variables_labels."""
+        payload = {
+            "project_uuid": str(self.project.uuid),
+            "agents": {
+                self.agent_slug: {
+                    "name": self.agent_name,
+                    "language": "pt_BR",
+                    "description": self.agent_description,
+                    "rules": {
+                        "OrderStatus": {
+                            "display_name": "Order Status",
+                            "template": "order_status",
+                            "start_condition": "When order status changes",
+                            "source": {
+                                "entrypoint": "main.OrderStatus",
+                                "path": "rules/",
+                            },
+                            "template_variables_labels": [
+                                "client_name",
+                                "order_id",
+                                "status",
+                            ],
+                        }
+                    },
+                    "pre_processing": {},
+                }
+            },
+        }
+        files = {self.agent_slug: self.uploaded_file}
+
+        agents = self.usecase.execute(payload, files)
+
+        self.assertEqual(len(agents), 1)
+        agent = agents[0]
+
+        template = PreApprovedTemplate.objects.get(name="order_status", agent=agent)
+        # Stored in config, not metadata
+        self.assertEqual(
+            template.config.get("template_variables_labels"),
+            ["client_name", "order_id", "status"],
+        )
+
+    def test_serializer_reads_template_variables_from_config(self):
+        """PreApprovedTemplateSerializer should read variables from config, not metadata."""
+        from retail.agents.domains.agent_management.serializers import (
+            PreApprovedTemplateSerializer,
+        )
+
+        agent = Agent.objects.create(
+            slug=self.agent_slug,
+            name=self.agent_name,
+            language="pt_BR",
+            project=self.project,
+            description=self.agent_description,
+        )
+        template = PreApprovedTemplate.objects.create(
+            agent=agent,
+            slug="test_rule",
+            name="test_template",
+            display_name="Test Template",
+            start_condition="Test condition",
+            config={"template_variables_labels": ["var1", "var2"]},
+            metadata={"body": "Hello {{1}}"},  # metadata has different content
+        )
+
+        serializer = PreApprovedTemplateSerializer(template)
+        data = serializer.data
+
+        # Should read from config, not metadata
+        self.assertEqual(data["template_variables_labels"], ["var1", "var2"])
+        # metadata should still be present
+        self.assertEqual(data["metadata"]["body"], "Hello {{1}}")

@@ -24,6 +24,10 @@ class UpdateTemplateStrategyTest(TestCase):
     def setUp(self):
         self.template_adapter = Mock(spec=TemplateTranslationAdapter)
         self.metadata_handler = Mock()
+        # Mock convert_body_to_numeric_for_meta to return the payload as-is
+        self.metadata_handler.convert_body_to_numeric_for_meta.side_effect = (
+            lambda payload: payload
+        )
 
     def test_abstract_class_cannot_be_instantiated(self):
         with self.assertRaises(TypeError):
@@ -312,6 +316,10 @@ class UpdateNormalTemplateStrategyTest(TestCase):
         )
 
         self.metadata_handler = Mock()
+        # Mock convert_body_to_numeric_for_meta to return the payload as-is
+        self.metadata_handler.convert_body_to_numeric_for_meta.side_effect = (
+            lambda payload: payload
+        )
         self.strategy = UpdateNormalTemplateStrategy(
             template_metadata_handler=self.metadata_handler
         )
@@ -467,6 +475,10 @@ class UpdateCustomTemplateStrategyTest(TestCase):
 
         self.rule_generator = Mock(spec=RuleGenerator)
         self.metadata_handler = Mock()
+        # Mock convert_body_to_numeric_for_meta to return the payload as-is
+        self.metadata_handler.convert_body_to_numeric_for_meta.side_effect = (
+            lambda payload: payload
+        )
         self.strategy = UpdateCustomTemplateStrategy(
             rule_generator=self.rule_generator,
             template_metadata_handler=self.metadata_handler,
