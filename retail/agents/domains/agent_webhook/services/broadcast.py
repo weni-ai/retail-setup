@@ -3,13 +3,14 @@ import logging
 import mimetypes
 from urllib.parse import urlparse
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from datetime import datetime
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.services.flows.service import FlowsService
 from retail.templates.models import Template
+from retail.templates.utils import TemplateVariableMapper
 from retail.interfaces.services.aws_s3 import S3ServiceInterface
 from retail.services.aws_s3.service import S3Service
 
@@ -63,6 +64,17 @@ class Broadcast:
         template_name = template.current_version.template_name
         language = self._resolve_language(data, template)
 
+        # Convert labeled variables to numeric if needed
+        template_variables, unknown_vars = self._normalize_template_variables(
+            template_variables, template
+        )
+        if unknown_vars:
+            logger.warning(
+                f"Unknown template variables received from lambda: {unknown_vars}. "
+                f"Template: {template.name}, Available variables in template body: "
+                f"{TemplateVariableMapper.extract_variable_labels(template.metadata.get('body', ''))}"
+            )
+
         # Extract and remove button if present
         button = template_variables.pop("button", None)
 
@@ -75,20 +87,8 @@ class Broadcast:
         if header and header["header_type"] == "IMAGE":
             s3_key = header["text"]
 
-        # Sort template variables by numeric key
-        sorted_keys = []
-        for key in template_variables:
-            try:
-                int_key = int(key)
-                sorted_keys.append((int_key, key))
-            except ValueError:
-                logger.warning(f"Ignoring non-numeric template variable key: {key}")
-                continue
-
-        # Extract values in sorted order
-        variables = [
-            template_variables[original_key] for _, original_key in sorted(sorted_keys)
-        ]
+        # Sort template variables by numeric key and extract values
+        variables = self._sort_variables_by_position(template_variables)
 
         # Validate required fields before building the message
         # variables are optional; template_name and contact_urn are mandatory
@@ -167,6 +167,88 @@ class Broadcast:
             if meta_language:
                 language = meta_language.replace("_", "-")
         return language
+
+    def _normalize_template_variables(
+        self, variables: Dict[str, Any], template: Template
+    ) -> tuple[Dict[str, Any], List[str]]:
+        """
+        Normalize template variables from labeled to numeric format.
+
+        If the lambda sends labeled variables (e.g., {"client_name": "João"}),
+        this method converts them to numeric format (e.g., {"1": "João"})
+        based on the order of appearance in the template body.
+
+        The template body is the source of truth for variable ordering.
+
+        Args:
+            variables: Dict of template variables from lambda response.
+            template: Template instance containing the body with variable placeholders.
+
+        Returns:
+            Tuple containing:
+            - Normalized variables dict with numeric keys.
+            - List of unknown variable labels not found in template.
+
+        Example:
+            Template body: "Hello {{client_name}}, order {{order_id}}"
+            Input: {"client_name": "João", "order_id": "123"}
+            Output: ({"1": "João", "2": "123"}, [])
+        """
+        if not variables:
+            return {}, []
+
+        # Retrocompatibility: if variables are already numeric (legacy agents),
+        # return as-is without conversion. E.g., {"1": "João", "2": "123"}
+        if not TemplateVariableMapper.has_labeled_variables(variables):
+            return variables.copy(), []
+
+        # Get template body for mapping
+        template_body = template.metadata.get("body", "")
+        if not template_body:
+            logger.warning(
+                f"Template {template.name} has no body in metadata. "
+                "Cannot map labeled variables to numeric positions."
+            )
+            return variables.copy(), []
+
+        # Build mapping from template body
+        mapping = TemplateVariableMapper.build_variable_mapping(template_body)
+        if not mapping:
+            logger.warning(
+                f"No labeled variables found in template {template.name} body. "
+                "The template may already use numeric variables."
+            )
+            return variables.copy(), []
+
+        # Convert labeled to numeric
+        return TemplateVariableMapper.map_labeled_variables_to_numeric(
+            variables, mapping
+        )
+
+    def _sort_variables_by_position(
+        self, template_variables: Dict[str, Any]
+    ) -> List[Any]:
+        """
+        Sort template variables by their numeric position and return as list.
+
+        Args:
+            template_variables: Dict with numeric string keys (e.g., {"1": "val1", "2": "val2"})
+
+        Returns:
+            List of values sorted by numeric key order.
+        """
+        sorted_keys = []
+        for key in template_variables:
+            try:
+                int_key = int(key)
+                sorted_keys.append((int_key, key))
+            except ValueError:
+                logger.warning(f"Ignoring non-numeric template variable key: {key}")
+                continue
+
+        return [
+            template_variables[original_key] for _, original_key in sorted(sorted_keys)
+        ]
 
     def _build_image_attachment_from_url(self, image_url: str) -> str:
         """

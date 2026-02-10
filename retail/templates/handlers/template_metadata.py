@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 
 from retail.interfaces.services.aws_s3 import S3ServiceInterface
 from retail.services.aws_s3.service import S3Service
+from retail.templates.utils import TemplateVariableMapper
 
 
 class TemplateMetadataHandler:
@@ -55,6 +56,38 @@ class TemplateMetadataHandler:
                 # If it's already an S3 URL, keep the existing URL (no re-upload needed)
 
         return metadata
+
+    def convert_body_to_numeric_for_meta(
+        self, translation_payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Convert labeled variables in body to numeric format for Meta API.
+
+        Meta expects variables as {{1}}, {{2}}, etc.
+        This method converts {{client_name}}, {{order_value}} to {{1}}, {{2}}.
+
+        The conversion is done on the translation_payload before sending to Meta,
+        while the metadata keeps the original labels for broadcast mapping.
+
+        Args:
+            translation_payload: The payload to be sent to Meta API.
+
+        Returns:
+            Updated translation_payload with numeric variables in body.
+        """
+        payload = copy.deepcopy(translation_payload)
+
+        body = payload.get("body")
+        if body and isinstance(body, dict):
+            body_text = body.get("text", "")
+            if body_text:
+                # Convert labeled variables to numeric
+                converted_body = TemplateVariableMapper.convert_body_to_numeric(
+                    body_text
+                )
+                payload["body"]["text"] = converted_body
+
+        return payload
 
     def extract_start_condition(self, parameters: List[Dict[str, Any]], default=None):
         return next(

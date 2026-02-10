@@ -31,11 +31,12 @@ class SourceData(TypedDict):
     path: str
 
 
-class RuleItemsData(TypedDict):
+class RuleItemsData(TypedDict, total=False):
     display_name: str
     template: str
     start_condition: str
     source: SourceData
+    template_variables_labels: List[str]
 
 
 RuleData = Dict[str, RuleItemsData]
@@ -143,10 +144,15 @@ class PushAgentUseCase:
             # Detect if this is a delivered order template
             is_delivered_order = self._is_delivered_order_template(slug, rule)
 
-            # Prepare config
+            # Prepare config with persistent settings
             config = {}
             if is_delivered_order:
                 config["is_delivered_order_template"] = True
+
+            # Store template_variables_labels in config
+            template_variables_labels = rule.get("template_variables_labels", [])
+            if template_variables_labels:
+                config["template_variables_labels"] = template_variables_labels
 
             PreApprovedTemplate.objects.update_or_create(
                 slug=slug,
@@ -158,6 +164,14 @@ class PushAgentUseCase:
                     "config": config,
                 },
             )
+
+            # Log template creation with variables info
+            if template_variables_labels:
+                logger.info(
+                    f"Template variables labels registered for agent {agent.uuid}: "
+                    f"rule_slug='{slug}', template='{rule.get('template')}', "
+                    f"variables={template_variables_labels}"
+                )
 
             # Log if delivered order template was detected
             if is_delivered_order:
