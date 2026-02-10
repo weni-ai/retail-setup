@@ -15,7 +15,7 @@ from rest_framework.exceptions import NotFound
 
 from retail.agents.domains.agent_management.exceptions import AgentFileNotSent
 from retail.agents.domains.agent_management.models import Agent
-from retail.agents.domains.agent_management.models import PreApprovedTemplate
+from retail.agents.domains.agent_management.models import AgentRule
 from retail.interfaces.services.aws_lambda import AwsLambdaServiceInterface
 from retail.services.aws_lambda import AwsLambdaService
 from retail.projects.models import Project
@@ -137,9 +137,12 @@ class PushAgentUseCase:
         # Detection based on standardized rule slug
         return rule_slug.lower() == "orderdelivered"
 
-    def _update_or_create_pre_approved_templates(
+    def _update_or_create_agent_rules(
         self, agent: Agent, agent_payload: AgentItemsData
     ) -> None:
+        """
+        Create or update AgentRule entries from the agent's YAML rules.
+        """
         for slug, rule in agent_payload["rules"].items():
             # Detect if this is a delivered order template
             is_delivered_order = self._is_delivered_order_template(slug, rule)
@@ -154,7 +157,7 @@ class PushAgentUseCase:
             if template_variables_labels:
                 config["template_variables_labels"] = template_variables_labels
 
-            PreApprovedTemplate.objects.update_or_create(
+            AgentRule.objects.update_or_create(
                 slug=slug,
                 agent=agent,
                 defaults={
@@ -165,7 +168,7 @@ class PushAgentUseCase:
                 },
             )
 
-            # Log template creation with variables info
+            # Log rule creation with variables info
             if template_variables_labels:
                 logger.info(
                     f"Template variables labels registered for agent {agent.uuid}: "
@@ -192,8 +195,8 @@ class PushAgentUseCase:
         Returns:
             bool: True if agent has delivered order templates
         """
-        # Check PreApprovedTemplate (for unassigned agents)
-        pre_approved_exists = agent.templates.filter(
+        # Check AgentRule (for unassigned agents)
+        rule_exists = agent.templates.filter(
             config__is_delivered_order_template=True
         ).exists()
 
@@ -202,7 +205,7 @@ class PushAgentUseCase:
             parent__agent=agent, config__is_delivered_order_template=True
         ).exists()
 
-        return pre_approved_exists or template_exists
+        return rule_exists or template_exists
 
     @staticmethod
     def has_delivered_order_templates_by_integrated_agent(
@@ -254,7 +257,7 @@ class PushAgentUseCase:
                 function_name=self._create_function_name(key, agent.uuid),
             )
             agent = self._assign_arn_to_agent(lambda_arn, agent)
-            self._update_or_create_pre_approved_templates(agent, value)
+            self._update_or_create_agent_rules(agent, value)
             created_agents.append(agent)
 
             logger.info(f"Agent push completed: {agent.uuid}")

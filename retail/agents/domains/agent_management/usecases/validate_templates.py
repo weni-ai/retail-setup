@@ -18,7 +18,14 @@ class TemplateInfo(TypedDict):
     metadata: Dict[str, Any]
 
 
-class ValidatePreApprovedTemplatesUseCase:
+class ValidateAgentRulesUseCase:
+    """
+    Validates agent rules of source_type LIBRARY against Meta's template library.
+
+    For LIBRARY rules, fetches template info from Meta API and populates
+    metadata and content. Non-LIBRARY rules are skipped.
+    """
+
     def __init__(
         self,
         meta_service: Optional[MetaServiceInterface] = None,
@@ -56,24 +63,30 @@ class ValidatePreApprovedTemplatesUseCase:
         }
 
     def execute(self, agent: Agent) -> None:
-        templates = agent.templates.all()
+        library_rules = agent.templates.filter(source_type="LIBRARY")
 
-        for template in templates:
+        for rule in library_rules:
             # TODO: Currently uses agent.language (fixed pt_BR) to fetch templates from Meta.
             # To support dynamic language per project, consider:
             # 1. Validate in multiple languages (pt_BR, en, es) and save all in metadata
             # 2. Or re-validate during integration using initial_template_language from project
             # Ref: initial_template_language is saved in IntegratedAgent.config during integration
-            template_info = self._get_template_info(template.name, agent.language)
+            template_info = self._get_template_info(rule.name, agent.language)
 
             if template_info is None:
-                logger.info(f"Template not valid: {template.name}")
-                template.is_valid = False
+                logger.warning(
+                    f"Template '{rule.name}' not found in Meta library. "
+                    f"Rule '{rule.slug}' for agent '{agent.uuid}' "
+                    "may need source_type update."
+                )
             else:
-                logger.info(f"Template valid: {template.name}")
-                template.name = template_info["name"]
-                template.content = template_info["content"]
-                template.metadata = template_info["metadata"]
-                template.is_valid = True
+                logger.info(f"Template valid in Meta library: {rule.name}")
+                rule.name = template_info["name"]
+                rule.content = template_info["content"]
+                rule.metadata = template_info["metadata"]
 
-            template.save()
+            rule.save()
+
+
+# Backward-compatible alias
+ValidatePreApprovedTemplatesUseCase = ValidateAgentRulesUseCase

@@ -15,7 +15,7 @@ from retail.agents.domains.agent_integration.models import (
 )
 from retail.agents.domains.agent_management.models import (
     Agent,
-    PreApprovedTemplate,
+    AgentRule,
 )
 from retail.projects.models import Project
 from retail.templates.models import Template
@@ -69,7 +69,7 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
             project=self.project2,
         )
 
-        self.pre_approved_template = PreApprovedTemplate.objects.create(
+        self.agent_rule = AgentRule.objects.create(
             agent=self.agent1,
             slug="test-template-slug",
             uuid=uuid4(),
@@ -199,7 +199,7 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
             uuid=uuid4(),
             name=name,
             integrated_agent=integrated_agent,
-            parent=self.pre_approved_template,
+            parent=self.agent_rule,
             is_active=is_active,
             deleted_at=deleted_at,
         )

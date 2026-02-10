@@ -7,7 +7,7 @@ from django.test import TestCase
 from rest_framework.exceptions import NotFound
 
 from retail.agents.domains.agent_management.exceptions import AgentFileNotSent
-from retail.agents.domains.agent_management.models import Agent, PreApprovedTemplate
+from retail.agents.domains.agent_management.models import Agent, AgentRule
 from retail.agents.domains.agent_management.usecases.push import PushAgentUseCase
 from retail.projects.models import Project
 
@@ -244,7 +244,7 @@ class PushAgentUseCaseTest(TestCase):
                 or all(c.islower() or c.isdigit() for c in hash_part)
             )
 
-    def test_create_pre_approved_templates_creates_and_updates(self):
+    def test_create_agent_rules_creates_and_updates(self):
         agent = Agent.objects.create(
             slug=self.agent_slug,
             name=self.agent_name,
@@ -266,12 +266,12 @@ class PushAgentUseCaseTest(TestCase):
             },
             "pre_processing": {},
         }
-        self.usecase._update_or_create_pre_approved_templates(agent, payload)
-        template = PreApprovedTemplate.objects.get(name="template1", agent=agent)
+        self.usecase._update_or_create_agent_rules(agent, payload)
+        template = AgentRule.objects.get(name="template1", agent=agent)
         self.assertEqual(template.display_name, "d")
         self.assertEqual(template.start_condition, "cond")
         payload["rules"]["r1"]["display_name"] = "novo"
-        self.usecase._update_or_create_pre_approved_templates(agent, payload)
+        self.usecase._update_or_create_agent_rules(agent, payload)
         template.refresh_from_db()
         self.assertEqual(template.display_name, "novo")
 
@@ -301,7 +301,7 @@ class PushAgentUseCaseTest(TestCase):
         agent = agents[0]
         self.assertEqual(agent.slug, self.agent_slug)
         self.assertEqual(agent.lambda_arn, "arn:aws:lambda:region:123:function:test")
-        template = PreApprovedTemplate.objects.get(name="template1", agent=agent)
+        template = AgentRule.objects.get(name="template1", agent=agent)
         self.assertEqual(template.display_name, "d")
 
     def test_execute_missing_file(self):
@@ -328,8 +328,8 @@ class PushAgentUseCaseTest(TestCase):
         with self.assertRaises(AgentFileNotSent):
             self.usecase.execute(payload, files)
 
-    def test_create_pre_approved_templates_with_variables_labels(self):
-        """Should save template_variables_labels in PreApprovedTemplate config."""
+    def test_create_agent_rules_with_variables_labels(self):
+        """Should save template_variables_labels in AgentRule config."""
         agent = Agent.objects.create(
             slug=self.agent_slug,
             name=self.agent_name,
@@ -357,9 +357,9 @@ class PushAgentUseCaseTest(TestCase):
             "pre_processing": {},
         }
 
-        self.usecase._update_or_create_pre_approved_templates(agent, payload)
+        self.usecase._update_or_create_agent_rules(agent, payload)
 
-        template = PreApprovedTemplate.objects.get(name="cart_abandonment", agent=agent)
+        template = AgentRule.objects.get(name="cart_abandonment", agent=agent)
         self.assertEqual(template.display_name, "Abandoned Cart")
         # Stored in config (not metadata) - metadata is overwritten during validation
         self.assertIsNotNone(template.config)
@@ -368,7 +368,7 @@ class PushAgentUseCaseTest(TestCase):
             ["client_name", "order_value", "delivery_date"],
         )
 
-    def test_create_pre_approved_templates_without_variables_labels(self):
+    def test_create_agent_rules_without_variables_labels(self):
         """Should work without template_variables_labels (backward compatibility)."""
         agent = Agent.objects.create(
             slug=self.agent_slug,
@@ -393,9 +393,9 @@ class PushAgentUseCaseTest(TestCase):
             "pre_processing": {},
         }
 
-        self.usecase._update_or_create_pre_approved_templates(agent, payload)
+        self.usecase._update_or_create_agent_rules(agent, payload)
 
-        template = PreApprovedTemplate.objects.get(name="legacy_template", agent=agent)
+        template = AgentRule.objects.get(name="legacy_template", agent=agent)
         self.assertEqual(template.display_name, "Legacy Template")
         # config should be empty when no variables labels (and not delivered order)
         self.assertEqual(template.config, {})
@@ -436,7 +436,7 @@ class PushAgentUseCaseTest(TestCase):
         self.assertEqual(len(agents), 1)
         agent = agents[0]
 
-        template = PreApprovedTemplate.objects.get(name="order_status", agent=agent)
+        template = AgentRule.objects.get(name="order_status", agent=agent)
         # Stored in config, not metadata
         self.assertEqual(
             template.config.get("template_variables_labels"),
@@ -444,9 +444,9 @@ class PushAgentUseCaseTest(TestCase):
         )
 
     def test_serializer_reads_template_variables_from_config(self):
-        """PreApprovedTemplateSerializer should read variables from config, not metadata."""
+        """AgentRuleSerializer should read variables from config, not metadata."""
         from retail.agents.domains.agent_management.serializers import (
-            PreApprovedTemplateSerializer,
+            AgentRuleSerializer,
         )
 
         agent = Agent.objects.create(
@@ -456,7 +456,7 @@ class PushAgentUseCaseTest(TestCase):
             project=self.project,
             description=self.agent_description,
         )
-        template = PreApprovedTemplate.objects.create(
+        template = AgentRule.objects.create(
             agent=agent,
             slug="test_rule",
             name="test_template",
@@ -466,7 +466,7 @@ class PushAgentUseCaseTest(TestCase):
             metadata={"body": "Hello {{1}}"},  # metadata has different content
         )
 
-        serializer = PreApprovedTemplateSerializer(template)
+        serializer = AgentRuleSerializer(template)
         data = serializer.data
 
         # Should read from config, not metadata

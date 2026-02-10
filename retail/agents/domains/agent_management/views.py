@@ -13,7 +13,7 @@ from retail.agents.domains.agent_management.serializers import (
     PushAgentSerializer,
     ReadAgentSerializer,
 )
-from retail.agents.domains.agent_management.tasks import validate_pre_approved_templates
+from retail.agents.domains.agent_management.tasks import validate_agent_rules
 from retail.agents.domains.agent_management.usecases.push import (
     PushAgentUseCase,
     PushAgentData,
@@ -65,7 +65,7 @@ class PushAgentView(APIView):
         agents = use_case.execute(payload=serialized_data, files=request.FILES)
 
         agent_ids = [str(agent.uuid) for agent in agents]
-        validate_pre_approved_templates.delay(agent_ids)
+        validate_agent_rules.delay(agent_ids)
 
         response_serializer = ReadAgentSerializer(agents, many=True)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)

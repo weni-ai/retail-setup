@@ -16,7 +16,7 @@ from retail.templates.serializers import (
     ParameterSerializer,
 )
 from retail.templates.models import Template, Version
-from retail.agents.models import PreApprovedTemplate, Agent
+from retail.agents.domains.agent_management.models import AgentRule, Agent
 from retail.projects.models import Project
 from retail.services.aws_s3.service import S3Service
 
@@ -165,7 +165,7 @@ class TestReadTemplateSerializer(TestCase):
         self.agent = Agent.objects.create(
             uuid=uuid4(), name="Test Agent", project=self.project
         )
-        self.parent = PreApprovedTemplate.objects.create(
+        self.parent = AgentRule.objects.create(
             uuid=uuid4(),
             name="test_parent",
             display_name="Parent Display Name",

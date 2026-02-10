@@ -92,7 +92,7 @@ class ReadAgentSerializer(serializers.Serializer):
 
     def get_templates(self, obj):
         templates = obj.templates.all()
-        return PreApprovedTemplateSerializer(templates, many=True).data
+        return AgentRuleSerializer(templates, many=True).data
 
 
 class GalleryAgentSerializer(ReadAgentSerializer):
@@ -118,13 +118,13 @@ class GalleryAgentSerializer(ReadAgentSerializer):
         return str(assigned.uuid)
 
 
-class PreApprovedTemplateSerializer(serializers.Serializer):
+class AgentRuleSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
     name = serializers.CharField()
     content = serializers.CharField(allow_null=True)
     start_condition = serializers.CharField()
     display_name = serializers.CharField()
-    is_valid = serializers.BooleanField(allow_null=True)
+    source_type = serializers.CharField()
     metadata = serializers.JSONField()
     template_variables_labels = serializers.SerializerMethodField()
 
@@ -139,3 +139,7 @@ class PreApprovedTemplateSerializer(serializers.Serializer):
         if obj.config:
             return obj.config.get("template_variables_labels", [])
         return []
+
+
+# Backward-compatible alias
+PreApprovedTemplateSerializer = AgentRuleSerializer

@@ -13,7 +13,7 @@ from retail.agents.domains.agent_integration.models import IntegratedAgent, Cred
 from retail.agents.domains.agent_integration.usecases.fetch_country_phone_code import (
     FetchCountryPhoneCodeUseCase,
 )
-from retail.agents.domains.agent_management.models import Agent, PreApprovedTemplate
+from retail.agents.domains.agent_management.models import Agent, AgentRule
 from retail.services.integrations.service import IntegrationsService
 from retail.interfaces.services.integrations import IntegrationsServiceInterface
 from retail.projects.models import Project
@@ -206,28 +206,31 @@ class AssignAgentUseCase:
                 },
             )
 
-    def _create_valid_templates(
+    def _create_library_templates(
         self,
         integrated_agent: IntegratedAgent,
-        valid_pre_approveds: List[PreApprovedTemplate],
+        library_rules: List[AgentRule],
         project_uuid: UUID,
         app_uuid: UUID,
     ) -> None:
+        """
+        Create templates from LIBRARY agent rules (pre-approved by Meta).
+        """
         create_library_use_case = CreateLibraryTemplateUseCase()
-        for pre_approved in valid_pre_approveds:
-            metadata = pre_approved.metadata or {}
+        for rule in library_rules:
+            metadata = rule.metadata or {}
             # TODO: Currently uses metadata.language from validation (fixed pt_BR).
             # To support dynamic language per project, use:
             # integrated_agent.config.get("initial_template_language") or metadata.get("language")
             # May need to re-validate template in Meta with the correct project language.
             data: LibraryTemplateData = {
-                "template_name": pre_approved.name,
-                "library_template_name": pre_approved.name,
+                "template_name": rule.name,
+                "library_template_name": rule.name,
                 "category": metadata.get("category"),
                 "language": metadata.get("language"),
                 "app_uuid": app_uuid,
                 "project_uuid": project_uuid,
-                "start_condition": pre_approved.start_condition,
+                "start_condition": rule.start_condition,
             }
 
             template, version = create_library_use_case.execute(data)
@@ -239,24 +242,30 @@ class AssignAgentUseCase:
             else:
                 template.needs_button_edit = True
 
-            template.metadata = pre_approved.metadata
-            template.config = pre_approved.config or {}
-            template.parent = pre_approved
+            template.metadata = rule.metadata
+            template.config = rule.config or {}
+            template.parent = rule
             template.integrated_agent = integrated_agent
             template.save()
 
             integrated_agent.ignore_templates.append(template.parent.slug)
             integrated_agent.save(update_fields=["ignore_templates"])
 
-    def _create_invalid_templates(
+    def _create_user_existing_templates(
         self,
         integrated_agent: IntegratedAgent,
-        invalid_pre_approveds: List[PreApprovedTemplate],
+        user_existing_rules: List[AgentRule],
         project_uuid: UUID,
         app_uuid: UUID,
     ) -> None:
+        """
+        Create templates from USER_EXISTING agent rules.
+
+        Fetches the user's already-approved templates from integrations service
+        and creates local Template records linked to the agent rules.
+        """
         logger.info(
-            "Fetching user templates in integrations service (non-pre-approved)..."
+            "Fetching user templates in integrations service (user-existing)..."
         )
 
         template_builder = TemplateBuilderMixin()
@@ -268,68 +277,67 @@ class AssignAgentUseCase:
         translations_by_name = self.integrations_service.fetch_templates_from_user(
             app_uuid,
             str(project_uuid),
-            [pre_approved.name for pre_approved in invalid_pre_approveds],
+            [rule.name for rule in user_existing_rules],
             language,
         )
 
         logger.info(
-            f"Found {len(translations_by_name)} templates in integrations service (non-pre-approved)"
+            f"Found {len(translations_by_name)} templates in integrations "
+            f"service (user-existing)"
         )
 
-        for pre_approved in invalid_pre_approveds:
-            translation = translations_by_name.get(pre_approved.name)
+        for rule in user_existing_rules:
+            translation = translations_by_name.get(rule.name)
             if translation is not None:
                 template, version = template_builder.build_template_and_version(
                     payload={
-                        "template_name": pre_approved.name,
+                        "template_name": rule.name,
                         "app_uuid": app_uuid,
                         "project_uuid": project_uuid,
                     },
                     integrated_agent=integrated_agent,
                 )
                 template.metadata = translation
-                template.config = pre_approved.config or {}
-                template.parent = pre_approved
-                template.start_condition = pre_approved.start_condition
-                template.display_name = pre_approved.display_name
+                template.config = rule.config or {}
+                template.parent = rule
+                template.start_condition = rule.start_condition
+                template.display_name = rule.display_name
                 template.current_version = version
                 template.integrated_agent = integrated_agent
                 template.save()
 
-                version.template_name = pre_approved.name
+                version.template_name = rule.name
                 version.status = "APPROVED"
                 version.save()
 
     def _create_templates(
         self,
         integrated_agent: IntegratedAgent,
-        pre_approveds: List[PreApprovedTemplate],
+        agent_rules: List[AgentRule],
         project_uuid: UUID,
         app_uuid: UUID,
         ignore_templates: List[str],
     ) -> None:
         """
-        Create templates for the integrated agent based on PreApprovedTemplate.
+        Create templates for the integrated agent based on AgentRule definitions.
 
-        Responsibilities:
-        - Valid pre-approved: create library templates and notify integrations
-          (or flag for button edit when buttons are present).
-        - Invalid pre-approved: fetch user's approved translations and adapt them,
-          creating an approved version directly.
+        Routes each rule to the appropriate creation flow based on source_type:
+        - LIBRARY: Create from Meta's pre-approved library
+        - USER_EXISTING: Fetch user's already-approved templates
         """
-        pre_approveds = pre_approveds.exclude(uuid__in=ignore_templates)
-        valid_pre_approveds = pre_approveds.filter(is_valid=True)
-        invalid_pre_approveds = pre_approveds.filter(is_valid=False)
+        agent_rules = agent_rules.exclude(uuid__in=ignore_templates)
+        library_rules = agent_rules.filter(source_type="LIBRARY")
+        user_existing_rules = agent_rules.filter(source_type="USER_EXISTING")
 
-        self._create_valid_templates(
+        self._create_library_templates(
             integrated_agent,
-            valid_pre_approveds,
+            library_rules,
             project_uuid,
             app_uuid,
         )
-        self._create_invalid_templates(
+        self._create_user_existing_templates(
             integrated_agent,
-            invalid_pre_approveds,
+            user_existing_rules,
             project_uuid,
             app_uuid,
         )
@@ -338,7 +346,7 @@ class AssignAgentUseCase:
         self, agent: Agent, include_templates: List[str]
     ) -> List[str]:
         ignore_templates = (
-            PreApprovedTemplate.objects.filter(agent=agent)
+            AgentRule.objects.filter(agent=agent)
             .exclude(uuid__in=include_templates)
             .values_list("uuid", flat=True)
         )
@@ -349,9 +357,9 @@ class AssignAgentUseCase:
         self,
         ignore_templates: List[str],
     ) -> List[str]:
-        slugs = PreApprovedTemplate.objects.filter(
-            uuid__in=ignore_templates
-        ).values_list("slug", flat=True)
+        slugs = AgentRule.objects.filter(uuid__in=ignore_templates).values_list(
+            "slug", flat=True
+        )
         return list(slugs)
 
     @transaction.atomic
@@ -369,7 +377,7 @@ class AssignAgentUseCase:
 
         Flow:
         1) Create IntegratedAgent and credentials (with auto-detected language from VTEX)
-        2) Create templates from the agent's PreApprovedTemplate definitions
+        2) Create templates from the agent's AgentRule definitions
         3) If the agent is the Abandoned Cart agent (ABANDONED_CART_AGENT_UUID),
            create a default custom template using the custom template flow
            (lifecycle PENDING -> APPROVED, versioning, etc.).
