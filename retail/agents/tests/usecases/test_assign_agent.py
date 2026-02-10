@@ -11,7 +11,7 @@ from retail.agents.domains.agent_integration.models import (
     IntegratedAgent,
     Credential,
 )
-from retail.agents.domains.agent_management.models import PreApprovedTemplate
+from retail.agents.domains.agent_management.models import AgentRule
 from retail.agents.domains.agent_integration.usecases.assign import AssignAgentUseCase
 from retail.agents.domains.agent_integration.usecases.fetch_country_phone_code import (
     FetchCountryPhoneCodeUseCase,
@@ -119,12 +119,12 @@ class AssignAgentUseCaseTest(TestCase):
         )
 
     def test_create_integrated_agent_with_ignore_templates(self):
-        template1 = PreApprovedTemplate.objects.create(
+        template1 = AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="template1",
         )
-        template2 = PreApprovedTemplate.objects.create(
+        template2 = AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="template2",
@@ -264,22 +264,22 @@ class AssignAgentUseCaseTest(TestCase):
             is_active=True,
         )
 
-        pre_approved = MagicMock()
-        pre_approved.is_valid = True
-        pre_approved.metadata = {
+        rule = MagicMock()
+        rule.source_type = "LIBRARY"
+        rule.metadata = {
             "name": "Test Template",
             "category": "greeting",
             "language": "en",
         }
-        pre_approved.start_condition = "test_condition"
-        pre_approved.slug = "test-template"
+        rule.start_condition = "test_condition"
+        rule.slug = "test-template"
 
-        pre_approveds = MagicMock()
+        agent_rules = MagicMock()
         filtered_queryset = MagicMock()
-        filtered_queryset.filter.side_effect = lambda is_valid: (
-            [pre_approved] if is_valid else []
+        filtered_queryset.filter.side_effect = lambda source_type: (
+            [rule] if source_type == "LIBRARY" else []
         )
-        pre_approveds.exclude.return_value = filtered_queryset
+        agent_rules.exclude.return_value = filtered_queryset
 
         mock_template = MagicMock()
         mock_version = MagicMock()
@@ -291,7 +291,7 @@ class AssignAgentUseCaseTest(TestCase):
 
         use_case._create_templates(
             integrated_agent=integrated_agent,
-            pre_approveds=pre_approveds,
+            agent_rules=agent_rules,
             project_uuid=self.project.uuid,
             app_uuid=uuid.uuid4(),
             ignore_templates=[],
@@ -301,17 +301,17 @@ class AssignAgentUseCaseTest(TestCase):
         mock_use_case_instance.notify_integrations.assert_called_once()
 
     def test_get_ignore_templates(self):
-        template1 = PreApprovedTemplate.objects.create(
+        template1 = AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="template1",
         )
-        template2 = PreApprovedTemplate.objects.create(
+        template2 = AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="template2",
         )
-        template3 = PreApprovedTemplate.objects.create(
+        template3 = AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="template3",
@@ -326,12 +326,12 @@ class AssignAgentUseCaseTest(TestCase):
         self.assertNotIn(template1.uuid, result)
 
     def test_get_ignore_templates_slugs(self):
-        template1 = PreApprovedTemplate.objects.create(
+        template1 = AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="template1",
         )
-        template2 = PreApprovedTemplate.objects.create(
+        template2 = AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="template2",
@@ -443,10 +443,11 @@ class AssignAgentUseCaseTest(TestCase):
         mock_version = MagicMock()
         mock_use_case_instance.execute.return_value = (mock_template, mock_version)
 
-        template1 = PreApprovedTemplate.objects.create(
+        template1 = AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="template1",
+            source_type="LIBRARY",
         )
 
         include_templates = [str(template1.uuid)]
@@ -461,12 +462,14 @@ class AssignAgentUseCaseTest(TestCase):
         )
 
         self.assertIsInstance(integrated_agent, IntegratedAgent)
-        self.assertNotIn(template1.slug, integrated_agent.ignore_templates)
+        # When a LIBRARY template is included and processed, its slug is
+        # added to ignore_templates to track that it has been created
+        self.assertIn(template1.slug, integrated_agent.ignore_templates)
 
     @patch(
         "retail.agents.domains.agent_integration.usecases.assign.TemplateBuilderMixin"
     )
-    def test_create_invalid_templates_success(self, mock_template_builder):
+    def test_create_user_existing_templates_success(self, mock_template_builder):
         integrated_agent = IntegratedAgent.objects.create(
             agent=self.agent,
             project=self.project,
@@ -484,7 +487,7 @@ class AssignAgentUseCaseTest(TestCase):
         invalid_template2.start_condition = "start_condition_2"
         invalid_template2.display_name = "Template Inválido 2"
 
-        invalid_pre_approveds = [invalid_template1, invalid_template2]
+        user_existing_rules = [invalid_template1, invalid_template2]
 
         mock_translations = {
             "template_invalid_1": {
@@ -510,8 +513,8 @@ class AssignAgentUseCaseTest(TestCase):
         project_uuid = self.project.uuid
         app_uuid = uuid.uuid4()
 
-        self.use_case._create_invalid_templates(
-            integrated_agent, invalid_pre_approveds, project_uuid, app_uuid
+        self.use_case._create_user_existing_templates(
+            integrated_agent, user_existing_rules, project_uuid, app_uuid
         )
 
         self.use_case.integrations_service.fetch_templates_from_user.assert_called_once_with(
@@ -526,7 +529,7 @@ class AssignAgentUseCaseTest(TestCase):
     @patch(
         "retail.agents.domains.agent_integration.usecases.assign.TemplateBuilderMixin"
     )
-    def test_create_invalid_templates_no_translations_found(
+    def test_create_user_existing_templates_no_translations_found(
         self, mock_template_builder
     ):
         integrated_agent = IntegratedAgent.objects.create(
@@ -538,7 +541,7 @@ class AssignAgentUseCaseTest(TestCase):
 
         invalid_template = MagicMock()
         invalid_template.name = "template_not_found"
-        invalid_pre_approveds = [invalid_template]
+        user_existing_rules = [invalid_template]
 
         self.use_case.integrations_service.fetch_templates_from_user = MagicMock(
             return_value={}
@@ -547,8 +550,8 @@ class AssignAgentUseCaseTest(TestCase):
         project_uuid = self.project.uuid
         app_uuid = uuid.uuid4()
 
-        self.use_case._create_invalid_templates(
-            integrated_agent, invalid_pre_approveds, project_uuid, app_uuid
+        self.use_case._create_user_existing_templates(
+            integrated_agent, user_existing_rules, project_uuid, app_uuid
         )
 
         self.use_case.integrations_service.fetch_templates_from_user.assert_called_once_with(
@@ -573,24 +576,24 @@ class AssignAgentUseCaseTest(TestCase):
             is_active=True,
         )
 
-        PreApprovedTemplate.objects.create(
+        AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="valid-template",
             name="valid_template",
             display_name="Template Válido",
-            is_valid=True,
+            source_type="LIBRARY",
             start_condition="start_valid",
             metadata={"category": "MARKETING"},
         )
 
-        PreApprovedTemplate.objects.create(
+        AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="invalid-template",
             name="invalid_template",
             display_name="Template Inválido",
-            is_valid=False,
+            source_type="USER_EXISTING",
             start_condition="start_invalid",
             metadata={"category": "UTILITY"},
         )
@@ -647,7 +650,7 @@ class AssignAgentUseCaseTest(TestCase):
 
         mock_integrations_service.fetch_templates_from_user.return_value = {}
 
-        use_case_with_mock._create_invalid_templates(
+        use_case_with_mock._create_user_existing_templates(
             integrated_agent, [invalid_template], self.project.uuid, uuid.uuid4()
         )
 
@@ -665,24 +668,24 @@ class AssignAgentUseCaseTest(TestCase):
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
         )
 
-        valid_template = PreApprovedTemplate.objects.create(
+        valid_template = AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="valid-template",
             name="valid_template",
             display_name="Template Válido",
-            is_valid=True,
+            source_type="LIBRARY",
             start_condition="start_valid",
             metadata={"category": "MARKETING", "language": "pt_BR"},
         )
 
-        invalid_template = PreApprovedTemplate.objects.create(
+        invalid_template = AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="invalid-template",
             name="invalid_template",
             display_name="Template Inválido",
-            is_valid=False,
+            source_type="USER_EXISTING",
             start_condition="start_invalid",
             metadata={"category": "UTILITY"},
         )
@@ -740,24 +743,24 @@ class AssignAgentUseCaseTest(TestCase):
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
         )
 
-        invalid_template1 = PreApprovedTemplate.objects.create(
+        invalid_template1 = AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="invalid-template-1",
             name="invalid_template_1",
             display_name="Template Inválido 1",
-            is_valid=False,
+            source_type="USER_EXISTING",
             start_condition="start_invalid_1",
             metadata={"category": "UTILITY"},
         )
 
-        invalid_template2 = PreApprovedTemplate.objects.create(
+        invalid_template2 = AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid.uuid4(),
             slug="invalid-template-2",
             name="invalid_template_2",
             display_name="Template Inválido 2",
-            is_valid=False,
+            source_type="USER_EXISTING",
             start_condition="start_invalid_2",
             metadata={"category": "UTILITY"},
         )

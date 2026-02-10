@@ -69,7 +69,7 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
             content="some content",
             display_name="display",
             start_condition="when",
-            is_valid=True,
+            source_type="LIBRARY",
             metadata={
                 "type": "status",
                 "tags": ["approved", "final"],
@@ -107,9 +107,7 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
             format="multipart",
         )
 
-    @patch(
-        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
-    )
+    @patch("retail.agents.domains.agent_management.views.validate_agent_rules.delay")
     @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_success(self, mock_push_agent_usecase, mock_validate_task):
         """Test successful agent push with authenticated user"""
@@ -141,9 +139,7 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch(
-        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
-    )
+    @patch("retail.agents.domains.agent_management.views.validate_agent_rules.delay")
     @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_internal_user_success(
         self, mock_push_agent_usecase, mock_validate_task
@@ -186,9 +182,7 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch(
-        "retail.agents.domains.agent_management.views.validate_pre_approved_templates.delay"
-    )
+    @patch("retail.agents.domains.agent_management.views.validate_agent_rules.delay")
     @patch("retail.agents.domains.agent_management.views.PushAgentUseCase")
     def test_push_agent_with_credentials(
         self, mock_push_agent_usecase, mock_validate_task

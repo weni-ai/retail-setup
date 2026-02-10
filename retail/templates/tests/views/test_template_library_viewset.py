@@ -8,7 +8,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from retail.templates.models import Template, Version
-from retail.agents.domains.agent_management.models import PreApprovedTemplate, Agent
+from retail.agents.domains.agent_management.models import AgentRule, Agent
 from retail.projects.models import Project
 from retail.internal.test_mixins import (
     BaseTestMixin,
@@ -51,7 +51,7 @@ class TestTemplateLibraryViewSet(BaseTestMixin, APITestCase):
             project=self.project,
         )
 
-        self.parent = PreApprovedTemplate.objects.create(
+        self.parent = AgentRule.objects.create(
             uuid=uuid4(),
             name="test_parent",
             display_name="Test Parent Template",

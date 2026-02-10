@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from rest_framework.exceptions import NotFound
 
-from retail.agents.domains.agent_management.models import Agent, PreApprovedTemplate
+from retail.agents.domains.agent_management.models import Agent, AgentRule
 from retail.agents.domains.agent_management.usecases.retrieve import (
     RetrieveAgentUseCase,
 )
@@ -33,24 +33,24 @@ class RetrieveAgentUseCaseTest(TestCase):
             examples=[{"input": "test", "output": "response"}],
         )
 
-        self.template1 = PreApprovedTemplate.objects.create(
+        self.template1 = AgentRule.objects.create(
             agent=self.agent,
             slug="template-1",
             name="Template 1",
             display_name="Test Template 1",
             content="Hello {{1}}!",
-            is_valid=True,
+            source_type="LIBRARY",
             start_condition="greeting",
             metadata={"category": "greeting"},
         )
 
-        self.template2 = PreApprovedTemplate.objects.create(
+        self.template2 = AgentRule.objects.create(
             agent=self.agent,
             slug="template-2",
             name="Template 2",
             display_name="Test Template 2",
             content="Goodbye {{1}}!",
-            is_valid=True,
+            source_type="LIBRARY",
             start_condition="farewell",
             metadata={"category": "farewell"},
         )
@@ -84,7 +84,7 @@ class RetrieveAgentUseCaseTest(TestCase):
         self.assertEqual(template1.slug, "template-1")
         self.assertEqual(template1.display_name, "Test Template 1")
         self.assertEqual(template1.content, "Hello {{1}}!")
-        self.assertTrue(template1.is_valid)
+        self.assertEqual(template1.source_type, "LIBRARY")
         self.assertEqual(template1.start_condition, "greeting")
         self.assertEqual(template1.metadata["category"], "greeting")
 

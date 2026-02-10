@@ -5,7 +5,7 @@ from retail.templates.models import Template, Version
 from retail.projects.models import Project
 from retail.templates.usecases import UpdateTemplateUseCase
 from retail.agents.domains.agent_integration.models import IntegratedAgent
-from retail.agents.domains.agent_management.models import PreApprovedTemplate
+from retail.agents.domains.agent_management.models import AgentRule
 
 from datetime import datetime
 
@@ -52,7 +52,7 @@ class UpdateTemplateUseCaseTest(TestCase):
             ignore_templates=["test-slug"],
             is_active=True,
         )
-        parent = PreApprovedTemplate.objects.create(slug="test-slug")
+        parent = AgentRule.objects.create(slug="test-slug")
         self.template.integrated_agent = integrated_agent
         self.template.parent = parent
         self.template.save()

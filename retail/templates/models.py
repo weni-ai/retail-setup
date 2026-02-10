@@ -3,14 +3,14 @@ from django.db import models
 from uuid import uuid4
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
-from retail.agents.domains.agent_management.models import PreApprovedTemplate
+from retail.agents.domains.agent_management.models import AgentRule
 
 
 class Template(models.Model):
     uuid = models.UUIDField(blank=True, editable=False, primary_key=True, default=uuid4)
     name = models.CharField()
     parent = models.ForeignKey(
-        PreApprovedTemplate, on_delete=models.PROTECT, null=True, blank=True
+        AgentRule, on_delete=models.PROTECT, null=True, blank=True
     )
     current_version = models.OneToOneField(
         "Version",

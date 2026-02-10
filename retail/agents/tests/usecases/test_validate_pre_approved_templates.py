@@ -5,30 +5,37 @@ from django.test import TestCase
 from uuid import uuid4
 
 from retail.projects.models import Project
-from retail.agents.domains.agent_management.models import Agent, PreApprovedTemplate
+from retail.agents.domains.agent_management.models import Agent, AgentRule
 from retail.agents.domains.agent_management.usecases.validate_templates import (
-    ValidatePreApprovedTemplatesUseCase,
+    ValidateAgentRulesUseCase,
 )
 
 
-class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
+class ValidateAgentRulesUseCaseTest(TestCase):
     def setUp(self):
         self.project = Project.objects.create(uuid=uuid4(), name="Test Project")
         self.agent = Agent.objects.create(
             name="Test Agent", project=self.project, language="pt_BR"
         )
 
-        self.template_valid = PreApprovedTemplate.objects.create(
+        self.library_rule = AgentRule.objects.create(
             name="valid_template",
             content="old content",
-            is_valid=False,
+            source_type="LIBRARY",
+            agent=self.agent,
+            slug="valid-rule",
+            display_name="Valid Template",
+            start_condition="test",
         )
-        self.template_invalid = PreApprovedTemplate.objects.create(
-            name="invalid_template",
+        self.user_existing_rule = AgentRule.objects.create(
+            name="user_template",
             content="should not change",
-            is_valid=True,
+            source_type="USER_EXISTING",
+            agent=self.agent,
+            slug="user-rule",
+            display_name="User Template",
+            start_condition="test",
         )
-        self.agent.templates.set([self.template_valid, self.template_invalid])
 
         self.meta_service_mock = Mock()
         self.meta_service_mock.get_pre_approved_template.side_effect = (
@@ -58,7 +65,7 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
             "text": "Header",
         }
 
-        self.usecase = ValidatePreApprovedTemplatesUseCase(
+        self.usecase = ValidateAgentRulesUseCase(
             meta_service=self.meta_service_mock,
             template_adapter=self.template_adapter_mock,
         )
@@ -99,22 +106,23 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
         self.assertEqual(info, expected_info)
 
     def test_get_template_info_returns_none_when_not_exists(self):
-        info = self.usecase._get_template_info("invalid_template", "pt_BR")
+        info = self.usecase._get_template_info("nonexistent_template", "pt_BR")
 
         self.meta_service_mock.get_pre_approved_template.assert_called_with(
-            "invalid_template", "pt_BR"
+            "nonexistent_template", "pt_BR"
         )
         self.assertIsNone(info)
 
-    def test_execute_updates_templates_correctly(self):
+    def test_execute_only_validates_library_rules(self):
+        """Only LIBRARY rules should be validated against Meta API."""
         self.usecase.execute(self.agent)
 
-        self.template_valid.refresh_from_db()
-        self.template_invalid.refresh_from_db()
+        self.library_rule.refresh_from_db()
+        self.user_existing_rule.refresh_from_db()
 
-        self.assertTrue(self.template_valid.is_valid)
-        self.assertEqual(self.template_valid.name, "valid_template")
-        self.assertEqual(self.template_valid.content, "new content")
+        # LIBRARY rule should have updated metadata and content
+        self.assertEqual(self.library_rule.name, "valid_template")
+        self.assertEqual(self.library_rule.content, "new content")
 
         expected_metadata = {
             "header": {"type": "TEXT", "text": "Header"},
@@ -125,17 +133,30 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
             "category": "MARKETING",
             "language": "pt_BR",
         }
-        self.assertEqual(self.template_valid.metadata, expected_metadata)
+        self.assertEqual(self.library_rule.metadata, expected_metadata)
 
-        self.assertFalse(self.template_invalid.is_valid)
-        self.assertEqual(self.template_invalid.content, "should not change")
+        # USER_EXISTING rule should NOT be touched
+        self.assertEqual(self.user_existing_rule.content, "should not change")
+        self.assertEqual(self.user_existing_rule.source_type, "USER_EXISTING")
 
-    def test_execute_with_no_templates(self):
-        self.agent.templates.clear()
+    def test_execute_with_no_library_rules(self):
+        """No Meta API calls when agent has no LIBRARY rules."""
+        self.library_rule.delete()
         self.usecase.execute(self.agent)
 
         self.meta_service_mock.get_pre_approved_template.assert_not_called()
         self.template_adapter_mock.header_transformer.transform.assert_not_called()
+
+    def test_execute_library_rule_not_found_in_meta(self):
+        """LIBRARY rule not found in Meta should log warning, not crash."""
+        self.library_rule.name = "nonexistent_template"
+        self.library_rule.save()
+
+        self.usecase.execute(self.agent)
+
+        self.library_rule.refresh_from_db()
+        # Rule should still exist with LIBRARY source_type
+        self.assertEqual(self.library_rule.source_type, "LIBRARY")
 
     def test_template_adapter_is_called_correctly(self):
         self.usecase._get_template_info("valid_template", "pt_BR")

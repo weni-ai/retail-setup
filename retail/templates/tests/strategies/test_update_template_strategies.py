@@ -15,7 +15,7 @@ from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
 from retail.agents.domains.agent_integration.models import IntegratedAgent
-from retail.agents.domains.agent_management.models import Agent, PreApprovedTemplate
+from retail.agents.domains.agent_management.models import Agent, AgentRule
 from retail.projects.models import Project
 from retail.services.rule_generator import RuleGenerator
 
@@ -613,7 +613,7 @@ class UpdateTemplateStrategyFactoryTest(TestCase):
             name="Test Agent", slug="test-agent", project=self.project, uuid=uuid4()
         )
 
-        self.parent_template = PreApprovedTemplate.objects.create(
+        self.parent_template = AgentRule.objects.create(
             name="parent_template",
             display_name="Parent Template",
             metadata={},

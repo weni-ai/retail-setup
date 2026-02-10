@@ -7,7 +7,7 @@ from django.urls import reverse
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 
-from retail.agents.domains.agent_management.models import PreApprovedTemplate, Agent
+from retail.agents.domains.agent_management.models import AgentRule, Agent
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.templates.models import Template
 from retail.projects.models import Project
@@ -60,13 +60,13 @@ class TemplateViewSetStrategyIntegrationTest(BaseTestMixin, APITestCase):
             credentials={},
         )
 
-        self.parent = PreApprovedTemplate.objects.create(
+        self.parent = AgentRule.objects.create(
             agent=self.agent,
             uuid=uuid4(),
             name="parent_template",
             display_name="Parent Template",
             content="Conteúdo do template",
-            is_valid=True,
+            source_type="LIBRARY",
             start_condition="always",
             metadata={},
         )
