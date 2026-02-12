@@ -1,3 +1,6 @@
+# 4.1.6
+- fix: Adjusts VTEX proxy serializer to accept list payloads in data field
+
 # 4.1.5
 - feat: add logging configuration
 
