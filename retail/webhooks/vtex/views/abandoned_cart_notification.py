@@ -1,5 +1,6 @@
 import logging
 
+from uuid import uuid4
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.request import Request
@@ -22,8 +23,12 @@ class AbandonedCartNotification(JWTModuleAuthMixin, APIView):
     """
 
     def post(self, request: Request):
+        request_id = str(uuid4())
+        logger.info(f"[CART_WEBHOOK] ReqID: {request_id} - Received abandoned cart notification: {request.data}")
         serializer = CartSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        logger.info(f"[CART_WEBHOOK] ReqID: {request_id} - Serializer validated data: {serializer.validated_data}")
 
         validated_data = serializer.validated_data
         order_form_id = validated_data["cart_id"]

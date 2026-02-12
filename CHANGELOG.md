@@ -1,3 +1,9 @@
+# 4.1.5
+- feat: add logging configuration
+
+# 4.1.4
+- feat: add logging for abandoned cart notification raw data and serializer validated data
+
 # 4.1.3
 - feat: add logging for Lambda invocation details
 - feat: Use specific queue to abandoned cart event
