@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Union
 
 
 class VtexIOClientInterface(ABC):
@@ -92,7 +93,7 @@ class VtexIOClientInterface(ABC):
         method: str,
         path: str,
         headers: dict = None,
-        data: dict = None,
+        data: Union[dict, list] = None,
         params: dict = None,
     ) -> dict:
         """
@@ -104,7 +105,7 @@ class VtexIOClientInterface(ABC):
             method (str): HTTP method (GET, POST, PUT, PATCH).
             path (str): API endpoint path.
             headers (dict, optional): Additional headers to be sent with the request.
-            data (dict, optional): Request body data for POST, PUT, PATCH requests.
+            data (Union[dict, list], optional): Request body data for POST, PUT, PATCH requests.
             params (dict, optional): Query parameters to be appended to the URL.
 
         Returns:

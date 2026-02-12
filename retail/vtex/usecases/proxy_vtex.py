@@ -1,3 +1,5 @@
+from typing import Union
+
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.usecases.base import BaseVtexUseCase
 
@@ -21,7 +23,7 @@ class ProxyVtexUsecase(BaseVtexUseCase):
         method: str,
         path: str,
         headers: dict = None,
-        data: dict = None,
+        data: Union[dict, list] = None,
         params: dict = None,
         project_uuid: str = None,
     ) -> dict:
@@ -32,7 +34,7 @@ class ProxyVtexUsecase(BaseVtexUseCase):
             method (str): HTTP method (GET, POST, PUT, PATCH).
             path (str): API endpoint path.
             headers (dict, optional): Additional headers to be sent with the request.
-            data (dict, optional): Request body data for POST, PUT, PATCH requests.
+            data (Union[dict, list], optional): Request body data for POST, PUT, PATCH requests.
             params (dict, optional): Query parameters to be appended to the URL.
             project_uuid (str): Project UUID to get the account domain.
 
