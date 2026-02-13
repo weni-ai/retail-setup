@@ -16,4 +16,24 @@ urlpatterns = [
         project_views.VtexAccountLookupView.as_view(),
         name="project-vtex-account-lookup",
     ),
+    path(
+        "onboard/<str:vtex_account>/start-crawling/",
+        project_views.StartOnboardingView.as_view(),
+        name="onboarding-start-crawling",
+    ),
+    path(
+        "onboard/<uuid:project_uuid>/webhook/",
+        project_views.CrawlerWebhookView.as_view(),
+        name="onboarding-crawler-webhook",
+    ),
+    path(
+        "onboard/<str:vtex_account>/status/",
+        project_views.OnboardingStatusView.as_view(),
+        name="onboarding-status",
+    ),
+    path(
+        "onboard/<str:vtex_account>/",
+        project_views.OnboardingPatchView.as_view(),
+        name="onboarding-patch",
+    ),
 ]

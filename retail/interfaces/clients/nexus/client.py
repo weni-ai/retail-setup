@@ -1,4 +1,4 @@
-from typing import Dict, Protocol
+from typing import Dict, Protocol, Tuple
 
 
 class NexusClientInterface(Protocol):
@@ -53,5 +53,24 @@ class NexusClientInterface(Protocol):
 
         Returns:
             Dict: Integrated agents data.
+        """
+        ...
+
+    def upload_content_base_file(
+        self,
+        project_uuid: str,
+        file: Tuple[str, bytes, str],
+        extension_file: str = "txt",
+    ) -> Dict:
+        """
+        Uploads a file to the project's inline content base in Nexus.
+
+        Args:
+            project_uuid: The project's unique identifier.
+            file: Tuple of (filename, file_bytes, content_type).
+            extension_file: The file extension without dot (e.g. "txt").
+
+        Returns:
+            Dict: Upload response data.
         """
         ...

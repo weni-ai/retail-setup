@@ -1,3 +1,5 @@
+import logging
+
 from typing import List, Optional, Dict, Any
 
 from datetime import datetime
@@ -8,6 +10,8 @@ from retail.interfaces.clients.integrations.interface import IntegrationsClientI
 from retail.agents.domains.agent_integration.usecases.build_abandoned_cart_translation import (
     BuildAbandonedCartTranslationUseCase,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class IntegrationsService:
@@ -328,3 +332,34 @@ class IntegrationsService:
                     ] = adapt_translation_to_gallery_format(translation, category)
 
         return translations_by_name
+
+    def create_wwc_app(self, project_uuid: str, config: Dict) -> Optional[Dict]:
+        """
+        Creates a WWC (Weni Web Chat) app for the given project.
+
+        Returns:
+            Dict with created app data or None on failure.
+        """
+        try:
+            return self.client.create_wwc_app(project_uuid, config)
+        except CustomAPIException as e:
+            logger.error(
+                f"Error {e.status_code} when creating WWC app "
+                f"for project {project_uuid}: {e}"
+            )
+            return None
+
+    def configure_wwc_app(self, app_uuid: str, config: Dict) -> Optional[Dict]:
+        """
+        Configures a previously created WWC app.
+
+        Returns:
+            Dict with configured app data (uuid, script) or None on failure.
+        """
+        try:
+            return self.client.configure_wwc_app(app_uuid, config)
+        except CustomAPIException as e:
+            logger.error(
+                f"Error {e.status_code} when configuring WWC app " f"{app_uuid}: {e}"
+            )
+            return None
