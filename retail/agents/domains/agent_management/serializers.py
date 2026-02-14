@@ -11,6 +11,11 @@ class RuleSerializer(serializers.Serializer):
     template = serializers.CharField()
     start_condition = serializers.CharField()
     source = SourceSerializer()
+    template_variables_labels = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+    )
 
 
 class PreProcessingSerializer(serializers.Serializer):
@@ -121,3 +126,16 @@ class PreApprovedTemplateSerializer(serializers.Serializer):
     display_name = serializers.CharField()
     is_valid = serializers.BooleanField(allow_null=True)
     metadata = serializers.JSONField()
+    template_variables_labels = serializers.SerializerMethodField()
+
+    def get_template_variables_labels(self, obj):
+        """
+        Extract template_variables_labels from config.
+        Returns list of available variable labels for this template.
+
+        Note: stored in config (not metadata) because metadata is overwritten
+        during template validation with Meta data.
+        """
+        if obj.config:
+            return obj.config.get("template_variables_labels", [])
+        return []

@@ -46,6 +46,12 @@ class UpdateTemplateStrategy(ABC):
         project_uuid: str,
         category: str,
     ) -> None:
+        # Convert labeled variables ({{client_name}}) to numeric ({{1}}) for Meta API
+        # The metadata keeps labels for broadcast mapping, Meta receives numeric
+        translation_payload = self.metadata_handler.convert_body_to_numeric_for_meta(
+            translation_payload
+        )
+
         buttons = translation_payload.get("buttons")
         if buttons:
             for button in buttons:

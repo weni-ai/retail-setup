@@ -74,6 +74,7 @@ class PushAgentViewE2ETest(BaseTestMixin, APITestCase):
                 "type": "status",
                 "tags": ["approved", "final"],
             },
+            config={},
         )
 
         mock_templates_manager = MagicMock()

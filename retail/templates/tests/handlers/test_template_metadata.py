@@ -340,3 +340,108 @@ class TestTemplateMetadataHandler(TestCase):
         result = self.handler.extract_start_condition(parameters)
 
         self.assertEqual(result, "first_condition")
+
+
+class TestConvertBodyToNumericForMeta(TestCase):
+    """Tests for convert_body_to_numeric_for_meta method."""
+
+    def setUp(self):
+        self.mock_s3_service = Mock(spec=S3ServiceInterface)
+        self.handler = TemplateMetadataHandler(s3_service=self.mock_s3_service)
+
+    def test_converts_labeled_variables_to_numeric(self):
+        """Should convert {{client_name}} to {{1}}, {{order_value}} to {{2}}."""
+        translation_payload = {
+            "body": {
+                "type": "BODY",
+                "text": "Olá {{client_name}}, seu pedido de {{order_value}} está pronto!",
+            },
+            "header": {"header_type": "TEXT", "text": "Pedido"},
+        }
+
+        result = self.handler.convert_body_to_numeric_for_meta(translation_payload)
+
+        expected_body = "Olá {{1}}, seu pedido de {{2}} está pronto!"
+        self.assertEqual(result["body"]["text"], expected_body)
+        # Header should remain unchanged
+        self.assertEqual(result["header"]["header_type"], "TEXT")
+        self.assertEqual(result["header"]["text"], "Pedido")
+
+    def test_preserves_already_numeric_variables(self):
+        """Should not change body if variables are already numeric."""
+        translation_payload = {
+            "body": {
+                "type": "BODY",
+                "text": "Olá {{1}}, seu pedido {{2}} está pronto!",
+            },
+        }
+
+        result = self.handler.convert_body_to_numeric_for_meta(translation_payload)
+
+        self.assertEqual(
+            result["body"]["text"], "Olá {{1}}, seu pedido {{2}} está pronto!"
+        )
+
+    def test_handles_empty_body(self):
+        """Should handle payload without body."""
+        translation_payload = {
+            "header": {"header_type": "TEXT", "text": "Header"},
+        }
+
+        result = self.handler.convert_body_to_numeric_for_meta(translation_payload)
+
+        self.assertNotIn("body", result)
+        self.assertEqual(result["header"]["text"], "Header")
+
+    def test_handles_body_without_text(self):
+        """Should handle body dict without text key."""
+        translation_payload = {
+            "body": {"type": "BODY"},
+        }
+
+        result = self.handler.convert_body_to_numeric_for_meta(translation_payload)
+
+        self.assertEqual(result["body"], {"type": "BODY"})
+
+    def test_does_not_modify_original_payload(self):
+        """Should return a copy, not modify the original."""
+        translation_payload = {
+            "body": {
+                "type": "BODY",
+                "text": "Olá {{client_name}}!",
+            },
+        }
+
+        result = self.handler.convert_body_to_numeric_for_meta(translation_payload)
+
+        # Original should remain unchanged
+        self.assertEqual(translation_payload["body"]["text"], "Olá {{client_name}}!")
+        # Result should have converted body
+        self.assertEqual(result["body"]["text"], "Olá {{1}}!")
+
+    def test_real_world_cart_abandonment_template(self):
+        """Test with real cart abandonment template scenario."""
+        translation_payload = {
+            "body": {
+                "type": "BODY",
+                "text": (
+                    "Olá {{cliente_name}}! 🛒\n"
+                    "Você deixou itens no carrinho no valor de {{valor}}.\n"
+                    "Finalize sua compra: {{link}}"
+                ),
+            },
+            "header": {"header_type": "IMAGE", "text": "base64_image"},
+            "buttons": [{"type": "URL", "text": "Finalizar"}],
+        }
+
+        result = self.handler.convert_body_to_numeric_for_meta(translation_payload)
+
+        expected_body = (
+            "Olá {{1}}! 🛒\n"
+            "Você deixou itens no carrinho no valor de {{2}}.\n"
+            "Finalize sua compra: {{3}}"
+        )
+        self.assertEqual(result["body"]["text"], expected_body)
+        # Other fields should remain unchanged
+        self.assertEqual(result["header"]["header_type"], "IMAGE")
+        self.assertEqual(result["buttons"], [{"type": "URL", "text": "Finalizar"}])
