@@ -13,7 +13,7 @@ from retail.agents.domains.agent_webhook.usecases.order_status import (
 from retail.interfaces.clients.aws_lambda.client import RequestData
 from retail.vtex.models import Cart
 from retail.vtex.usecases.cart_abandonment import CartAbandonmentUseCase
-from retail.vtex.usecases.handle_purchase_event import HandlePurchaseEventUseCase
+from retail.vtex.usecases.handle_payment_approved import PaymentApprovedOrchestrator
 from retail.webhooks.vtex.usecases.order_status import OrderStatusUseCase
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
@@ -107,10 +107,10 @@ def task_order_status_update(order_update_data: dict):
 
         if is_payment_approved(order_status_dto.currentState):
             logger.info(
-                f"Processing purchase event for order ID: {order_status_dto.orderId} "
+                f"Processing payment-approved event for order ID: {order_status_dto.orderId} "
                 f"VTEX account: {order_status_dto.vtexAccount}"
             )
-            handle_purchase_event_task.apply_async(
+            handle_payment_approved_task.apply_async(
                 args=[order_status_dto.orderId, str(project.uuid)],
                 queue="vtex-io-orders-update-events",
             )
@@ -174,9 +174,10 @@ def task_agent_webhook(integrated_agent_uuid: str, payload: dict, params: dict):
 
 
 @shared_task
-def handle_purchase_event_task(order_id: str, project_uuid: str):
-    use_case = HandlePurchaseEventUseCase()
-    use_case.execute(order_id=order_id, project_uuid=project_uuid)
+def handle_payment_approved_task(order_id: str, project_uuid: str):
+    """Handle payment-approved event for purchase tracking and conversion detection."""
+    logger.info(f"[PAYMENT_APPROVED_TASK] Processing order_id={order_id}")
+    PaymentApprovedOrchestrator().execute(order_id=order_id, project_uuid=project_uuid)
 
 
 @shared_task(name="task_cleanup_old_carts")

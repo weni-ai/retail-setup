@@ -51,6 +51,11 @@ class Cart(models.Model):
     error_message = models.TextField(blank=True, null=True)
     flows_channel_uuid = models.UUIDField(null=True, blank=True, editable=False)
     capi_notification_sent = models.BooleanField(default=False)
+    notification_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when the abandonment notification was successfully sent",
+    )
 
     def __str__(self):
         status = "Abandoned" if self.abandoned else self.status.capitalize()

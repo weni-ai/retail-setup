@@ -1,18 +1,15 @@
 import logging
-
-from typing import Optional
-
-from django.core.cache import cache
+from typing import Optional, TYPE_CHECKING
 
 from retail.projects.models import Project
 from retail.services.flows.service import FlowsService
-from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.repositories.cart_repository import CartRepository
 from retail.vtex.models import Cart
-
 from retail.vtex.usecases.phone_number_normalizer import PhoneNumberNormalizer
-
 from retail.jwt_keys.usecases.generate_jwt import JWTUsecase
+
+if TYPE_CHECKING:
+    from retail.vtex.usecases.handle_payment_approved import OrderContext
 
 
 logger = logging.getLogger(__name__)
@@ -32,51 +29,44 @@ class HandlePurchaseEventUseCase:
 
     def __init__(
         self,
-        vtex_io_service: Optional[VtexIOService] = None,
         flows_service: Optional[FlowsService] = None,
         cart_repository: Optional[CartRepository] = None,
         jwt_generator: Optional[JWTUsecase] = None,
     ) -> None:
         """
-        Initializes the use case with its dependencies.
+        Initialize the use case with its dependencies.
 
         Args:
-            vtex_io_service: Service to query VTEX for order details.
             flows_service: Client to send events to Flows.
             cart_repository: Repository to fetch Cart entities.
             jwt_generator: JWT token generator for authentication.
         """
-        self.vtex_io_service = vtex_io_service or VtexIOService()
         self.flows_service = flows_service or FlowsService()
         self.cart_repository = cart_repository or CartRepository()
         self.jwt_generator = jwt_generator or JWTUsecase()
 
-    def execute(self, order_id: str, project_uuid: str) -> None:
+    def execute(self, context: "OrderContext") -> None:
         """
-        Executes the purchase event workflow.
+        Execute the purchase event workflow.
 
         Args:
-            order_id: The VTEX order ID to process.
-            project_uuid: The UUID of the project to which the order belongs.
-
-        Returns:
-            None
+            context: Order context containing project, order_details, etc.
         """
-        project = self._get_project(project_uuid)
-        if not project:
-            logger.error(f"Project with UUID '{project_uuid}' not found.")
-            return
+        self._process_purchase_event(
+            context.project, context.order_details, context.order_form_id
+        )
 
-        order_details = self._get_order_details(order_id, project)
-        if not order_details:
-            logger.info(f"Order '{order_id}' not found in VTEX.")
-            return
+    def _process_purchase_event(
+        self, project: Project, order_details: dict, order_form_id: str
+    ) -> None:
+        """
+        Core logic for processing a purchase event.
 
-        order_form_id = self._extract_order_form_id(order_details)
-        if not order_form_id:
-            logger.info(f"No order_form_id found for order '{order_id}'.")
-            return
-
+        Args:
+            project: The project instance.
+            order_details: The VTEX order details.
+            order_form_id: The VTEX order form ID.
+        """
         cart = self._get_cart(order_form_id, project)
         if not cart:
             logger.info(
@@ -116,66 +106,6 @@ class HandlePurchaseEventUseCase:
             logger.error(
                 f"Failed to send notification for cart {cart.uuid}. CAPI notification not marked as sent."
             )
-
-    def _get_project(self, project_uuid: str) -> Optional[Project]:
-        """
-        Fetches the project by its UUID, using cache for performance.
-
-        Args:
-            project_uuid: The UUID of the project.
-
-        Returns:
-            The corresponding Project instance or None if not found.
-        """
-        cache_key = f"project_by_uuid_{project_uuid}"
-        project = cache.get(cache_key)
-
-        if project:
-            return project
-
-        try:
-            project = Project.objects.get(uuid=project_uuid)
-            cache.set(cache_key, project, timeout=43200)  # 12 hours
-            return project
-        except Project.DoesNotExist:
-            logger.info(f"Project not found for UUID {project_uuid}.")
-            return None
-        except Project.MultipleObjectsReturned:
-            logger.error(
-                f"Multiple projects found for UUID {project_uuid}.",
-                exc_info=True,
-            )
-            return None
-
-    def _get_order_details(self, order_id: str, project: Project) -> Optional[dict]:
-        """
-        Retrieves order details from VTEX.
-
-        Args:
-            order_id: The VTEX order ID.
-            project: The project entity, providing the VTEX account context.
-
-        Returns:
-            A dictionary containing the order details, or None if not found.
-        """
-        account_domain = f"{project.vtex_account}.myvtex.com"
-        return self.vtex_io_service.get_order_details_by_id(
-            account_domain=account_domain,
-            project_uuid=str(project.uuid),
-            order_id=order_id,
-        )
-
-    def _extract_order_form_id(self, order_details: dict) -> Optional[str]:
-        """
-        Extracts the order_form_id from the VTEX order details.
-
-        Args:
-            order_details: The dictionary returned by VTEX order API.
-
-        Returns:
-            The order_form_id as a string, or None if not present.
-        """
-        return order_details.get("orderFormId")
 
     def _get_cart(self, order_form_id: str, project: Project) -> Optional[Cart]:
         """

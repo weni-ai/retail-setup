@@ -1107,6 +1107,10 @@ class CartAbandonmentService(BaseVtexUseCase):
         if status == "abandoned":
             cart.abandoned = True
 
+        # Record the exact timestamp when notification was successfully sent
+        if status == "delivered_success":
+            cart.notification_sent_at = timezone.now()
+
         cart.save()
 
     def _calculate_total_value(self, cart: Cart) -> float:

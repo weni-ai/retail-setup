@@ -3,6 +3,8 @@ import logging
 from typing import Optional
 from uuid import UUID
 
+from django.utils import timezone
+
 from retail.projects.models import Project
 from ..models import Cart
 
@@ -96,4 +98,65 @@ class CartRepository:
         cart.capi_notification_sent = True
         cart.save(update_fields=["capi_notification_sent"])
         logger.info(f"Cart {cart.uuid} notification sent to CAPI.")
+        return cart
+
+    @staticmethod
+    def mark_notification_sent(cart: Cart) -> Cart:
+        """
+        Mark the cart as having successfully sent the abandonment notification.
+
+        This method:
+        1. Sets status to 'delivered_success'
+        2. Sets notification_sent_at to current timestamp
+
+        This ensures we have a reliable timestamp for when the notification
+        was actually sent, separate from the auto-updated modified_on field.
+
+        Args:
+            cart: The Cart instance to update.
+
+        Returns:
+            The updated Cart instance.
+        """
+        cart.status = "delivered_success"
+        cart.notification_sent_at = timezone.now()
+        cart.save(update_fields=["status", "notification_sent_at", "modified_on"])
+        logger.info(
+            f"Cart {cart.uuid} marked as notification sent at {cart.notification_sent_at}."
+        )
+        return cart
+
+    @staticmethod
+    def find_abandoned_cart_for_conversion(
+        order_form_id: str, project: Project
+    ) -> Optional[Cart]:
+        """
+        Find an abandoned cart eligible for conversion tracking.
+
+        Searches for carts that:
+        1. Match the given order_form_id and project
+        2. Have integrated_agent set
+        3. Have notification_sent_at set
+        4. Have capi_notification_sent=False
+        """
+        cart = Cart.objects.filter(
+            order_form_id=order_form_id,
+            project=project,
+            integrated_agent__isnull=False,
+            notification_sent_at__isnull=False,
+            capi_notification_sent=False,
+        ).first()
+
+        if cart:
+            logger.info(
+                f"Abandoned cart eligible for conversion found: "
+                f"cart_uuid={cart.uuid} order_form_id={order_form_id} "
+                f"project={project.uuid} notification_sent_at={cart.notification_sent_at}"
+            )
+        else:
+            logger.debug(
+                f"No abandoned cart eligible for conversion: "
+                f"order_form_id={order_form_id} project={project.uuid}"
+            )
+
         return cart
