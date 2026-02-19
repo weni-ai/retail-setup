@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Dict, Any
+from typing import Optional, TypedDict, List, Dict, Any
 
 from rest_framework.exceptions import NotFound
 
@@ -12,7 +12,7 @@ class UpdateLibraryTemplateData(TypedDict, total=False):
     app_uuid: str
     project_uuid: str
     library_template_button_inputs: List[Dict[str, Any]]
-    language: str  # Optional: if not provided, uses integrated_agent.config or template.metadata
+    language: Optional[str]
 
 
 class UpdateLibraryTemplateUseCase(BaseLibraryTemplateUseCase):
@@ -48,13 +48,26 @@ class UpdateLibraryTemplateUseCase(BaseLibraryTemplateUseCase):
             template.metadata = metadata
             template.save()
 
+    def _get_agent_config(self, template: Template) -> Optional[Dict[str, Any]]:
+        """Extract integrated agent config if available."""
+        if template.integrated_agent:
+            return template.integrated_agent.config
+        return None
+
     def _build_payload(
         self, template: Template, payload: UpdateLibraryTemplateData
     ) -> LibraryTemplateData:
+        # TODO: In the future, language may come from project-level settings.
+        agent_config = self._get_agent_config(template)
+        language = resolve_template_language(
+            translation=payload,
+            agent_config=agent_config,
+        )
+
         return {
             "library_template_name": template.name,
             "category": template.metadata.get("category"),
-            "language": resolve_template_language(template, payload),
+            "language": language,
             "app_uuid": payload.get("app_uuid"),
             "project_uuid": payload.get("project_uuid"),
             "library_template_button_inputs": payload.get(

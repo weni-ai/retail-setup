@@ -35,13 +35,14 @@ class UpdateTemplateStrategyTest(TestCase):
             template_metadata_handler=self.metadata_handler,
         )
         template = Mock()
-        template.metadata = {"category": "test", "language": "pt_BR"}
-        template.integrated_agent = None  # No integrated agent - uses metadata language
+        template.metadata = {"category": "test"}
+        template.integrated_agent = None
         payload = {"template_body": "body"}
 
         self.metadata_handler.build_metadata.return_value = {
             "body": "body",
             "category": "test",
+            "language": "pt_BR",
         }
         self.template_adapter.adapt.return_value = {"body": "body", "category": "test"}
         self.metadata_handler.post_process_translation.side_effect = lambda m, t: m
@@ -50,8 +51,10 @@ class UpdateTemplateStrategyTest(TestCase):
             template, payload
         )
 
-        self.metadata_handler.build_metadata.assert_called_once_with(payload, "test")
-        # Language is resolved and added to metadata before calling adapt
+        # build_metadata receives payload with resolved language
+        self.metadata_handler.build_metadata.assert_called_once_with(
+            {"template_body": "body", "language": "pt_BR"}, "test"
+        )
         self.template_adapter.adapt.assert_called_once_with(
             {"body": "body", "category": "test", "language": "pt_BR"}
         )

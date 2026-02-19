@@ -14,11 +14,12 @@ class UpdateTemplateContentData(TypedDict, total=False):
     template_body: str
     template_header: str
     template_footer: str
-    template_button: List[Dict[str, Any]]
+    template_button: list
+    template_body_params: list
     app_uuid: str
     project_uuid: str
     parameters: Optional[List[Dict[str, Any]]]
-    language: str  # Optional: if not provided, uses integrated_agent.config or template.metadata
+    language: Optional[str]
 
 
 class UpdateTemplateContentUseCase:
