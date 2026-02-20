@@ -100,16 +100,26 @@ class UpdateTemplateStrategy(ABC):
 
         return image_content
 
+    def _get_agent_config(self, template: Template) -> Optional[Dict[str, Any]]:
+        """Extract integrated agent config if available."""
+        if template.integrated_agent:
+            return template.integrated_agent.config
+        return None
+
     def _update_common_metadata(
         self, template: Template, payload: Dict[str, Any]
     ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        # TODO: In the future, language may come from project-level settings.
+        agent_config = self._get_agent_config(template)
+        payload["language"] = resolve_template_language(
+            translation=payload,
+            agent_config=agent_config,
+        )
+
         updated_metadata = self.metadata_handler.build_metadata(
             payload,
             template.metadata.get("category"),
         )
-
-        # Add resolved language to metadata for adapter
-        updated_metadata["language"] = resolve_template_language(template, payload)
 
         translation_payload = self.template_adapter.adapt(updated_metadata)
 

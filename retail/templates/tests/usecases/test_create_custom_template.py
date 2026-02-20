@@ -445,6 +445,40 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         result = self.use_case.execute(payload)
         self.assertIsInstance(result, Template)
 
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_language_resolved_from_integrated_agent_config(self, mock_task):
+        """When template_translation has no language, use integrated_agent config."""
+        self.integrated_agent.config = {"initial_template_language": "es"}
+        self.integrated_agent.save()
+
+        self._setup_mocks_for_successful_execution()
+        mock_task.delay.return_value = Mock()
+
+        result = self.use_case.execute(self.valid_payload)
+
+        self.assertIsInstance(result, Template)
+        # Verify build_metadata was called with resolved language
+        call_args = self.mock_metadata_handler.build_metadata.call_args[0][0]
+        self.assertEqual(call_args["language"], "es")
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_language_resolved_from_payload_over_agent_config(self, mock_task):
+        """Explicit language in template_translation takes priority over agent config."""
+        self.integrated_agent.config = {"initial_template_language": "es"}
+        self.integrated_agent.save()
+
+        self._setup_mocks_for_successful_execution()
+        mock_task.delay.return_value = Mock()
+
+        payload = copy.deepcopy(self.valid_payload)
+        payload["template_translation"]["language"] = "en_US"
+
+        result = self.use_case.execute(payload)
+
+        self.assertIsInstance(result, Template)
+        call_args = self.mock_metadata_handler.build_metadata.call_args[0][0]
+        self.assertEqual(call_args["language"], "en_US")
+
     def test_init_with_default_dependencies(self):
         with patch(
             "retail.templates.usecases.create_custom_template.RuleGenerator"

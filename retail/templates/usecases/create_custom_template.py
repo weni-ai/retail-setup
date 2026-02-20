@@ -11,6 +11,7 @@ from retail.templates.usecases import TemplateBuilderMixin
 from retail.templates.tasks import task_create_template
 from retail.templates.models import Template
 from retail.templates.exceptions import CustomTemplateAlreadyExists
+from retail.templates.utils import resolve_template_language
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.services.rule_generator import RuleGenerator
 from retail.templates.handlers import TemplateMetadataHandler
@@ -120,8 +121,15 @@ class CreateCustomTemplateUseCase(TemplateBuilderMixin):
 
         template, version = self.build_template_and_version(payload, integrated_agent)
 
+        # TODO: In the future, language may come from project-level settings.
+        template_translation = payload.get("template_translation", {})
+        template_translation["language"] = resolve_template_language(
+            translation=template_translation,
+            agent_config=integrated_agent.config,
+        )
+
         metadata = self.metadata_handler.build_metadata(
-            payload.get("template_translation", {}),
+            template_translation,
             payload.get("category"),
         )
 
