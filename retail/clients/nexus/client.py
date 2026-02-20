@@ -1,7 +1,7 @@
 """Client for connection with Nexus"""
 
 from django.conf import settings
-from typing import Dict
+from typing import Dict, Tuple
 
 from retail.clients.base import RequestClient, InternalAuthentication
 from retail.interfaces.clients.nexus.client import NexusClientInterface
@@ -11,6 +11,10 @@ class NexusClient(RequestClient, NexusClientInterface):
     def __init__(self):
         self.base_url = settings.NEXUS_REST_ENDPOINT
         self.authentication_instance = InternalAuthentication()
+
+    def _get_auth_header(self) -> dict:
+        """Returns authorization header without Content-Type (for file uploads)."""
+        return {"Authorization": self.authentication_instance.headers["Authorization"]}
 
     def list_agents(self, project_uuid: str) -> Dict:
         """
@@ -87,5 +91,39 @@ class NexusClient(RequestClient, NexusClientInterface):
 
         response = self.make_request(
             url, method="GET", headers=self.authentication_instance.headers
+        )
+        return response.json()
+
+    def upload_content_base_file(
+        self,
+        project_uuid: str,
+        file: Tuple[str, bytes, str],
+        extension_file: str = "txt",
+    ) -> Dict:
+        """
+        Uploads a file to the project's inline content base in Nexus.
+
+        Sends the actual binary file as multipart/form-data along with
+        the required metadata fields (extension_file, load_type).
+
+        Args:
+            project_uuid: The project's unique identifier.
+            file: Tuple of (filename, file_bytes, content_type).
+            extension_file: The file extension without dot (e.g. "txt").
+
+        Returns:
+            Dict: Upload response data.
+        """
+        url = f"{self.base_url}/api/{str(project_uuid)}/inline-content-base-file/"
+
+        response = self.make_request(
+            url,
+            method="POST",
+            headers=self._get_auth_header(),
+            files={"file": file},
+            data={
+                "extension_file": extension_file,
+                "load_type": "pdfminer",
+            },
         )
         return response.json()

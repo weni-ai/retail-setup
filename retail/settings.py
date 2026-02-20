@@ -271,6 +271,9 @@ NEXUS_REST_ENDPOINT = env.str("NEXUS_REST_ENDPOINT", default="")
 # Endpoint for code actions service
 CODE_ACTIONS_REST_ENDPOINT = env.str("CODE_ACTIONS_REST_ENDPOINT", "")
 
+# Endpoint for Crawler microservice
+CRAWLER_REST_ENDPOINT = env.str("CRAWLER_REST_ENDPOINT", "")
+
 # VTEX IO workspace configuration
 VTEX_IO_WORKSPACE = env.str("VTEX_IO_WORKSPACE", default="")
 
