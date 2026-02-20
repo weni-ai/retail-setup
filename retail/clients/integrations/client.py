@@ -238,3 +238,50 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
             )
 
         return all_templates
+
+    def create_wwc_app(self, project_uuid: str, config: Dict) -> Dict:
+        """
+        Creates a WWC (Weni Web Chat) app for the given project.
+
+        Args:
+            project_uuid: The project's unique identifier.
+            config: Initial app configuration payload.
+
+        Returns:
+            Dict containing the created app data (uuid, config, etc.).
+        """
+        url = f"{self.base_url}/api/v1/apptypes/wwc/apps/"
+        payload = {
+            "project_uuid": project_uuid,
+            "config": config,
+        }
+
+        response = self.make_request(
+            url,
+            method="POST",
+            json=payload,
+            headers=self.authentication_instance.headers,
+        )
+        return response.json()
+
+    def configure_wwc_app(self, app_uuid: str, config: Dict) -> Dict:
+        """
+        Configures a previously created WWC app.
+
+        Args:
+            app_uuid: The WWC app's unique identifier.
+            config: The channel configuration payload.
+
+        Returns:
+            Dict containing the configured app data (uuid, script URL).
+        """
+        url = f"{self.base_url}/api/v1/apptypes/wwc/apps/{app_uuid}/configure/"
+        payload = {"config": config}
+
+        response = self.make_request(
+            url,
+            method="PATCH",
+            json=payload,
+            headers=self.authentication_instance.headers,
+        )
+        return response.json()
