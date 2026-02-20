@@ -13,22 +13,36 @@ WWC_CREATION_CONFIG = {
     "useConnectionOptimization": True,
 }
 
-# TODO: Review these configs with the product team before production.
 WWC_CHANNEL_CONFIG = {
-    "title": "Chat",
-    "showFullScreenButton": False,
-    "displayUnreadCount": False,
-    "timeBetweenMessages": 1,
-    "keepHistory": False,
-    "startFullScreen": False,
-    "showVoiceRecordingButton": False,
-    "showCameraButton": False,
-    "useConnectionOptimization": True,
-    "navigateIfSameDomain": False,
-    "embedded": False,
-    "mainColor": "#009E96",
-    "contactTimeout": 0,
+    "title": "Assistente Virtual",  # TODO: Translate with mapping
     "version": "2",
+    "selector": "#wwc",
+    "embedded": False,
+    "mainColor": "#3d3d3d",
+    "contactTimeout": 0,
+    "startFullScreen": False,
+    "showCameraButton": False,
+    "showFullScreenButton": False,
+    "showVoiceRecordingButton": False,
+    "displayUnreadCount": True,
+    "timeBetweenMessages": 1,
+    "navigateIfSameDomain": False,
+    "useConnectionOptimization": False,
+    "inputTextFieldHint": "Como posso ajudar?",  # TODO: Translate with mapping
+    "displayRatio": 10,
+    "params": {
+        "images": {"dims": {"width": 300, "height": 200}},
+        "storage": "local",
+    },
+    "customizeWidget": {
+        "launcherColor": "#3d3d3d",
+        "headerBackgroundColor": "#3d3d3d",
+        "quickRepliesFontColor": "#3d3d3d",
+        "userMessageBubbleColor": "#3d3d3d",
+        "quickRepliesBorderColor": "#3d3d3d",
+        "quickRepliesBackgroundColor": "#3d3d3d33",
+    },
+    "profileAvatar": "",  # TODO: S3 upload of the avatar image
 }
 
 
