@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Dict, Optional
 
 from retail.interfaces.clients.connect.interface import ConnectClientInterface
 from retail.interfaces.services.connect import ConnectServiceInterface
@@ -14,4 +14,16 @@ class ConnectService(ConnectServiceInterface):
     ):
         return self.connect_client.get_user_permissions(
             project_uuid, user_email, user_token
+        )
+
+    def create_vtex_project(
+        self,
+        user_email: str,
+        vtex_account: str,
+        language: Optional[str] = None,
+    ) -> Dict:
+        return self.connect_client.create_vtex_project(
+            user_email=user_email,
+            vtex_account=vtex_account,
+            language=language,
         )
