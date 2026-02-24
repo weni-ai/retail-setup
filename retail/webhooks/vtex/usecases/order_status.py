@@ -143,7 +143,7 @@ class OrderStatusUseCase:
 
         order_data = self.vtex_io_service.get_order_details_by_id(
             account_domain=account_domain,
-            project_uuid=str(project.uuid),
+            vtex_account=project.vtex_account,
             order_id=self.data.orderId,
         )
 

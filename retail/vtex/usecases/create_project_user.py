@@ -69,15 +69,11 @@ class CreateProjectUserUseCase:
         Fetch defaultLocale from the VTEX tenant API via the IO proxy.
         """
         account_domain = f"{vtex_account}.myvtex.com"
-        # TODO: Temporary compatibility with current proxy_vtex signature
-        # (expects project_uuid for JWT generation).
-        # Next refactor: send vtex_account as the JWT auth identifier.
-        proxy_auth_identifier = vtex_account
 
         try:
             response = self.vtex_io_service.proxy_vtex(
                 account_domain=account_domain,
-                project_uuid=proxy_auth_identifier,
+                vtex_account=vtex_account,
                 method="GET",
                 path=f"/api/tenant/tenants?q={vtex_account}",
             )

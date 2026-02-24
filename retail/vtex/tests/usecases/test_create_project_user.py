@@ -35,7 +35,7 @@ class TestCreateProjectUserUseCase(TestCase):
 
         self.vtex_io_service.proxy_vtex.assert_called_once_with(
             account_domain="mystore.myvtex.com",
-            project_uuid="mystore",
+            vtex_account="mystore",
             method="GET",
             path="/api/tenant/tenants?q=mystore",
         )

@@ -4,14 +4,14 @@ from abc import ABC, abstractmethod
 class VtexIOClientInterface(ABC):
     @abstractmethod
     def get_order_form_details(
-        self, account_domain: str, project_uuid: str, order_form_id: str
+        self, account_domain: str, vtex_account: str, order_form_id: str
     ) -> dict:
         """
         Fetches order form details by ID.
 
         Args:
             account_domain (str): VTEX account domain.
-            project_uuid (str): Project UUID for JWT token generation.
+            vtex_account (str): VTEX account for JWT token generation.
             order_form_id (str): Unique identifier for the order form.
 
         Returns:
@@ -21,14 +21,14 @@ class VtexIOClientInterface(ABC):
 
     @abstractmethod
     def get_order_details(
-        self, account_domain: str, project_uuid: str, user_email: str
+        self, account_domain: str, vtex_account: str, user_email: str
     ) -> dict:
         """
         Fetches order details by user email.
 
         Args:
             account_domain (str): VTEX account domain.
-            project_uuid (str): Project UUID for JWT token generation.
+            vtex_account (str): VTEX account for JWT token generation.
             user_email (str): Email address of the user.
 
         Returns:
@@ -38,14 +38,14 @@ class VtexIOClientInterface(ABC):
 
     @abstractmethod
     def get_order_details_by_id(
-        self, account_domain: str, project_uuid: str, order_id: str
+        self, account_domain: str, vtex_account: str, order_id: str
     ) -> dict:
         """
         Fetches order details by order ID.
 
         Args:
             account_domain (str): VTEX account domain.
-            project_uuid (str): Project UUID for JWT token generation.
+            vtex_account (str): VTEX account for JWT token generation.
             order_id (str): The order ID to fetch details for.
 
         Returns:
@@ -55,14 +55,14 @@ class VtexIOClientInterface(ABC):
 
     @abstractmethod
     def get_orders(
-        self, account_domain: str, project_uuid: str, query_params: str
+        self, account_domain: str, vtex_account: str, query_params: str
     ) -> dict:
         """
         Acts as a proxy to fetch orders from VTEX IO OMS API.
 
         Args:
             account_domain (str): VTEX account domain.
-            project_uuid (str): Project UUID for JWT token generation.
+            vtex_account (str): VTEX account for JWT token generation.
             query_params (str): Query parameters to filter orders.
 
         Returns:
@@ -71,13 +71,13 @@ class VtexIOClientInterface(ABC):
         pass
 
     @abstractmethod
-    def get_account_identifier(self, account_domain: str, project_uuid: str) -> dict:
+    def get_account_identifier(self, account_domain: str, vtex_account: str) -> dict:
         """
         Retrieves the VTEX account identifier.
 
         Args:
             account_domain (str): VTEX account domain.
-            project_uuid (str): Project UUID for JWT token generation.
+            vtex_account (str): VTEX account for JWT token generation.
 
         Returns:
             dict: Account identifier details.
@@ -88,7 +88,7 @@ class VtexIOClientInterface(ABC):
     def proxy_vtex(
         self,
         account_domain: str,
-        project_uuid: str,
+        vtex_account: str,
         method: str,
         path: str,
         headers: dict = None,
@@ -100,7 +100,7 @@ class VtexIOClientInterface(ABC):
 
         Args:
             account_domain (str): VTEX account domain.
-            project_uuid (str): Project UUID for JWT token generation.
+            vtex_account (str): VTEX account for JWT token generation.
             method (str): HTTP method (GET, POST, PUT, PATCH).
             path (str): API endpoint path.
             headers (dict, optional): Additional headers to be sent with the request.

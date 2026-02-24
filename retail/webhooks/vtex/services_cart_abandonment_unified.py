@@ -189,7 +189,7 @@ class CartAbandonmentService(BaseVtexUseCase):
         project_uuid = str(cart.project.uuid)
         order_form = self.vtex_io_service.get_order_form_details(
             account_domain=self._get_account_domain(project_uuid),
-            project_uuid=project_uuid,
+            vtex_account=cart.project.vtex_account,
             order_form_id=cart.order_form_id,
         )
         if not order_form:
@@ -245,7 +245,7 @@ class CartAbandonmentService(BaseVtexUseCase):
         project_uuid = str(cart.project.uuid)
         orders = self.vtex_io_service.get_order_details(
             account_domain=self._get_account_domain(project_uuid),
-            project_uuid=project_uuid,
+            vtex_account=cart.project.vtex_account,
             user_email=email,
         )
         return orders or {"list": []}
@@ -994,7 +994,7 @@ class CartAbandonmentService(BaseVtexUseCase):
             project_uuid = str(cart.project.uuid)
             order_details = self.vtex_io_service.get_order_details_by_id(
                 account_domain=self._get_account_domain(project_uuid),
-                project_uuid=project_uuid,
+                vtex_account=cart.project.vtex_account,
                 order_id=order_id,
             )
 
