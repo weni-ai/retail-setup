@@ -5,6 +5,8 @@ from retail.agents.shared.country_code_utils import (
     extract_region_from_locale,
     get_country_phone_code_from_locale,
     convert_vtex_locale_to_meta_language,
+    convert_vtex_locale_to_connect_language,
+    convert_connect_language_to_meta,
 )
 
 
@@ -121,6 +123,53 @@ class TestConvertVtexLocaleToMetaLanguage(unittest.TestCase):
     def test_convert_none_returns_default(self):
         """None should return default pt_BR."""
         self.assertEqual(convert_vtex_locale_to_meta_language(None), "pt_BR")
+
+
+class TestConvertVtexLocaleToConnectLanguage(unittest.TestCase):
+    """Tests for VTEX locale to Connect language conversion (simple lower)."""
+
+    def test_portuguese_brazil(self):
+        self.assertEqual(convert_vtex_locale_to_connect_language("pt-BR"), "pt-br")
+
+    def test_english_us(self):
+        self.assertEqual(convert_vtex_locale_to_connect_language("en-US"), "en-us")
+
+    def test_english_gb(self):
+        self.assertEqual(convert_vtex_locale_to_connect_language("en-GB"), "en-gb")
+
+    def test_spanish_argentina(self):
+        self.assertEqual(convert_vtex_locale_to_connect_language("es-AR"), "es-ar")
+
+    def test_spanish_mexico(self):
+        self.assertEqual(convert_vtex_locale_to_connect_language("es-MX"), "es-mx")
+
+    def test_german(self):
+        self.assertEqual(convert_vtex_locale_to_connect_language("de-DE"), "de-de")
+
+    def test_empty_falls_back_to_pt_br(self):
+        self.assertEqual(convert_vtex_locale_to_connect_language(""), "pt-br")
+
+    def test_none_falls_back_to_pt_br(self):
+        self.assertEqual(convert_vtex_locale_to_connect_language(None), "pt-br")
+
+
+class TestConvertConnectLanguageToMeta(unittest.TestCase):
+    """Tests for Connect language to Meta language conversion."""
+
+    def test_pt_br(self):
+        self.assertEqual(convert_connect_language_to_meta("pt-br"), "pt_BR")
+
+    def test_en_us(self):
+        self.assertEqual(convert_connect_language_to_meta("en-us"), "en_US")
+
+    def test_es(self):
+        self.assertEqual(convert_connect_language_to_meta("es"), "es")
+
+    def test_empty_returns_default(self):
+        self.assertEqual(convert_connect_language_to_meta(""), "pt_BR")
+
+    def test_none_returns_default(self):
+        self.assertEqual(convert_connect_language_to_meta(None), "pt_BR")
 
 
 class TestVtexToMetaIntegration(unittest.TestCase):

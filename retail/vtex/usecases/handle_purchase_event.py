@@ -161,7 +161,7 @@ class HandlePurchaseEventUseCase:
         account_domain = f"{project.vtex_account}.myvtex.com"
         return self.vtex_io_service.get_order_details_by_id(
             account_domain=account_domain,
-            project_uuid=str(project.uuid),
+            vtex_account=project.vtex_account,
             order_id=order_id,
         )
 

@@ -73,6 +73,59 @@ class TestProjectCreationUseCase(TestCase):
         self.assertEqual(str(updated_project.uuid), self.vtex_project_dto.uuid)
         self.assertEqual(Project.objects.count(), 1)
 
+    def test_create_project_with_language(self):
+        dto = ProjectCreationDTO(
+            name="Lang Project",
+            uuid=str(uuid4()),
+            organization_uuid=str(uuid4()),
+            vtex_account="langstore",
+            language="pt-br",
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.objects.get(uuid=dto.uuid)
+        self.assertEqual(project.language, "pt-br")
+
+    def test_update_existing_project_sets_language(self):
+        project_uuid = str(uuid4())
+        Project.objects.create(
+            name="Old",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+        )
+
+        dto = ProjectCreationDTO(
+            name="Old",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            language="en-us",
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.objects.get(uuid=project_uuid)
+        self.assertEqual(project.language, "en-us")
+
+    def test_update_vtex_account_project_sets_language(self):
+        old_uuid = str(uuid4())
+        Project.objects.create(
+            name="VTEX Store",
+            uuid=old_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account="langstore",
+        )
+
+        dto = ProjectCreationDTO(
+            name="VTEX Store",
+            uuid=str(uuid4()),
+            organization_uuid=str(uuid4()),
+            vtex_account="langstore",
+            language="es",
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.objects.get(vtex_account="langstore")
+        self.assertEqual(project.language, "es")
+
     def test_multiple_vtex_accounts_raises_error(self):
         """
         Test that attempting to create/update a project with duplicate VTEX accounts raises an error

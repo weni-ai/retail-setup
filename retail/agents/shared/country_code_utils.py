@@ -61,6 +61,65 @@ def convert_vtex_locale_to_meta_language(locale: str) -> str:
     return locale.replace("-", "_")
 
 
+DEFAULT_CONNECT_LANGUAGE = "pt-br"
+
+
+def convert_vtex_locale_to_connect_language(locale: str) -> str:
+    """
+    Convert VTEX locale to Connect project language format.
+
+    VTEX returns locale as 'pt-BR'; Connect expects the same string
+    lowercased ('pt-br').  Works for any locale, not just a fixed set.
+
+    Args:
+        locale: VTEX locale (e.g., 'pt-BR', 'en-US', 'es-AR')
+
+    Returns:
+        Connect language code (e.g., 'pt-br', 'en-us', 'es-ar')
+
+    Examples:
+        >>> convert_vtex_locale_to_connect_language('pt-BR')
+        'pt-br'
+        >>> convert_vtex_locale_to_connect_language('en-US')
+        'en-us'
+        >>> convert_vtex_locale_to_connect_language('es-AR')
+        'es-ar'
+    """
+    if not locale:
+        return DEFAULT_CONNECT_LANGUAGE
+
+    return locale.lower()
+
+
+def convert_connect_language_to_meta(language: str) -> str:
+    """
+    Convert Connect language format to Meta language format.
+
+    Useful for converting stored project language to Meta's expected format.
+
+    Args:
+        language: Connect language (e.g., 'pt-br', 'en-us', 'es')
+
+    Returns:
+        Meta language code (e.g., 'pt_BR', 'en_US', 'es')
+
+    Examples:
+        >>> convert_connect_language_to_meta('pt-br')
+        'pt_BR'
+        >>> convert_connect_language_to_meta('en-us')
+        'en_US'
+        >>> convert_connect_language_to_meta('es')
+        'es'
+    """
+    if not language:
+        return DEFAULT_TEMPLATE_LANGUAGE
+
+    parts = language.split("-")
+    if len(parts) == 2:
+        return f"{parts[0]}_{parts[1].upper()}"
+    return parts[0]
+
+
 def get_country_phone_code_from_locale(locale: str) -> str:
     """
     Get the country phone code (DDI) from a VTEX locale string.
