@@ -46,6 +46,8 @@ class CreateProjectUserUseCase:
     def execute(self, dto: CreateProjectUserDTO) -> Dict:
         locale = self._fetch_vtex_locale(dto.vtex_account)
         language = convert_vtex_locale_to_connect_language(locale)
+        organization_name = dto.vtex_account.title()
+        project_name = f"{dto.vtex_account.title()} 01"
 
         logger.info(
             f"[CreateProjectUser] vtex_account={dto.vtex_account} "
@@ -56,6 +58,8 @@ class CreateProjectUserUseCase:
             user_email=dto.user_email,
             vtex_account=dto.vtex_account,
             language=language,
+            organization_name=organization_name,
+            project_name=project_name,
         )
 
         logger.info(

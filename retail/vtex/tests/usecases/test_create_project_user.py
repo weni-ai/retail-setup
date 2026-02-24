@@ -43,6 +43,8 @@ class TestCreateProjectUserUseCase(TestCase):
             user_email="user@example.com",
             vtex_account="mystore",
             language="pt-br",
+            organization_name="Mystore",
+            project_name="Mystore 01",
         )
         self.assertEqual(result["project_uuid"], "abc-123")
 
@@ -56,6 +58,8 @@ class TestCreateProjectUserUseCase(TestCase):
             user_email="user@example.com",
             vtex_account="mystore",
             language="en-us",
+            organization_name="Mystore",
+            project_name="Mystore 01",
         )
 
     def test_execute_spanish_locale(self):
@@ -68,6 +72,8 @@ class TestCreateProjectUserUseCase(TestCase):
             user_email="user@example.com",
             vtex_account="mystore",
             language="es-ar",
+            organization_name="Mystore",
+            project_name="Mystore 01",
         )
 
     def test_execute_falls_back_when_proxy_fails(self):
@@ -80,6 +86,8 @@ class TestCreateProjectUserUseCase(TestCase):
             user_email="user@example.com",
             vtex_account="mystore",
             language="pt-br",
+            organization_name="Mystore",
+            project_name="Mystore 01",
         )
 
     def test_execute_falls_back_when_no_locale_in_response(self):
@@ -92,6 +100,8 @@ class TestCreateProjectUserUseCase(TestCase):
             user_email="user@example.com",
             vtex_account="mystore",
             language="pt-br",
+            organization_name="Mystore",
+            project_name="Mystore 01",
         )
 
     def test_extract_locale_from_list_response(self):

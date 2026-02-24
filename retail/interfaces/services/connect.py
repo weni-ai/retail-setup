@@ -8,6 +8,11 @@ class ConnectServiceInterface(Protocol):
         ...
 
     def create_vtex_project(
-        self, user_email: str, vtex_account: str, language: Optional[str] = None
+        self,
+        user_email: str,
+        vtex_account: str,
+        language: str,
+        organization_name: str,
+        project_name: str,
     ) -> Dict:
         ...

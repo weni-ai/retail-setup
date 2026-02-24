@@ -41,7 +41,9 @@ class ConnectClient(RequestClient, ConnectClientInterface):
         self,
         user_email: str,
         vtex_account: str,
-        language: Optional[str] = None,
+        language: str,
+        organization_name: str,
+        project_name: str,
     ) -> Dict:
         url = f"{self.base_url}/v2/commerce/create-vtex-project/"
 
@@ -49,6 +51,8 @@ class ConnectClient(RequestClient, ConnectClientInterface):
             "user_email": user_email,
             "vtex_account": vtex_account,
             "language": language,
+            "organization_name": organization_name,
+            "project_name": project_name,
         }
 
         response = self.make_request(
