@@ -1,5 +1,7 @@
 import logging
 
+from django.conf import settings
+
 from retail.clients.integrations.client import IntegrationsClient
 from retail.interfaces.clients.integrations.interface import IntegrationsClientInterface
 from retail.projects.models import ProjectOnboarding
@@ -42,7 +44,7 @@ WWC_CHANNEL_CONFIG = {
         "quickRepliesBorderColor": "#3d3d3d",
         "quickRepliesBackgroundColor": "#3d3d3d33",
     },
-    "profileAvatar": "",  # TODO: S3 upload of the avatar image
+    "profileAvatar": settings.WWC_PROFILE_AVATAR_URL,
 }
 
 
