@@ -4,6 +4,7 @@ from uuid import uuid4
 from django.test import TestCase, override_settings
 
 from retail.projects.models import Project, ProjectOnboarding
+from retail.projects.usecases.manager_defaults import MANAGER_DEFAULTS
 from retail.projects.usecases.start_crawl import (
     CrawlerStartError,
     StartCrawlUseCase,
@@ -17,6 +18,7 @@ class TestStartCrawlUseCase(TestCase):
             name="Test Project",
             uuid=uuid4(),
             vtex_account="mystore",
+            language="pt-br",
         )
         self.onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
@@ -64,12 +66,17 @@ class TestStartCrawlUseCase(TestCase):
             f"https://retail.weni.ai/api/onboard/{project_uuid}/webhook/",
         )
 
-    def test_build_project_context(self):
-        context = StartCrawlUseCase._build_project_context("mystore")
+    def test_build_project_context_with_pt(self):
+        context = StartCrawlUseCase._build_project_context("mystore", "pt-br")
 
         self.assertEqual(context["account_name"], "mystore")
-        self.assertIn("objective", context)
+        self.assertEqual(context["objective"], MANAGER_DEFAULTS["pt"]["goal"])
         self.assertIn("instructions", context)
+
+    def test_build_project_context_with_en(self):
+        context = StartCrawlUseCase._build_project_context("mystore", "en-us")
+
+        self.assertEqual(context["objective"], MANAGER_DEFAULTS["en"]["goal"])
 
     def test_raises_does_not_exist_for_unknown_vtex_account(self):
         with self.assertRaises(ProjectOnboarding.DoesNotExist):

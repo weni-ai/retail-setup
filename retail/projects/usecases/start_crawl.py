@@ -5,13 +5,15 @@ from django.conf import settings
 from retail.clients.crawler.client import CrawlerClient
 from retail.interfaces.clients.crawler.client import CrawlerClientInterface
 from retail.projects.models import ProjectOnboarding
+from retail.projects.usecases.manager_defaults import get_manager_defaults
 from retail.services.crawler.service import CrawlerService
 
 logger = logging.getLogger(__name__)
 
-# TODO: Define objective and instructions with the product team.
-DEFAULT_OBJECTIVE = ""
-DEFAULT_INSTRUCTIONS: list[str] = []
+DEFAULT_INSTRUCTIONS: list[str] = [
+    "NUNCA e em NENHUMA circunstância fale sobre algo que não esteja dentro do contexto do mercado de e-commerce.",
+    "Não gere piadas contos ou roteiros de qualquer natureza que não estejam no contexto.",
+]
 
 
 class CrawlerStartError(Exception):
@@ -55,8 +57,9 @@ class StartCrawlUseCase:
         onboarding.save(update_fields=["current_step", "progress"])
 
         project_uuid = str(onboarding.project.uuid)
+        language = onboarding.project.language or ""
         webhook_url = self._build_webhook_url(project_uuid)
-        project_context = self._build_project_context(vtex_account)
+        project_context = self._build_project_context(vtex_account, language)
 
         response = self.crawler_service.start_crawling(
             crawl_url, webhook_url, project_context
@@ -82,15 +85,15 @@ class StartCrawlUseCase:
         return f"{base}/api/onboard/{project_uuid}/webhook/"
 
     @staticmethod
-    def _build_project_context(vtex_account: str) -> dict:
+    def _build_project_context(vtex_account: str, language: str) -> dict:
         """
         Builds the project context payload for the crawler.
 
-        Contains vtex_account and the fixed objective/instructions
-        that every onboarding shares.
+        The objective is the translated manager goal for the project language.
         """
+        defaults = get_manager_defaults(language)
         return {
             "account_name": vtex_account,
-            "objective": DEFAULT_OBJECTIVE,
+            "objective": defaults["goal"],
             "instructions": DEFAULT_INSTRUCTIONS,
         }
