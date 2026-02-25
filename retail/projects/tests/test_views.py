@@ -83,7 +83,7 @@ class TestCrawlerWebhookView(TestCase):
     @patch("retail.projects.usecases.update_onboarding_progress.task_configure_nexus")
     def test_returns_200_on_valid_webhook(self, mock_task, mock_lock):
         response = self.client.post(
-            f"/api/onboard/{self.project.uuid}/webhook/",
+            f"/api/onboard/{self.onboarding.uuid}/webhook/",
             {
                 "task_id": "task-1",
                 "event": "crawl.subpage.progress",
@@ -114,7 +114,7 @@ class TestCrawlerWebhookView(TestCase):
 
     def test_returns_400_for_invalid_payload(self):
         response = self.client.post(
-            f"/api/onboard/{self.project.uuid}/webhook/",
+            f"/api/onboard/{self.onboarding.uuid}/webhook/",
             {"invalid": "data"},
             format="json",
         )

@@ -22,7 +22,7 @@ urlpatterns = [
         name="onboarding-start-crawling",
     ),
     path(
-        "onboard/<uuid:project_uuid>/webhook/",
+        "onboard/<uuid:onboarding_uuid>/webhook/",
         project_views.CrawlerWebhookView.as_view(),
         name="onboarding-crawler-webhook",
     ),

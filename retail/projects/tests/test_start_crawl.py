@@ -45,7 +45,7 @@ class TestStartCrawlUseCase(TestCase):
         self.mock_crawler_service.start_crawling.assert_called_once()
         args = self.mock_crawler_service.start_crawling.call_args
         self.assertEqual(args[0][0], "https://www.mystore.com.br/")
-        self.assertIn(str(self.project.uuid), args[0][1])  # webhook_url
+        self.assertIn(str(self.onboarding.uuid), args[0][1])  # webhook_url
         self.assertEqual(args[0][2]["account_name"], "mystore")
 
     def test_raises_error_when_crawler_fails(self):
@@ -58,12 +58,12 @@ class TestStartCrawlUseCase(TestCase):
         self.assertEqual(self.onboarding.crawler_result, ProjectOnboarding.FAIL)
 
     def test_build_webhook_url(self):
-        project_uuid = str(uuid4())
-        url = StartCrawlUseCase._build_webhook_url(project_uuid)
+        onboarding_uuid = str(uuid4())
+        url = StartCrawlUseCase._build_webhook_url(onboarding_uuid)
 
         self.assertEqual(
             url,
-            f"https://retail.weni.ai/api/onboard/{project_uuid}/webhook/",
+            f"https://retail.weni.ai/api/onboard/{onboarding_uuid}/webhook/",
         )
 
     def test_build_project_context_with_pt(self):

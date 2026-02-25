@@ -25,8 +25,7 @@ class StartCrawlUseCase:
     Starts the crawl by calling the Crawler MS.
 
     Sets current_step to CRAWL, resets progress, builds the webhook URL
-    using the project UUID (project must be linked at this point), and
-    forwards the request to the crawler.
+    using the onboarding UUID, and forwards the request to the crawler.
     """
 
     def __init__(
@@ -56,10 +55,16 @@ class StartCrawlUseCase:
         onboarding.progress = 0
         onboarding.save(update_fields=["current_step", "progress"])
 
-        project_uuid = str(onboarding.project.uuid)
-        language = onboarding.project.language or ""
-        webhook_url = self._build_webhook_url(project_uuid)
+        onboarding_uuid = str(onboarding.uuid)
+        language = onboarding.project.language or "" if onboarding.project else ""
+        webhook_url = self._build_webhook_url(onboarding_uuid)
         project_context = self._build_project_context(vtex_account, language)
+
+        logger.info(
+            f"Starting crawler for vtex_account={vtex_account} "
+            f"crawl_url={crawl_url} webhook_url={webhook_url} "
+            f"project_context={project_context}"
+        )
 
         response = self.crawler_service.start_crawling(
             crawl_url, webhook_url, project_context
@@ -79,10 +84,10 @@ class StartCrawlUseCase:
         )
 
     @staticmethod
-    def _build_webhook_url(project_uuid: str) -> str:
-        """Builds the webhook URL using the project UUID."""
+    def _build_webhook_url(onboarding_uuid: str) -> str:
+        """Builds the webhook URL using the onboarding UUID."""
         base = settings.DOMAIN.rstrip("/")
-        return f"{base}/api/onboard/{project_uuid}/webhook/"
+        return f"{base}/api/onboard/{onboarding_uuid}/webhook/"
 
     @staticmethod
     def _build_project_context(vtex_account: str, language: str) -> dict:
