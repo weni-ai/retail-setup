@@ -252,7 +252,7 @@ class TestBuildFilesFromContents(TestCase):
 
         self.assertEqual(len(files), 1)
         filename, file_bytes, content_type = files[0]
-        self.assertEqual(filename, "000_Test_Page.txt")
+        self.assertEqual(filename, "000_test-page.txt")
         self.assertEqual(file_bytes, b"Some content here.")
         self.assertEqual(content_type, "text/plain")
 
@@ -260,7 +260,7 @@ class TestBuildFilesFromContents(TestCase):
         contents = [{"link": "https://a.com", "content": "content"}]
         files = ConfigureAgentBuilderUseCase._build_files_from_contents(contents)
         filename = files[0][0]
-        self.assertIn("page_0", filename)
+        self.assertIn("page-0", filename)
 
     def test_handles_empty_content(self):
         contents = [{"link": "https://a.com", "title": "Page"}]
@@ -270,11 +270,11 @@ class TestBuildFilesFromContents(TestCase):
 
 class TestSanitizeFilename(TestCase):
     def test_basic_title(self):
-        self.assertEqual(_sanitize_filename("About Us", 0), "000_About_Us.txt")
+        self.assertEqual(_sanitize_filename("About Us", 0), "000_about-us.txt")
 
     def test_special_characters(self):
         result = _sanitize_filename("C&A | Fornecedores!", 1)
-        self.assertEqual(result, "001_CA_Fornecedores.txt")
+        self.assertEqual(result, "001_ca-fornecedores.txt")
 
     def test_url_as_title(self):
         result = _sanitize_filename("https://www.cea.com.br/", 0)
@@ -291,4 +291,8 @@ class TestSanitizeFilename(TestCase):
 
     def test_whitespace_collapsed(self):
         result = _sanitize_filename("Hello   World   Page", 2)
-        self.assertEqual(result, "002_Hello_World_Page.txt")
+        self.assertEqual(result, "002_hello-world-page.txt")
+
+    def test_strips_accents(self):
+        result = _sanitize_filename("Promoção Ação Café", 0)
+        self.assertEqual(result, "000_promocao-acao-cafe.txt")

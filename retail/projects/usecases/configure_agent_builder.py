@@ -1,5 +1,6 @@
 import logging
 import re
+import unicodedata
 
 from typing import List, Tuple
 
@@ -188,8 +189,8 @@ def _sanitize_filename(title: str, index: int) -> str:
     """
     Generates a safe filename from a page title.
 
-    Removes special characters, limits length, and appends the index
-    to guarantee uniqueness.
+    Strips accents via NFKD normalization, removes special characters,
+    limits length, and appends the index to guarantee uniqueness.
 
     Args:
         title: The page title to convert into a filename.
@@ -198,7 +199,9 @@ def _sanitize_filename(title: str, index: int) -> str:
     Returns:
         A sanitized .txt filename.
     """
-    name = re.sub(r"[^\w\s-]", "", title).strip()
-    name = re.sub(r"[\s]+", "_", name)
+    normalized = unicodedata.normalize("NFKD", title)
+    ascii_title = normalized.encode("ascii", "ignore").decode("ascii")
+    name = re.sub(r"[^\w\s-]", "", ascii_title).strip().lower()
+    name = re.sub(r"[\s_]+", "-", name)
     name = name[:80] if name else "page"
     return f"{index:03d}_{name}.txt"
