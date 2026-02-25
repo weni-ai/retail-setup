@@ -4,6 +4,10 @@ from uuid import uuid4
 from django.test import TestCase
 
 from retail.projects.models import Project, ProjectOnboarding
+from retail.projects.usecases.manager_defaults import (
+    MANAGER_DEFAULTS,
+    MANAGER_PERSONALITY,
+)
 from retail.projects.usecases.configure_agent_builder import (
     ConfigureAgentBuilderUseCase,
     ProjectNotLinkedError,
@@ -18,6 +22,7 @@ class TestConfigureAgentBuilderUseCase(TestCase):
             name="Test Project",
             uuid=uuid4(),
             vtex_account="mystore",
+            language="pt-br",
         )
         self.onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
@@ -71,7 +76,6 @@ class TestConfigureAgentBuilderUseCase(TestCase):
         self.assertEqual(self.mock_nexus_service.upload_content_base_file.call_count, 2)
 
     def test_file_contains_only_content(self):
-        """Files should contain only the raw content, not Title/Source headers."""
         self.mock_nexus_service.upload_content_base_file.return_value = {"status": "ok"}
 
         contents = [
@@ -133,6 +137,105 @@ class TestConfigureAgentBuilderUseCase(TestCase):
 
         call_kwargs = self.mock_nexus_service.upload_content_base_file.call_args[1]
         self.assertEqual(call_kwargs["project_uuid"], str(self.project.uuid))
+
+
+class TestAgentConfiguration(TestCase):
+    """Tests for the check/configure agent manager flow."""
+
+    def setUp(self):
+        self.project = Project.objects.create(
+            name="Test Project",
+            uuid=uuid4(),
+            vtex_account="flowstore",
+            language="pt-br",
+        )
+        self.onboarding = ProjectOnboarding.objects.create(
+            vtex_account="flowstore",
+            project=self.project,
+        )
+        self.mock_nexus_service = MagicMock()
+        self.usecase = ConfigureAgentBuilderUseCase(nexus_client=MagicMock())
+        self.usecase.nexus_service = self.mock_nexus_service
+
+    def test_skips_configure_when_agent_already_exists(self):
+        self.mock_nexus_service.check_agent_builder_exists.return_value = {
+            "data": {"has_agent": True, "name": "Flowstore Manager"}
+        }
+
+        self.usecase.execute("flowstore", [])
+
+        self.mock_nexus_service.check_agent_builder_exists.assert_called_once_with(
+            str(self.project.uuid)
+        )
+        self.mock_nexus_service.configure_agent_attributes.assert_not_called()
+
+    def test_configures_agent_when_not_exists(self):
+        self.mock_nexus_service.check_agent_builder_exists.return_value = {
+            "data": {"has_agent": False}
+        }
+        self.mock_nexus_service.configure_agent_attributes.return_value = {"ok": True}
+
+        self.usecase.execute("flowstore", [])
+
+        self.mock_nexus_service.configure_agent_attributes.assert_called_once()
+        payload = self.mock_nexus_service.configure_agent_attributes.call_args[0][1]
+        self.assertEqual(payload["agent"]["name"], "Flowstore Manager")
+        self.assertEqual(payload["agent"]["personality"], MANAGER_PERSONALITY)
+        self.assertEqual(payload["agent"]["role"], MANAGER_DEFAULTS["pt"]["role"])
+        self.assertEqual(payload["agent"]["goal"], MANAGER_DEFAULTS["pt"]["goal"])
+        self.assertEqual(payload["links"], [])
+
+    def test_configures_agent_with_english_fallback(self):
+        self.project.language = "ja-jp"
+        self.project.save()
+
+        self.mock_nexus_service.check_agent_builder_exists.return_value = {
+            "data": {"has_agent": False}
+        }
+        self.mock_nexus_service.configure_agent_attributes.return_value = {"ok": True}
+
+        self.usecase.execute("flowstore", [])
+
+        payload = self.mock_nexus_service.configure_agent_attributes.call_args[0][1]
+        self.assertEqual(payload["agent"]["role"], MANAGER_DEFAULTS["en"]["role"])
+        self.assertEqual(payload["agent"]["goal"], MANAGER_DEFAULTS["en"]["goal"])
+
+    def test_configures_agent_with_spanish(self):
+        self.project.language = "es"
+        self.project.save()
+
+        self.mock_nexus_service.check_agent_builder_exists.return_value = {
+            "data": {"has_agent": False}
+        }
+        self.mock_nexus_service.configure_agent_attributes.return_value = {"ok": True}
+
+        self.usecase.execute("flowstore", [])
+
+        payload = self.mock_nexus_service.configure_agent_attributes.call_args[0][1]
+        self.assertEqual(payload["agent"]["role"], MANAGER_DEFAULTS["es"]["role"])
+
+    def test_configures_agent_when_check_returns_none(self):
+        """If the check endpoint fails, we still attempt to configure."""
+        self.mock_nexus_service.check_agent_builder_exists.return_value = None
+        self.mock_nexus_service.configure_agent_attributes.return_value = {"ok": True}
+
+        self.usecase.execute("flowstore", [])
+
+        self.mock_nexus_service.configure_agent_attributes.assert_called_once()
+
+    def test_configures_agent_with_null_language_falls_back_to_en(self):
+        self.project.language = None
+        self.project.save()
+
+        self.mock_nexus_service.check_agent_builder_exists.return_value = {
+            "data": {"has_agent": False}
+        }
+        self.mock_nexus_service.configure_agent_attributes.return_value = {"ok": True}
+
+        self.usecase.execute("flowstore", [])
+
+        payload = self.mock_nexus_service.configure_agent_attributes.call_args[0][1]
+        self.assertEqual(payload["agent"]["role"], MANAGER_DEFAULTS["en"]["role"])
 
 
 class TestBuildFilesFromContents(TestCase):

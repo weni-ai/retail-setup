@@ -44,7 +44,7 @@ class TestStartCrawlUseCase(TestCase):
         args = self.mock_crawler_service.start_crawling.call_args
         self.assertEqual(args[0][0], "https://www.mystore.com.br/")
         self.assertIn(str(self.project.uuid), args[0][1])  # webhook_url
-        self.assertEqual(args[0][2]["vtex_account"], "mystore")
+        self.assertEqual(args[0][2]["account_name"], "mystore")
 
     def test_raises_error_when_crawler_fails(self):
         self.mock_crawler_service.start_crawling.return_value = None
@@ -67,7 +67,7 @@ class TestStartCrawlUseCase(TestCase):
     def test_build_project_context(self):
         context = StartCrawlUseCase._build_project_context("mystore")
 
-        self.assertEqual(context["vtex_account"], "mystore")
+        self.assertEqual(context["account_name"], "mystore")
         self.assertIn("objective", context)
         self.assertIn("instructions", context)
 

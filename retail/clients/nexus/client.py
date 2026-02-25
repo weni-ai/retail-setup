@@ -94,6 +94,49 @@ class NexusClient(RequestClient, NexusClientInterface):
         )
         return response.json()
 
+    def check_agent_builder_exists(self, project_uuid: str) -> Dict:
+        """
+        Checks whether the agent manager has been configured for a project.
+
+        Args:
+            project_uuid: The project's unique identifier.
+
+        Returns:
+            Dict with "data" containing agent info and "has_agent" flag.
+        """
+        url = f"{self.base_url}/api/commerce/check-exists-agent-builder"
+        response = self.make_request(
+            url,
+            method="GET",
+            headers=self.authentication_instance.headers,
+            params={"project_uuid": project_uuid},
+        )
+        return response.json()
+
+    def configure_agent_attributes(
+        self,
+        project_uuid: str,
+        agent_payload: Dict,
+    ) -> Dict:
+        """
+        Sets the manager attributes (name, goal, role, personality) for a project.
+
+        Args:
+            project_uuid: The project's unique identifier.
+            agent_payload: Dict with "agent" and optional "links" keys.
+
+        Returns:
+            Dict with the Nexus response.
+        """
+        url = f"{self.base_url}/api/{project_uuid}/commerce-router/"
+        response = self.make_request(
+            url,
+            method="POST",
+            json=agent_payload,
+            headers=self.authentication_instance.headers,
+        )
+        return response.json()
+
     def upload_content_base_file(
         self,
         project_uuid: str,

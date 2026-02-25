@@ -137,8 +137,12 @@ class TestFullOnboardingFlow(TestCase):
             self.vtex_account, crawled_contents
         )
 
-        # ── Step 6: Nexus upload (simulated synchronously) ──
+        # ── Step 6: Nexus agent config + upload (simulated synchronously) ──
         mock_nexus_service = MagicMock()
+        mock_nexus_service.check_agent_builder_exists.return_value = {
+            "data": {"has_agent": False}
+        }
+        mock_nexus_service.configure_agent_attributes.return_value = {"ok": True}
         mock_nexus_service.upload_content_base_file.return_value = {"status": "ok"}
 
         agent_usecase = ConfigureAgentBuilderUseCase(nexus_client=MagicMock())
@@ -149,6 +153,7 @@ class TestFullOnboardingFlow(TestCase):
         self.assertEqual(onboarding.current_step, "NEXUS_CONFIG")
         self.assertEqual(onboarding.progress, 80)  # MAX_UPLOAD_PROGRESS
         self.assertEqual(mock_nexus_service.upload_content_base_file.call_count, 2)
+        mock_nexus_service.configure_agent_attributes.assert_called_once()
 
         # ── Step 7: WWC channel creation and configuration ──
         mock_integrations_service = MagicMock()

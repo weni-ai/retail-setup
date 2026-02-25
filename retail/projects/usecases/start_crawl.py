@@ -90,7 +90,7 @@ class StartCrawlUseCase:
         that every onboarding shares.
         """
         return {
-            "vtex_account": vtex_account,
+            "account_name": vtex_account,
             "objective": DEFAULT_OBJECTIVE,
             "instructions": DEFAULT_INSTRUCTIONS,
         }
