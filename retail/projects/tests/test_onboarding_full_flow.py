@@ -37,8 +37,8 @@ class TestFullOnboardingFlow(TestCase):
     2. EDA links the project → PROJECT_CONFIG 100%
     3. Crawler sends progress events
     4. Crawler sends crawl.completed
-    5. Nexus upload is executed
-    6. WWC channel is created and configured
+    5. WWC channel is created and configured (synchronous, 0-25%)
+    6. Nexus agent config + content upload (25-100%)
     """
 
     def setUp(self):
@@ -137,25 +137,7 @@ class TestFullOnboardingFlow(TestCase):
             self.vtex_account, crawled_contents
         )
 
-        # ── Step 6: Nexus agent config + upload (simulated synchronously) ──
-        mock_nexus_service = MagicMock()
-        mock_nexus_service.check_agent_builder_exists.return_value = {
-            "data": {"has_agent": False}
-        }
-        mock_nexus_service.configure_agent_attributes.return_value = {"ok": True}
-        mock_nexus_service.upload_content_base_file.return_value = {"status": "ok"}
-
-        agent_usecase = ConfigureAgentBuilderUseCase(nexus_client=MagicMock())
-        agent_usecase.nexus_service = mock_nexus_service
-        agent_usecase.execute(self.vtex_account, crawled_contents)
-
-        onboarding.refresh_from_db()
-        self.assertEqual(onboarding.current_step, "NEXUS_CONFIG")
-        self.assertEqual(onboarding.progress, 80)  # MAX_UPLOAD_PROGRESS
-        self.assertEqual(mock_nexus_service.upload_content_base_file.call_count, 2)
-        mock_nexus_service.configure_agent_attributes.assert_called_once()
-
-        # ── Step 7: WWC channel creation and configuration ──
+        # ── Step 6: WWC channel creation and configuration (synchronous, 0-25%) ──
         mock_integrations_service = MagicMock()
         mock_integrations_service.create_wwc_app.return_value = {
             "uuid": self.wwc_app_uuid,
@@ -171,12 +153,30 @@ class TestFullOnboardingFlow(TestCase):
         wwc_usecase.execute(self.vtex_account)
 
         onboarding.refresh_from_db()
-        self.assertEqual(onboarding.progress, 100)
         self.assertEqual(onboarding.current_step, "NEXUS_CONFIG")
+        self.assertEqual(onboarding.progress, 25)
         self.assertEqual(
             onboarding.config["integrated_apps"]["wwc"],
             self.wwc_app_uuid,
         )
+
+        # ── Step 7: Nexus agent config + content upload (25-100%) ──
+        mock_nexus_service = MagicMock()
+        mock_nexus_service.check_agent_builder_exists.return_value = {
+            "data": {"has_agent": False}
+        }
+        mock_nexus_service.configure_agent_attributes.return_value = {"ok": True}
+        mock_nexus_service.upload_content_base_file.return_value = {"status": "ok"}
+
+        agent_usecase = ConfigureAgentBuilderUseCase(nexus_client=MagicMock())
+        agent_usecase.nexus_service = mock_nexus_service
+        agent_usecase.execute(self.vtex_account, crawled_contents)
+
+        onboarding.refresh_from_db()
+        self.assertEqual(onboarding.current_step, "NEXUS_CONFIG")
+        self.assertEqual(onboarding.progress, 100)  # MAX_UPLOAD_PROGRESS
+        self.assertEqual(mock_nexus_service.upload_content_base_file.call_count, 2)
+        mock_nexus_service.configure_agent_attributes.assert_called_once()
 
         # ── Final state check ──
         self.assertFalse(onboarding.completed)  # Only front-end sets this

@@ -42,12 +42,6 @@ class TestConfigureAgentBuilderUseCase(TestCase):
         with self.assertRaises(ProjectNotLinkedError):
             self.usecase.execute("noproject", [])
 
-    def test_sets_nexus_config_step_on_execute(self):
-        self.usecase.execute("mystore", [])
-
-        self.onboarding.refresh_from_db()
-        self.assertEqual(self.onboarding.current_step, "NEXUS_CONFIG")
-
     def test_sets_progress_to_max_upload_when_contents_empty(self):
         self.usecase.execute("mystore", [])
 

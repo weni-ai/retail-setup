@@ -20,7 +20,8 @@ class ProjectNotLinkedError(Exception):
     """Raised when Agent Builder configuration is attempted without a linked project."""
 
 
-MAX_UPLOAD_PROGRESS = 80
+WWC_PROGRESS_OFFSET = 25
+MAX_UPLOAD_PROGRESS = 100
 
 
 class ConfigureAgentBuilderUseCase:
@@ -33,9 +34,8 @@ class ConfigureAgentBuilderUseCase:
          project language for translation.
       3. Upload crawled content files to the Nexus content base.
 
-    Progress is tracked from 0% to 80% of the NEXUS_CONFIG step —
-    the remaining percentage is reserved for the WWC channel setup
-    that follows.
+    Progress is tracked from 25% (after WWC) to 100%.
+    When agent integration is added, the ceiling will be adjusted.
     """
 
     def __init__(
@@ -66,10 +66,6 @@ class ConfigureAgentBuilderUseCase:
 
         project_uuid = str(onboarding.project.uuid)
         language = onboarding.project.language or ""
-
-        onboarding.current_step = "NEXUS_CONFIG"
-        onboarding.progress = 0
-        onboarding.save(update_fields=["current_step", "progress"])
 
         self._ensure_agent_configured(project_uuid, vtex_account, language)
         self._upload_contents(onboarding, project_uuid, contents)
@@ -118,7 +114,7 @@ class ConfigureAgentBuilderUseCase:
     ) -> None:
         """
         Converts crawled content to .txt files and uploads them to Nexus.
-        Updates progress proportionally from 0% to MAX_UPLOAD_PROGRESS.
+        Updates progress proportionally from WWC_PROGRESS_OFFSET to MAX_UPLOAD_PROGRESS.
         """
         if not contents:
             logger.warning(
@@ -148,7 +144,10 @@ class ConfigureAgentBuilderUseCase:
                     f"Failed to upload {filename} to Nexus for project={project_uuid}"
                 )
 
-            onboarding.progress = int(((index + 1) / total) * MAX_UPLOAD_PROGRESS)
+            upload_range = MAX_UPLOAD_PROGRESS - WWC_PROGRESS_OFFSET
+            onboarding.progress = WWC_PROGRESS_OFFSET + int(
+                ((index + 1) / total) * upload_range
+            )
             onboarding.save(update_fields=["progress"])
 
         logger.info(

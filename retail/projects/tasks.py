@@ -69,44 +69,28 @@ def task_wait_and_start_crawl(self, vtex_account: str, crawl_url: str) -> None:
 @shared_task(name="task_configure_nexus")
 def task_configure_nexus(vtex_account: str, contents: list) -> None:
     """
-    Uploads crawled content files to the Nexus content base.
+    Orchestrates post-crawl configuration:
+      1. WWC channel creation (synchronous, 0-10%)
+      2. Nexus manager config + content upload (10-100%)
 
-    Progress: 0-80% of the NEXUS_CONFIG step.
-    On success, dispatches task_configure_wwc to complete the step.
+    WWC runs first because it's fast and synchronous, providing
+    immediate feedback to the front-end. Nexus uploads are heavier
+    and run last so progress grows gradually.
     """
-    logger.info(f"Starting Nexus upload for vtex_account={vtex_account}")
-
-    try:
-        ConfigureAgentBuilderUseCase().execute(vtex_account, contents)
-    except Exception as e:
-        logger.error(f"Nexus upload failed for vtex_account={vtex_account}: {e}")
-        raise
-    finally:
-        release_task_lock("configure_nexus", vtex_account)
-
-    logger.info(
-        f"Nexus upload completed for vtex_account={vtex_account}. "
-        f"Dispatching WWC configuration."
-    )
-    task_configure_wwc.delay(vtex_account)
-
-
-@shared_task(name="task_configure_wwc")
-def task_configure_wwc(vtex_account: str) -> None:
-    """
-    Creates and configures the WWC (Weni Web Chat) channel.
-
-    Progress: 90-100% of the NEXUS_CONFIG step.
-    Only runs after Nexus uploads are complete.
-    Protected against duplicates by the config.integrated_apps.wwc
-    guard in ConfigureWWCUseCase.
-    """
-    logger.info(f"Starting WWC configuration for vtex_account={vtex_account}")
+    logger.info(f"Starting post-crawl config for vtex_account={vtex_account}")
 
     try:
         ConfigureWWCUseCase().execute(vtex_account)
     except Exception as e:
         logger.error(f"WWC configuration failed for vtex_account={vtex_account}: {e}")
         raise
+
+    try:
+        ConfigureAgentBuilderUseCase().execute(vtex_account, contents)
+    except Exception as e:
+        logger.error(f"Nexus config failed for vtex_account={vtex_account}: {e}")
+        raise
+    finally:
+        release_task_lock("configure_nexus", vtex_account)
 
     logger.info(f"NEXUS_CONFIG completed for vtex_account={vtex_account}")

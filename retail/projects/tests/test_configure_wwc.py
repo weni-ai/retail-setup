@@ -20,8 +20,6 @@ class TestConfigureWWCUseCase(TestCase):
         self.onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=self.project,
-            current_step="NEXUS_CONFIG",
-            progress=80,
         )
         self.mock_integrations_service = MagicMock()
         self.usecase = ConfigureWWCUseCase(integrations_client=MagicMock())
@@ -41,24 +39,9 @@ class TestConfigureWWCUseCase(TestCase):
         self.usecase.execute("mystore")
 
         self.onboarding.refresh_from_db()
-        self.assertEqual(self.onboarding.progress, 100)
+        self.assertEqual(self.onboarding.current_step, "NEXUS_CONFIG")
+        self.assertEqual(self.onboarding.progress, 25)
         self.assertEqual(self.onboarding.config["integrated_apps"]["wwc"], app_uuid)
-
-    def test_progress_85_after_app_creation(self):
-        app_uuid = str(uuid4())
-        self.mock_integrations_service.create_wwc_app.return_value = {
-            "uuid": app_uuid,
-        }
-        self.mock_integrations_service.configure_wwc_app.return_value = {
-            "uuid": app_uuid,
-        }
-
-        self.usecase.execute("mystore")
-
-        # Final progress is 100 since the flow completes,
-        # but the intermediate 85 was saved during _create_app.
-        self.onboarding.refresh_from_db()
-        self.assertEqual(self.onboarding.progress, 100)
 
     def test_raises_error_when_project_not_linked(self):
         ProjectOnboarding.objects.create(

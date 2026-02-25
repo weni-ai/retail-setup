@@ -74,10 +74,10 @@ class ConfigureWWCUseCase:
         """
         Orchestrates WWC channel creation and configuration.
 
-        Progress within NEXUS_CONFIG:
-            85% — WWC app created.
-            95% — WWC app configured.
-            100% — App UUID persisted, step complete.
+        Progress within NEXUS_CONFIG (runs first, before Nexus upload):
+            10% — WWC app created.
+            20% — WWC app configured.
+            25% — App UUID persisted, WWC complete.
 
         Args:
             vtex_account: The VTEX account identifier for the onboarding.
@@ -88,6 +88,10 @@ class ConfigureWWCUseCase:
         """
         onboarding = self._load_onboarding(vtex_account)
         project_uuid = str(onboarding.project.uuid)
+
+        onboarding.current_step = "NEXUS_CONFIG"
+        onboarding.progress = 0
+        onboarding.save(update_fields=["current_step", "progress"])
 
         app_uuid = self._create_app(onboarding, project_uuid)
         self._configure_app(onboarding, app_uuid, project_uuid)
@@ -114,7 +118,7 @@ class ConfigureWWCUseCase:
         return onboarding
 
     def _create_app(self, onboarding: ProjectOnboarding, project_uuid: str) -> str:
-        """Creates the WWC app and updates progress to 85%."""
+        """Creates the WWC app and updates progress to 10%."""
         create_response = self.integrations_service.create_wwc_app(
             project_uuid, WWC_CREATION_CONFIG
         )
@@ -127,7 +131,7 @@ class ConfigureWWCUseCase:
                 f"WWC app creation returned no uuid for project={project_uuid}"
             )
 
-        onboarding.progress = 85
+        onboarding.progress = 10
         onboarding.save(update_fields=["progress"])
         logger.info(f"WWC app created: app_uuid={app_uuid} project={project_uuid}")
 
@@ -136,7 +140,7 @@ class ConfigureWWCUseCase:
     def _configure_app(
         self, onboarding: ProjectOnboarding, app_uuid: str, project_uuid: str
     ) -> None:
-        """Configures the previously created WWC app and updates progress to 95%."""
+        """Configures the previously created WWC app and updates progress to 20%."""
         configure_response = self.integrations_service.configure_wwc_app(
             app_uuid, WWC_CHANNEL_CONFIG
         )
@@ -145,19 +149,19 @@ class ConfigureWWCUseCase:
                 f"Failed to configure WWC app={app_uuid} for project={project_uuid}"
             )
 
-        onboarding.progress = 95
+        onboarding.progress = 20
         onboarding.save(update_fields=["progress"])
         logger.info(f"WWC app configured: app_uuid={app_uuid} project={project_uuid}")
 
     @staticmethod
     def _persist_app_uuid(onboarding: ProjectOnboarding, app_uuid: str) -> None:
-        """Stores the app UUID in config and marks progress as 100%."""
+        """Stores the app UUID in config and marks progress as 25%."""
         config = onboarding.config or {}
         integrated_apps = config.get("integrated_apps", {})
         integrated_apps["wwc"] = app_uuid
         config["integrated_apps"] = integrated_apps
         onboarding.config = config
-        onboarding.progress = 100
+        onboarding.progress = 25
         onboarding.save(update_fields=["config", "progress"])
 
         logger.info(
