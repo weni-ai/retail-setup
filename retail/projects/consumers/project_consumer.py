@@ -26,6 +26,7 @@ class ProjectConsumer(EDAConsumer):  # pragma: no cover
                 organization_uuid=body.get("organization_uuid"),
                 authorizations=body.get("authorizations", []),
                 vtex_account=body.get("vtex_account", ""),
+                language=body.get("language"),
             )
             ProjectCreationUseCase.create_project(project_dto)
             logger.info(
