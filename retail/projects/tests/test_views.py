@@ -8,10 +8,10 @@ from retail.projects.models import Project, ProjectOnboarding
 
 
 def _auth_bypass(original_cls):
-    """Patches JWTModuleAuthentication to always pass without a real token."""
+    """Patches OIDC authentication to always pass without a real token."""
     return patch(
-        "retail.internal.jwt_authenticators.JWTModuleAuthentication.authenticate",
-        return_value=(None, None),
+        "retail.internal.authenticators.InternalOIDCAuthentication.authenticate",
+        return_value=(MagicMock(), None),
     )
 
 

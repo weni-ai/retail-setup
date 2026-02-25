@@ -9,8 +9,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework import status
 
 from retail.internal.jwt_mixins import JWTModuleAuthMixin
-
-from retail.internal.views import InternalGenericViewSet
+from retail.internal.views import InternalGenericViewSet, KeycloakAPIView
 from retail.projects.models import Project, ProjectOnboarding
 from retail.internal.permissions import CanCommunicateInternally
 from retail.projects.serializer import (
@@ -101,7 +100,7 @@ class VtexAccountLookupView(JWTModuleAuthMixin, APIView):
         return Response({"vtex_account": vtex_account})
 
 
-class StartOnboardingView(JWTModuleAuthMixin, APIView):
+class StartOnboardingView(KeycloakAPIView):
     """
     Starts the onboarding crawl process for a store.
 
@@ -171,7 +170,7 @@ class CrawlerWebhookView(APIView):
         )
 
 
-class OnboardingStatusView(JWTModuleAuthMixin, APIView):
+class OnboardingStatusView(KeycloakAPIView):
     """
     Returns the current onboarding status for a store.
     Used by the front-end to poll progress across all steps.
@@ -190,7 +189,7 @@ class OnboardingStatusView(JWTModuleAuthMixin, APIView):
         )
 
 
-class OnboardingPatchView(JWTModuleAuthMixin, APIView):
+class OnboardingPatchView(KeycloakAPIView):
     """
     Allows the front-end to partially update editable onboarding fields:
     ``completed`` and ``current_page``.

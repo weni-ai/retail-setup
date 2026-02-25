@@ -4,11 +4,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 
 from retail.clients.exceptions import CustomAPIException
-from retail.internal.authenticators import InternalOIDCAuthentication
 from retail.internal.jwt_mixins import JWTModuleAuthMixin
+from retail.internal.views import KeycloakAPIView
 
 from retail.vtex.dtos.register_order_form_dto import RegisterOrderFormDTO
 from retail.vtex.serializers import (
@@ -268,7 +267,7 @@ class VtexProxyView(BaseVtexProxyView):
         return Response(result, status=status.HTTP_200_OK)
 
 
-class CreateProjectUserView(APIView):
+class CreateProjectUserView(KeycloakAPIView):
     """
     Proxies project creation to Connect with automatic language detection.
 
@@ -276,9 +275,6 @@ class CreateProjectUserView(APIView):
     Before forwarding, we fetch the VTEX tenant locale and convert it to
     Connect's language format.
     """
-
-    authentication_classes = [InternalOIDCAuthentication]
-    permission_classes = [IsAuthenticated]
 
     def post(self, request: Request, vtex_account: str) -> Response:
         serializer = CreateProjectUserSerializer(data=request.data)
