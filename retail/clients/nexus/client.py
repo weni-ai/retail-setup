@@ -1,10 +1,14 @@
 """Client for connection with Nexus"""
 
-from django.conf import settings
+import logging
 from typing import Dict, Tuple
+
+from django.conf import settings
 
 from retail.clients.base import RequestClient, InternalAuthentication
 from retail.interfaces.clients.nexus.client import NexusClientInterface
+
+logger = logging.getLogger(__name__)
 
 
 class NexusClient(RequestClient, NexusClientInterface):
@@ -181,6 +185,13 @@ class NexusClient(RequestClient, NexusClientInterface):
         """
         url = f"{self.base_url}/api/{str(project_uuid)}/inline-content-base-file/"
 
+        logger.info(
+            f"[NexusClient] Uploading file to Nexus: "
+            f"url={url} filename={file[0]} "
+            f"size={len(file[1])} bytes content_type={file[2]} "
+            f"extension_file={extension_file}"
+        )
+
         response = self.make_request(
             url,
             method="POST",
@@ -191,4 +202,10 @@ class NexusClient(RequestClient, NexusClientInterface):
                 "load_type": "pdfminer",
             },
         )
+
+        logger.info(
+            f"[NexusClient] Upload response: "
+            f"status_code={response.status_code} body={response.text}"
+        )
+
         return response.json()
