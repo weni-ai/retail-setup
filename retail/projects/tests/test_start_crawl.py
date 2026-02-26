@@ -4,6 +4,7 @@ from uuid import uuid4
 from django.test import TestCase, override_settings
 
 from retail.projects.models import Project, ProjectOnboarding
+from retail.projects.usecases.manager_defaults import MANAGER_DEFAULTS
 from retail.projects.usecases.start_crawl import (
     CrawlerStartError,
     StartCrawlUseCase,
@@ -17,6 +18,7 @@ class TestStartCrawlUseCase(TestCase):
             name="Test Project",
             uuid=uuid4(),
             vtex_account="mystore",
+            language="pt-br",
         )
         self.onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
@@ -43,8 +45,8 @@ class TestStartCrawlUseCase(TestCase):
         self.mock_crawler_service.start_crawling.assert_called_once()
         args = self.mock_crawler_service.start_crawling.call_args
         self.assertEqual(args[0][0], "https://www.mystore.com.br/")
-        self.assertIn(str(self.project.uuid), args[0][1])  # webhook_url
-        self.assertEqual(args[0][2]["vtex_account"], "mystore")
+        self.assertIn(str(self.onboarding.uuid), args[0][1])  # webhook_url
+        self.assertEqual(args[0][2]["account_name"], "mystore")
 
     def test_raises_error_when_crawler_fails(self):
         self.mock_crawler_service.start_crawling.return_value = None
@@ -56,20 +58,25 @@ class TestStartCrawlUseCase(TestCase):
         self.assertEqual(self.onboarding.crawler_result, ProjectOnboarding.FAIL)
 
     def test_build_webhook_url(self):
-        project_uuid = str(uuid4())
-        url = StartCrawlUseCase._build_webhook_url(project_uuid)
+        onboarding_uuid = str(uuid4())
+        url = StartCrawlUseCase._build_webhook_url(onboarding_uuid)
 
         self.assertEqual(
             url,
-            f"https://retail.weni.ai/api/onboard/{project_uuid}/webhook/",
+            f"https://retail.weni.ai/api/onboard/{onboarding_uuid}/webhook/",
         )
 
-    def test_build_project_context(self):
-        context = StartCrawlUseCase._build_project_context("mystore")
+    def test_build_project_context_with_pt(self):
+        context = StartCrawlUseCase._build_project_context("mystore", "pt-br")
 
-        self.assertEqual(context["vtex_account"], "mystore")
-        self.assertIn("objective", context)
+        self.assertEqual(context["account_name"], "mystore")
+        self.assertEqual(context["objective"], MANAGER_DEFAULTS["pt"]["goal"])
         self.assertIn("instructions", context)
+
+    def test_build_project_context_with_en(self):
+        context = StartCrawlUseCase._build_project_context("mystore", "en-us")
+
+        self.assertEqual(context["objective"], MANAGER_DEFAULTS["en"]["goal"])
 
     def test_raises_does_not_exist_for_unknown_vtex_account(self):
         with self.assertRaises(ProjectOnboarding.DoesNotExist):

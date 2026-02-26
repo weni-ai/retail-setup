@@ -19,3 +19,4 @@ class StartOnboardingDTO:
 
     vtex_account: str
     crawl_url: str
+    channel: str

@@ -9,8 +9,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework import status
 
 from retail.internal.jwt_mixins import JWTModuleAuthMixin
-
-from retail.internal.views import InternalGenericViewSet
+from retail.internal.views import InternalGenericViewSet, KeycloakAPIView
 from retail.projects.models import Project, ProjectOnboarding
 from retail.internal.permissions import CanCommunicateInternally
 from retail.projects.serializer import (
@@ -101,7 +100,7 @@ class VtexAccountLookupView(JWTModuleAuthMixin, APIView):
         return Response({"vtex_account": vtex_account})
 
 
-class StartOnboardingView(JWTModuleAuthMixin, APIView):
+class StartOnboardingView(KeycloakAPIView):
     """
     Starts the onboarding crawl process for a store.
 
@@ -123,6 +122,7 @@ class StartOnboardingView(JWTModuleAuthMixin, APIView):
         dto = StartOnboardingDTO(
             vtex_account=vtex_account,
             crawl_url=serializer.validated_data["crawl_url"],
+            channel=serializer.validated_data["channel"],
         )
 
         try:
@@ -148,7 +148,7 @@ class CrawlerWebhookView(APIView):
 
     permission_classes = []
 
-    def post(self, request, project_uuid) -> Response:
+    def post(self, request, onboarding_uuid) -> Response:
         """
         Receives event updates from the Crawler MS.
         """
@@ -158,10 +158,16 @@ class CrawlerWebhookView(APIView):
         dto = CrawlerWebhookDTO(**serializer.validated_data)
 
         try:
-            onboarding = UpdateOnboardingProgressUseCase.execute(str(project_uuid), dto)
+            onboarding = UpdateOnboardingProgressUseCase.execute(
+                str(onboarding_uuid), dto
+            )
         except ProjectOnboarding.DoesNotExist:
+            logger.warning(
+                f"[CrawlerWebhook] No onboarding found for "
+                f"onboarding_uuid={onboarding_uuid}"
+            )
             return Response(
-                {"detail": f"No onboarding found for project: {project_uuid}"},
+                {"detail": f"No onboarding found for: {onboarding_uuid}"},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -171,7 +177,7 @@ class CrawlerWebhookView(APIView):
         )
 
 
-class OnboardingStatusView(JWTModuleAuthMixin, APIView):
+class OnboardingStatusView(KeycloakAPIView):
     """
     Returns the current onboarding status for a store.
     Used by the front-end to poll progress across all steps.
@@ -190,7 +196,7 @@ class OnboardingStatusView(JWTModuleAuthMixin, APIView):
         )
 
 
-class OnboardingPatchView(JWTModuleAuthMixin, APIView):
+class OnboardingPatchView(KeycloakAPIView):
     """
     Allows the front-end to partially update editable onboarding fields:
     ``completed`` and ``current_page``.

@@ -4,10 +4,7 @@ from celery import shared_task
 from django.core.cache import cache
 
 from retail.projects.models import ProjectOnboarding
-from retail.projects.usecases.configure_agent_builder import (
-    ConfigureAgentBuilderUseCase,
-)
-from retail.projects.usecases.configure_wwc import ConfigureWWCUseCase
+from retail.projects.usecases.onboarding_orchestrator import OnboardingOrchestrator
 from retail.projects.usecases.start_crawl import CrawlerStartError, StartCrawlUseCase
 
 logger = logging.getLogger(__name__)
@@ -69,44 +66,11 @@ def task_wait_and_start_crawl(self, vtex_account: str, crawl_url: str) -> None:
 @shared_task(name="task_configure_nexus")
 def task_configure_nexus(vtex_account: str, contents: list) -> None:
     """
-    Uploads crawled content files to the Nexus content base.
+    Thin wrapper that delegates post-crawl configuration to the orchestrator.
 
-    Progress: 0-80% of the NEXUS_CONFIG step.
-    On success, dispatches task_configure_wwc to complete the step.
+    Ensures the task lock is released in all code paths.
     """
-    logger.info(f"Starting Nexus upload for vtex_account={vtex_account}")
-
     try:
-        ConfigureAgentBuilderUseCase().execute(vtex_account, contents)
-    except Exception as e:
-        logger.error(f"Nexus upload failed for vtex_account={vtex_account}: {e}")
-        raise
+        OnboardingOrchestrator().execute(vtex_account, contents)
     finally:
         release_task_lock("configure_nexus", vtex_account)
-
-    logger.info(
-        f"Nexus upload completed for vtex_account={vtex_account}. "
-        f"Dispatching WWC configuration."
-    )
-    task_configure_wwc.delay(vtex_account)
-
-
-@shared_task(name="task_configure_wwc")
-def task_configure_wwc(vtex_account: str) -> None:
-    """
-    Creates and configures the WWC (Weni Web Chat) channel.
-
-    Progress: 90-100% of the NEXUS_CONFIG step.
-    Only runs after Nexus uploads are complete.
-    Protected against duplicates by the config.integrated_apps.wwc
-    guard in ConfigureWWCUseCase.
-    """
-    logger.info(f"Starting WWC configuration for vtex_account={vtex_account}")
-
-    try:
-        ConfigureWWCUseCase().execute(vtex_account)
-    except Exception as e:
-        logger.error(f"WWC configuration failed for vtex_account={vtex_account}: {e}")
-        raise
-
-    logger.info(f"NEXUS_CONFIG completed for vtex_account={vtex_account}")

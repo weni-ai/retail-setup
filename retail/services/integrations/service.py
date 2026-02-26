@@ -333,33 +333,38 @@ class IntegrationsService:
 
         return translations_by_name
 
-    def create_wwc_app(self, project_uuid: str, config: Dict) -> Optional[Dict]:
+    def create_channel_app(
+        self, apptype: str, project_uuid: str, config: Dict
+    ) -> Optional[Dict]:
         """
-        Creates a WWC (Weni Web Chat) app for the given project.
+        Creates a channel app of the given apptype for the project.
 
         Returns:
             Dict with created app data or None on failure.
         """
         try:
-            return self.client.create_wwc_app(project_uuid, config)
+            return self.client.create_channel_app(apptype, project_uuid, config)
         except CustomAPIException as e:
             logger.error(
-                f"Error {e.status_code} when creating WWC app "
+                f"Error {e.status_code} when creating {apptype} app "
                 f"for project {project_uuid}: {e}"
             )
             return None
 
-    def configure_wwc_app(self, app_uuid: str, config: Dict) -> Optional[Dict]:
+    def configure_channel_app(
+        self, apptype: str, app_uuid: str, config: Dict
+    ) -> Optional[Dict]:
         """
-        Configures a previously created WWC app.
+        Configures a previously created channel app.
 
         Returns:
-            Dict with configured app data (uuid, script) or None on failure.
+            Dict with configured app data or None on failure.
         """
         try:
-            return self.client.configure_wwc_app(app_uuid, config)
+            return self.client.configure_channel_app(apptype, app_uuid, config)
         except CustomAPIException as e:
             logger.error(
-                f"Error {e.status_code} when configuring WWC app " f"{app_uuid}: {e}"
+                f"Error {e.status_code} when configuring {apptype} app "
+                f"{app_uuid}: {e}"
             )
             return None

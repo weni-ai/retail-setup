@@ -239,18 +239,19 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
 
         return all_templates
 
-    def create_wwc_app(self, project_uuid: str, config: Dict) -> Dict:
+    def create_channel_app(self, apptype: str, project_uuid: str, config: Dict) -> Dict:
         """
-        Creates a WWC (Weni Web Chat) app for the given project.
+        Creates a channel app of the given apptype for the project.
 
         Args:
+            apptype: The Integrations Engine apptype slug (e.g. "wwc", "wpp-cloud").
             project_uuid: The project's unique identifier.
             config: Initial app configuration payload.
 
         Returns:
             Dict containing the created app data (uuid, config, etc.).
         """
-        url = f"{self.base_url}/api/v1/apptypes/wwc/apps/"
+        url = f"{self.base_url}/api/v1/apptypes/{apptype}/apps/"
         payload = {
             "project_uuid": project_uuid,
             "config": config,
@@ -264,18 +265,19 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
         )
         return response.json()
 
-    def configure_wwc_app(self, app_uuid: str, config: Dict) -> Dict:
+    def configure_channel_app(self, apptype: str, app_uuid: str, config: Dict) -> Dict:
         """
-        Configures a previously created WWC app.
+        Configures a previously created channel app.
 
         Args:
-            app_uuid: The WWC app's unique identifier.
+            apptype: The Integrations Engine apptype slug (e.g. "wwc", "wpp-cloud").
+            app_uuid: The app's unique identifier.
             config: The channel configuration payload.
 
         Returns:
-            Dict containing the configured app data (uuid, script URL).
+            Dict containing the configured app data.
         """
-        url = f"{self.base_url}/api/v1/apptypes/wwc/apps/{app_uuid}/configure/"
+        url = f"{self.base_url}/api/v1/apptypes/{apptype}/apps/{app_uuid}/configure/"
         payload = {"config": config}
 
         response = self.make_request(
