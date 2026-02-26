@@ -25,6 +25,10 @@ class FileProcessingError(Exception):
     """Raised when Nexus reports a file processing failure."""
 
 
+class FileUploadError(Exception):
+    """Raised when a file upload to Nexus fails."""
+
+
 CHANNEL_PROGRESS_OFFSET = 10
 MAX_UPLOAD_PROGRESS = 75
 
@@ -146,18 +150,18 @@ class ConfigureAgentBuilderUseCase:
             )
 
             if response is None:
-                logger.error(
+                raise FileUploadError(
                     f"Failed to upload {filename} to Nexus for project={project_uuid}"
                 )
-            else:
-                file_uuid = response.get("uuid")
-                logger.info(
-                    f"Uploaded {filename} to Nexus for project={project_uuid}: "
-                    f"file_uuid={file_uuid}, response={response}"
-                )
 
-                if file_uuid:
-                    self._wait_for_processing(project_uuid, file_uuid, filename)
+            file_uuid = response.get("uuid")
+            logger.info(
+                f"Uploaded {filename} to Nexus for project={project_uuid}: "
+                f"file_uuid={file_uuid}, response={response}"
+            )
+
+            if file_uuid:
+                self._wait_for_processing(project_uuid, file_uuid, filename)
 
             upload_range = MAX_UPLOAD_PROGRESS - CHANNEL_PROGRESS_OFFSET
             onboarding.progress = CHANNEL_PROGRESS_OFFSET + int(

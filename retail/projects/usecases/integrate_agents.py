@@ -83,16 +83,16 @@ class IntegrateAgentsUseCase:
         for index, agent in enumerate(agents):
             result = agent.integrate(context, self.nexus_service)
 
-            if result is not None:
-                logger.info(
-                    f"Agent {agent.name} ({agent.uuid}) integrated "
-                    f"for project={context.project_uuid}"
-                )
-            else:
-                logger.error(
+            if result is None:
+                raise AgentIntegrationError(
                     f"Failed to integrate agent {agent.name} ({agent.uuid}) "
                     f"for project={context.project_uuid}"
                 )
+
+            logger.info(
+                f"Agent {agent.name} ({agent.uuid}) integrated "
+                f"for project={context.project_uuid}"
+            )
 
             onboarding.progress = AGENT_PROGRESS_START + int(
                 ((index + 1) / total) * progress_range
