@@ -93,6 +93,23 @@ class NexusService:
             )
             return None
 
+    def get_content_base_file_status(
+        self, project_uuid: str, file_uuid: str
+    ) -> Optional[Dict]:
+        """
+        Checks the processing status of a previously uploaded content base file.
+        """
+        try:
+            return self.nexus_client.get_content_base_file_status(
+                project_uuid, file_uuid
+            )
+        except CustomAPIException as e:
+            logger.error(
+                f"Error {e.status_code} checking file status "
+                f"file_uuid={file_uuid} project={project_uuid}: {e}"
+            )
+            return None
+
     def upload_content_base_file(
         self,
         project_uuid: str,

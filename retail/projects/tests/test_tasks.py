@@ -92,55 +92,29 @@ class TestTaskConfigureNexus(TestCase):
         self.onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=self.project,
+            config={"channels": {"wwc": {}}},
         )
 
-    @patch("retail.projects.tasks.ConfigureAgentBuilderUseCase")
-    @patch("retail.projects.tasks.ConfigureWWCUseCase")
+    @patch("retail.projects.tasks.OnboardingOrchestrator")
     @patch("retail.projects.tasks.release_task_lock")
-    def test_runs_wwc_then_nexus_and_releases_lock(
-        self, mock_release, mock_wwc_cls, mock_agent_cls
-    ):
-        mock_wwc = MagicMock()
-        mock_wwc_cls.return_value = mock_wwc
-        mock_agent = MagicMock()
-        mock_agent_cls.return_value = mock_agent
+    def test_delegates_to_orchestrator(self, mock_release, mock_orch_cls):
+        mock_orch = MagicMock()
+        mock_orch_cls.return_value = mock_orch
 
         from retail.projects.tasks import task_configure_nexus
 
         contents = [{"link": "a", "title": "b", "content": "c"}]
         task_configure_nexus("mystore", contents)
 
-        mock_wwc.execute.assert_called_once_with("mystore")
-        mock_agent.execute.assert_called_once_with("mystore", contents)
+        mock_orch.execute.assert_called_once_with("mystore", contents)
         mock_release.assert_called_once_with("configure_nexus", "mystore")
 
-    @patch("retail.projects.tasks.ConfigureAgentBuilderUseCase")
-    @patch("retail.projects.tasks.ConfigureWWCUseCase")
+    @patch("retail.projects.tasks.OnboardingOrchestrator")
     @patch("retail.projects.tasks.release_task_lock")
-    def test_nexus_not_called_when_wwc_fails(
-        self, mock_release, mock_wwc_cls, mock_agent_cls
-    ):
-        mock_wwc = MagicMock()
-        mock_wwc.execute.side_effect = Exception("wwc failed")
-        mock_wwc_cls.return_value = mock_wwc
-
-        from retail.projects.tasks import task_configure_nexus
-
-        with self.assertRaises(Exception):
-            task_configure_nexus("mystore", [])
-
-        mock_agent_cls.return_value.execute.assert_not_called()
-
-    @patch("retail.projects.tasks.ConfigureAgentBuilderUseCase")
-    @patch("retail.projects.tasks.ConfigureWWCUseCase")
-    @patch("retail.projects.tasks.release_task_lock")
-    def test_releases_lock_on_nexus_failure(
-        self, mock_release, mock_wwc_cls, mock_agent_cls
-    ):
-        mock_wwc_cls.return_value = MagicMock()
-        mock_agent = MagicMock()
-        mock_agent.execute.side_effect = Exception("upload failed")
-        mock_agent_cls.return_value = mock_agent
+    def test_releases_lock_on_failure(self, mock_release, mock_orch_cls):
+        mock_orch = MagicMock()
+        mock_orch.execute.side_effect = Exception("orchestrator failed")
+        mock_orch_cls.return_value = mock_orch
 
         from retail.projects.tasks import task_configure_nexus
 

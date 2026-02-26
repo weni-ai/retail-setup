@@ -4,10 +4,7 @@ from celery import shared_task
 from django.core.cache import cache
 
 from retail.projects.models import ProjectOnboarding
-from retail.projects.usecases.configure_agent_builder import (
-    ConfigureAgentBuilderUseCase,
-)
-from retail.projects.usecases.configure_wwc import ConfigureWWCUseCase
+from retail.projects.usecases.onboarding_orchestrator import OnboardingOrchestrator
 from retail.projects.usecases.start_crawl import CrawlerStartError, StartCrawlUseCase
 
 logger = logging.getLogger(__name__)
@@ -69,28 +66,11 @@ def task_wait_and_start_crawl(self, vtex_account: str, crawl_url: str) -> None:
 @shared_task(name="task_configure_nexus")
 def task_configure_nexus(vtex_account: str, contents: list) -> None:
     """
-    Orchestrates post-crawl configuration:
-      1. WWC channel creation (synchronous, 0-10%)
-      2. Nexus manager config + content upload (10-100%)
+    Thin wrapper that delegates post-crawl configuration to the orchestrator.
 
-    WWC runs first because it's fast and synchronous, providing
-    immediate feedback to the front-end. Nexus uploads are heavier
-    and run last so progress grows gradually.
+    Ensures the task lock is released in all code paths.
     """
-    logger.info(f"Starting post-crawl config for vtex_account={vtex_account}")
-
     try:
-        ConfigureWWCUseCase().execute(vtex_account)
-    except Exception as e:
-        logger.error(f"WWC configuration failed for vtex_account={vtex_account}: {e}")
-        raise
-
-    try:
-        ConfigureAgentBuilderUseCase().execute(vtex_account, contents)
-    except Exception as e:
-        logger.error(f"Nexus config failed for vtex_account={vtex_account}: {e}")
-        raise
+        OnboardingOrchestrator().execute(vtex_account, contents)
     finally:
         release_task_lock("configure_nexus", vtex_account)
-
-    logger.info(f"NEXUS_CONFIG completed for vtex_account={vtex_account}")

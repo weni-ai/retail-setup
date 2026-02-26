@@ -277,6 +277,7 @@ CRAWLER_REST_ENDPOINT = env.str("CRAWLER_REST_ENDPOINT", "")
 # WWC (Weni Web Chat) default profile avatar
 WWC_PROFILE_AVATAR_URL = env.str("WWC_PROFILE_AVATAR_URL", "")
 
+
 # VTEX IO workspace configuration
 VTEX_IO_WORKSPACE = env.str("VTEX_IO_WORKSPACE", default="")
 

@@ -2,6 +2,7 @@ import logging
 
 from retail.projects.models import Project, ProjectOnboarding
 from retail.projects.tasks import task_wait_and_start_crawl
+from retail.projects.usecases.onboarding_agents.agent_mappings import SUPPORTED_CHANNELS
 from retail.projects.usecases.onboarding_dto import StartOnboardingDTO
 from retail.projects.usecases.start_crawl import StartCrawlUseCase
 
@@ -37,6 +38,18 @@ class StartOnboardingUseCase:
 
         if not created:
             self._reset_onboarding(onboarding)
+
+        if dto.channel not in SUPPORTED_CHANNELS:
+            raise ValueError(
+                f"Unsupported channel '{dto.channel}'. "
+                f"Supported: {SUPPORTED_CHANNELS}"
+            )
+
+        config = onboarding.config or {}
+        channels = config.setdefault("channels", {})
+        channels.setdefault(dto.channel, {})
+        onboarding.config = config
+        onboarding.save(update_fields=["config"])
 
         self._try_link_project(onboarding)
 

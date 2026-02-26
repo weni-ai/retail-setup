@@ -59,7 +59,7 @@ class ConfigureWWCUseCase:
     Flow:
         1. POST to create the WWC app → receives the app UUID.
         2. PATCH to configure the WWC app → channel is live.
-        3. Stores the app UUID in onboarding.config.integrated_apps.wwc.
+        3. Stores the app UUID in onboarding.config.channels.wwc.
     """
 
     def __init__(
@@ -75,9 +75,9 @@ class ConfigureWWCUseCase:
         Orchestrates WWC channel creation and configuration.
 
         Progress within NEXUS_CONFIG (runs first, before Nexus upload):
-            10% — WWC app created.
-            20% — WWC app configured.
-            25% — App UUID persisted, WWC complete.
+            3%  — WWC app created.
+            7%  — WWC app configured.
+            10% — App UUID persisted, WWC complete.
 
         Args:
             vtex_account: The VTEX account identifier for the onboarding.
@@ -108,19 +108,19 @@ class ConfigureWWCUseCase:
                 f"Onboarding {onboarding.uuid} has no project linked yet."
             )
 
-        existing_wwc = (onboarding.config or {}).get("integrated_apps", {}).get("wwc")
-        if existing_wwc:
+        existing_wwc = (onboarding.config or {}).get("channels", {}).get("wwc", {})
+        if existing_wwc.get("app_uuid"):
             raise WWCConfigError(
                 f"WWC channel already configured for onboarding={onboarding.uuid} "
-                f"(app_uuid={existing_wwc}). Aborting to avoid duplicate."
+                f"(app_uuid={existing_wwc['app_uuid']}). Aborting to avoid duplicate."
             )
 
         return onboarding
 
     def _create_app(self, onboarding: ProjectOnboarding, project_uuid: str) -> str:
         """Creates the WWC app and updates progress to 10%."""
-        create_response = self.integrations_service.create_wwc_app(
-            project_uuid, WWC_CREATION_CONFIG
+        create_response = self.integrations_service.create_channel_app(
+            "wwc", project_uuid, WWC_CREATION_CONFIG
         )
         if create_response is None:
             raise WWCConfigError(f"Failed to create WWC app for project={project_uuid}")
@@ -131,7 +131,7 @@ class ConfigureWWCUseCase:
                 f"WWC app creation returned no uuid for project={project_uuid}"
             )
 
-        onboarding.progress = 10
+        onboarding.progress = 3
         onboarding.save(update_fields=["progress"])
         logger.info(f"WWC app created: app_uuid={app_uuid} project={project_uuid}")
 
@@ -141,27 +141,26 @@ class ConfigureWWCUseCase:
         self, onboarding: ProjectOnboarding, app_uuid: str, project_uuid: str
     ) -> None:
         """Configures the previously created WWC app and updates progress to 20%."""
-        configure_response = self.integrations_service.configure_wwc_app(
-            app_uuid, WWC_CHANNEL_CONFIG
+        configure_response = self.integrations_service.configure_channel_app(
+            "wwc", app_uuid, WWC_CHANNEL_CONFIG
         )
         if configure_response is None:
             raise WWCConfigError(
                 f"Failed to configure WWC app={app_uuid} for project={project_uuid}"
             )
 
-        onboarding.progress = 20
+        onboarding.progress = 7
         onboarding.save(update_fields=["progress"])
         logger.info(f"WWC app configured: app_uuid={app_uuid} project={project_uuid}")
 
     @staticmethod
     def _persist_app_uuid(onboarding: ProjectOnboarding, app_uuid: str) -> None:
-        """Stores the app UUID in config and marks progress as 25%."""
+        """Stores the app UUID in config and marks progress as 10%."""
         config = onboarding.config or {}
-        integrated_apps = config.get("integrated_apps", {})
-        integrated_apps["wwc"] = app_uuid
-        config["integrated_apps"] = integrated_apps
+        channels = config.setdefault("channels", {})
+        channels["wwc"] = {**channels.get("wwc", {}), "app_uuid": app_uuid}
         onboarding.config = config
-        onboarding.progress = 25
+        onboarding.progress = 10
         onboarding.save(update_fields=["config", "progress"])
 
         logger.info(

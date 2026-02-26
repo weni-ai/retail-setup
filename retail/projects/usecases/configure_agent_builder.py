@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 import unicodedata
 
 from typing import List, Tuple
@@ -20,8 +21,15 @@ class ProjectNotLinkedError(Exception):
     """Raised when Agent Builder configuration is attempted without a linked project."""
 
 
-WWC_PROGRESS_OFFSET = 25
-MAX_UPLOAD_PROGRESS = 100
+class FileProcessingError(Exception):
+    """Raised when Nexus reports a file processing failure."""
+
+
+CHANNEL_PROGRESS_OFFSET = 10
+MAX_UPLOAD_PROGRESS = 75
+
+FILE_STATUS_POLL_INTERVAL = 3  # seconds between status checks
+FILE_STATUS_MAX_ATTEMPTS = 60  # ~3 minutes max wait per file
 
 
 class ConfigureAgentBuilderUseCase:
@@ -34,8 +42,8 @@ class ConfigureAgentBuilderUseCase:
          project language for translation.
       3. Upload crawled content files to the Nexus content base.
 
-    Progress is tracked from 25% (after WWC) to 100%.
-    When agent integration is added, the ceiling will be adjusted.
+    Progress is tracked from 10% (after channel) to 75%.
+    Agent integration (75-100%) follows as a separate step.
     """
 
     def __init__(
@@ -114,7 +122,7 @@ class ConfigureAgentBuilderUseCase:
     ) -> None:
         """
         Converts crawled content to .txt files and uploads them to Nexus.
-        Updates progress proportionally from WWC_PROGRESS_OFFSET to MAX_UPLOAD_PROGRESS.
+        Updates progress proportionally from CHANNEL_PROGRESS_OFFSET to MAX_UPLOAD_PROGRESS.
         """
         if not contents:
             logger.warning(
@@ -137,15 +145,22 @@ class ConfigureAgentBuilderUseCase:
                 file=(filename, file_bytes, content_type),
             )
 
-            if response is not None:
-                logger.info(f"Uploaded {filename} to Nexus for project={project_uuid}")
-            else:
+            if response is None:
                 logger.error(
                     f"Failed to upload {filename} to Nexus for project={project_uuid}"
                 )
+            else:
+                file_uuid = response.get("uuid")
+                logger.info(
+                    f"Uploaded {filename} to Nexus for project={project_uuid}: "
+                    f"file_uuid={file_uuid}, response={response}"
+                )
 
-            upload_range = MAX_UPLOAD_PROGRESS - WWC_PROGRESS_OFFSET
-            onboarding.progress = WWC_PROGRESS_OFFSET + int(
+                if file_uuid:
+                    self._wait_for_processing(project_uuid, file_uuid, filename)
+
+            upload_range = MAX_UPLOAD_PROGRESS - CHANNEL_PROGRESS_OFFSET
+            onboarding.progress = CHANNEL_PROGRESS_OFFSET + int(
                 ((index + 1) / total) * upload_range
             )
             onboarding.save(update_fields=["progress"])
@@ -153,6 +168,48 @@ class ConfigureAgentBuilderUseCase:
         logger.info(
             f"Content base upload completed for project={project_uuid} "
             f"({total} files uploaded, progress={onboarding.progress}%)"
+        )
+
+    def _wait_for_processing(
+        self, project_uuid: str, file_uuid: str, filename: str
+    ) -> None:
+        """
+        Polls Nexus until the uploaded file reaches a terminal status
+        (``success`` or ``failed``) before allowing the next upload.
+        """
+        for attempt in range(1, FILE_STATUS_MAX_ATTEMPTS + 1):
+            time.sleep(FILE_STATUS_POLL_INTERVAL)
+
+            status_response = self.nexus_service.get_content_base_file_status(
+                project_uuid, file_uuid
+            )
+
+            if status_response is None:
+                logger.warning(
+                    f"Could not fetch status for file_uuid={file_uuid} "
+                    f"(attempt {attempt}/{FILE_STATUS_MAX_ATTEMPTS})"
+                )
+                continue
+
+            status = status_response.get("status", "").lower()
+
+            logger.info(
+                f"File {filename} (uuid={file_uuid}) status={status} "
+                f"(attempt {attempt}/{FILE_STATUS_MAX_ATTEMPTS})"
+            )
+
+            if status == "success":
+                return
+
+            if status == "failed":
+                raise FileProcessingError(
+                    f"Nexus reported processing failure for "
+                    f"file_uuid={file_uuid} ({filename})"
+                )
+
+        logger.error(
+            f"Timed out waiting for file_uuid={file_uuid} ({filename}) "
+            f"after {FILE_STATUS_MAX_ATTEMPTS} attempts"
         )
 
     @staticmethod

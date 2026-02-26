@@ -122,6 +122,7 @@ class StartOnboardingView(KeycloakAPIView):
         dto = StartOnboardingDTO(
             vtex_account=vtex_account,
             crawl_url=serializer.validated_data["crawl_url"],
+            channel=serializer.validated_data["channel"],
         )
 
         try:

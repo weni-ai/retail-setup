@@ -20,6 +20,9 @@ class StartOnboardingSerializer(serializers.Serializer):
     """Serializer to validate the start onboarding (crawl) request."""
 
     crawl_url = serializers.URLField(required=True)
+    channel = serializers.ChoiceField(
+        choices=["wwc", "wpp-cloud"],
+    )
 
 
 class CrawlerWebhookSerializer(serializers.Serializer):
