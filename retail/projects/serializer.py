@@ -52,6 +52,7 @@ class ProjectOnboardingSerializer(serializers.Serializer):
     project_uuid = serializers.SerializerMethodField()
     current_page = serializers.CharField(read_only=True)
     completed = serializers.BooleanField(read_only=True)
+    failed = serializers.BooleanField(read_only=True)
     progress = serializers.IntegerField(read_only=True)
     current_step = serializers.CharField(read_only=True)
     crawler_result = serializers.CharField(read_only=True, allow_null=True)

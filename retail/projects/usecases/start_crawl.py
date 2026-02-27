@@ -6,6 +6,7 @@ from retail.clients.crawler.client import CrawlerClient
 from retail.interfaces.clients.crawler.client import CrawlerClientInterface
 from retail.projects.models import ProjectOnboarding
 from retail.projects.usecases.manager_defaults import get_manager_defaults
+from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.services.crawler.service import CrawlerService
 
 logger = logging.getLogger(__name__)
@@ -73,11 +74,10 @@ class StartCrawlUseCase:
         if response is None:
             onboarding.crawler_result = ProjectOnboarding.FAIL
             onboarding.save(update_fields=["crawler_result"])
-            logger.error(
-                f"Failed to start crawler for vtex_account={vtex_account} "
-                f"crawl_url={crawl_url}"
-            )
-            raise CrawlerStartError("Failed to communicate with the Crawler service.")
+
+            error_msg = "Failed to communicate with the Crawler service."
+            mark_onboarding_failed(vtex_account, error_msg)
+            raise CrawlerStartError(error_msg)
 
         logger.info(
             f"Crawl started for vtex_account={vtex_account} crawl_url={crawl_url}"

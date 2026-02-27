@@ -7,6 +7,7 @@ from retail.projects.usecases.configure_agent_builder import (
 )
 from retail.projects.usecases.configure_wwc import ConfigureWWCUseCase
 from retail.projects.usecases.integrate_agents import IntegrateAgentsUseCase
+from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +30,16 @@ class OnboardingOrchestrator:
     def execute(self, vtex_account: str, contents: list) -> None:
         logger.info(f"Starting post-crawl config for vtex_account={vtex_account}")
 
-        channel_cls = self._resolve_channel_usecase(vtex_account)
-        channel_cls().execute(vtex_account)
+        try:
+            channel_cls = self._resolve_channel_usecase(vtex_account)
+            channel_cls().execute(vtex_account)
 
-        ConfigureAgentBuilderUseCase().execute(vtex_account, contents)
+            ConfigureAgentBuilderUseCase().execute(vtex_account, contents)
 
-        IntegrateAgentsUseCase().execute(vtex_account)
+            IntegrateAgentsUseCase().execute(vtex_account)
+        except Exception as exc:
+            mark_onboarding_failed(vtex_account, str(exc))
+            raise
 
         logger.info(f"NEXUS_CONFIG completed for vtex_account={vtex_account}")
 
