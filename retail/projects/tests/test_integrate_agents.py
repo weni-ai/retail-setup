@@ -90,14 +90,15 @@ class TestIntegrateAgentsUseCase(TestCase):
             StubPassiveAgent("uuid-2", "Agent B"),
         ],
     )
-    def test_continues_on_partial_failure(self, _mock_agents):
+    def test_stops_on_first_failure(self, _mock_agents):
         self.mock_nexus_service.integrate_agent.side_effect = [None, {"ok": True}]
 
-        self.usecase.execute("mystore")
+        with self.assertRaises(AgentIntegrationError):
+            self.usecase.execute("mystore")
 
-        self.assertEqual(self.mock_nexus_service.integrate_agent.call_count, 2)
+        self.assertEqual(self.mock_nexus_service.integrate_agent.call_count, 1)
         self.onboarding.refresh_from_db()
-        self.assertEqual(self.onboarding.progress, AGENT_PROGRESS_END)
+        self.assertEqual(self.onboarding.progress, 75)
 
     @patch(
         "retail.projects.usecases.integrate_agents.get_channel_agents",

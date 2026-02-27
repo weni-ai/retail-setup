@@ -11,6 +11,7 @@ from retail.projects.usecases.manager_defaults import (
 from retail.projects.usecases.configure_agent_builder import (
     ConfigureAgentBuilderUseCase,
     FileProcessingError,
+    FileUploadError,
     ProjectNotLinkedError,
     MAX_UPLOAD_PROGRESS,
     _sanitize_filename,
@@ -137,25 +138,21 @@ class TestConfigureAgentBuilderUseCase(TestCase):
         self.onboarding.refresh_from_db()
         self.assertEqual(self.onboarding.progress, MAX_UPLOAD_PROGRESS)
 
-    def test_continues_on_upload_failure(self):
-        upload_uuid = str(uuid4())
+    def test_stops_on_upload_failure(self):
         self.mock_nexus_service.upload_content_base_file.side_effect = [
             None,
-            {"uuid": upload_uuid, "extension_file": "txt"},
+            {"uuid": str(uuid4()), "extension_file": "txt"},
         ]
-        self.mock_nexus_service.get_content_base_file_status.return_value = {
-            "uuid": upload_uuid,
-            "status": "success",
-        }
 
         contents = [
             {"link": "https://a.com", "title": "A", "content": "a"},
             {"link": "https://b.com", "title": "B", "content": "b"},
         ]
 
-        with patch("retail.projects.usecases.configure_agent_builder.time.sleep"):
+        with self.assertRaises(FileUploadError):
             self.usecase.execute("mystore", contents)
-        self.assertEqual(self.mock_nexus_service.upload_content_base_file.call_count, 2)
+
+        self.assertEqual(self.mock_nexus_service.upload_content_base_file.call_count, 1)
 
     @patch("retail.projects.usecases.configure_agent_builder.time.sleep")
     def test_passes_project_uuid_to_nexus(self, mock_sleep):

@@ -4,6 +4,7 @@ from celery import shared_task
 from django.core.cache import cache
 
 from retail.projects.models import ProjectOnboarding
+from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.projects.usecases.onboarding_orchestrator import OnboardingOrchestrator
 from retail.projects.usecases.start_crawl import CrawlerStartError, StartCrawlUseCase
 
@@ -45,14 +46,25 @@ def task_wait_and_start_crawl(self, vtex_account: str, crawl_url: str) -> None:
 
     Retries periodically until the project is available or max_retries is reached.
     """
-    onboarding = ProjectOnboarding.objects.get(vtex_account=vtex_account)
+    try:
+        onboarding = ProjectOnboarding.objects.get(vtex_account=vtex_account)
+    except ProjectOnboarding.DoesNotExist:
+        mark_onboarding_failed(vtex_account, "Onboarding record not found")
+        raise
 
     if onboarding.project is None:
         logger.info(
             f"Project not linked yet for vtex_account={vtex_account}. "
             f"Retrying in {WAIT_CRAWL_RETRY_COUNTDOWN}s..."
         )
-        raise self.retry(countdown=WAIT_CRAWL_RETRY_COUNTDOWN)
+        try:
+            raise self.retry(countdown=WAIT_CRAWL_RETRY_COUNTDOWN)
+        except self.MaxRetriesExceededError:
+            mark_onboarding_failed(
+                vtex_account,
+                "Project was never linked: max retries exceeded",
+            )
+            raise
 
     logger.info(f"Project linked for vtex_account={vtex_account}. Starting crawl.")
 

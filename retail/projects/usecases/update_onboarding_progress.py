@@ -2,6 +2,7 @@ import logging
 
 from retail.projects.models import ProjectOnboarding
 from retail.projects.tasks import acquire_task_lock, task_configure_nexus
+from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.projects.usecases.onboarding_dto import CrawlerWebhookDTO
 
 logger = logging.getLogger(__name__)
@@ -76,14 +77,12 @@ class UpdateOnboardingProgressUseCase:
     def _handle_failed(
         onboarding: ProjectOnboarding, dto: CrawlerWebhookDTO
     ) -> ProjectOnboarding:
-        """Records the crawl failure."""
+        """Records the crawl failure and marks the onboarding as failed."""
         onboarding.crawler_result = ProjectOnboarding.FAIL
         onboarding.save(update_fields=["crawler_result"])
 
-        logger.error(
-            f"Crawler failed for onboarding={onboarding.uuid}: "
-            f"{dto.data.get('error', 'Unknown error')}"
-        )
+        error_msg = dto.data.get("error", "Unknown error")
+        mark_onboarding_failed(onboarding.vtex_account, f"Crawler failed: {error_msg}")
         return onboarding
 
     @staticmethod

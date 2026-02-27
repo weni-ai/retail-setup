@@ -61,34 +61,51 @@ def convert_vtex_locale_to_meta_language(locale: str) -> str:
     return locale.replace("-", "_")
 
 
-DEFAULT_CONNECT_LANGUAGE = "pt-br"
+DEFAULT_CONNECT_LANGUAGE = "en-us"
+
+CONNECT_SUPPORTED_LANGUAGES = {"en-us", "pt-br", "es"}
 
 
 def convert_vtex_locale_to_connect_language(locale: str) -> str:
     """
     Convert VTEX locale to Connect project language format.
 
-    VTEX returns locale as 'pt-BR'; Connect expects the same string
-    lowercased ('pt-br').  Works for any locale, not just a fixed set.
+    Connect only accepts: 'en-us', 'pt-br', 'es'.
+    For 'pt' and 'en' variants, the full locale is kept (pt-br, en-us).
+    For 'es' variants (es-MX, es-AR, etc.), only the base 'es' is used
+    since Connect does not support regional Spanish codes.
+
+    Falls back to DEFAULT_CONNECT_LANGUAGE if the result is not supported.
 
     Args:
-        locale: VTEX locale (e.g., 'pt-BR', 'en-US', 'es-AR')
+        locale: VTEX locale (e.g., 'pt-BR', 'en-US', 'es-MX')
 
     Returns:
-        Connect language code (e.g., 'pt-br', 'en-us', 'es-ar')
+        Connect language code (e.g., 'pt-br', 'en-us', 'es')
 
     Examples:
         >>> convert_vtex_locale_to_connect_language('pt-BR')
         'pt-br'
         >>> convert_vtex_locale_to_connect_language('en-US')
         'en-us'
+        >>> convert_vtex_locale_to_connect_language('es-MX')
+        'es'
         >>> convert_vtex_locale_to_connect_language('es-AR')
-        'es-ar'
+        'es'
     """
     if not locale:
         return DEFAULT_CONNECT_LANGUAGE
 
-    return locale.lower()
+    lowered = locale.lower()
+
+    if lowered in CONNECT_SUPPORTED_LANGUAGES:
+        return lowered
+
+    base_lang = lowered.split("-")[0]
+    if base_lang == "es":
+        return "es"
+
+    return DEFAULT_CONNECT_LANGUAGE
 
 
 def convert_connect_language_to_meta(language: str) -> str:
