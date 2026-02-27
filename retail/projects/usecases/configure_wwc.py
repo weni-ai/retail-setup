@@ -5,6 +5,7 @@ from django.conf import settings
 from retail.clients.integrations.client import IntegrationsClient
 from retail.interfaces.clients.integrations.interface import IntegrationsClientInterface
 from retail.projects.models import ProjectOnboarding
+from retail.projects.usecases.onboarding_defaults import get_wwc_translations
 from retail.services.integrations.service import IntegrationsService
 
 logger = logging.getLogger(__name__)
@@ -15,8 +16,7 @@ WWC_CREATION_CONFIG = {
     "useConnectionOptimization": True,
 }
 
-WWC_CHANNEL_CONFIG = {
-    "title": "Assistente Virtual",  # TODO: Translate with mapping
+WWC_CHANNEL_BASE_CONFIG = {
     "version": "2",
     "selector": "#wwc",
     "embedded": False,
@@ -30,7 +30,6 @@ WWC_CHANNEL_CONFIG = {
     "timeBetweenMessages": 1,
     "navigateIfSameDomain": False,
     "useConnectionOptimization": False,
-    "inputTextFieldHint": "Como posso ajudar?",  # TODO: Translate with mapping
     "displayRatio": 10,
     "params": {
         "images": {"dims": {"width": 300, "height": 200}},
@@ -46,6 +45,16 @@ WWC_CHANNEL_CONFIG = {
     },
     "profileAvatar": settings.WWC_PROFILE_AVATAR_URL,
 }
+
+
+def build_wwc_channel_config(language: str) -> dict:
+    """Builds the full WWC channel config with translated title and placeholder."""
+    translations = get_wwc_translations(language)
+    return {
+        **WWC_CHANNEL_BASE_CONFIG,
+        "title": translations["title"],
+        "inputTextFieldHint": translations["inputTextFieldHint"],
+    }
 
 
 class WWCConfigError(Exception):
@@ -88,13 +97,14 @@ class ConfigureWWCUseCase:
         """
         onboarding = self._load_onboarding(vtex_account)
         project_uuid = str(onboarding.project.uuid)
+        language = onboarding.project.language or ""
 
         onboarding.current_step = "NEXUS_CONFIG"
         onboarding.progress = 0
         onboarding.save(update_fields=["current_step", "progress"])
 
         app_uuid = self._create_app(onboarding, project_uuid)
-        self._configure_app(onboarding, app_uuid, project_uuid)
+        self._configure_app(onboarding, app_uuid, project_uuid, language)
         self._persist_app_uuid(onboarding, app_uuid)
 
     def _load_onboarding(self, vtex_account: str) -> ProjectOnboarding:
@@ -138,11 +148,16 @@ class ConfigureWWCUseCase:
         return app_uuid
 
     def _configure_app(
-        self, onboarding: ProjectOnboarding, app_uuid: str, project_uuid: str
+        self,
+        onboarding: ProjectOnboarding,
+        app_uuid: str,
+        project_uuid: str,
+        language: str = "",
     ) -> None:
         """Configures the previously created WWC app and updates progress to 20%."""
+        channel_config = build_wwc_channel_config(language)
         configure_response = self.integrations_service.configure_channel_app(
-            "wwc", app_uuid, WWC_CHANNEL_CONFIG
+            "wwc", app_uuid, channel_config
         )
         if configure_response is None:
             raise WWCConfigError(
