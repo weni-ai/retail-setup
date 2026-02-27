@@ -368,22 +368,3 @@ class IntegrationsService:
                 f"{app_uuid}: {e}"
             )
             return None
-
-    def get_channel_app(self, apptype: str, app_uuid: str) -> Optional[Dict]:
-        """
-        Retrieves the details of a channel app.
-
-        Returns:
-            Dict with app data or None on failure.
-        """
-        try:
-            return self.client.get_channel_app(apptype, app_uuid)
-        except CustomAPIException as e:
-            logger.error(
-                "Error %s when fetching %s app %s: %s",
-                e.status_code,
-                apptype,
-                app_uuid,
-                e,
-            )
-            return None

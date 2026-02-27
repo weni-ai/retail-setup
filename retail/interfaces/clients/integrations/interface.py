@@ -63,7 +63,3 @@ class IntegrationsClientInterface(ABC):
     @abstractmethod
     def configure_channel_app(self, apptype: str, app_uuid: str, config: Dict) -> Dict:
         pass
-
-    @abstractmethod
-    def get_channel_app(self, apptype: str, app_uuid: str) -> Dict:
-        pass

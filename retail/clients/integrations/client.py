@@ -287,23 +287,3 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
             headers=self.authentication_instance.headers,
         )
         return response.json()
-
-    def get_channel_app(self, apptype: str, app_uuid: str) -> Dict:
-        """
-        Retrieves the details of a channel app.
-
-        Args:
-            apptype: The Integrations Engine apptype slug (e.g. "wwc", "wpp-cloud").
-            app_uuid: The app's unique identifier.
-
-        Returns:
-            Dict containing the app data (uuid, config, flow_object_uuid, etc.).
-        """
-        url = f"{self.base_url}/api/v1/apptypes/{apptype}/apps/{app_uuid}/"
-
-        response = self.make_request(
-            url,
-            method="GET",
-            headers=self.authentication_instance.headers,
-        )
-        return response.json()
