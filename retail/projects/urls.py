@@ -1,6 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import SimpleRouter
 from retail.projects import views as project_views
+from retail.api.onboard.views import ActivateWebchatView
 
 
 router = SimpleRouter()
@@ -35,5 +36,10 @@ urlpatterns = [
         "onboard/<str:vtex_account>/",
         project_views.OnboardingPatchView.as_view(),
         name="onboarding-patch",
+    ),
+    path(
+        "onboard/wwc/activate/",
+        ActivateWebchatView.as_view(),
+        name="onboard-wwc-activate",
     ),
 ]

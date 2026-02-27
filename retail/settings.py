@@ -306,6 +306,15 @@ if USE_LAMBDA:
 if USE_S3:
     AWS_STORAGE_BUCKET_NAME = env.str("AWS_STORAGE_BUCKET_NAME")
 
+# Webchat Push S3 — bucket used by the VTEX pixel app to load the webchat loader
+WEBCHAT_PUSH_S3_BUCKET_NAME = env.str("WEBCHAT_PUSH_S3_BUCKET_NAME", default="")
+WEBCHAT_PUSH_S3_REGION = env.str("WEBCHAT_PUSH_S3_REGION", default="")
+WEBCHAT_PUSH_S3_ACCESS_KEY_ID = env.str("WEBCHAT_PUSH_S3_ACCESS_KEY_ID", default="")
+WEBCHAT_PUSH_S3_SECRET_ACCESS_KEY = env.str(
+    "WEBCHAT_PUSH_S3_SECRET_ACCESS_KEY", default=""
+)
+WEBCHAT_CDN_URL = env.str("WEBCHAT_CDN_URL", default="")
+
 USE_META = env.bool("USE_LAMBDA", default=False)
 
 if USE_META:
