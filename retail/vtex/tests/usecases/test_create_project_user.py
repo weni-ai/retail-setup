@@ -71,7 +71,7 @@ class TestCreateProjectUserUseCase(TestCase):
         self.connect_service.create_vtex_project.assert_called_once_with(
             user_email="user@example.com",
             vtex_account="mystore",
-            language="es-ar",
+            language="es",
             organization_name="Mystore",
             project_name="Mystore 01",
         )
@@ -85,7 +85,7 @@ class TestCreateProjectUserUseCase(TestCase):
         self.connect_service.create_vtex_project.assert_called_once_with(
             user_email="user@example.com",
             vtex_account="mystore",
-            language="pt-br",
+            language="en-us",
             organization_name="Mystore",
             project_name="Mystore 01",
         )
@@ -99,7 +99,7 @@ class TestCreateProjectUserUseCase(TestCase):
         self.connect_service.create_vtex_project.assert_called_once_with(
             user_email="user@example.com",
             vtex_account="mystore",
-            language="pt-br",
+            language="en-us",
             organization_name="Mystore",
             project_name="Mystore 01",
         )

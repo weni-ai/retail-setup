@@ -85,6 +85,19 @@ class NexusClientInterface(Protocol):
         """
         ...
 
+    def get_content_base_file_status(self, project_uuid: str, file_uuid: str) -> Dict:
+        """
+        Checks the processing status of a previously uploaded content base file.
+
+        Args:
+            project_uuid: The project's unique identifier.
+            file_uuid: The UUID returned by the upload endpoint.
+
+        Returns:
+            Dict with file status (e.g. "Processing", "success", "failed").
+        """
+        ...
+
     def upload_content_base_file(
         self,
         project_uuid: str,

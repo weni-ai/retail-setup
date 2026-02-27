@@ -39,5 +39,4 @@ class ProjectConsumer(EDAConsumer):  # pragma: no cover
             self.ack()
         except Exception as e:
             logger.error(f"[ProjectConsumer] - Error processing message: {e}")
-            # Don't ack the message so it can be retried or moved to dead letter queue
             self.nack()

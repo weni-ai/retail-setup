@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from django.test import TestCase
@@ -10,6 +10,8 @@ from retail.projects.usecases.manager_defaults import (
 )
 from retail.projects.usecases.configure_agent_builder import (
     ConfigureAgentBuilderUseCase,
+    FileProcessingError,
+    FileUploadError,
     ProjectNotLinkedError,
     MAX_UPLOAD_PROGRESS,
     _sanitize_filename,
@@ -49,8 +51,17 @@ class TestConfigureAgentBuilderUseCase(TestCase):
         self.assertEqual(self.onboarding.progress, MAX_UPLOAD_PROGRESS)
         self.mock_nexus_service.upload_content_base_file.assert_not_called()
 
-    def test_uploads_files_for_each_content(self):
-        self.mock_nexus_service.upload_content_base_file.return_value = {"status": "ok"}
+    @patch("retail.projects.usecases.configure_agent_builder.time.sleep")
+    def test_uploads_files_for_each_content(self, mock_sleep):
+        upload_uuid = str(uuid4())
+        self.mock_nexus_service.upload_content_base_file.return_value = {
+            "uuid": upload_uuid,
+            "extension_file": "txt",
+        }
+        self.mock_nexus_service.get_content_base_file_status.return_value = {
+            "uuid": upload_uuid,
+            "status": "success",
+        }
 
         contents = [
             {
@@ -68,9 +79,21 @@ class TestConfigureAgentBuilderUseCase(TestCase):
         self.usecase.execute("mystore", contents)
 
         self.assertEqual(self.mock_nexus_service.upload_content_base_file.call_count, 2)
+        self.assertEqual(
+            self.mock_nexus_service.get_content_base_file_status.call_count, 2
+        )
 
-    def test_file_contains_only_content(self):
-        self.mock_nexus_service.upload_content_base_file.return_value = {"status": "ok"}
+    @patch("retail.projects.usecases.configure_agent_builder.time.sleep")
+    def test_file_contains_only_content(self, mock_sleep):
+        upload_uuid = str(uuid4())
+        self.mock_nexus_service.upload_content_base_file.return_value = {
+            "uuid": upload_uuid,
+            "extension_file": "txt",
+        }
+        self.mock_nexus_service.get_content_base_file_status.return_value = {
+            "uuid": upload_uuid,
+            "status": "success",
+        }
 
         contents = [
             {
@@ -91,8 +114,17 @@ class TestConfigureAgentBuilderUseCase(TestCase):
         self.assertNotIn("Title:", text)
         self.assertNotIn("Source:", text)
 
-    def test_progress_updates_proportionally(self):
-        self.mock_nexus_service.upload_content_base_file.return_value = {"status": "ok"}
+    @patch("retail.projects.usecases.configure_agent_builder.time.sleep")
+    def test_progress_updates_proportionally(self, mock_sleep):
+        upload_uuid = str(uuid4())
+        self.mock_nexus_service.upload_content_base_file.return_value = {
+            "uuid": upload_uuid,
+            "extension_file": "txt",
+        }
+        self.mock_nexus_service.get_content_base_file_status.return_value = {
+            "uuid": upload_uuid,
+            "status": "success",
+        }
 
         contents = [
             {"link": "https://a.com", "title": "A", "content": "a"},
@@ -106,10 +138,10 @@ class TestConfigureAgentBuilderUseCase(TestCase):
         self.onboarding.refresh_from_db()
         self.assertEqual(self.onboarding.progress, MAX_UPLOAD_PROGRESS)
 
-    def test_continues_on_upload_failure(self):
+    def test_stops_on_upload_failure(self):
         self.mock_nexus_service.upload_content_base_file.side_effect = [
             None,
-            {"status": "ok"},
+            {"uuid": str(uuid4()), "extension_file": "txt"},
         ]
 
         contents = [
@@ -117,11 +149,22 @@ class TestConfigureAgentBuilderUseCase(TestCase):
             {"link": "https://b.com", "title": "B", "content": "b"},
         ]
 
-        self.usecase.execute("mystore", contents)
-        self.assertEqual(self.mock_nexus_service.upload_content_base_file.call_count, 2)
+        with self.assertRaises(FileUploadError):
+            self.usecase.execute("mystore", contents)
 
-    def test_passes_project_uuid_to_nexus(self):
-        self.mock_nexus_service.upload_content_base_file.return_value = {"status": "ok"}
+        self.assertEqual(self.mock_nexus_service.upload_content_base_file.call_count, 1)
+
+    @patch("retail.projects.usecases.configure_agent_builder.time.sleep")
+    def test_passes_project_uuid_to_nexus(self, mock_sleep):
+        upload_uuid = str(uuid4())
+        self.mock_nexus_service.upload_content_base_file.return_value = {
+            "uuid": upload_uuid,
+            "extension_file": "txt",
+        }
+        self.mock_nexus_service.get_content_base_file_status.return_value = {
+            "uuid": upload_uuid,
+            "status": "success",
+        }
 
         contents = [
             {"link": "https://a.com", "title": "A", "content": "a"},
@@ -131,6 +174,50 @@ class TestConfigureAgentBuilderUseCase(TestCase):
 
         call_kwargs = self.mock_nexus_service.upload_content_base_file.call_args[1]
         self.assertEqual(call_kwargs["project_uuid"], str(self.project.uuid))
+
+    @patch("retail.projects.usecases.configure_agent_builder.time.sleep")
+    def test_waits_for_processing_before_next_upload(self, mock_sleep):
+        """Ensures polling occurs between consecutive uploads."""
+        uuid_1, uuid_2 = str(uuid4()), str(uuid4())
+        self.mock_nexus_service.upload_content_base_file.side_effect = [
+            {"uuid": uuid_1, "extension_file": "txt"},
+            {"uuid": uuid_2, "extension_file": "txt"},
+        ]
+        self.mock_nexus_service.get_content_base_file_status.side_effect = [
+            {"uuid": uuid_1, "status": "Processing"},
+            {"uuid": uuid_1, "status": "success"},
+            {"uuid": uuid_2, "status": "success"},
+        ]
+
+        contents = [
+            {"link": "https://a.com", "title": "A", "content": "a"},
+            {"link": "https://b.com", "title": "B", "content": "b"},
+        ]
+
+        self.usecase.execute("mystore", contents)
+
+        self.assertEqual(
+            self.mock_nexus_service.get_content_base_file_status.call_count, 3
+        )
+
+    @patch("retail.projects.usecases.configure_agent_builder.time.sleep")
+    def test_raises_on_processing_failure(self, mock_sleep):
+        upload_uuid = str(uuid4())
+        self.mock_nexus_service.upload_content_base_file.return_value = {
+            "uuid": upload_uuid,
+            "extension_file": "txt",
+        }
+        self.mock_nexus_service.get_content_base_file_status.return_value = {
+            "uuid": upload_uuid,
+            "status": "failed",
+        }
+
+        contents = [
+            {"link": "https://a.com", "title": "A", "content": "a"},
+        ]
+
+        with self.assertRaises(FileProcessingError):
+            self.usecase.execute("mystore", contents)
 
 
 class TestAgentConfiguration(TestCase):

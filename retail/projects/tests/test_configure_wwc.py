@@ -20,6 +20,7 @@ class TestConfigureWWCUseCase(TestCase):
         self.onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=self.project,
+            config={"channels": {"wwc": {}}},
         )
         self.mock_integrations_service = MagicMock()
         self.usecase = ConfigureWWCUseCase(integrations_client=MagicMock())
@@ -27,11 +28,11 @@ class TestConfigureWWCUseCase(TestCase):
 
     def test_full_flow_creates_and_configures_wwc(self):
         app_uuid = str(uuid4())
-        self.mock_integrations_service.create_wwc_app.return_value = {
+        self.mock_integrations_service.create_channel_app.return_value = {
             "uuid": app_uuid,
             "code": "wwc",
         }
-        self.mock_integrations_service.configure_wwc_app.return_value = {
+        self.mock_integrations_service.configure_channel_app.return_value = {
             "uuid": app_uuid,
             "script": "https://example.com/script.js",
         }
@@ -40,8 +41,10 @@ class TestConfigureWWCUseCase(TestCase):
 
         self.onboarding.refresh_from_db()
         self.assertEqual(self.onboarding.current_step, "NEXUS_CONFIG")
-        self.assertEqual(self.onboarding.progress, 25)
-        self.assertEqual(self.onboarding.config["integrated_apps"]["wwc"], app_uuid)
+        self.assertEqual(self.onboarding.progress, 10)
+        self.assertEqual(
+            self.onboarding.config["channels"]["wwc"]["app_uuid"], app_uuid
+        )
 
     def test_raises_error_when_project_not_linked(self):
         ProjectOnboarding.objects.create(
@@ -54,7 +57,7 @@ class TestConfigureWWCUseCase(TestCase):
         self.assertIn("no project linked", str(ctx.exception))
 
     def test_raises_error_when_wwc_already_configured(self):
-        self.onboarding.config = {"integrated_apps": {"wwc": str(uuid4())}}
+        self.onboarding.config = {"channels": {"wwc": {"app_uuid": str(uuid4())}}}
         self.onboarding.save()
 
         with self.assertRaises(WWCConfigError) as ctx:
@@ -63,7 +66,7 @@ class TestConfigureWWCUseCase(TestCase):
         self.assertIn("already configured", str(ctx.exception))
 
     def test_raises_error_when_create_fails(self):
-        self.mock_integrations_service.create_wwc_app.return_value = None
+        self.mock_integrations_service.create_channel_app.return_value = None
 
         with self.assertRaises(WWCConfigError) as ctx:
             self.usecase.execute("mystore")
@@ -71,7 +74,7 @@ class TestConfigureWWCUseCase(TestCase):
         self.assertIn("Failed to create", str(ctx.exception))
 
     def test_raises_error_when_create_returns_no_uuid(self):
-        self.mock_integrations_service.create_wwc_app.return_value = {
+        self.mock_integrations_service.create_channel_app.return_value = {
             "code": "wwc",
         }
 
@@ -81,40 +84,42 @@ class TestConfigureWWCUseCase(TestCase):
         self.assertIn("returned no uuid", str(ctx.exception))
 
     def test_raises_error_when_configure_fails(self):
-        self.mock_integrations_service.create_wwc_app.return_value = {
+        self.mock_integrations_service.create_channel_app.return_value = {
             "uuid": str(uuid4()),
         }
-        self.mock_integrations_service.configure_wwc_app.return_value = None
+        self.mock_integrations_service.configure_channel_app.return_value = None
 
         with self.assertRaises(WWCConfigError) as ctx:
             self.usecase.execute("mystore")
 
         self.assertIn("Failed to configure", str(ctx.exception))
 
-    def test_calls_create_with_correct_project_uuid(self):
+    def test_calls_create_with_correct_args(self):
         app_uuid = str(uuid4())
-        self.mock_integrations_service.create_wwc_app.return_value = {
+        self.mock_integrations_service.create_channel_app.return_value = {
             "uuid": app_uuid,
         }
-        self.mock_integrations_service.configure_wwc_app.return_value = {
+        self.mock_integrations_service.configure_channel_app.return_value = {
             "uuid": app_uuid,
         }
 
         self.usecase.execute("mystore")
 
-        create_call = self.mock_integrations_service.create_wwc_app.call_args
-        self.assertEqual(create_call[0][0], str(self.project.uuid))
+        create_call = self.mock_integrations_service.create_channel_app.call_args
+        self.assertEqual(create_call[0][0], "wwc")
+        self.assertEqual(create_call[0][1], str(self.project.uuid))
 
-    def test_calls_configure_with_correct_app_uuid(self):
+    def test_calls_configure_with_correct_args(self):
         app_uuid = str(uuid4())
-        self.mock_integrations_service.create_wwc_app.return_value = {
+        self.mock_integrations_service.create_channel_app.return_value = {
             "uuid": app_uuid,
         }
-        self.mock_integrations_service.configure_wwc_app.return_value = {
+        self.mock_integrations_service.configure_channel_app.return_value = {
             "uuid": app_uuid,
         }
 
         self.usecase.execute("mystore")
 
-        configure_call = self.mock_integrations_service.configure_wwc_app.call_args
-        self.assertEqual(configure_call[0][0], app_uuid)
+        configure_call = self.mock_integrations_service.configure_channel_app.call_args
+        self.assertEqual(configure_call[0][0], "wwc")
+        self.assertEqual(configure_call[0][1], app_uuid)

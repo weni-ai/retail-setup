@@ -56,6 +56,7 @@ class ProjectOnboarding(models.Model):
     created_on = models.DateTimeField(auto_now_add=True)
     current_page = models.CharField(max_length=255, blank=True, default="")
     completed = models.BooleanField(default=False)
+    failed = models.BooleanField(default=False)
     progress = models.IntegerField(default=0)
     current_step = models.CharField(max_length=50, blank=True, default="")
     crawler_result = models.CharField(

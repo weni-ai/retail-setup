@@ -27,7 +27,7 @@ class TestStartOnboardingView(TestCase):
 
         response = self.client.post(
             "/api/onboard/mystore/start-crawling/",
-            {"crawl_url": "https://www.mystore.com.br/"},
+            {"crawl_url": "https://www.mystore.com.br/", "channel": "wwc"},
             format="json",
         )
 
@@ -56,7 +56,7 @@ class TestStartOnboardingView(TestCase):
 
         response = self.client.post(
             "/api/onboard/mystore/start-crawling/",
-            {"crawl_url": "https://www.mystore.com.br/"},
+            {"crawl_url": "https://www.mystore.com.br/", "channel": "wwc"},
             format="json",
         )
 
@@ -163,13 +163,13 @@ class TestOnboardingStatusView(TestCase):
     def test_response_contains_config_field(self, _mock_auth):
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
-            config={"integrated_apps": {"wwc": str(uuid4())}},
+            config={"channels": {"wwc": {"app_uuid": str(uuid4())}}},
         )
 
         response = self.client.get("/api/onboard/mystore/status/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("integrated_apps", response.json()["config"])
+        self.assertIn("channels", response.json()["config"])
 
 
 class TestOnboardingPatchView(TestCase):
