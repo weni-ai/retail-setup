@@ -2,6 +2,7 @@ import logging
 
 from retail.projects.models import ProjectOnboarding
 from retail.projects.tasks import acquire_task_lock, task_configure_nexus
+from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.projects.usecases.onboarding_dto import CrawlerWebhookDTO
 
 logger = logging.getLogger(__name__)
@@ -19,12 +20,12 @@ class UpdateOnboardingProgressUseCase:
     """
 
     @staticmethod
-    def execute(project_uuid: str, dto: CrawlerWebhookDTO) -> ProjectOnboarding:
+    def execute(onboarding_uuid: str, dto: CrawlerWebhookDTO) -> ProjectOnboarding:
         """
         Routes the crawler webhook event to the appropriate handler.
 
         Args:
-            project_uuid: The project UUID from the webhook URL.
+            onboarding_uuid: The ProjectOnboarding UUID from the webhook URL.
             dto: Event data received from the crawler webhook.
 
         Returns:
@@ -33,27 +34,21 @@ class UpdateOnboardingProgressUseCase:
         Raises:
             ProjectOnboarding.DoesNotExist: If no onboarding record is found.
         """
-        onboarding = ProjectOnboarding.objects.select_related("project").get(
-            project__uuid=project_uuid,
+        onboarding = ProjectOnboarding.objects.get(
+            uuid=onboarding_uuid,
         )
 
         if dto.event == COMPLETED_EVENT:
-            return UpdateOnboardingProgressUseCase._handle_completed(
-                onboarding, project_uuid, dto
-            )
+            return UpdateOnboardingProgressUseCase._handle_completed(onboarding, dto)
 
         if dto.event == FAILED_EVENT:
-            return UpdateOnboardingProgressUseCase._handle_failed(
-                onboarding, project_uuid, dto
-            )
+            return UpdateOnboardingProgressUseCase._handle_failed(onboarding, dto)
 
-        return UpdateOnboardingProgressUseCase._handle_progress(
-            onboarding, project_uuid, dto
-        )
+        return UpdateOnboardingProgressUseCase._handle_progress(onboarding, dto)
 
     @staticmethod
     def _handle_completed(
-        onboarding: ProjectOnboarding, project_uuid: str, dto: CrawlerWebhookDTO
+        onboarding: ProjectOnboarding, dto: CrawlerWebhookDTO
     ) -> ProjectOnboarding:
         """Marks crawl as successful and dispatches the NEXUS_CONFIG task."""
         onboarding.progress = 100
@@ -64,7 +59,7 @@ class UpdateOnboardingProgressUseCase:
         vtex_account = onboarding.vtex_account
 
         logger.info(
-            f"Crawler completed for project={project_uuid}. "
+            f"Crawler completed for onboarding={onboarding.uuid}. "
             f"Dispatching NEXUS_CONFIG with {len(contents)} content items."
         )
 
@@ -80,21 +75,19 @@ class UpdateOnboardingProgressUseCase:
 
     @staticmethod
     def _handle_failed(
-        onboarding: ProjectOnboarding, project_uuid: str, dto: CrawlerWebhookDTO
+        onboarding: ProjectOnboarding, dto: CrawlerWebhookDTO
     ) -> ProjectOnboarding:
-        """Records the crawl failure."""
+        """Records the crawl failure and marks the onboarding as failed."""
         onboarding.crawler_result = ProjectOnboarding.FAIL
         onboarding.save(update_fields=["crawler_result"])
 
-        logger.error(
-            f"Crawler failed for project={project_uuid}: "
-            f"{dto.data.get('error', 'Unknown error')}"
-        )
+        error_msg = dto.data.get("error", "Unknown error")
+        mark_onboarding_failed(onboarding.vtex_account, f"Crawler failed: {error_msg}")
         return onboarding
 
     @staticmethod
     def _handle_progress(
-        onboarding: ProjectOnboarding, project_uuid: str, dto: CrawlerWebhookDTO
+        onboarding: ProjectOnboarding, dto: CrawlerWebhookDTO
     ) -> ProjectOnboarding:
         """Updates crawl progress when it has advanced."""
         if dto.progress > onboarding.progress:
@@ -102,7 +95,7 @@ class UpdateOnboardingProgressUseCase:
             onboarding.save(update_fields=["progress"])
 
         logger.info(
-            f"Crawl progress for project={project_uuid}: "
+            f"Crawl progress for onboarding={onboarding.uuid}: "
             f"event={dto.event} progress={onboarding.progress}%"
         )
         return onboarding

@@ -2,6 +2,8 @@ import logging
 
 from retail.projects.models import Project, ProjectOnboarding
 from retail.projects.tasks import task_wait_and_start_crawl
+from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
+from retail.projects.usecases.onboarding_agents.agent_mappings import SUPPORTED_CHANNELS
 from retail.projects.usecases.onboarding_dto import StartOnboardingDTO
 from retail.projects.usecases.start_crawl import StartCrawlUseCase
 
@@ -38,7 +40,28 @@ class StartOnboardingUseCase:
         if not created:
             self._reset_onboarding(onboarding)
 
-        self._try_link_project(onboarding)
+        if dto.channel not in SUPPORTED_CHANNELS:
+            mark_onboarding_failed(
+                dto.vtex_account,
+                f"Unsupported channel '{dto.channel}'. "
+                f"Supported: {SUPPORTED_CHANNELS}",
+            )
+            raise ValueError(
+                f"Unsupported channel '{dto.channel}'. "
+                f"Supported: {SUPPORTED_CHANNELS}"
+            )
+
+        config = onboarding.config or {}
+        channels = config.setdefault("channels", {})
+        channels.setdefault(dto.channel, {})
+        onboarding.config = config
+        onboarding.save(update_fields=["config"])
+
+        try:
+            self._try_link_project(onboarding)
+        except Exception as exc:
+            mark_onboarding_failed(dto.vtex_account, str(exc))
+            raise
 
         if onboarding.project is not None:
             self.start_crawl_usecase.execute(dto.vtex_account, dto.crawl_url)
@@ -57,9 +80,16 @@ class StartOnboardingUseCase:
         onboarding.progress = 0
         onboarding.crawler_result = None
         onboarding.completed = False
+        onboarding.failed = False
         onboarding.current_step = ""
         onboarding.save(
-            update_fields=["progress", "crawler_result", "completed", "current_step"]
+            update_fields=[
+                "progress",
+                "crawler_result",
+                "completed",
+                "failed",
+                "current_step",
+            ]
         )
 
     @staticmethod

@@ -24,7 +24,7 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             project=self.project,
             current_step="CRAWL",
         )
-        self.project_uuid = str(self.project.uuid)
+        self.onboarding_uuid = str(self.onboarding.uuid)
 
     # ── Progress handling ──────────────────────────────────────────
 
@@ -37,7 +37,7 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             progress=35,
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.project_uuid, dto)
+        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.progress, 35)
 
@@ -54,7 +54,7 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             progress=49,
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.project_uuid, dto)
+        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.progress, 50)
 
@@ -70,7 +70,7 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             progress=60,
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.project_uuid, dto)
+        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.progress, 60)
 
@@ -96,7 +96,7 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             data={"contents": contents},
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.project_uuid, dto)
+        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.progress, 100)
         self.assertEqual(result.crawler_result, ProjectOnboarding.SUCCESS)
@@ -118,7 +118,7 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             data={"contents": []},
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.project_uuid, dto)
+        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.progress, 100)
         self.assertEqual(result.crawler_result, ProjectOnboarding.SUCCESS)
@@ -136,13 +136,13 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             data={"error": "Connection timeout"},
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.project_uuid, dto)
+        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.crawler_result, ProjectOnboarding.FAIL)
 
     # ── Edge cases ─────────────────────────────────────────────────
 
-    def test_raises_not_found_for_unknown_project_uuid(self):
+    def test_raises_not_found_for_unknown_onboarding_uuid(self):
         dto = CrawlerWebhookDTO(
             task_id="task-1",
             event="crawl.subpage.progress",

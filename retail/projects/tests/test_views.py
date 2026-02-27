@@ -27,7 +27,7 @@ class TestStartOnboardingView(TestCase):
 
         response = self.client.post(
             "/api/onboard/mystore/start-crawling/",
-            {"crawl_url": "https://www.mystore.com.br/"},
+            {"crawl_url": "https://www.mystore.com.br/", "channel": "wwc"},
             format="json",
         )
 
@@ -56,7 +56,7 @@ class TestStartOnboardingView(TestCase):
 
         response = self.client.post(
             "/api/onboard/mystore/start-crawling/",
-            {"crawl_url": "https://www.mystore.com.br/"},
+            {"crawl_url": "https://www.mystore.com.br/", "channel": "wwc"},
             format="json",
         )
 
@@ -83,7 +83,7 @@ class TestCrawlerWebhookView(TestCase):
     @patch("retail.projects.usecases.update_onboarding_progress.task_configure_nexus")
     def test_returns_200_on_valid_webhook(self, mock_task, mock_lock):
         response = self.client.post(
-            f"/api/onboard/{self.project.uuid}/webhook/",
+            f"/api/onboard/{self.onboarding.uuid}/webhook/",
             {
                 "task_id": "task-1",
                 "event": "crawl.subpage.progress",
@@ -114,7 +114,7 @@ class TestCrawlerWebhookView(TestCase):
 
     def test_returns_400_for_invalid_payload(self):
         response = self.client.post(
-            f"/api/onboard/{self.project.uuid}/webhook/",
+            f"/api/onboard/{self.onboarding.uuid}/webhook/",
             {"invalid": "data"},
             format="json",
         )
@@ -163,13 +163,13 @@ class TestOnboardingStatusView(TestCase):
     def test_response_contains_config_field(self, _mock_auth):
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
-            config={"integrated_apps": {"wwc": str(uuid4())}},
+            config={"channels": {"wwc": {"app_uuid": str(uuid4())}}},
         )
 
         response = self.client.get("/api/onboard/mystore/status/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("integrated_apps", response.json()["config"])
+        self.assertIn("channels", response.json()["config"])
 
 
 class TestOnboardingPatchView(TestCase):

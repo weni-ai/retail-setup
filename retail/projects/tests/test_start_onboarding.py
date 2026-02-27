@@ -13,6 +13,7 @@ class TestStartOnboardingUseCase(TestCase):
         self.dto = StartOnboardingDTO(
             vtex_account="mystore",
             crawl_url="https://www.mystore.com.br/",
+            channel="wwc",
         )
 
     @patch("retail.projects.usecases.start_onboarding.task_wait_and_start_crawl")

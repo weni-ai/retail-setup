@@ -63,6 +63,53 @@ class NexusService:
             )
             return None
 
+    def check_agent_builder_exists(self, project_uuid: str) -> Optional[Dict]:
+        """
+        Checks whether the agent manager has been configured for a project.
+        """
+        try:
+            return self.nexus_client.check_agent_builder_exists(project_uuid)
+        except CustomAPIException as e:
+            logger.error(
+                f"Error {e.status_code} checking agent builder existence "
+                f"for project {project_uuid}: {e}"
+            )
+            return None
+
+    def configure_agent_attributes(
+        self, project_uuid: str, agent_payload: Dict
+    ) -> Optional[Dict]:
+        """
+        Sets the manager attributes for a project.
+        """
+        try:
+            return self.nexus_client.configure_agent_attributes(
+                project_uuid, agent_payload
+            )
+        except CustomAPIException as e:
+            logger.error(
+                f"Error {e.status_code} configuring agent attributes "
+                f"for project {project_uuid}: {e}"
+            )
+            return None
+
+    def get_content_base_file_status(
+        self, project_uuid: str, file_uuid: str
+    ) -> Optional[Dict]:
+        """
+        Checks the processing status of a previously uploaded content base file.
+        """
+        try:
+            return self.nexus_client.get_content_base_file_status(
+                project_uuid, file_uuid
+            )
+        except CustomAPIException as e:
+            logger.error(
+                f"Error {e.status_code} checking file status "
+                f"file_uuid={file_uuid} project={project_uuid}: {e}"
+            )
+            return None
+
     def upload_content_base_file(
         self,
         project_uuid: str,

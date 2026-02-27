@@ -57,29 +57,9 @@ class IntegrationsClientInterface(ABC):
         pass
 
     @abstractmethod
-    def create_wwc_app(self, project_uuid: str, config: Dict) -> Dict:
-        """
-        Creates a WWC (Weni Web Chat) app for the given project.
-
-        Args:
-            project_uuid: The project's unique identifier.
-            config: Initial app configuration payload.
-
-        Returns:
-            Dict containing the created app data (uuid, config, etc.).
-        """
+    def create_channel_app(self, apptype: str, project_uuid: str, config: Dict) -> Dict:
         pass
 
     @abstractmethod
-    def configure_wwc_app(self, app_uuid: str, config: Dict) -> Dict:
-        """
-        Configures a previously created WWC app.
-
-        Args:
-            app_uuid: The WWC app's unique identifier.
-            config: The channel configuration payload.
-
-        Returns:
-            Dict containing the configured app data (uuid, script URL).
-        """
+    def configure_channel_app(self, apptype: str, app_uuid: str, config: Dict) -> Dict:
         pass

@@ -122,6 +122,7 @@ class StartOnboardingView(KeycloakAPIView):
         dto = StartOnboardingDTO(
             vtex_account=vtex_account,
             crawl_url=serializer.validated_data["crawl_url"],
+            channel=serializer.validated_data["channel"],
         )
 
         try:
@@ -147,7 +148,7 @@ class CrawlerWebhookView(APIView):
 
     permission_classes = []
 
-    def post(self, request, project_uuid) -> Response:
+    def post(self, request, onboarding_uuid) -> Response:
         """
         Receives event updates from the Crawler MS.
         """
@@ -157,10 +158,16 @@ class CrawlerWebhookView(APIView):
         dto = CrawlerWebhookDTO(**serializer.validated_data)
 
         try:
-            onboarding = UpdateOnboardingProgressUseCase.execute(str(project_uuid), dto)
+            onboarding = UpdateOnboardingProgressUseCase.execute(
+                str(onboarding_uuid), dto
+            )
         except ProjectOnboarding.DoesNotExist:
+            logger.warning(
+                f"[CrawlerWebhook] No onboarding found for "
+                f"onboarding_uuid={onboarding_uuid}"
+            )
             return Response(
-                {"detail": f"No onboarding found for project: {project_uuid}"},
+                {"detail": f"No onboarding found for: {onboarding_uuid}"},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
