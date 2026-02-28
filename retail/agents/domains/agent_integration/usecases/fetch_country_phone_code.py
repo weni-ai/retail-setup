@@ -81,7 +81,7 @@ class FetchCountryPhoneCodeUseCase:
 
             response = self.vtex_io_service.proxy_vtex(
                 account_domain=account_domain,
-                project_uuid=project_uuid,
+                vtex_account=vtex_account,
                 method="GET",
                 path=f"/api/tenant/tenants?q={vtex_account}",
             )

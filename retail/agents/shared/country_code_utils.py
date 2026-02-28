@@ -61,6 +61,82 @@ def convert_vtex_locale_to_meta_language(locale: str) -> str:
     return locale.replace("-", "_")
 
 
+DEFAULT_CONNECT_LANGUAGE = "en-us"
+
+CONNECT_SUPPORTED_LANGUAGES = {"en-us", "pt-br", "es"}
+
+
+def convert_vtex_locale_to_connect_language(locale: str) -> str:
+    """
+    Convert VTEX locale to Connect project language format.
+
+    Connect only accepts: 'en-us', 'pt-br', 'es'.
+    For 'pt' and 'en' variants, the full locale is kept (pt-br, en-us).
+    For 'es' variants (es-MX, es-AR, etc.), only the base 'es' is used
+    since Connect does not support regional Spanish codes.
+
+    Falls back to DEFAULT_CONNECT_LANGUAGE if the result is not supported.
+
+    Args:
+        locale: VTEX locale (e.g., 'pt-BR', 'en-US', 'es-MX')
+
+    Returns:
+        Connect language code (e.g., 'pt-br', 'en-us', 'es')
+
+    Examples:
+        >>> convert_vtex_locale_to_connect_language('pt-BR')
+        'pt-br'
+        >>> convert_vtex_locale_to_connect_language('en-US')
+        'en-us'
+        >>> convert_vtex_locale_to_connect_language('es-MX')
+        'es'
+        >>> convert_vtex_locale_to_connect_language('es-AR')
+        'es'
+    """
+    if not locale:
+        return DEFAULT_CONNECT_LANGUAGE
+
+    lowered = locale.lower()
+
+    if lowered in CONNECT_SUPPORTED_LANGUAGES:
+        return lowered
+
+    base_lang = lowered.split("-")[0]
+    if base_lang == "es":
+        return "es"
+
+    return DEFAULT_CONNECT_LANGUAGE
+
+
+def convert_connect_language_to_meta(language: str) -> str:
+    """
+    Convert Connect language format to Meta language format.
+
+    Useful for converting stored project language to Meta's expected format.
+
+    Args:
+        language: Connect language (e.g., 'pt-br', 'en-us', 'es')
+
+    Returns:
+        Meta language code (e.g., 'pt_BR', 'en_US', 'es')
+
+    Examples:
+        >>> convert_connect_language_to_meta('pt-br')
+        'pt_BR'
+        >>> convert_connect_language_to_meta('en-us')
+        'en_US'
+        >>> convert_connect_language_to_meta('es')
+        'es'
+    """
+    if not language:
+        return DEFAULT_TEMPLATE_LANGUAGE
+
+    parts = language.split("-")
+    if len(parts) == 2:
+        return f"{parts[0]}_{parts[1].upper()}"
+    return parts[0]
+
+
 def get_country_phone_code_from_locale(locale: str) -> str:
     """
     Get the country phone code (DDI) from a VTEX locale string.

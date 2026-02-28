@@ -1,3 +1,5 @@
+import logging
+
 from typing import List, Optional, Dict, Any
 
 from datetime import datetime
@@ -8,6 +10,8 @@ from retail.interfaces.clients.integrations.interface import IntegrationsClientI
 from retail.agents.domains.agent_integration.usecases.build_abandoned_cart_translation import (
     BuildAbandonedCartTranslationUseCase,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class IntegrationsService:
@@ -328,3 +332,58 @@ class IntegrationsService:
                     ] = adapt_translation_to_gallery_format(translation, category)
 
         return translations_by_name
+
+    def create_channel_app(
+        self, apptype: str, project_uuid: str, config: Dict
+    ) -> Optional[Dict]:
+        """
+        Creates a channel app of the given apptype for the project.
+
+        Returns:
+            Dict with created app data or None on failure.
+        """
+        try:
+            return self.client.create_channel_app(apptype, project_uuid, config)
+        except CustomAPIException as e:
+            logger.error(
+                f"Error {e.status_code} when creating {apptype} app "
+                f"for project {project_uuid}: {e}"
+            )
+            return None
+
+    def configure_channel_app(
+        self, apptype: str, app_uuid: str, config: Dict
+    ) -> Optional[Dict]:
+        """
+        Configures a previously created channel app.
+
+        Returns:
+            Dict with configured app data or None on failure.
+        """
+        try:
+            return self.client.configure_channel_app(apptype, app_uuid, config)
+        except CustomAPIException as e:
+            logger.error(
+                f"Error {e.status_code} when configuring {apptype} app "
+                f"{app_uuid}: {e}"
+            )
+            return None
+
+    def get_channel_app(self, apptype: str, app_uuid: str) -> Optional[Dict]:
+        """
+        Retrieves the details of a channel app.
+
+        Returns:
+            Dict with app data or None on failure.
+        """
+        try:
+            return self.client.get_channel_app(apptype, app_uuid)
+        except CustomAPIException as e:
+            logger.error(
+                "Error %s when fetching %s app %s: %s",
+                e.status_code,
+                apptype,
+                app_uuid,
+                e,
+            )
+            return None

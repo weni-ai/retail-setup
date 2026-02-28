@@ -271,6 +271,17 @@ NEXUS_REST_ENDPOINT = env.str("NEXUS_REST_ENDPOINT", default="")
 # Endpoint for code actions service
 CODE_ACTIONS_REST_ENDPOINT = env.str("CODE_ACTIONS_REST_ENDPOINT", "")
 
+# Endpoint for Crawler microservice
+CRAWLER_REST_ENDPOINT = env.str("CRAWLER_REST_ENDPOINT", "")
+
+# WWC (Weni Web Chat) default profile avatar
+WWC_PROFILE_AVATAR_URL = env.str("WWC_PROFILE_AVATAR_URL", "")
+
+# Onboarding agent UUIDs — passive and active (vary between staging and production)
+# Format: {"OrdersAgentCommerceIO": "uuid", "FeedbackRecorder": "uuid", ...}
+ONBOARDING_AGENT_UUIDS = env.json("ONBOARDING_AGENT_UUIDS", default={})
+
+
 # VTEX IO workspace configuration
 VTEX_IO_WORKSPACE = env.str("VTEX_IO_WORKSPACE", default="")
 
@@ -294,6 +305,15 @@ if USE_LAMBDA:
 
 if USE_S3:
     AWS_STORAGE_BUCKET_NAME = env.str("AWS_STORAGE_BUCKET_NAME")
+
+# Webchat Push S3 — bucket used by the VTEX pixel app to load the webchat loader
+WEBCHAT_PUSH_S3_BUCKET_NAME = env.str("WEBCHAT_PUSH_S3_BUCKET_NAME", default="")
+WEBCHAT_PUSH_S3_REGION = env.str("WEBCHAT_PUSH_S3_REGION", default="")
+WEBCHAT_PUSH_S3_ACCESS_KEY_ID = env.str("WEBCHAT_PUSH_S3_ACCESS_KEY_ID", default="")
+WEBCHAT_PUSH_S3_SECRET_ACCESS_KEY = env.str(
+    "WEBCHAT_PUSH_S3_SECRET_ACCESS_KEY", default=""
+)
+WEBCHAT_CDN_URL = env.str("WEBCHAT_CDN_URL", default="")
 
 USE_META = env.bool("USE_LAMBDA", default=False)
 
