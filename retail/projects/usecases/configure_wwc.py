@@ -30,7 +30,7 @@ WWC_CHANNEL_BASE_CONFIG = {
     "timeBetweenMessages": 1,
     "navigateIfSameDomain": False,
     "useConnectionOptimization": False,
-    "displayRatio": 10,
+    "renderPercentage": 10,
     "params": {
         "images": {"dims": {"width": 300, "height": 200}},
         "storage": "local",
