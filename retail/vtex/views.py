@@ -1,22 +1,33 @@
+import logging
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
 
+from retail.clients.exceptions import CustomAPIException
 from retail.internal.jwt_mixins import JWTModuleAuthMixin
+from retail.internal.views import KeycloakAPIView
 
 from retail.vtex.dtos.register_order_form_dto import RegisterOrderFormDTO
 from retail.vtex.serializers import (
+    CreateProjectUserSerializer,
     OrderFormTrackingSerializer,
     OrdersQueryParamsSerializer,
     VtexProxySerializer,
 )
 from retail.services.vtex_io.service import VtexIOService
+from retail.vtex.usecases.create_project_user import (
+    CreateProjectUserDTO,
+    CreateProjectUserUseCase,
+)
 from retail.vtex.usecases.get_account_identifier import GetAccountIdentifierUsecase
 from retail.vtex.usecases.get_order_detail import GetOrderDetailsUsecase
 from retail.vtex.usecases.get_orders import GetOrdersUsecase
 from retail.vtex.usecases.register_order_form import RegisterOrderFormUseCase
 from retail.vtex.usecases.proxy_vtex import ProxyVtexUsecase
+
+logger = logging.getLogger(__name__)
 
 
 class BaseVtexProxyView(JWTModuleAuthMixin, APIView):
@@ -252,5 +263,38 @@ class VtexProxyView(BaseVtexProxyView):
             params=validated_data.get("params"),
             project_uuid=self.project_uuid,
         )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class CreateProjectUserView(KeycloakAPIView):
+    """
+    Proxies project creation to Connect with automatic language detection.
+
+    The IO front-end calls this route instead of calling Connect directly.
+    Before forwarding, we fetch the VTEX tenant locale and convert it to
+    Connect's language format.
+    """
+
+    def post(self, request: Request, vtex_account: str) -> Response:
+        serializer = CreateProjectUserSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dto = CreateProjectUserDTO(
+            vtex_account=vtex_account,
+            user_email=serializer.validated_data["user_email"],
+        )
+
+        try:
+            result = CreateProjectUserUseCase().execute(dto)
+        except CustomAPIException as e:
+            logger.error(
+                f"[CreateProjectUser] Connect error: "
+                f"vtex_account={vtex_account} detail={e.detail}"
+            )
+            return Response(
+                {"detail": e.detail},
+                status=e.status_code or status.HTTP_502_BAD_GATEWAY,
+            )
 
         return Response(result, status=status.HTTP_200_OK)

@@ -34,7 +34,7 @@ class TestFetchCountryPhoneCodeUseCase(TestCase):
         self.assertEqual(result, "55")
         self.mock_vtex_io_service.proxy_vtex.assert_called_once_with(
             account_domain="teststore.myvtex.com",
-            project_uuid=str(self.project.uuid),
+            vtex_account="teststore",
             method="GET",
             path="/api/tenant/tenants?q=teststore",
         )

@@ -258,7 +258,7 @@ class CartValidationService:
                     project_uuid = str(cart.project.uuid)
                     orders = self.vtex_io_service.get_order_details(
                         account_domain=self._get_account_domain(project_uuid),
-                        project_uuid=project_uuid,
+                        vtex_account=cart.project.vtex_account,
                         user_email=email,
                     )
                     recent_orders = orders.get("list", [])[:5] if orders else []
@@ -295,7 +295,7 @@ class CartValidationService:
                 logger.info(f"Fetching details for order {order_id}")
                 order_details = self.vtex_io_service.get_order_details_by_id(
                     account_domain=self._get_account_domain(project_uuid),
-                    project_uuid=project_uuid,
+                    vtex_account=cart.project.vtex_account,
                     order_id=order_id,
                 )
 

@@ -238,3 +238,72 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
             )
 
         return all_templates
+
+    def create_channel_app(self, apptype: str, project_uuid: str, config: Dict) -> Dict:
+        """
+        Creates a channel app of the given apptype for the project.
+
+        Args:
+            apptype: The Integrations Engine apptype slug (e.g. "wwc", "wpp-cloud").
+            project_uuid: The project's unique identifier.
+            config: Initial app configuration payload.
+
+        Returns:
+            Dict containing the created app data (uuid, config, etc.).
+        """
+        url = f"{self.base_url}/api/v1/apptypes/{apptype}/apps/"
+        payload = {
+            "project_uuid": project_uuid,
+            "config": config,
+        }
+
+        response = self.make_request(
+            url,
+            method="POST",
+            json=payload,
+            headers=self.authentication_instance.headers,
+        )
+        return response.json()
+
+    def configure_channel_app(self, apptype: str, app_uuid: str, config: Dict) -> Dict:
+        """
+        Configures a previously created channel app.
+
+        Args:
+            apptype: The Integrations Engine apptype slug (e.g. "wwc", "wpp-cloud").
+            app_uuid: The app's unique identifier.
+            config: The channel configuration payload.
+
+        Returns:
+            Dict containing the configured app data.
+        """
+        url = f"{self.base_url}/api/v1/apptypes/{apptype}/apps/{app_uuid}/configure/"
+        payload = {"config": config}
+
+        response = self.make_request(
+            url,
+            method="PATCH",
+            json=payload,
+            headers=self.authentication_instance.headers,
+        )
+        return response.json()
+
+    def get_channel_app(self, apptype: str, app_uuid: str) -> Dict:
+        """
+        Retrieves the details of a channel app.
+
+        Args:
+            apptype: The Integrations Engine apptype slug (e.g. "wwc", "wpp-cloud").
+            app_uuid: The app's unique identifier.
+
+        Returns:
+            Dict containing the app data (uuid, config, flow_object_uuid, etc.).
+        """
+        url = f"{self.base_url}/api/v1/apptypes/{apptype}/apps/{app_uuid}/"
+
+        response = self.make_request(
+            url,
+            method="GET",
+            headers=self.authentication_instance.headers,
+        )
+        return response.json()

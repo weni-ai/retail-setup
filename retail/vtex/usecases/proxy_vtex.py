@@ -41,10 +41,10 @@ class ProxyVtexUsecase(BaseVtexUseCase):
         Returns:
             dict: Response data from VTEX platform.
         """
-        account_domain = self._get_account_domain(project_uuid)
+        vtex_account, account_domain = self._get_vtex_context(project_uuid)
         return self.vtex_io_service.proxy_vtex(
             account_domain=account_domain,
-            project_uuid=project_uuid,
+            vtex_account=vtex_account,
             method=method,
             path=path,
             headers=headers,

@@ -2,7 +2,6 @@ from django.urls import path
 
 from retail.api.agents.views import AgentsView
 from retail.api.features.views import FeaturesView
-
 from .integrated_feature.views import (
     IntegratedFeatureSettingsView,
     IntegratedFeatureView,

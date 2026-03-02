@@ -103,3 +103,43 @@ class TestNexusService(TestCase):
             self.project_uuid
         )
         self.assertIsNone(result)
+
+    def test_check_agent_builder_exists_success(self):
+        expected = {"data": {"has_agent": True, "name": "Test Manager"}}
+        self.mock_nexus_client.check_agent_builder_exists.return_value = expected
+
+        result = self.service.check_agent_builder_exists(self.project_uuid)
+
+        self.mock_nexus_client.check_agent_builder_exists.assert_called_once_with(
+            self.project_uuid
+        )
+        self.assertEqual(result, expected)
+
+    def test_check_agent_builder_exists_api_exception(self):
+        exception = CustomAPIException(status_code=404, detail="Not found")
+        self.mock_nexus_client.check_agent_builder_exists.side_effect = exception
+
+        result = self.service.check_agent_builder_exists(self.project_uuid)
+
+        self.assertIsNone(result)
+
+    def test_configure_agent_attributes_success(self):
+        payload = {"agent": {"name": "Test Manager"}, "links": []}
+        expected = {"status": "ok"}
+        self.mock_nexus_client.configure_agent_attributes.return_value = expected
+
+        result = self.service.configure_agent_attributes(self.project_uuid, payload)
+
+        self.mock_nexus_client.configure_agent_attributes.assert_called_once_with(
+            self.project_uuid, payload
+        )
+        self.assertEqual(result, expected)
+
+    def test_configure_agent_attributes_api_exception(self):
+        payload = {"agent": {"name": "Test Manager"}, "links": []}
+        exception = CustomAPIException(status_code=500, detail="Error")
+        self.mock_nexus_client.configure_agent_attributes.side_effect = exception
+
+        result = self.service.configure_agent_attributes(self.project_uuid, payload)
+
+        self.assertIsNone(result)

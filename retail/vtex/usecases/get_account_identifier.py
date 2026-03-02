@@ -27,8 +27,8 @@ class GetAccountIdentifierUsecase(BaseVtexUseCase):
         Returns:
             dict: Response from VTEX IO containing the account identifier information.
         """
-        account_domain: str = self._get_account_domain(project_uuid)
+        vtex_account, account_domain = self._get_vtex_context(project_uuid)
         return self.vtex_io_service.get_account_identifier(
             account_domain=account_domain,
-            project_uuid=project_uuid,
+            vtex_account=vtex_account,
         )

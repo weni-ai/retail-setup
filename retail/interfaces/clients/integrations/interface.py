@@ -55,3 +55,15 @@ class IntegrationsClientInterface(ABC):
         template_names: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         pass
+
+    @abstractmethod
+    def create_channel_app(self, apptype: str, project_uuid: str, config: Dict) -> Dict:
+        pass
+
+    @abstractmethod
+    def configure_channel_app(self, apptype: str, app_uuid: str, config: Dict) -> Dict:
+        pass
+
+    @abstractmethod
+    def get_channel_app(self, apptype: str, app_uuid: str) -> Dict:
+        pass

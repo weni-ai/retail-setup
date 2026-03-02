@@ -33,9 +33,10 @@ class GetOrderDetailsUsecase(BaseVtexUseCase):
             raise ValueError("Order ID is required")
 
         try:
+            vtex_account, account_domain = self._get_vtex_context(project_uuid)
             return self.vtex_io_service.get_order_details_by_id(
-                account_domain=self._get_account_domain(project_uuid),
-                project_uuid=project_uuid,
+                account_domain=account_domain,
+                vtex_account=vtex_account,
                 order_id=order_id,
             )
         except Exception as e:

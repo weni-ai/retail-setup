@@ -13,11 +13,12 @@ class ProjectCreationUseCase:
         # First check if project with this UUID already exists
         try:
             existing_project = Project.objects.get(uuid=project_dto.uuid)
-            # Update existing project instead of creating duplicate
             existing_project.name = project_dto.name
             existing_project.organization_uuid = project_dto.organization_uuid
             if project_dto.vtex_account:
                 existing_project.vtex_account = project_dto.vtex_account
+            if project_dto.language:
+                existing_project.language = project_dto.language
             existing_project.save()
             return existing_project
         except Project.DoesNotExist:
@@ -35,6 +36,8 @@ class ProjectCreationUseCase:
         try:
             project = Project.objects.get(vtex_account=project_dto.vtex_account)
             project.uuid = project_dto.uuid
+            if project_dto.language:
+                project.language = project_dto.language
             project.save()
         except Project.DoesNotExist:
             ProjectCreationUseCase._create_new_project(project_dto, include_vtex=True)
@@ -59,6 +62,9 @@ class ProjectCreationUseCase:
 
         if include_vtex:
             project_data["vtex_account"] = project_dto.vtex_account
+
+        if project_dto.language:
+            project_data["language"] = project_dto.language
 
         try:
             project, created = Project.objects.get_or_create(

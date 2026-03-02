@@ -17,6 +17,12 @@ class OrderFormTrackingSerializer(serializers.Serializer):
     channel_uuid = serializers.UUIDField(required=True)
 
 
+class CreateProjectUserSerializer(serializers.Serializer):
+    """Validates the payload for creating a project via the IO proxy."""
+
+    user_email = serializers.EmailField(required=True)
+
+
 class VtexProxySerializer(serializers.Serializer):
     """
     Validates the payload for VTEX proxy requests.

@@ -1,6 +1,7 @@
 from django.urls import path
 from retail.vtex.views import (
     AccountIdentifierProxyView,
+    CreateProjectUserView,
     OrderFormTrackingView,
     OrderDetailsProxyView,
     OrdersProxyView,
@@ -29,5 +30,10 @@ urlpatterns = [
         "proxy/",
         VtexProxyView.as_view(),
         name="vtex-proxy",
+    ),
+    path(
+        "account/<str:vtex_account>/project-user/",
+        CreateProjectUserView.as_view(),
+        name="create-project-user",
     ),
 ]
