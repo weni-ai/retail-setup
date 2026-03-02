@@ -1,6 +1,7 @@
 import amqp
 
 from retail.projects.consumers.project_consumer import ProjectConsumer
+from retail.projects.consumers.project_update_consumer import ProjectUpdateConsumer
 from retail.projects.consumers.project_vtex_config_consumer import (
     ProjectVtexConfigConsumer,
 )
@@ -10,4 +11,7 @@ def handle_consumers(channel: amqp.Channel):
     channel.basic_consume("retail.projects", callback=ProjectConsumer().handle)
     channel.basic_consume(
         "retail.projects.config", callback=ProjectVtexConfigConsumer().handle
+    )
+    channel.basic_consume(
+        "retail.projects.updates", callback=ProjectUpdateConsumer().handle
     )

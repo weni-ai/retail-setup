@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 from uuid import uuid4
 
 from django.test import TestCase
@@ -112,3 +112,44 @@ class TestStartOnboardingUseCase(TestCase):
 
         with self.assertRaises(Project.MultipleObjectsReturned):
             StartOnboardingUseCase._try_link_project(onboarding)
+
+    @patch("retail.projects.usecases.start_onboarding.StartCrawlUseCase")
+    def test_sends_vtex_host_store_when_project_linked(self, mock_crawl_cls):
+        """When a project is linked, should call set_vtex_host_store on ConnectService."""
+        Project.objects.create(name="Test", uuid=uuid4(), vtex_account="mystore")
+
+        mock_crawl = MagicMock()
+        mock_crawl_cls.return_value = mock_crawl
+
+        mock_connect = Mock()
+        usecase = StartOnboardingUseCase(connect_service=mock_connect)
+        usecase.start_crawl_usecase = mock_crawl
+
+        usecase.execute(self.dto)
+
+        mock_connect.set_vtex_host_store.assert_called_once()
+        call_kwargs = mock_connect.set_vtex_host_store.call_args
+        self.assertEqual(
+            call_kwargs.kwargs["vtex_host_store"],
+            "https://www.mystore.com.br/",
+        )
+
+    @patch("retail.projects.usecases.start_onboarding.StartCrawlUseCase")
+    def test_continues_crawl_if_vtex_host_store_fails(self, mock_crawl_cls):
+        """If set_vtex_host_store fails, the crawl should still proceed."""
+        Project.objects.create(name="Test", uuid=uuid4(), vtex_account="mystore")
+
+        mock_crawl = MagicMock()
+        mock_crawl_cls.return_value = mock_crawl
+
+        mock_connect = Mock()
+        mock_connect.set_vtex_host_store.side_effect = Exception("connect down")
+
+        usecase = StartOnboardingUseCase(connect_service=mock_connect)
+        usecase.start_crawl_usecase = mock_crawl
+
+        usecase.execute(self.dto)
+
+        mock_crawl.execute.assert_called_once_with(
+            "mystore", "https://www.mystore.com.br/"
+        )
