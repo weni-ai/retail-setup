@@ -4,7 +4,7 @@ from rest_framework.exceptions import NotFound
 
 from retail.templates.models import Template, Version
 from retail.templates.usecases import LibraryTemplateData, BaseLibraryTemplateUseCase
-from retail.templates.utils import resolve_template_language
+from retail.templates.utils import get_agent_config, resolve_template_language
 
 
 class UpdateLibraryTemplateData(TypedDict, total=False):
@@ -48,17 +48,11 @@ class UpdateLibraryTemplateUseCase(BaseLibraryTemplateUseCase):
             template.metadata = metadata
             template.save()
 
-    def _get_agent_config(self, template: Template) -> Optional[Dict[str, Any]]:
-        """Extract integrated agent config if available."""
-        if template.integrated_agent:
-            return template.integrated_agent.config
-        return None
-
     def _build_payload(
         self, template: Template, payload: UpdateLibraryTemplateData
     ) -> LibraryTemplateData:
         # TODO: In the future, language may come from project-level settings.
-        agent_config = self._get_agent_config(template)
+        agent_config = get_agent_config(template.integrated_agent)
         language = resolve_template_language(
             translation=payload,
             agent_config=agent_config,

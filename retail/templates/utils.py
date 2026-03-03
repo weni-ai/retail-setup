@@ -8,6 +8,13 @@ from typing import Any, Dict, Optional
 DEFAULT_TEMPLATE_LANGUAGE = "pt_BR"
 
 
+def get_agent_config(integrated_agent) -> Optional[Dict[str, Any]]:
+    """Extract integrated agent config if available."""
+    if integrated_agent:
+        return integrated_agent.config
+    return None
+
+
 def resolve_template_language(
     translation: Optional[Dict[str, Any]] = None,
     agent_config: Optional[Dict[str, Any]] = None,

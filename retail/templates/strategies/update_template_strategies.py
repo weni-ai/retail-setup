@@ -12,7 +12,7 @@ from retail.templates.adapters.template_library_to_custom_adapter import (
 )
 from retail.templates.models import Template
 from retail.templates.usecases import TemplateBuilderMixin
-from retail.templates.utils import resolve_template_language
+from retail.templates.utils import get_agent_config, resolve_template_language
 from retail.services.rule_generator import RuleGenerator
 from retail.templates.handlers import TemplateMetadataHandler
 from retail.templates.tasks import task_create_template
@@ -94,17 +94,11 @@ class UpdateTemplateStrategy(ABC):
 
         return image_content
 
-    def _get_agent_config(self, template: Template) -> Optional[Dict[str, Any]]:
-        """Extract integrated agent config if available."""
-        if template.integrated_agent:
-            return template.integrated_agent.config
-        return None
-
     def _update_common_metadata(
         self, template: Template, payload: Dict[str, Any]
     ) -> tuple[Dict[str, Any], Dict[str, Any]]:
         # TODO: In the future, language may come from project-level settings.
-        agent_config = self._get_agent_config(template)
+        agent_config = get_agent_config(template.integrated_agent)
         payload["language"] = resolve_template_language(
             translation=payload,
             agent_config=agent_config,
