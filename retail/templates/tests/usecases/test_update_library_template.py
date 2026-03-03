@@ -169,7 +169,7 @@ class TestUpdateLibraryTemplateUseCase(TestCase):
             "category": "marketing",
             "language": "pt_BR",
         }
-        # No integrated agent - language resolves from metadata
+        # No integrated agent, no template_translation - resolves to default pt_BR
         mock_template.integrated_agent = None
 
         payload = UpdateLibraryTemplateData(
