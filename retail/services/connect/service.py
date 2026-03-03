@@ -31,3 +31,13 @@ class ConnectService(ConnectServiceInterface):
             organization_name=organization_name,
             project_name=project_name,
         )
+
+    def set_vtex_host_store(
+        self,
+        project_uuid: str,
+        vtex_host_store: str,
+    ) -> Dict:
+        return self.connect_client.set_vtex_host_store(
+            project_uuid=project_uuid,
+            vtex_host_store=vtex_host_store,
+        )

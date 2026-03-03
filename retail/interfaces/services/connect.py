@@ -16,3 +16,10 @@ class ConnectServiceInterface(Protocol):
         project_name: str,
     ) -> Dict:
         ...
+
+    def set_vtex_host_store(
+        self,
+        project_uuid: str,
+        vtex_host_store: str,
+    ) -> Dict:
+        ...

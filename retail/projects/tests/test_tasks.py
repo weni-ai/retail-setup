@@ -52,8 +52,9 @@ class TestTaskWaitAndStartCrawl(TestCase):
             name="Test", uuid=uuid4(), vtex_account="mystore"
         )
 
+    @patch("retail.projects.tasks.ConnectService")
     @patch("retail.projects.tasks.StartCrawlUseCase")
-    def test_starts_crawl_when_project_linked(self, mock_crawl_cls):
+    def test_starts_crawl_when_project_linked(self, mock_crawl_cls, mock_connect_cls):
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=self.project,
@@ -69,6 +70,54 @@ class TestTaskWaitAndStartCrawl(TestCase):
         mock_instance.execute.assert_called_once_with(
             "mystore", "https://mystore.com.br/"
         )
+
+    @patch("retail.projects.tasks.ConnectService")
+    @patch("retail.projects.tasks.StartCrawlUseCase")
+    def test_sends_vtex_host_store_when_project_linked(
+        self, mock_crawl_cls, mock_connect_cls
+    ):
+        """Should call set_vtex_host_store before starting the crawl."""
+        ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+            project=self.project,
+        )
+
+        mock_connect = MagicMock()
+        mock_connect_cls.return_value = mock_connect
+        mock_crawl_cls.return_value = MagicMock()
+
+        from retail.projects.tasks import task_wait_and_start_crawl
+
+        task_wait_and_start_crawl("mystore", "https://mystore.com.br/")
+
+        mock_connect.set_vtex_host_store.assert_called_once_with(
+            project_uuid=str(self.project.uuid),
+            vtex_host_store="https://mystore.com.br/",
+        )
+
+    @patch("retail.projects.tasks.ConnectService")
+    @patch("retail.projects.tasks.StartCrawlUseCase")
+    def test_crawl_proceeds_if_vtex_host_store_fails(
+        self, mock_crawl_cls, mock_connect_cls
+    ):
+        """If set_vtex_host_store fails, the crawl should still run."""
+        ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+            project=self.project,
+        )
+
+        mock_connect = MagicMock()
+        mock_connect.set_vtex_host_store.side_effect = Exception("connect down")
+        mock_connect_cls.return_value = mock_connect
+
+        mock_crawl = MagicMock()
+        mock_crawl_cls.return_value = mock_crawl
+
+        from retail.projects.tasks import task_wait_and_start_crawl
+
+        task_wait_and_start_crawl("mystore", "https://mystore.com.br/")
+
+        mock_crawl.execute.assert_called_once()
 
     def test_retries_when_project_not_linked(self):
         ProjectOnboarding.objects.create(vtex_account="mystore")
