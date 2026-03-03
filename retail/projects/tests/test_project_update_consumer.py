@@ -14,6 +14,7 @@ class TestProjectUpdateConsumer(TestCase):
             uuid=str(uuid4()),
             name="Test Project",
             vtex_account="teststore",
+            language="en-us",
             config={"store_type": "vtex-io"},
         )
         self.consumer = ProjectUpdateConsumer()
@@ -87,24 +88,45 @@ class TestProjectUpdateConsumer(TestCase):
         )
         self.consumer.ack.assert_called_once()
 
-    def test_skips_non_update_actions(self):
-        """Events with action != 'updated' should be acked without changes."""
+    def test_updates_name_and_language(self):
+        """Name and language from Connect should be synced to the local project."""
         message = self._make_message(
             {
                 "project_uuid": str(self.project.uuid),
-                "action": "deleted",
-                "config": {"vtex_host_store": "https://www.mystore.com.br/"},
+                "action": "updated",
+                "name": "Updated Name",
+                "language": "pt-br",
+                "config": {},
             }
         )
 
         self.consumer.consume(message)
 
         self.project.refresh_from_db()
-        self.assertNotIn("vtex_host_store", self.project.config)
+        self.assertEqual(self.project.name, "Updated Name")
+        self.assertEqual(self.project.language, "pt-br")
+        self.consumer.ack.assert_called_once()
+
+    def test_skips_empty_config(self):
+        """An empty config dict should not trigger a save for config."""
+        original_config = {"store_type": "vtex-io"}
+
+        message = self._make_message(
+            {
+                "project_uuid": str(self.project.uuid),
+                "action": "updated",
+                "config": {},
+            }
+        )
+
+        self.consumer.consume(message)
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.config, original_config)
         self.consumer.ack.assert_called_once()
 
     def test_skips_null_config(self):
-        """Events with config=None should be acked without changes."""
+        """Events with config=None should not update config."""
         message = self._make_message(
             {
                 "project_uuid": str(self.project.uuid),
@@ -119,7 +141,7 @@ class TestProjectUpdateConsumer(TestCase):
         self.assertEqual(self.project.config, {"store_type": "vtex-io"})
         self.consumer.ack.assert_called_once()
 
-    def test_acks_when_project_not_found(self):
+    def test_acks_when_project_not_found_on_update(self):
         """If the project does not exist locally, should ack and skip."""
         message = self._make_message(
             {
@@ -130,4 +152,78 @@ class TestProjectUpdateConsumer(TestCase):
         )
 
         self.consumer.consume(message)
+        self.consumer.ack.assert_called_once()
+
+    def test_deletes_project_on_deleted_action(self):
+        """A deleted event should remove the project from the database."""
+        project_uuid = str(self.project.uuid)
+
+        message = self._make_message(
+            {
+                "project_uuid": project_uuid,
+                "action": "deleted",
+                "user_email": "user@example.com",
+            }
+        )
+
+        self.consumer.consume(message)
+
+        self.assertFalse(Project.objects.filter(uuid=project_uuid).exists())
+        self.consumer.ack.assert_called_once()
+
+    def test_acks_when_project_not_found_on_delete(self):
+        """Deleting a non-existent project should ack without error."""
+        message = self._make_message(
+            {
+                "project_uuid": str(uuid4()),
+                "action": "deleted",
+                "user_email": "user@example.com",
+            }
+        )
+
+        self.consumer.consume(message)
+        self.consumer.ack.assert_called_once()
+
+    def test_skips_unknown_actions(self):
+        """Events with unknown actions should be acked without changes."""
+        message = self._make_message(
+            {
+                "project_uuid": str(self.project.uuid),
+                "action": "status_updated",
+                "status": "ACTIVE",
+            }
+        )
+
+        self.consumer.consume(message)
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.name, "Test Project")
+        self.consumer.ack.assert_called_once()
+
+    def test_full_update_event_syncs_all_fields(self):
+        """A realistic update event from Connect should sync name, language, and config."""
+        message = self._make_message(
+            {
+                "project_uuid": str(self.project.uuid),
+                "action": "updated",
+                "user_email": "user@example.com",
+                "name": "STORE - New Name V2",
+                "description": "chatbot",
+                "language": "pt-br",
+                "timezone": "America/Sao_Paulo",
+                "date_format": "D",
+                "config": {"vtex_host_store": "https://mystore.com.br/"},
+                "timestamp": "2026-03-03T18:35:41.906418Z",
+            }
+        )
+
+        self.consumer.consume(message)
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.name, "STORE - New Name V2")
+        self.assertEqual(self.project.language, "pt-br")
+        self.assertEqual(
+            self.project.config["vtex_host_store"], "https://mystore.com.br/"
+        )
+        self.assertEqual(self.project.config["store_type"], "vtex-io")
         self.consumer.ack.assert_called_once()
