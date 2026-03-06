@@ -80,3 +80,18 @@ class ConnectClient(RequestClient, ConnectClientInterface):
             headers=self.internal_authentication.headers,
         )
         return response.json()
+
+    def suspend_trial_project(
+        self,
+        project_uuid: str,
+        conversation_limit: int,
+    ) -> Dict:
+        url = f"{self.base_url}/v2/commerce/projects/" f"{project_uuid}/suspend/"
+
+        response = self.make_request(
+            url=url,
+            method="POST",
+            json={"conversation_limit": conversation_limit},
+            headers=self.internal_authentication.headers,
+        )
+        return response.json()

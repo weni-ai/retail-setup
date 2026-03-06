@@ -23,3 +23,10 @@ class ConnectServiceInterface(Protocol):
         vtex_host_store: str,
     ) -> Dict:
         ...
+
+    def suspend_trial_project(
+        self,
+        project_uuid: str,
+        conversation_limit: int,
+    ) -> Dict:
+        ...
