@@ -41,3 +41,13 @@ class ConnectService(ConnectServiceInterface):
             project_uuid=project_uuid,
             vtex_host_store=vtex_host_store,
         )
+
+    def suspend_trial_project(
+        self,
+        project_uuid: str,
+        conversation_limit: int,
+    ) -> Dict:
+        return self.connect_client.suspend_trial_project(
+            project_uuid=project_uuid,
+            conversation_limit=conversation_limit,
+        )
