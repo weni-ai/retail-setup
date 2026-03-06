@@ -199,6 +199,25 @@ if USE_EDA:
     EDA_BROKER_USER = env("EDA_BROKER_USER", default="guest")
     EDA_BROKER_PASSWORD = env("EDA_BROKER_PASSWORD", default="guest")
 
+# Amazon MQ (via pika_eda — AMQP over SSL, port 5671)
+USE_AMAZON_MQ = env.bool("USE_AMAZON_MQ", default=False)
+
+if USE_AMAZON_MQ:
+    INSTALLED_APPS.append("weni.pika_eda.django.pika_eda_app")
+    PIKA_EDA_CONSUMERS_HANDLE = "retail.event_driven.pika_handle.handle_consumers"
+    PIKA_EDA_BROKER_HOST = env.str("PIKA_EDA_BROKER_HOST", default="localhost")
+    PIKA_EDA_BROKER_PORT = env.int("PIKA_EDA_BROKER_PORT", default=5671)
+    PIKA_EDA_VIRTUAL_HOST = env.str("PIKA_EDA_VIRTUAL_HOST", default="/")
+    PIKA_EDA_BROKER_USER = env.str("PIKA_EDA_BROKER_USER", default="")
+    PIKA_EDA_BROKER_PASSWORD = env.str("PIKA_EDA_BROKER_PASSWORD", default="")
+    PIKA_EDA_SSL_ENABLED = env.bool("PIKA_EDA_SSL_ENABLED", default=True)
+    PIKA_EDA_SSL_CA_CERTS = env.str("PIKA_EDA_SSL_CA_CERTS", default="")
+    PIKA_EDA_SSL_SERVER_HOSTNAME = env.str("PIKA_EDA_SSL_SERVER_HOSTNAME", default="")
+    PIKA_EDA_HEARTBEAT = env.int("PIKA_EDA_HEARTBEAT", default=300)
+    PIKA_EDA_PREFETCH_COUNT = env.int("PIKA_EDA_PREFETCH_COUNT", default=1)
+    PIKA_EDA_CONNECTION_ATTEMPTS = env.int("PIKA_EDA_CONNECTION_ATTEMPTS", default=3)
+    PIKA_EDA_RETRY_DELAY = env.float("PIKA_EDA_RETRY_DELAY", default=5.0)
+
 USE_OIDC = env.bool("USE_OIDC")
 
 if USE_OIDC:
@@ -332,6 +351,7 @@ ABANDONED_CART_DEFAULT_IMAGE_URL = env.str(
 )
 
 CONNECT_REST_ENDPOINT = env.str("CONNECT_REST_ENDPOINT", default="")
+
 
 # Path to the JWT public key
 JWT_PUBLIC_KEY_PATH = BASE_DIR / "retail" / "jwt_keys" / "public_key.pem"
