@@ -1,7 +1,12 @@
+import logging
 import uuid as uuid_lib
 
 from django.db import models
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from django.core.cache import cache
+
+logger = logging.getLogger(__name__)
 
 
 class Project(models.Model):
@@ -45,7 +50,7 @@ class ProjectOnboarding(models.Model):
     FAIL = "FAIL"
 
     uuid = models.UUIDField(default=uuid_lib.uuid4, unique=True, editable=False)
-    vtex_account = models.CharField(max_length=100, db_index=True)
+    vtex_account = models.CharField(max_length=100, unique=True)
     project = models.OneToOneField(
         Project,
         on_delete=models.CASCADE,
@@ -57,6 +62,7 @@ class ProjectOnboarding(models.Model):
     current_page = models.CharField(max_length=255, blank=True, default="")
     completed = models.BooleanField(default=False)
     failed = models.BooleanField(default=False)
+    skipped = models.BooleanField(default=False)
     progress = models.IntegerField(default=0)
     current_step = models.CharField(max_length=50, blank=True, default="")
     crawler_result = models.CharField(
@@ -73,3 +79,13 @@ class ProjectOnboarding(models.Model):
             f"step={self.current_step} progress={self.progress}% "
             f"current_page={self.current_page}, completed={self.completed}"
         )
+
+
+@receiver(pre_delete, sender=ProjectOnboarding)
+def log_onboarding_deletion(sender, instance, **kwargs):
+    """Traces unexpected deletions (manual, admin, or CASCADE)."""
+    logger.warning(
+        f"ProjectOnboarding is being deleted: "
+        f"uuid={instance.uuid} vtex_account={instance.vtex_account} "
+        f"project={instance.project_id} progress={instance.progress}"
+    )
