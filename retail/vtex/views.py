@@ -22,6 +22,7 @@ from retail.vtex.usecases.create_project_user import (
     CreateProjectUserUseCase,
 )
 from retail.vtex.usecases.get_account_identifier import GetAccountIdentifierUsecase
+from retail.vtex.usecases.get_store_url import GetStoreUrlUseCase
 from retail.vtex.usecases.get_order_detail import GetOrderDetailsUsecase
 from retail.vtex.usecases.get_orders import GetOrdersUsecase
 from retail.vtex.usecases.register_order_form import RegisterOrderFormUseCase
@@ -114,6 +115,25 @@ class AccountIdentifierProxyView(BaseVtexProxyView):
             return Response(result, status=status.HTTP_200_OK)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class StoreUrlView(BaseVtexProxyView):
+    """
+    GET endpoint to retrieve the store URL from the project configuration.
+    """
+
+    def get(self, request: Request) -> Response:
+        """
+        Retrieves the store URL (vtex_host_store) using the project UUID from JWT token.
+
+        Args:
+            request (Request): The incoming HTTP request.
+
+        Returns:
+            Response: Store URL or 400 if not configured.
+        """
+        result = GetStoreUrlUseCase().execute(project_uuid=self.project_uuid)
+        return Response(result, status=status.HTTP_200_OK)
 
 
 class OrderDetailsProxyView(BaseVtexProxyView):
