@@ -23,3 +23,7 @@ class ProductConcierge(PassiveAgent):
 
 class PaymentAgent(PassiveAgent):
     name = "Payment Agent (without catalog)"
+
+
+class SendCatalogAgent(PassiveAgent):
+    name = "Send Catalog Agent"

@@ -14,6 +14,7 @@ from retail.projects.usecases.onboarding_agents.agents import (
     OrdersAgentCommerceIO,
     PaymentAgent,
     ProductConcierge,
+    SendCatalogAgent,
 )
 
 CHANNEL_AGENT_MAPPINGS = {
@@ -22,6 +23,7 @@ CHANNEL_AGENT_MAPPINGS = {
         FeedbackRecorder(),
         ProductConcierge(),
         PaymentAgent(),
+        SendCatalogAgent(),
     ],
     "wpp-cloud": [],
 }
