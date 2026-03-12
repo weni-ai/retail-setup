@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlparse
 
 from typing import List, TypedDict, Mapping, Any, Optional
 
@@ -459,8 +460,11 @@ class AssignAgentUseCase:
                 f"integrated_agent={integrated_agent.uuid}, language={template_language}"
             )
 
-            # Build store domain similar to legacy abandoned cart template creation
-            domain = f"{project.vtex_account}.vtexcommercestable.com.br"
+            vtex_host_store = project.config.get("vtex_host_store")
+            if vtex_host_store:
+                domain = urlparse(vtex_host_store).netloc
+            else:
+                domain = f"{project.vtex_account}.vtexcommercestable.com.br"
             button_base_url = f"https://{domain}/checkout?orderFormId="
             button_url_example = f"{button_base_url}92421d4a70224658acaab0c172f6b6d7"
 
