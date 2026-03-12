@@ -5,6 +5,7 @@ from retail.vtex.views import (
     OrderFormTrackingView,
     OrderDetailsProxyView,
     OrdersProxyView,
+    StoreUrlView,
     VtexProxyView,
 )
 
@@ -20,6 +21,11 @@ urlpatterns = [
         "projects/orders/<str:order_id>/",
         OrderDetailsProxyView.as_view(),
         name="vtex-order-details",
+    ),
+    path(
+        "projects/store-url/",
+        StoreUrlView.as_view(),
+        name="vtex-store-url",
     ),
     path(
         "order-form-tracking/",
