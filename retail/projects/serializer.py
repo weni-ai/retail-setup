@@ -41,7 +41,7 @@ class OnboardingPatchSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ProjectOnboarding
-        fields = ["completed", "current_page"]
+        fields = ["completed", "current_page", "skipped"]
 
 
 class ProjectOnboardingSerializer(serializers.Serializer):
@@ -53,6 +53,7 @@ class ProjectOnboardingSerializer(serializers.Serializer):
     current_page = serializers.CharField(read_only=True)
     completed = serializers.BooleanField(read_only=True)
     failed = serializers.BooleanField(read_only=True)
+    skipped = serializers.BooleanField(read_only=True)
     progress = serializers.IntegerField(read_only=True)
     current_step = serializers.CharField(read_only=True)
     crawler_result = serializers.CharField(read_only=True, allow_null=True)
