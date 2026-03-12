@@ -130,7 +130,8 @@ class TemplateViewSetStrategyIntegrationTest(BaseTestMixin, APITestCase):
         call_args = mock_update_method.call_args
         self.assertEqual(call_args[0][0], template)
         self.assertEqual(
-            call_args[0][1]["template_body"], "Updated body for normal template"
+            call_args[0][1]["template_body"],
+            "Updated body for normal template",
         )
 
     @patch("retail.templates.handlers.template_metadata.S3Service")
@@ -191,7 +192,8 @@ class TemplateViewSetStrategyIntegrationTest(BaseTestMixin, APITestCase):
         call_args = mock_update_method.call_args
         self.assertEqual(call_args[0][0], template)
         self.assertEqual(
-            call_args[0][1]["template_body"], "Updated body for custom template"
+            call_args[0][1]["template_body"],
+            "Updated body for custom template",
         )
         self.assertEqual(len(call_args[0][1]["parameters"]), 2)
         self.assertEqual(call_args[0][1]["parameters"][0]["name"], "start_condition")

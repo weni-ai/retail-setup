@@ -1,3 +1,15 @@
+# 5.0.0
+- fix: Centralizes template language resolution to prevent null language
+- feat: Sends vtex_host_store to Connect and consumes config EDA
+- feat: Add webchat activation functionality with S3 integration
+- feat: Add Nexus manager configuration to onboarding flow
+- feat: create pixel app script new
+- feat: Add project onboarding flow
+- feat: Enhance WWC configuration with language-aware translations
+- feat: Add agent integration step to onboarding flow
+- feat: add VTEX project creation for onboarding
+- refactor: use vtex_account in JWT for VTEX IO calls
+
 # 4.1.6
 - fix: Adjusts VTEX proxy serializer to accept list payloads in data field
 

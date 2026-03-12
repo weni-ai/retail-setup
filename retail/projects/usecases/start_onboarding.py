@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 from retail.projects.models import Project, ProjectOnboarding
 from retail.projects.tasks import task_wait_and_start_crawl
@@ -6,6 +7,7 @@ from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_fail
 from retail.projects.usecases.onboarding_agents.agent_mappings import SUPPORTED_CHANNELS
 from retail.projects.usecases.onboarding_dto import StartOnboardingDTO
 from retail.projects.usecases.start_crawl import StartCrawlUseCase
+from retail.services.connect.service import ConnectService
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +21,9 @@ class StartOnboardingUseCase:
     until the project is linked and then start the crawl.
     """
 
-    def __init__(self):
+    def __init__(self, connect_service: Optional[ConnectService] = None):
         self.start_crawl_usecase = StartCrawlUseCase()
+        self.connect_service = connect_service or ConnectService()
 
     def execute(self, dto: StartOnboardingDTO) -> None:
         """
@@ -64,6 +67,7 @@ class StartOnboardingUseCase:
             raise
 
         if onboarding.project is not None:
+            self._send_vtex_host_store(onboarding.project, dto.crawl_url)
             self.start_crawl_usecase.execute(dto.vtex_account, dto.crawl_url)
             return
 
@@ -115,3 +119,17 @@ class StartOnboardingUseCase:
 
         onboarding.project = project
         onboarding.save(update_fields=["project"])
+
+    def _send_vtex_host_store(self, project: Project, crawl_url: str) -> None:
+        """Sends the crawl URL as vtex_host_store to Connect. Failures are
+        logged but do not interrupt the onboarding flow."""
+        try:
+            self.connect_service.set_vtex_host_store(
+                project_uuid=str(project.uuid),
+                vtex_host_store=crawl_url,
+            )
+        except Exception:
+            logger.exception(
+                f"Failed to send vtex_host_store to Connect for "
+                f"project={project.uuid}"
+            )

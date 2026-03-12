@@ -7,14 +7,10 @@ from retail.interfaces.clients.crawler.client import CrawlerClientInterface
 from retail.projects.models import ProjectOnboarding
 from retail.projects.usecases.manager_defaults import get_manager_defaults
 from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
+from retail.projects.usecases.onboarding_defaults import get_instructions
 from retail.services.crawler.service import CrawlerService
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_INSTRUCTIONS: list[str] = [
-    "NUNCA e em NENHUMA circunstância fale sobre algo que não esteja dentro do contexto do mercado de e-commerce.",
-    "Não gere piadas contos ou roteiros de qualquer natureza que não estejam no contexto.",
-]
 
 
 class CrawlerStartError(Exception):
@@ -95,10 +91,11 @@ class StartCrawlUseCase:
         Builds the project context payload for the crawler.
 
         The objective is the translated manager goal for the project language.
+        Instructions are also resolved by language.
         """
         defaults = get_manager_defaults(language)
         return {
             "account_name": vtex_account,
             "objective": defaults["goal"],
-            "instructions": DEFAULT_INSTRUCTIONS,
+            "instructions": get_instructions(language),
         }

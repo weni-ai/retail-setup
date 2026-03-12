@@ -1,10 +1,10 @@
-from typing import TypedDict, List, Dict, Any
+from typing import Optional, TypedDict, List, Dict, Any
 
 from rest_framework.exceptions import NotFound
 
 from retail.templates.models import Template, Version
 from retail.templates.usecases import LibraryTemplateData, BaseLibraryTemplateUseCase
-from retail.templates.utils import resolve_template_language
+from retail.templates.utils import get_agent_config, resolve_template_language
 
 
 class UpdateLibraryTemplateData(TypedDict, total=False):
@@ -12,7 +12,7 @@ class UpdateLibraryTemplateData(TypedDict, total=False):
     app_uuid: str
     project_uuid: str
     library_template_button_inputs: List[Dict[str, Any]]
-    language: str  # Optional: if not provided, uses integrated_agent.config or template.metadata
+    language: Optional[str]
 
 
 class UpdateLibraryTemplateUseCase(BaseLibraryTemplateUseCase):
@@ -51,10 +51,17 @@ class UpdateLibraryTemplateUseCase(BaseLibraryTemplateUseCase):
     def _build_payload(
         self, template: Template, payload: UpdateLibraryTemplateData
     ) -> LibraryTemplateData:
+        # TODO: In the future, language may come from project-level settings.
+        agent_config = get_agent_config(template.integrated_agent)
+        language = resolve_template_language(
+            translation=payload,
+            agent_config=agent_config,
+        )
+
         return {
             "library_template_name": template.name,
             "category": template.metadata.get("category"),
-            "language": resolve_template_language(template, payload),
+            "language": language,
             "app_uuid": payload.get("app_uuid"),
             "project_uuid": payload.get("project_uuid"),
             "library_template_button_inputs": payload.get(
