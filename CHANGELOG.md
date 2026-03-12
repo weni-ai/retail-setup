@@ -1,4 +1,4 @@
-# 5.0.1
+# 5.1.0
 - feat: Add SendCatalog Agent to onboarding
 - feat: Add skipped field, unique constraint, and deletion tracing to ProjectOnboarding
 - feat: Adds endpoint to retrieve store URL from project config
