@@ -293,7 +293,7 @@ class VtexProxyView(BaseVtexProxyView):
         return Response(result, status=status.HTTP_200_OK)
 
 
-class LeadView(BaseVtexProxyView):
+class LeadView(KeycloakAPIView):
     """
     Registers or updates a sales lead for a VTEX account.
 
