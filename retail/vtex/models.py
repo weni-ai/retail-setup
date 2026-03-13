@@ -65,3 +65,34 @@ class Cart(models.Model):
             models.Index(fields=["phone_number", "status", "modified_on"]),
             models.Index(fields=["phone_number", "project", "modified_on"]),
         ]
+
+
+class Lead(models.Model):
+    """
+    Sales lead from a VTEX account interested in hiring Weni services.
+
+    First interaction creates the record; subsequent interactions update
+    the plan, metrics data, and refresh the timestamp.
+    """
+
+    uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
+    user_email = models.EmailField()
+    vtex_account = models.CharField(max_length=100, unique=True)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="leads",
+    )
+    plan = models.CharField(max_length=100)
+    region = models.CharField(max_length=20, blank=True, default="")
+    data = models.JSONField(default=dict)
+    created_on = models.DateTimeField(auto_now_add=True)
+    modified_on = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Lead: {self.vtex_account} ({self.user_email}) - {self.plan}"
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["vtex_account"]),
+        ]

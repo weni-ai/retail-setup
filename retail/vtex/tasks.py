@@ -179,10 +179,44 @@ def handle_purchase_event_task(order_id: str, project_uuid: str):
     use_case.execute(order_id=order_id, project_uuid=project_uuid)
 
 
+@shared_task
+def task_notify_lead(lead_uuid: str):
+    """Send Slack Block Kit notification for a new or updated lead."""
+    from retail.vtex.models import Lead
+    from retail.services.notification.service import LeadNotificationService
+
+    try:
+        lead = Lead.objects.get(uuid=lead_uuid)
+
+        brazil_tz = timezone.get_fixed_timezone(-180)
+        local_date = lead.modified_on.astimezone(brazil_tz)
+
+        lead_data = {
+            "user_email": lead.user_email,
+            "vtex_account": lead.vtex_account,
+            "plan": lead.plan,
+            "region": lead.region,
+            "date": local_date.strftime("%Y-%m-%d %H:%M"),
+            "data": lead.data,
+        }
+
+        LeadNotificationService().notify(lead_data)
+
+        logger.info(
+            f"Lead Slack notification sent for " f"vtex_account={lead.vtex_account}"
+        )
+    except Lead.DoesNotExist:
+        logger.error(f"Lead not found: uuid={lead_uuid}")
+    except Exception as e:
+        logger.error(
+            f"Failed to send lead notification: " f"lead_uuid={lead_uuid} error={e}",
+            exc_info=True,
+        )
+
+
 @shared_task(name="task_cleanup_old_carts")
 def task_cleanup_old_carts():
     try:
-        # Delete all Cart records older than 15 days
         time_threshold = timezone.now() - timedelta(days=15)
         Cart.objects.filter(created_on__lt=time_threshold).delete()
 
