@@ -38,3 +38,12 @@ class VtexProxySerializer(serializers.Serializer):
     headers = serializers.DictField(required=False, allow_null=True)
     data = serializers.JSONField(required=False, allow_null=True)
     params = serializers.DictField(required=False, allow_null=True)
+
+
+class LeadSerializer(serializers.Serializer):
+    """Validates the payload for registering a sales lead from a VTEX account."""
+
+    user = serializers.EmailField(required=True)
+    plan = serializers.CharField(max_length=100, required=True)
+    vtex_account = serializers.CharField(max_length=100, required=True)
+    data = serializers.DictField(required=False, default=dict)
