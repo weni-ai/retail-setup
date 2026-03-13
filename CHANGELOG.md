@@ -1,3 +1,8 @@
+# 5.1.0
+- feat: Add SendCatalog Agent to onboarding
+- feat: Add skipped field, unique constraint, and deletion tracing to ProjectOnboarding
+- feat: Adds endpoint to retrieve store URL from project config
+
 # 5.0.0
 - fix: Centralizes template language resolution to prevent null language
 - feat: Sends vtex_host_store to Connect and consumes config EDA
