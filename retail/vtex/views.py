@@ -12,6 +12,7 @@ from retail.internal.views import KeycloakAPIView
 from retail.vtex.dtos.register_order_form_dto import RegisterOrderFormDTO
 from retail.vtex.serializers import (
     CreateProjectUserSerializer,
+    LeadSerializer,
     OrderFormTrackingSerializer,
     OrdersQueryParamsSerializer,
     VtexProxySerializer,
@@ -26,7 +27,12 @@ from retail.vtex.usecases.get_store_url import GetStoreUrlUseCase
 from retail.vtex.usecases.get_order_detail import GetOrderDetailsUsecase
 from retail.vtex.usecases.get_orders import GetOrdersUsecase
 from retail.vtex.usecases.register_order_form import RegisterOrderFormUseCase
+from retail.vtex.usecases.register_lead import (
+    RegisterLeadDTO,
+    RegisterLeadUseCase,
+)
 from retail.vtex.usecases.proxy_vtex import ProxyVtexUsecase
+from retail.vtex.tasks import task_notify_lead
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +291,41 @@ class VtexProxyView(BaseVtexProxyView):
         )
 
         return Response(result, status=status.HTTP_200_OK)
+
+
+class LeadView(KeycloakAPIView):
+    """
+    Registers or updates a sales lead for a VTEX account.
+
+    First call creates the record; subsequent calls update the plan,
+    metrics data, and refresh the timestamp. Each call triggers a Slack
+    Block Kit notification to the internal team.
+    """
+
+    def post(self, request: Request) -> Response:
+        serializer = LeadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dto = RegisterLeadDTO(
+            user_email=serializer.validated_data["user"],
+            plan=serializer.validated_data["plan"],
+            vtex_account=serializer.validated_data["vtex_account"],
+            data=serializer.validated_data.get("data", {}),
+        )
+
+        use_case = RegisterLeadUseCase()
+        lead = use_case.execute(dto)
+
+        task_notify_lead.delay(str(lead.uuid))
+
+        return Response(
+            {
+                "vtex_account": lead.vtex_account,
+                "plan": lead.plan,
+                "region": lead.region,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class CreateProjectUserView(KeycloakAPIView):
