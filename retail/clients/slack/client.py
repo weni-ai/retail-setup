@@ -17,7 +17,7 @@ SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
 class SlackClient(RequestClient, SlackClientInterface):
     def __init__(self):
         self.token = settings.SLACK_BOT_TOKEN
-        self.default_channel = settings.SLACK_NOTIFICATION_CHANNEL
+        self.default_channel = settings.SLACK_LEAD_NOTIFICATION_CHANNEL
 
     @property
     def headers(self):

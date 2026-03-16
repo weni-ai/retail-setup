@@ -20,9 +20,9 @@ class LeadNotificationService:
 
     def notify(self, lead_data: dict) -> None:
         blocks = self._build_blocks(lead_data)
-        channel = settings.SLACK_NOTIFICATION_CHANNEL
+        channel = settings.SLACK_LEAD_NOTIFICATION_CHANNEL
         if not channel:
-            logger.warning("SLACK_NOTIFICATION_CHANNEL not configured, skipping")
+            logger.warning("SLACK_LEAD_NOTIFICATION_CHANNEL not configured, skipping")
             return
         self.slack_service.send_blocks(channel=channel, blocks=blocks)
 
