@@ -387,3 +387,27 @@ class IntegrationsService:
                 e,
             )
             return None
+
+    def create_wpp_cloud_channel(
+        self,
+        project_uuid: str,
+        auth_code: str,
+        waba_id: str,
+        phone_number_id: str,
+    ) -> Optional[Dict]:
+        """
+        Creates a WhatsApp Cloud channel via the integrations-engine.
+
+        Returns:
+            Dict with created app data (app_uuid, flow_object_uuid) or None on failure.
+        """
+        try:
+            return self.client.create_wpp_cloud_channel(
+                project_uuid, auth_code, waba_id, phone_number_id
+            )
+        except CustomAPIException as e:
+            logger.error(
+                f"Error {e.status_code} when creating wpp-cloud channel "
+                f"for project {project_uuid}: {e}"
+            )
+            return None

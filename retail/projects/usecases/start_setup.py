@@ -5,37 +5,28 @@ from retail.projects.models import Project, ProjectOnboarding
 from retail.projects.tasks import task_wait_and_start_crawl
 from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.projects.usecases.onboarding_agents.agent_mappings import SUPPORTED_CHANNELS
-from retail.projects.usecases.onboarding_dto import StartOnboardingDTO
+from retail.projects.usecases.onboarding_dto import StartSetupDTO
 from retail.projects.usecases.start_crawl import StartCrawlUseCase
 from retail.services.connect.service import ConnectService
 
 logger = logging.getLogger(__name__)
 
 
-class StartOnboardingUseCase:
+class StartSetupUseCase:
     """
-    Initiates the crawl step of the onboarding process.
+    Initiates the setup process for a store.
 
-    If the project is already linked (via EDA), the crawl starts
-    immediately. Otherwise, a Celery task is scheduled to wait
-    until the project is linked and then start the crawl.
+    Creates/gets the onboarding record, stores channel configuration
+    (including channel_data for wpp-cloud), then starts the crawl
+    immediately if the project is linked, or schedules a background
+    task to wait for the link.
     """
 
     def __init__(self, connect_service: Optional[ConnectService] = None):
         self.start_crawl_usecase = StartCrawlUseCase()
         self.connect_service = connect_service or ConnectService()
 
-    def execute(self, dto: StartOnboardingDTO) -> None:
-        """
-        Creates/gets the ProjectOnboarding record and decides whether
-        to start crawling now or schedule a wait task.
-
-        Args:
-            dto: Contains vtex_account and crawl_url.
-
-        Raises:
-            CrawlerStartError: If the crawler fails to start (immediate mode).
-        """
+    def execute(self, dto: StartSetupDTO) -> None:
         onboarding, created = ProjectOnboarding.objects.get_or_create(
             vtex_account=dto.vtex_account,
         )
@@ -56,7 +47,11 @@ class StartOnboardingUseCase:
 
         config = onboarding.config or {}
         channels = config.setdefault("channels", {})
-        channels.setdefault(dto.channel, {})
+        channel_config = channels.setdefault(dto.channel, {})
+
+        if dto.channel_data:
+            channel_config["channel_data"] = dto.channel_data
+
         onboarding.config = config
         onboarding.save(update_fields=["config"])
 

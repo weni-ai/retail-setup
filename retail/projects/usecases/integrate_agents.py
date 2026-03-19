@@ -62,11 +62,12 @@ class IntegrateAgentsUseCase:
             onboarding.save(update_fields=["progress"])
             return
 
-        # Carries all data that at least one agent needs for integration;
-        # each agent consumes only the fields relevant to its own flow.
+        channel_config = channels.get(channel_code, {})
         context = AgentContext(
             project_uuid=project_uuid,
             vtex_account=vtex_account,
+            app_uuid=channel_config.get("app_uuid"),
+            channel_uuid=channel_config.get("flow_object_uuid"),
         )
 
         self._integrate_agents(onboarding, context, agents)

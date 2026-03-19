@@ -67,3 +67,13 @@ class IntegrationsClientInterface(ABC):
     @abstractmethod
     def get_channel_app(self, apptype: str, app_uuid: str) -> Dict:
         pass
+
+    @abstractmethod
+    def create_wpp_cloud_channel(
+        self,
+        project_uuid: str,
+        auth_code: str,
+        waba_id: str,
+        phone_number_id: str,
+    ) -> Dict:
+        pass
