@@ -15,18 +15,18 @@ def _auth_bypass(original_cls):
     )
 
 
-class TestStartOnboardingView(TestCase):
+class TestStartSetupView(TestCase):
     def setUp(self):
         self.client = APIClient()
 
     @_auth_bypass(None)
-    @patch("retail.projects.views.StartOnboardingUseCase")
+    @patch("retail.projects.views.StartSetupUseCase")
     def test_returns_201_on_success(self, mock_usecase_cls, _mock_auth):
         mock_instance = MagicMock()
         mock_usecase_cls.return_value = mock_instance
 
         response = self.client.post(
-            "/api/onboard/mystore/start-crawling/",
+            "/api/onboard/mystore/start-setup/",
             {"crawl_url": "https://www.mystore.com.br/", "channel": "wwc"},
             format="json",
         )
@@ -38,7 +38,7 @@ class TestStartOnboardingView(TestCase):
     @_auth_bypass(None)
     def test_returns_400_when_crawl_url_missing(self, _mock_auth):
         response = self.client.post(
-            "/api/onboard/mystore/start-crawling/",
+            "/api/onboard/mystore/start-setup/",
             {},
             format="json",
         )
@@ -46,7 +46,7 @@ class TestStartOnboardingView(TestCase):
         self.assertEqual(response.status_code, 400)
 
     @_auth_bypass(None)
-    @patch("retail.projects.views.StartOnboardingUseCase")
+    @patch("retail.projects.views.StartSetupUseCase")
     def test_returns_502_when_crawler_fails(self, mock_usecase_cls, _mock_auth):
         from retail.projects.usecases.start_crawl import CrawlerStartError
 
@@ -55,13 +55,51 @@ class TestStartOnboardingView(TestCase):
         mock_usecase_cls.return_value = mock_instance
 
         response = self.client.post(
-            "/api/onboard/mystore/start-crawling/",
+            "/api/onboard/mystore/start-setup/",
             {"crawl_url": "https://www.mystore.com.br/", "channel": "wwc"},
             format="json",
         )
 
         self.assertEqual(response.status_code, 502)
         self.assertIn("Crawler down", response.json()["detail"])
+
+    @_auth_bypass(None)
+    @patch("retail.projects.views.StartSetupUseCase")
+    def test_returns_201_with_wpp_cloud_channel_data(
+        self, mock_usecase_cls, _mock_auth
+    ):
+        mock_instance = MagicMock()
+        mock_usecase_cls.return_value = mock_instance
+
+        response = self.client.post(
+            "/api/onboard/mystore/start-setup/",
+            {
+                "crawl_url": "https://www.mystore.com.br/",
+                "channel": "wpp-cloud",
+                "channel_data": {
+                    "auth_code": "abc123",
+                    "waba_id": "waba456",
+                    "phone_number_id": "phone789",
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        mock_instance.execute.assert_called_once()
+
+    @_auth_bypass(None)
+    def test_returns_400_when_wpp_cloud_without_channel_data(self, _mock_auth):
+        response = self.client.post(
+            "/api/onboard/mystore/start-setup/",
+            {
+                "crawl_url": "https://www.mystore.com.br/",
+                "channel": "wpp-cloud",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
 
 
 class TestCrawlerWebhookView(TestCase):

@@ -14,9 +14,10 @@ class CrawlerWebhookDTO:
 
 
 @dataclass(frozen=True)
-class StartOnboardingDTO:
-    """Data sent by the front-end to start the onboarding process."""
+class StartSetupDTO:
+    """Data sent by the front-end to start the setup process."""
 
     vtex_account: str
     crawl_url: str
     channel: str
+    channel_data: dict = field(default_factory=dict)

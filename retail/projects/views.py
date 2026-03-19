@@ -15,7 +15,7 @@ from retail.internal.permissions import CanCommunicateInternally
 from retail.projects.serializer import (
     ProjectSerializer,
     ProjectVtexConfigSerializer,
-    StartOnboardingSerializer,
+    StartSetupSerializer,
     CrawlerWebhookSerializer,
     OnboardingPatchSerializer,
     ProjectOnboardingSerializer,
@@ -24,12 +24,12 @@ from retail.projects.usecases.get_project_vtex_account import (
     GetProjectVtexAccountUseCase,
 )
 from retail.projects.usecases.onboarding_dto import (
-    StartOnboardingDTO,
+    StartSetupDTO,
     CrawlerWebhookDTO,
 )
 from retail.projects.usecases.project_vtex import ProjectVtexConfigUseCase
 from retail.projects.usecases.start_crawl import CrawlerStartError
-from retail.projects.usecases.start_onboarding import StartOnboardingUseCase
+from retail.projects.usecases.start_setup import StartSetupUseCase
 from retail.projects.usecases.update_onboarding_progress import (
     UpdateOnboardingProgressUseCase,
 )
@@ -100,9 +100,13 @@ class VtexAccountLookupView(JWTModuleAuthMixin, APIView):
         return Response({"vtex_account": vtex_account})
 
 
-class StartOnboardingView(KeycloakAPIView):
+class StartSetupView(KeycloakAPIView):
     """
-    Starts the onboarding crawl process for a store.
+    Starts the setup process for a store.
+
+    Receives the crawl URL and channel type. For wpp-cloud channels,
+    also receives channel_data with Meta signup information
+    (auth_code, waba_id, phone_number_id).
 
     If the project is already linked (via EDA), the crawl starts
     immediately. Otherwise, a background task is scheduled to
@@ -110,23 +114,20 @@ class StartOnboardingView(KeycloakAPIView):
     """
 
     def post(self, request, vtex_account: str) -> Response:
-        """
-        Starts or schedules the crawl for the given vtex_account.
-
-        Expects:
-            { "crawl_url": "https://www.wenipartner.com.br/" }
-        """
-        serializer = StartOnboardingSerializer(data=request.data)
+        serializer = StartSetupSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        dto = StartOnboardingDTO(
+        channel_data = serializer.validated_data.get("channel_data", {})
+
+        dto = StartSetupDTO(
             vtex_account=vtex_account,
             crawl_url=serializer.validated_data["crawl_url"],
             channel=serializer.validated_data["channel"],
+            channel_data=channel_data,
         )
 
         try:
-            StartOnboardingUseCase().execute(dto)
+            StartSetupUseCase().execute(dto)
         except CrawlerStartError as e:
             return Response(
                 {"detail": str(e)},

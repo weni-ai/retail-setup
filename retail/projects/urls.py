@@ -18,9 +18,9 @@ urlpatterns = [
         name="project-vtex-account-lookup",
     ),
     path(
-        "onboard/<str:vtex_account>/start-crawling/",
-        project_views.StartOnboardingView.as_view(),
-        name="onboarding-start-crawling",
+        "onboard/<str:vtex_account>/start-setup/",
+        project_views.StartSetupView.as_view(),
+        name="onboarding-start-setup",
     ),
     path(
         "onboard/<uuid:onboarding_uuid>/webhook/",
