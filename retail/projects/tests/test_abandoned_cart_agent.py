@@ -100,6 +100,11 @@ class TestAbandonedCartAgent(TestCase):
         )
         self.assertIn("integrated_agent_uuid", result)
 
+        mock_integrated.save.assert_called_once_with(
+            update_fields=["contact_percentage"]
+        )
+        self.assertEqual(mock_integrated.contact_percentage, 0)
+
     @patch("retail.projects.usecases.onboarding_agents.agents.AssignAgentUseCase")
     @patch("retail.projects.usecases.onboarding_agents.agents.Agent.objects.get")
     def test_returns_integrated_agent_uuid(self, mock_agent_get, mock_assign_cls):

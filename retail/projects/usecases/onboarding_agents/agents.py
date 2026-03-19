@@ -86,8 +86,11 @@ class AbandonedCartAgent(ActiveAgent):
             include_templates=all_template_uuids,
         )
 
+        integrated_agent.contact_percentage = 0
+        integrated_agent.save(update_fields=["contact_percentage"])
+
         logger.info(
-            f"Abandoned Cart agent assigned: "
+            f"Abandoned Cart agent assigned with contact_percentage=0: "
             f"integrated_agent={integrated_agent.uuid} "
             f"project={context.project_uuid}"
         )
