@@ -3,8 +3,12 @@ import logging
 from rest_framework import status
 from rest_framework.response import Response
 
-from retail.api.onboard.serializers import ActivateWebchatSerializer
-from retail.api.onboard.usecases.dto import ActivateWebchatDTO
+from retail.api.onboard.serializers import (
+    ActivateWebchatSerializer,
+    ActivateWppCloudSerializer,
+)
+from retail.api.onboard.usecases.activate_wpp_cloud import ActivateWppCloudUseCase
+from retail.api.onboard.usecases.dto import ActivateWebchatDTO, ActivateWppCloudDTO
 from retail.api.onboard.usecases.publish_webchat_script import (
     PublishWebchatScriptUseCase,
 )
@@ -40,3 +44,33 @@ class ActivateWebchatView(KeycloakAPIView):
         result = use_case.execute(dto)
 
         return Response(result.to_dict(), status=status.HTTP_201_CREATED)
+
+
+class ActivateWppCloudView(KeycloakAPIView):
+    """
+    Activates the WPP Cloud abandoned cart agent by setting
+    its contact_percentage.
+
+    Called by the front-end when the store owner decides to
+    activate the abandoned cart notifications.
+    """
+
+    def post(self, request):
+        serializer = ActivateWppCloudSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dto = ActivateWppCloudDTO(
+            project_uuid=str(serializer.validated_data["project_uuid"]),
+            percentage=serializer.validated_data["percentage"],
+        )
+
+        use_case = ActivateWppCloudUseCase()
+        integrated_agent = use_case.execute(dto)
+
+        return Response(
+            {
+                "integrated_agent_uuid": str(integrated_agent.uuid),
+                "contact_percentage": integrated_agent.contact_percentage,
+            },
+            status=status.HTTP_200_OK,
+        )
