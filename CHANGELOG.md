@@ -1,3 +1,7 @@
+# 5.2.0
+- fix: Rename Slack setting to SLACK_LEAD_NOTIFICATION_CHANNEL
+- feat: Adds lead capture endpoint with Slack notification
+
 # 5.1.0
 - feat: Add SendCatalog Agent to onboarding
 - feat: Add skipped field, unique constraint, and deletion tracing to ProjectOnboarding

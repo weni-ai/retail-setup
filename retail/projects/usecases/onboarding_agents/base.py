@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Optional
 
 from django.conf import settings
 
@@ -8,10 +9,17 @@ from retail.services.nexus.service import NexusService
 
 @dataclass
 class AgentContext:
-    """Shared context passed to every agent during integration."""
+    """Shared context passed to every agent during integration.
+
+    Core fields are always set. Channel-specific fields (app_uuid,
+    channel_uuid) are populated when the channel provides them —
+    e.g. wpp-cloud stores these after channel creation.
+    """
 
     project_uuid: str
     vtex_account: str
+    app_uuid: Optional[str] = None
+    channel_uuid: Optional[str] = None
 
 
 class OnboardingAgent(ABC):
@@ -57,15 +65,20 @@ class PassiveAgent(OnboardingAgent):
 
 class ActiveAgent(OnboardingAgent):
     """
-    Integrated via Retail assign endpoint with templates/credentials.
+    Integrated via AssignAgentUseCase with templates and credentials.
 
-    Structure ready for future use; no concrete active agents exist yet.
+    Requires app_uuid and channel_uuid in the AgentContext.
     Subclasses must override ``integrate`` with the specific payload.
     """
 
-    templates: list = []
+    def _validate_channel_context(self, context: AgentContext) -> None:
+        if not context.app_uuid or not context.channel_uuid:
+            raise ValueError(
+                f"Active agent '{self.name}' requires app_uuid and channel_uuid "
+                f"in the context. Ensure the channel was created before "
+                f"agent integration."
+            )
 
+    @abstractmethod
     def integrate(self, context: AgentContext, nexus_service: NexusService) -> dict:
-        raise NotImplementedError(
-            f"Active agent integration not implemented for {self.name}"
-        )
+        pass

@@ -335,7 +335,7 @@ CONNECT_REST_ENDPOINT = env.str("CONNECT_REST_ENDPOINT", default="")
 
 # Slack notifications (hire intent)
 SLACK_BOT_TOKEN = env.str("SLACK_BOT_TOKEN", default="")
-SLACK_NOTIFICATION_CHANNEL = env.str("SLACK_NOTIFICATION_CHANNEL", default="")
+SLACK_LEAD_NOTIFICATION_CHANNEL = env.str("SLACK_LEAD_NOTIFICATION_CHANNEL", default="")
 
 # Path to the JWT public key
 JWT_PUBLIC_KEY_PATH = BASE_DIR / "retail" / "jwt_keys" / "public_key.pem"

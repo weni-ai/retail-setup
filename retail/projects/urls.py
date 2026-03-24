@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import SimpleRouter
 from retail.projects import views as project_views
-from retail.api.onboard.views import ActivateWebchatView
+from retail.api.onboard.views import ActivateWebchatView, ActivateWppCloudView
 
 
 router = SimpleRouter()
@@ -18,9 +18,9 @@ urlpatterns = [
         name="project-vtex-account-lookup",
     ),
     path(
-        "onboard/<str:vtex_account>/start-crawling/",
-        project_views.StartOnboardingView.as_view(),
-        name="onboarding-start-crawling",
+        "onboard/<str:vtex_account>/start-setup/",
+        project_views.StartSetupView.as_view(),
+        name="onboarding-start-setup",
     ),
     path(
         "onboard/<uuid:onboarding_uuid>/webhook/",
@@ -41,5 +41,10 @@ urlpatterns = [
         "onboard/wwc/activate/",
         ActivateWebchatView.as_view(),
         name="onboard-wwc-activate",
+    ),
+    path(
+        "onboard/wpp-cloud/activate/",
+        ActivateWppCloudView.as_view(),
+        name="onboard-wpp-cloud-activate",
     ),
 ]

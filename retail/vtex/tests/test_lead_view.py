@@ -71,6 +71,7 @@ class TestLeadView(TestCase):
             self.url, {"plan": "PRO", "vtex_account": "teststore"}, format="json"
         )
         self.assertEqual(response.status_code, 400)
+        self.assertIn("user", response.data)
 
     @_auth_bypass()
     def test_returns_400_when_plan_missing(self, _auth):
@@ -80,6 +81,7 @@ class TestLeadView(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 400)
+        self.assertIn("plan", response.data)
 
     @_auth_bypass()
     def test_returns_400_when_vtex_account_missing(self, _auth):
@@ -89,6 +91,7 @@ class TestLeadView(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 400)
+        self.assertIn("vtex_account", response.data)
 
     @_auth_bypass()
     def test_returns_400_for_invalid_email(self, _auth):
@@ -98,6 +101,7 @@ class TestLeadView(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 400)
+        self.assertIn("user", response.data)
 
     @_auth_bypass()
     @patch("retail.vtex.views.task_notify_lead")
@@ -120,4 +124,4 @@ class TestLeadView(TestCase):
     def test_returns_401_without_auth(self):
         response = self.client.post(self.url, self.valid_payload, format="json")
 
-        self.assertIn(response.status_code, [401, 403])
+        self.assertEqual(response.status_code, 401)
