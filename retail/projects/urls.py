@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import SimpleRouter
 from retail.projects import views as project_views
 from retail.api.onboard.views import ActivateWebchatView
-from retail.api.vtex_projects.views import AgentActiveView
+from retail.api.vtex_projects.views import AgentActiveView, OnboardingCompleteView
 
 
 router = SimpleRouter()
@@ -17,6 +17,11 @@ urlpatterns = [
         "vtex-projects/<str:vtex_account>/agent-active/",
         AgentActiveView.as_view(),
         name="vtex-project-agent-active",
+    ),
+    path(
+        "vtex-projects/<str:vtex_account>/onboarding-complete/",
+        OnboardingCompleteView.as_view(),
+        name="vtex-project-onboarding-complete",
     ),
     path(
         "projects/vtex-account/",
