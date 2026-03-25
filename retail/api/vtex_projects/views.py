@@ -10,6 +10,10 @@ from retail.api.vtex_projects.serializers import AgentActiveQuerySerializer
 from retail.api.vtex_projects.usecases.check_agent_active import (
     CheckAgentActiveUseCase,
 )
+from retail.api.vtex_projects.usecases.check_onboarding_complete import (
+    INACTIVE_STATUS,
+    CheckOnboardingCompleteUseCase,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -46,3 +50,25 @@ class AgentActiveView(JWTModuleAuthMixin, APIView):
             return Response(INACTIVE_RESPONSE, status=status.HTTP_200_OK)
 
         return Response({"is_active": is_active}, status=status.HTTP_200_OK)
+
+
+class OnboardingCompleteView(JWTModuleAuthMixin, APIView):
+    """
+    Checks whether the onboarding process is fully completed for a VTEX account.
+
+    Called by the VTEX IO storefront pixel to decide whether to inject
+    the Agentic CX script on the page.
+    """
+
+    def get(self, request: Request, vtex_account: str) -> Response:
+        try:
+            use_case = CheckOnboardingCompleteUseCase()
+            result = use_case.execute(vtex_account=vtex_account)
+        except Exception:
+            logger.exception(
+                f"Unexpected error checking onboarding complete for "
+                f"vtex_account={vtex_account}"
+            )
+            return Response(INACTIVE_STATUS.to_dict(), status=status.HTTP_200_OK)
+
+        return Response(result.to_dict(), status=status.HTTP_200_OK)
