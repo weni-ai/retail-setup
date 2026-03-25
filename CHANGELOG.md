@@ -1,3 +1,6 @@
+# 5.4.0
+- feat: Add endpoint to check onboarding completion for VTEX account
+
 # 5.3.0
 - feat: Add endpoint to check if agent type is active for VTEX account
 
