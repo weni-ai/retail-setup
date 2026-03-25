@@ -1,3 +1,6 @@
+# 5.3.0
+- feat: Add endpoint to check if agent type is active for VTEX account
+
 # 5.2.0
 - fix: Rename Slack setting to SLACK_LEAD_NOTIFICATION_CHANNEL
 - feat: Adds lead capture endpoint with Slack notification
