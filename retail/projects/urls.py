@@ -2,6 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import SimpleRouter
 from retail.projects import views as project_views
 from retail.api.onboard.views import ActivateWebchatView
+from retail.api.vtex_projects.views import AgentActiveView
 
 
 router = SimpleRouter()
@@ -12,6 +13,11 @@ router.register(
 
 urlpatterns = [
     path("", include(router.urls)),
+    path(
+        "vtex-projects/<str:vtex_account>/agent-active/",
+        AgentActiveView.as_view(),
+        name="vtex-project-agent-active",
+    ),
     path(
         "projects/vtex-account/",
         project_views.VtexAccountLookupView.as_view(),
