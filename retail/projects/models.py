@@ -2,7 +2,7 @@ import logging
 import uuid as uuid_lib
 
 from django.db import models
-from django.db.models.signals import pre_delete
+from django.db.models.signals import post_save, pre_delete, pre_save
 from django.dispatch import receiver
 from django.core.cache import cache
 
@@ -79,6 +79,34 @@ class ProjectOnboarding(models.Model):
             f"step={self.current_step} progress={self.progress}% "
             f"current_page={self.current_page}, completed={self.completed}"
         )
+
+
+@receiver(pre_save, sender=ProjectOnboarding)
+def snapshot_previous_completed(sender, instance, **kwargs):
+    """
+    Stores the previous 'completed' value on the instance so post_save
+    can detect the False → True transition. Standard Django pattern for
+    field-change detection across pre_save / post_save signals.
+    """
+    if instance.pk:
+        try:
+            previous = ProjectOnboarding.objects.get(pk=instance.pk)
+            instance._previous_completed = previous.completed
+        except ProjectOnboarding.DoesNotExist:
+            instance._previous_completed = False
+    else:
+        instance._previous_completed = False
+
+
+@receiver(post_save, sender=ProjectOnboarding)
+def notify_io_on_onboarding_complete(sender, instance, **kwargs):
+    """Dispatches task to activate Agentic CX script when onboarding transitions to completed."""
+    was_completed = getattr(instance, "_previous_completed", False)
+
+    if not was_completed and instance.completed:
+        from retail.projects.tasks import task_activate_agentic_cx_script
+
+        task_activate_agentic_cx_script.delay(instance.vtex_account)
 
 
 @receiver(pre_delete, sender=ProjectOnboarding)

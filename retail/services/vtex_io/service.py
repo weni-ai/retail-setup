@@ -116,6 +116,15 @@ class VtexIOService:
             vtex_account=vtex_account,
         )
 
+    def activate_agentic_cx_script(
+        self, account_domain: str, vtex_account: str
+    ) -> dict:
+        """Notifies the VTEX IO app that the Agentic CX script can be installed."""
+        return self.client.activate_agentic_cx_script(
+            account_domain=account_domain,
+            vtex_account=vtex_account,
+        )
+
     def proxy_vtex(
         self,
         account_domain: str,
