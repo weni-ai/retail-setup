@@ -86,6 +86,22 @@ class VtexIOClientInterface(ABC):
         pass
 
     @abstractmethod
+    def activate_agentic_cx_script(
+        self, account_domain: str, vtex_account: str
+    ) -> dict:
+        """
+        Notifies the VTEX IO app that the Agentic CX script can be installed.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            vtex_account (str): VTEX account for JWT token generation.
+
+        Returns:
+            dict: Response from VTEX IO.
+        """
+        pass
+
+    @abstractmethod
     def proxy_vtex(
         self,
         account_domain: str,
