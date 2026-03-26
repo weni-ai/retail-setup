@@ -1,3 +1,6 @@
+# 5.5.0
+- feat: Notify VTEX IO to activate Agentic CX script when onboarding completes
+
 # 5.4.0
 - feat: Add endpoint to check onboarding completion for VTEX account
 
