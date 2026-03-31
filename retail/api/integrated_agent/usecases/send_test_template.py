@@ -104,23 +104,38 @@ class SendTestTemplateUseCase:
         if dto.variables:
             message["msg"]["template"]["variables"] = dto.variables
 
-        attachment = self._build_header_image_attachment(template)
-        if attachment:
-            message["msg"]["attachments"] = [attachment]
+        self._apply_test_button(template, message)
+        self._apply_header_image(template, message)
 
         return message
 
-    def _build_header_image_attachment(self, template: Template) -> Optional[str]:
+    def _apply_test_button(self, template: Template, message: Dict[str, Any]) -> None:
         """
-        Build image attachment using the default placeholder when the
-        template header expects an image.
+        Add a test button parameter when the template has a URL button
+        (e.g. abandoned cart checkout link).
+        """
+        buttons = (template.metadata or {}).get("buttons", [])
+        has_url_button = any(b.get("type") == "URL" for b in buttons)
+
+        if has_url_button:
+            message["msg"]["buttons"] = [
+                {
+                    "sub_type": "url",
+                    "parameters": [{"type": "text", "text": "example123"}],
+                }
+            ]
+
+    def _apply_header_image(self, template: Template, message: Dict[str, Any]) -> None:
+        """
+        Add the default placeholder image when the template header
+        expects an image.
         """
         header = (template.metadata or {}).get("header")
         if not header or header.get("header_type") != "IMAGE":
-            return None
+            return
 
         image_url = settings.ABANDONED_CART_DEFAULT_IMAGE_URL
-        return f"image/png:{image_url}"
+        message["msg"]["attachments"] = [f"image/png:{image_url}"]
 
     def _resolve_language(self, template: Template) -> Optional[str]:
         if not template.metadata:
