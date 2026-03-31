@@ -30,6 +30,7 @@ class TestIntegrateAgentsUseCase(TestCase):
             progress=75,
         )
         self.mock_nexus_service = MagicMock()
+        self.mock_nexus_service.list_integrated_agents.return_value = []
         self.usecase = IntegrateAgentsUseCase(nexus_client=MagicMock())
         self.usecase.nexus_service = self.mock_nexus_service
 
@@ -112,3 +113,43 @@ class TestIntegrateAgentsUseCase(TestCase):
         call_args = self.mock_nexus_service.integrate_agent.call_args
         self.assertEqual(call_args[0][0], str(self.project.uuid))
         self.assertEqual(call_args[0][1], "uuid-1")
+
+    @patch(
+        "retail.projects.usecases.integrate_agents.get_channel_agents",
+        return_value=[
+            StubPassiveAgent("uuid-1", "Agent A"),
+            StubPassiveAgent("uuid-2", "Agent B"),
+            StubPassiveAgent("uuid-3", "Agent C"),
+        ],
+    )
+    def test_skips_already_integrated_agents(self, _mock_agents):
+        self.mock_nexus_service.list_integrated_agents.return_value = [
+            {"uuid": "uuid-1"},
+            {"uuid": "uuid-3"},
+        ]
+        self.mock_nexus_service.integrate_agent.return_value = {"ok": True}
+
+        self.usecase.execute("mystore")
+
+        self.mock_nexus_service.integrate_agent.assert_called_once()
+        call_args = self.mock_nexus_service.integrate_agent.call_args
+        self.assertEqual(call_args[0][1], "uuid-2")
+
+        self.onboarding.refresh_from_db()
+        self.assertEqual(self.onboarding.progress, AGENT_PROGRESS_END)
+
+    @patch(
+        "retail.projects.usecases.integrate_agents.get_channel_agents",
+        return_value=[
+            StubPassiveAgent("uuid-1", "Agent A"),
+            StubPassiveAgent("uuid-2", "Agent B"),
+        ],
+    )
+    def test_integrates_all_when_nexus_list_returns_none(self, _mock_agents):
+        """When Nexus list fails, all agents should still be integrated."""
+        self.mock_nexus_service.list_integrated_agents.return_value = None
+        self.mock_nexus_service.integrate_agent.return_value = {"ok": True}
+
+        self.usecase.execute("mystore")
+
+        self.assertEqual(self.mock_nexus_service.integrate_agent.call_count, 2)

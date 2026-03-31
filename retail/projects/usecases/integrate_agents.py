@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import List, Set
 
 from retail.clients.nexus.client import NexusClient
 from retail.interfaces.clients.nexus.client import NexusClientInterface
@@ -30,6 +30,9 @@ class IntegrateAgentsUseCase:
     The agent list is determined by the channel type stored in the
     onboarding config. Each agent instance knows how to integrate
     itself via its ``integrate(context, nexus_service)`` method.
+
+    Agents already integrated in the project are detected via the
+    Nexus list and skipped to avoid duplicates.
 
     Progress: 75% -> 100%.
     """
@@ -62,25 +65,46 @@ class IntegrateAgentsUseCase:
             onboarding.save(update_fields=["progress"])
             return
 
-        # Carries all data that at least one agent needs for integration;
-        # each agent consumes only the fields relevant to its own flow.
+        integrated_uuids = self._get_integrated_agent_uuids(project_uuid)
+
         context = AgentContext(
             project_uuid=project_uuid,
             vtex_account=vtex_account,
         )
 
-        self._integrate_agents(onboarding, context, agents)
+        self._integrate_agents(onboarding, context, agents, integrated_uuids)
+
+    def _get_integrated_agent_uuids(self, project_uuid: str) -> Set[str]:
+        """Fetches UUIDs of agents already integrated in the project."""
+        response = self.nexus_service.list_integrated_agents(project_uuid)
+        if not response:
+            return set()
+
+        agents = response if isinstance(response, list) else response.get("results", [])
+        return {str(agent.get("uuid", "")) for agent in agents if agent.get("uuid")}
 
     def _integrate_agents(
         self,
         onboarding: ProjectOnboarding,
         context: AgentContext,
         agents: List[OnboardingAgent],
+        integrated_uuids: Set[str],
     ) -> None:
         total = len(agents)
         progress_range = AGENT_PROGRESS_END - AGENT_PROGRESS_START
 
         for index, agent in enumerate(agents):
+            if agent.uuid in integrated_uuids:
+                logger.info(
+                    f"Agent {agent.name} ({agent.uuid}) already integrated "
+                    f"for project={context.project_uuid}, skipping."
+                )
+                onboarding.progress = AGENT_PROGRESS_START + int(
+                    ((index + 1) / total) * progress_range
+                )
+                onboarding.save(update_fields=["progress"])
+                continue
+
             result = agent.integrate(context, self.nexus_service)
 
             if result is None:

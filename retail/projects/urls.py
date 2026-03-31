@@ -44,6 +44,11 @@ urlpatterns = [
         name="onboarding-status",
     ),
     path(
+        "onboard/<str:vtex_account>/<str:channel>/install-agents/",
+        project_views.InstallChannelAgentsView.as_view(),
+        name="onboarding-install-channel-agents",
+    ),
+    path(
         "onboard/<str:vtex_account>/",
         project_views.OnboardingPatchView.as_view(),
         name="onboarding-patch",
