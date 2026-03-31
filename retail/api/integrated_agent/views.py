@@ -10,11 +10,11 @@ from retail.api.integrated_agent.usecases.dto import SendTestTemplateDTO
 from retail.api.integrated_agent.usecases.send_test_template import (
     SendTestTemplateUseCase,
 )
-from retail.internal.permissions import HasProjectPermission
+from retail.internal.authenticators import InternalOIDCAuthentication
 
 
 class SendTestTemplateView(BaseServiceView):
-    permission_classes = [*BaseServiceView.permission_classes, HasProjectPermission]
+    authentication_classes = [InternalOIDCAuthentication]
 
     def post(self, request: Request, integrated_agent_uuid: UUID) -> Response:
         serializer = SendTestTemplateSerializer(data=request.data)
