@@ -523,14 +523,4 @@ class Broadcast:
         if lambda_data and "status" in lambda_data:
             event_data["status"] = lambda_data["status"]
 
-        lambda_template_vars = (
-            lambda_data.get("template_variables", {}) if lambda_data else {}
-        )
-        if (
-            isinstance(lambda_template_vars, dict)
-            and "order_details" in lambda_template_vars
-        ):
-            event_data["interaction_type"] = "order_details"
-            event_data["order_details"] = lambda_template_vars["order_details"]
-
         self.audit_func(CommerceWebhookPath, event_data)
