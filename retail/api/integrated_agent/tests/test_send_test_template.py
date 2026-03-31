@@ -239,3 +239,65 @@ class SendTestTemplateUseCaseTest(TestCase):
             current_version__isnull=False,
             current_version__status="APPROVED",
         )
+
+    @patch(
+        "retail.api.integrated_agent.usecases.send_test_template.IntegratedAgent.objects"
+    )
+    def test_execute_includes_image_attachment_when_template_has_image_header(
+        self, mock_objects
+    ):
+        mock_agent = self._create_mock_integrated_agent()
+        mock_objects.select_related.return_value.get.return_value = mock_agent
+
+        mock_template = self._create_mock_template()
+        mock_template.metadata = {
+            "header": {"header_type": "IMAGE", "text": "some_s3_key.png"}
+        }
+        mock_filter = MagicMock()
+        mock_filter.select_related.return_value.first.return_value = mock_template
+        mock_agent.templates.filter.return_value = mock_filter
+
+        self.use_case.execute(self.dto)
+
+        call_args = self.mock_flows_service.send_whatsapp_broadcast.call_args[0][0]
+        self.assertIn("attachments", call_args["msg"])
+        self.assertEqual(len(call_args["msg"]["attachments"]), 1)
+        self.assertTrue(call_args["msg"]["attachments"][0].startswith("image/png:"))
+
+    @patch(
+        "retail.api.integrated_agent.usecases.send_test_template.IntegratedAgent.objects"
+    )
+    def test_execute_no_attachment_when_template_has_no_image_header(
+        self, mock_objects
+    ):
+        mock_agent = self._create_mock_integrated_agent()
+        mock_objects.select_related.return_value.get.return_value = mock_agent
+
+        mock_template = self._create_mock_template()
+        mock_template.metadata = {"body": "some text"}
+        mock_filter = MagicMock()
+        mock_filter.select_related.return_value.first.return_value = mock_template
+        mock_agent.templates.filter.return_value = mock_filter
+
+        self.use_case.execute(self.dto)
+
+        call_args = self.mock_flows_service.send_whatsapp_broadcast.call_args[0][0]
+        self.assertNotIn("attachments", call_args["msg"])
+
+    @patch(
+        "retail.api.integrated_agent.usecases.send_test_template.IntegratedAgent.objects"
+    )
+    def test_execute_no_attachment_when_header_type_is_text(self, mock_objects):
+        mock_agent = self._create_mock_integrated_agent()
+        mock_objects.select_related.return_value.get.return_value = mock_agent
+
+        mock_template = self._create_mock_template()
+        mock_template.metadata = {"header": {"header_type": "TEXT", "text": "Hello"}}
+        mock_filter = MagicMock()
+        mock_filter.select_related.return_value.first.return_value = mock_template
+        mock_agent.templates.filter.return_value = mock_filter
+
+        self.use_case.execute(self.dto)
+
+        call_args = self.mock_flows_service.send_whatsapp_broadcast.call_args[0][0]
+        self.assertNotIn("attachments", call_args["msg"])
