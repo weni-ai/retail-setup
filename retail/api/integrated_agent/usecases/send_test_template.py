@@ -1,6 +1,8 @@
 import logging
 from typing import Any, Dict, Optional
 
+from django.conf import settings
+
 from rest_framework.exceptions import NotFound, ValidationError
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
@@ -102,7 +104,23 @@ class SendTestTemplateUseCase:
         if dto.variables:
             message["msg"]["template"]["variables"] = dto.variables
 
+        attachment = self._build_header_image_attachment(template)
+        if attachment:
+            message["msg"]["attachments"] = [attachment]
+
         return message
+
+    def _build_header_image_attachment(self, template: Template) -> Optional[str]:
+        """
+        Build image attachment using the default placeholder when the
+        template header expects an image.
+        """
+        header = (template.metadata or {}).get("header")
+        if not header or header.get("header_type") != "IMAGE":
+            return None
+
+        image_url = settings.ABANDONED_CART_DEFAULT_IMAGE_URL
+        return f"image/png:{image_url}"
 
     def _resolve_language(self, template: Template) -> Optional[str]:
         if not template.metadata:
