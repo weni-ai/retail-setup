@@ -29,11 +29,12 @@ class SendTestTemplateUseCase:
             f"URNs count: {len(dto.contact_urns)}"
         )
 
-        self._flows_service.send_whatsapp_broadcast(message)
+        response = self._flows_service.send_whatsapp_broadcast(message)
 
         logger.info(
-            f"Test template broadcast sent successfully. "
-            f"IntegratedAgent: {dto.integrated_agent_uuid}"
+            f"Test template broadcast sent. "
+            f"IntegratedAgent: {dto.integrated_agent_uuid}, "
+            f"Response: {response}"
         )
 
     def _get_integrated_agent(self, uuid) -> IntegratedAgent:
