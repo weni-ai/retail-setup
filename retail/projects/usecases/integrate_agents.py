@@ -68,11 +68,14 @@ class IntegrateAgentsUseCase:
             onboarding.save(update_fields=["progress"])
             return
 
+        channel_config = channels.get(channel_code, {})
         integrated_uuids = get_integrated_agent_uuids(project_uuid, self.nexus_service)
 
         context = AgentContext(
             project_uuid=project_uuid,
             vtex_account=vtex_account,
+            app_uuid=channel_config.get("app_uuid"),
+            channel_uuid=channel_config.get("flow_object_uuid"),
         )
 
         self._integrate_agents(onboarding, context, agents, integrated_uuids)

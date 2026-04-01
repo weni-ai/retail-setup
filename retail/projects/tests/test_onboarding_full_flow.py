@@ -1,7 +1,7 @@
 """
 End-to-end test for the full onboarding flow.
 
-Simulates every step, from start-crawling to agent integration,
+Simulates every step, from start-setup to agent integration,
 with all external services mocked.
 """
 
@@ -21,10 +21,10 @@ from retail.projects.usecases.link_project_to_onboarding import (
 )
 from retail.projects.usecases.onboarding_dto import (
     CrawlerWebhookDTO,
-    StartOnboardingDTO,
+    StartSetupDTO,
 )
 from retail.projects.usecases.start_crawl import StartCrawlUseCase
-from retail.projects.usecases.start_onboarding import StartOnboardingUseCase
+from retail.projects.usecases.start_setup import StartSetupUseCase
 from retail.projects.usecases.update_onboarding_progress import (
     UpdateOnboardingProgressUseCase,
 )
@@ -34,7 +34,7 @@ class TestFullOnboardingFlow(TestCase):
     """
     Simulates the full onboarding flow end-to-end:
 
-    1. Front-end calls start-crawling (project not linked yet)
+    1. Front-end calls start-setup (project not linked yet)
     2. EDA links the project -> PROJECT_CONFIG 100%
     3. Crawler sends progress events
     4. Crawler sends crawl.completed
@@ -49,15 +49,15 @@ class TestFullOnboardingFlow(TestCase):
         self.crawl_url = "https://www.flowstore.com.br/"
         self.channel_app_uuid = str(uuid4())
 
-    @patch("retail.projects.usecases.start_onboarding.task_wait_and_start_crawl")
+    @patch("retail.projects.usecases.start_setup.task_wait_and_start_crawl")
     def test_full_flow(self, mock_wait_task):
-        # -- Step 1: Front-end starts crawling, no project yet --
-        dto = StartOnboardingDTO(
+        # -- Step 1: Front-end starts setup, no project yet --
+        dto = StartSetupDTO(
             vtex_account=self.vtex_account,
             crawl_url=self.crawl_url,
             channel="wwc",
         )
-        StartOnboardingUseCase().execute(dto)
+        StartSetupUseCase().execute(dto)
 
         onboarding = ProjectOnboarding.objects.get(vtex_account=self.vtex_account)
         self.assertIsNone(onboarding.project)

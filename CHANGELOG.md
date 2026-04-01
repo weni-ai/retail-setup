@@ -1,3 +1,9 @@
+# 5.6.0
+- feat: Add vtex_account field to ActivateWebchatSerializer
+
+# 5.5.1
+- feat: Add order_details support for WhatsApp payment broadcasts
+
 # 5.5.0
 - feat: Notify VTEX IO to activate Agentic CX script when onboarding completes
 
