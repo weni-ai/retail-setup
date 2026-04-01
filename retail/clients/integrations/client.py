@@ -307,3 +307,36 @@ class IntegrationsClient(RequestClient, IntegrationsClientInterface):
             headers=self.authentication_instance.headers,
         )
         return response.json()
+
+    def create_wpp_cloud_channel(
+        self,
+        project_uuid: str,
+        auth_code: str,
+        waba_id: str,
+        phone_number_id: str,
+    ) -> Dict:
+        """
+        Creates a WhatsApp Cloud channel via the integrations-engine.
+
+        The wpp-cloud create endpoint expects auth_code, waba_id,
+        and phone_number_id as top-level fields (not inside config),
+        as the engine handles the full Meta API configuration.
+
+        Returns:
+            Dict containing app_uuid and flow_object_uuid.
+        """
+        url = f"{self.base_url}/api/v1/apptypes/wpp-cloud/apps/"
+        payload = {
+            "project_uuid": project_uuid,
+            "auth_code": auth_code,
+            "waba_id": waba_id,
+            "phone_number_id": phone_number_id,
+        }
+
+        response = self.make_request(
+            url,
+            method="POST",
+            json=payload,
+            headers=self.authentication_instance.headers,
+        )
+        return response.json()
