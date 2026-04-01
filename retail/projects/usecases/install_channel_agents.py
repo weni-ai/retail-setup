@@ -1,12 +1,15 @@
 import logging
-from typing import Optional, Set
+from typing import Callable, Optional, Set
 
-from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.clients.integrations.client import IntegrationsClient
 from retail.clients.nexus.client import NexusClient
 from retail.interfaces.clients.integrations.interface import IntegrationsClientInterface
 from retail.interfaces.clients.nexus.client import NexusClientInterface
 from retail.projects.models import ProjectOnboarding
+from retail.projects.usecases.configure_wwc import (
+    WWC_CREATION_CONFIG,
+    build_wwc_channel_config,
+)
 from retail.projects.usecases.onboarding_agents.agent_mappings import (
     SUPPORTED_CHANNELS,
     get_channel_agents,
@@ -15,11 +18,22 @@ from retail.projects.usecases.onboarding_agents.base import (
     AgentContext,
     OnboardingAgent,
 )
+from retail.projects.usecases.onboarding_agents.integrated_agent_lookup import (
+    get_integrated_agent_uuids,
+)
 from retail.projects.usecases.onboarding_dto import InstallChannelAgentsDTO
 from retail.services.integrations.service import IntegrationsService
 from retail.services.nexus.service import NexusService
 
 logger = logging.getLogger(__name__)
+
+CHANNEL_CREATION_CONFIGS: dict[str, dict] = {
+    "wwc": WWC_CREATION_CONFIG,
+}
+
+CHANNEL_CONFIGURE_BUILDERS: dict[str, Callable[[str], dict]] = {
+    "wwc": build_wwc_channel_config,
+}
 
 
 class InstallChannelAgentsError(Exception):
@@ -35,8 +49,9 @@ class InstallChannelAgentsUseCase:
 
     Flow:
       1. Creates the channel via Integrations API.
-      2. Stores the channel in the onboarding config.
-      3. Integrates agents mapped to that channel, skipping any
+      2. Configures the channel when required (e.g. WWC needs colors/translations).
+      3. Stores the channel in the onboarding config.
+      4. Integrates agents mapped to that channel, skipping any
          that are already integrated in the project.
     """
 
@@ -59,15 +74,18 @@ class InstallChannelAgentsUseCase:
 
         onboarding = self._load_onboarding(dto.vtex_account)
         project_uuid = str(onboarding.project.uuid)
+        language = onboarding.project.language or ""
 
         logger.info(
             f"Starting channel agent installation: "
             f"channel={dto.channel} vtex_account={dto.vtex_account}"
         )
 
-        app_data = self._create_channel(dto.channel, project_uuid, dto.channel_data)
+        creation_config = CHANNEL_CREATION_CONFIGS.get(dto.channel, dto.channel_data)
+        app_data = self._create_channel(dto.channel, project_uuid, creation_config)
         app_uuid = app_data.get("uuid", "")
 
+        self._configure_channel(dto.channel, app_uuid, project_uuid, language)
         self._persist_channel(onboarding, dto.channel, app_uuid)
 
         agents = get_channel_agents(dto.channel)
@@ -79,7 +97,7 @@ class InstallChannelAgentsUseCase:
             )
             return
 
-        integrated_uuids = self._get_integrated_agent_uuids(project_uuid)
+        integrated_uuids = get_integrated_agent_uuids(project_uuid, self.nexus_service)
 
         context = AgentContext(
             project_uuid=project_uuid,
@@ -120,6 +138,30 @@ class InstallChannelAgentsUseCase:
         )
         return response
 
+    def _configure_channel(
+        self, channel: str, app_uuid: str, project_uuid: str, language: str
+    ) -> None:
+        """Applies channel-specific configuration when required (e.g. WWC)."""
+        config_builder = CHANNEL_CONFIGURE_BUILDERS.get(channel)
+        if not config_builder:
+            return
+
+        config = config_builder(language)
+        response = self.integrations_service.configure_channel_app(
+            channel, app_uuid, config
+        )
+
+        if response is None:
+            raise InstallChannelAgentsError(
+                f"Failed to configure {channel} app={app_uuid} "
+                f"for project={project_uuid}"
+            )
+
+        logger.info(
+            f"Channel '{channel}' configured for project={project_uuid}: "
+            f"app_uuid={app_uuid}"
+        )
+
     @staticmethod
     def _persist_channel(
         onboarding: ProjectOnboarding, channel: str, app_uuid: str
@@ -135,40 +177,6 @@ class InstallChannelAgentsUseCase:
             f"Channel '{channel}' stored in onboarding config: "
             f"vtex_account={onboarding.vtex_account} app_uuid={app_uuid}"
         )
-
-    def _get_integrated_agent_uuids(self, project_uuid: str) -> Set[str]:
-        """
-        Fetches UUIDs of agents already integrated in the project.
-
-        Combines both sources:
-          - Nexus (passive agents via app-assign)
-          - Retail DB (active agents via IntegratedAgent)
-        """
-        nexus_uuids = self._get_nexus_integrated_uuids(project_uuid)
-        retail_uuids = self._get_retail_integrated_uuids(project_uuid)
-        return nexus_uuids | retail_uuids
-
-    def _get_nexus_integrated_uuids(self, project_uuid: str) -> Set[str]:
-        """Fetches UUIDs of passive agents integrated via Nexus."""
-        response = self.nexus_service.list_integrated_agents(project_uuid)
-        if not response:
-            return set()
-
-        agents = response if isinstance(response, list) else response.get("results", [])
-        return {str(agent.get("uuid", "")) for agent in agents if agent.get("uuid")}
-
-    @staticmethod
-    def _get_retail_integrated_uuids(project_uuid: str) -> Set[str]:
-        """Fetches UUIDs of active agents integrated via Retail."""
-        return {
-            str(uuid)
-            for uuid in IntegratedAgent.objects.filter(
-                project__uuid=project_uuid,
-                is_active=True,
-            )
-            .values_list("agent__uuid", flat=True)
-            .distinct()
-        }
 
     def _integrate_agents(
         self,
