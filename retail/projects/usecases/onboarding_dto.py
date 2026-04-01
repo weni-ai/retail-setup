@@ -21,3 +21,12 @@ class StartSetupDTO:
     crawl_url: str
     channel: str
     channel_data: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class InstallChannelAgentsDTO:
+    """Data sent to install agents for a new channel on an existing onboarding."""
+
+    vtex_account: str
+    channel: str
+    channel_data: dict = field(default_factory=dict)

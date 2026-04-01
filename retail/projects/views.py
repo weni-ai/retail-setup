@@ -17,15 +17,21 @@ from retail.projects.serializer import (
     ProjectVtexConfigSerializer,
     StartSetupSerializer,
     CrawlerWebhookSerializer,
+    InstallChannelAgentsSerializer,
     OnboardingPatchSerializer,
     ProjectOnboardingSerializer,
 )
 from retail.projects.usecases.get_project_vtex_account import (
     GetProjectVtexAccountUseCase,
 )
+from retail.projects.usecases.install_channel_agents import (
+    InstallChannelAgentsError,
+    InstallChannelAgentsUseCase,
+)
 from retail.projects.usecases.onboarding_dto import (
     StartSetupDTO,
     CrawlerWebhookDTO,
+    InstallChannelAgentsDTO,
 )
 from retail.projects.usecases.project_vtex import ProjectVtexConfigUseCase
 from retail.projects.usecases.start_crawl import CrawlerStartError
@@ -230,3 +236,37 @@ class OnboardingPatchView(KeycloakAPIView):
             ProjectOnboardingSerializer(onboarding).data,
             status=status.HTTP_200_OK,
         )
+
+
+class InstallChannelAgentsView(KeycloakAPIView):
+    """
+    Installs agents for a specific channel on an existing onboarding.
+
+    Creates the channel via Integrations API and integrates
+    the mapped agents, skipping any already integrated ones.
+    """
+
+    def post(self, request, vtex_account: str, channel: str) -> Response:
+        serializer = InstallChannelAgentsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dto = InstallChannelAgentsDTO(
+            vtex_account=vtex_account,
+            channel=channel,
+            channel_data=serializer.validated_data["channel_data"],
+        )
+
+        try:
+            InstallChannelAgentsUseCase().execute(dto)
+        except ProjectOnboarding.DoesNotExist:
+            return Response(
+                {"detail": f"No onboarding found for vtex_account={vtex_account}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except (InstallChannelAgentsError, ValueError) as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(status=status.HTTP_201_CREATED)
