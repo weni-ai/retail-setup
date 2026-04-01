@@ -64,6 +64,12 @@ class OnboardingPatchSerializer(serializers.ModelSerializer):
         fields = ["completed", "current_page", "skipped"]
 
 
+class InstallChannelAgentsSerializer(serializers.Serializer):
+    """Serializer to validate the install channel agents request."""
+
+    channel_data = serializers.DictField(required=True)
+
+
 class ProjectOnboardingSerializer(serializers.Serializer):
     """Serializer for the ProjectOnboarding status response."""
 
