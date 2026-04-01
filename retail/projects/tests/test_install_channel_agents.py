@@ -22,6 +22,11 @@ class StubAgent(PassiveAgent):
 
 class TestInstallChannelAgentsUseCase(TestCase):
     def setUp(self):
+        self._agentic_patcher = patch(
+            "retail.projects.tasks.task_activate_agentic_cx_script"
+        )
+        self._agentic_patcher.start()
+
         self.project = Project.objects.create(
             name="Test", uuid=uuid4(), vtex_account="mystore"
         )
@@ -39,6 +44,9 @@ class TestInstallChannelAgentsUseCase(TestCase):
         )
         self.usecase.integrations_service = MagicMock()
         self.usecase.nexus_service = MagicMock()
+
+    def tearDown(self):
+        self._agentic_patcher.stop()
 
     def _build_dto(self, channel="wpp-cloud", channel_data=None):
         return InstallChannelAgentsDTO(
