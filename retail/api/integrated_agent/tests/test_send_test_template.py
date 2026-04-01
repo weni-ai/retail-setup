@@ -301,3 +301,48 @@ class SendTestTemplateUseCaseTest(TestCase):
 
         call_args = self.mock_flows_service.send_whatsapp_broadcast.call_args[0][0]
         self.assertNotIn("attachments", call_args["msg"])
+
+    @patch(
+        "retail.api.integrated_agent.usecases.send_test_template.IntegratedAgent.objects"
+    )
+    def test_execute_includes_test_button_when_template_has_url_button(
+        self, mock_objects
+    ):
+        mock_agent = self._create_mock_integrated_agent()
+        mock_objects.select_related.return_value.get.return_value = mock_agent
+
+        mock_template = self._create_mock_template()
+        mock_template.metadata = {
+            "buttons": [{"type": "URL", "text": "Finalizar Pedido"}]
+        }
+        mock_filter = MagicMock()
+        mock_filter.select_related.return_value.first.return_value = mock_template
+        mock_agent.templates.filter.return_value = mock_filter
+
+        self.use_case.execute(self.dto)
+
+        call_args = self.mock_flows_service.send_whatsapp_broadcast.call_args[0][0]
+        self.assertIn("buttons", call_args["msg"])
+        self.assertEqual(call_args["msg"]["buttons"][0]["sub_type"], "url")
+        self.assertEqual(
+            call_args["msg"]["buttons"][0]["parameters"][0]["text"],
+            "example123",
+        )
+
+    @patch(
+        "retail.api.integrated_agent.usecases.send_test_template.IntegratedAgent.objects"
+    )
+    def test_execute_no_button_when_template_has_no_url_button(self, mock_objects):
+        mock_agent = self._create_mock_integrated_agent()
+        mock_objects.select_related.return_value.get.return_value = mock_agent
+
+        mock_template = self._create_mock_template()
+        mock_template.metadata = {}
+        mock_filter = MagicMock()
+        mock_filter.select_related.return_value.first.return_value = mock_template
+        mock_agent.templates.filter.return_value = mock_filter
+
+        self.use_case.execute(self.dto)
+
+        call_args = self.mock_flows_service.send_whatsapp_broadcast.call_args[0][0]
+        self.assertNotIn("buttons", call_args["msg"])
