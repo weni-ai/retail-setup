@@ -327,3 +327,53 @@ class TestInstallChannelAgentsUseCase(TestCase):
         self.usecase.execute(self._build_dto())
 
         self.usecase.nexus_service.integrate_agent.assert_called_once()
+
+    @patch(
+        "retail.projects.usecases.install_channel_agents.get_channel_agents",
+        return_value=[],
+    )
+    def test_wwc_channel_is_configured_after_creation(self, _mock_agents):
+        """WWC channels require a configure step after creation."""
+        self.usecase.integrations_service.create_channel_app.return_value = {
+            "uuid": "wwc-new-uuid"
+        }
+        self.usecase.integrations_service.configure_channel_app.return_value = {
+            "uuid": "wwc-new-uuid"
+        }
+
+        self.usecase.execute(self._build_dto(channel="wwc", channel_data={}))
+
+        self.usecase.integrations_service.configure_channel_app.assert_called_once()
+        call_args = self.usecase.integrations_service.configure_channel_app.call_args
+        self.assertEqual(call_args[0][0], "wwc")
+        self.assertEqual(call_args[0][1], "wwc-new-uuid")
+
+    @patch(
+        "retail.projects.usecases.install_channel_agents.get_channel_agents",
+        return_value=[],
+    )
+    def test_wpp_cloud_skips_configure_step(self, _mock_agents):
+        """WPP-Cloud channels do not need a separate configure step."""
+        self.usecase.integrations_service.create_channel_app.return_value = {
+            "uuid": "wpp-app-uuid"
+        }
+
+        self.usecase.execute(self._build_dto())
+
+        self.usecase.integrations_service.configure_channel_app.assert_not_called()
+
+    @patch(
+        "retail.projects.usecases.install_channel_agents.get_channel_agents",
+        return_value=[],
+    )
+    def test_raises_error_when_wwc_configure_fails(self, _mock_agents):
+        """Should raise when WWC configure step fails."""
+        self.usecase.integrations_service.create_channel_app.return_value = {
+            "uuid": "wwc-new-uuid"
+        }
+        self.usecase.integrations_service.configure_channel_app.return_value = None
+
+        with self.assertRaises(InstallChannelAgentsError) as ctx:
+            self.usecase.execute(self._build_dto(channel="wwc", channel_data={}))
+
+        self.assertIn("Failed to configure", str(ctx.exception))
