@@ -8,3 +8,11 @@ class ActivateWebchatDTO:
     app_uuid: str
     account_id: str
     vtex_account: str
+
+
+@dataclass(frozen=True)
+class ActivateWppCloudDTO:
+    """Data needed to activate the WPP Cloud abandoned cart agent."""
+
+    project_uuid: str
+    percentage: int

@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import SimpleRouter
 from retail.projects import views as project_views
-from retail.api.onboard.views import ActivateWebchatView
+from retail.api.onboard.views import ActivateWebchatView, ActivateWppCloudView
 from retail.api.vtex_projects.views import AgentActiveView, OnboardingCompleteView
 
 
@@ -52,5 +52,10 @@ urlpatterns = [
         "onboard/wwc/activate/",
         ActivateWebchatView.as_view(),
         name="onboard-wwc-activate",
+    ),
+    path(
+        "onboard/wpp-cloud/activate/",
+        ActivateWppCloudView.as_view(),
+        name="onboard-wpp-cloud-activate",
     ),
 ]
