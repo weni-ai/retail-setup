@@ -7,3 +7,4 @@ class ActivateWebchatDTO:
 
     app_uuid: str
     account_id: str
+    vtex_account: str

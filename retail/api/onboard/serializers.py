@@ -6,3 +6,4 @@ class ActivateWebchatSerializer(serializers.Serializer):
 
     app_uuid = serializers.UUIDField(required=True)
     account_id = serializers.CharField(required=True, max_length=64)
+    vtex_account = serializers.CharField(required=True, max_length=64)
