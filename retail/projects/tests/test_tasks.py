@@ -171,3 +171,34 @@ class TestTaskConfigureNexus(TestCase):
             task_configure_nexus("mystore", [])
 
         mock_release.assert_called_once_with("configure_nexus", "mystore")
+
+
+class TestTaskActivateAgenticCxScript(TestCase):
+    @patch("retail.projects.tasks.VtexIOService")
+    def test_calls_service_with_correct_params(self, mock_service_cls):
+        mock_service = MagicMock()
+        mock_service_cls.return_value = mock_service
+
+        from retail.projects.tasks import task_activate_agentic_cx_script
+
+        task_activate_agentic_cx_script("teststore")
+
+        mock_service.activate_agentic_cx_script.assert_called_once_with(
+            account_domain="teststore.myvtex.com",
+            vtex_account="teststore",
+        )
+
+    @patch("retail.projects.tasks.VtexIOService")
+    def test_propagates_service_exception(self, mock_service_cls):
+        from retail.clients.exceptions import CustomAPIException
+
+        mock_service = MagicMock()
+        mock_service.activate_agentic_cx_script.side_effect = CustomAPIException(
+            detail="Connection refused"
+        )
+        mock_service_cls.return_value = mock_service
+
+        from retail.projects.tasks import task_activate_agentic_cx_script
+
+        with self.assertRaises(CustomAPIException):
+            task_activate_agentic_cx_script("teststore")

@@ -178,6 +178,26 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         response = self.make_request(url, method="GET", headers=headers)
         return response.json()
 
+    def activate_agentic_cx_script(
+        self, account_domain: str, vtex_account: str
+    ) -> dict:
+        """
+        Notifies the VTEX IO app that the Agentic CX script can be installed.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            vtex_account (str): VTEX account for JWT token generation.
+
+        Returns:
+            dict: Response from VTEX IO.
+        """
+        url = self._get_url(account_domain, "/agentic-cx/settings")
+        headers = self._get_jwt_headers(vtex_account)
+        response = self.make_request(
+            url, method="PATCH", json={"agentic_cx_script": True}, headers=headers
+        )
+        return response.json()
+
     def proxy_vtex(
         self,
         account_domain: str,

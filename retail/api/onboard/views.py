@@ -30,6 +30,7 @@ class ActivateWebchatView(KeycloakAPIView):
         dto = ActivateWebchatDTO(
             app_uuid=str(serializer.validated_data["app_uuid"]),
             account_id=serializer.validated_data["account_id"],
+            vtex_account=serializer.validated_data["vtex_account"],
         )
 
         use_case = PublishWebchatScriptUseCase(

@@ -53,7 +53,8 @@ class TestStartSetupUseCase(TestCase):
         )
 
     @patch("retail.projects.usecases.start_setup.task_wait_and_start_crawl")
-    def test_resets_existing_onboarding_on_retry(self, mock_task):
+    @patch("retail.projects.tasks.task_activate_agentic_cx_script")
+    def test_resets_existing_onboarding_on_retry(self, _mock_agentic, mock_task):
         """When an onboarding already exists, should reset transient fields."""
         ProjectOnboarding.objects.create(
             vtex_account="mystore",

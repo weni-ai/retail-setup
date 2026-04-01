@@ -8,6 +8,7 @@ from retail.services.connect.service import ConnectService
 from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.projects.usecases.onboarding_orchestrator import OnboardingOrchestrator
 from retail.projects.usecases.start_crawl import CrawlerStartError, StartCrawlUseCase
+from retail.services.vtex_io.service import VtexIOService
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,20 @@ def task_wait_and_start_crawl(self, vtex_account: str, crawl_url: str) -> None:
     except CrawlerStartError as e:
         logger.error(f"Crawl start failed for vtex_account={vtex_account}: {e}")
         raise
+
+
+@shared_task(name="task_activate_agentic_cx_script")
+def task_activate_agentic_cx_script(vtex_account: str) -> None:
+    """
+    Notifies the VTEX IO app that the onboarding is complete
+    and the Agentic CX script can be installed on the storefront.
+    """
+    account_domain = f"{vtex_account}.myvtex.com"
+    VtexIOService().activate_agentic_cx_script(
+        account_domain=account_domain,
+        vtex_account=vtex_account,
+    )
+    logger.info(f"Agentic CX script activated for vtex_account={vtex_account}")
 
 
 @shared_task(name="task_configure_nexus")

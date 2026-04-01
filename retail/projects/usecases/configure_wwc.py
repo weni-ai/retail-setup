@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # TODO: Review these configs with the product team before production.
 WWC_CREATION_CONFIG = {
     "version": "2",
-    "useConnectionOptimization": True,
+    "useConnectionOptimization": False,
 }
 
 WWC_CHANNEL_BASE_CONFIG = {
@@ -29,6 +29,7 @@ WWC_CHANNEL_BASE_CONFIG = {
     "displayUnreadCount": True,
     "timeBetweenMessages": 1,
     "navigateIfSameDomain": False,
+    "conversationStartersPDP": True,
     "useConnectionOptimization": False,
     "renderPercentage": 10,
     "params": {

@@ -69,6 +69,9 @@ class Broadcast:
         # Extract image URL if present in template variables
         image_url = template_variables.pop("image_url", None)
 
+        # Extract order_details for Meta WhatsApp payment flows
+        order_details = template_variables.pop("order_details", None)
+
         # Extract image s3 key if present
         header = template.metadata.get("header", None)
         s3_key = None
@@ -140,6 +143,9 @@ class Broadcast:
         if attachment:
             message["msg"]["attachments"] = [attachment]
 
+        if order_details:
+            self._apply_order_details(order_details, message)
+
         return message
 
     def _resolve_language(
@@ -167,6 +173,27 @@ class Broadcast:
             if meta_language:
                 language = meta_language.replace("_", "-")
         return language
+
+    def _apply_order_details(
+        self, order_details: Dict[str, Any], message: Dict[str, Any]
+    ) -> None:
+        """
+        Apply order_details to the message payload.
+
+        Sets interaction_type as "order_details" (fixed value required by Meta's
+        WhatsApp API for in-chat payment flows) and passes the order_details
+        structure through without transformation.
+
+        Args:
+            order_details: Order details dict in Meta's expected format.
+            message: The broadcast message dict being built (mutated in place).
+        """
+        message["msg"]["interaction_type"] = "order_details"
+        message["msg"]["order_details"] = order_details
+        logger.info(
+            f"Applied order_details with reference_id="
+            f"{order_details.get('reference_id', 'N/A')}"
+        )
 
     def _build_image_attachment_from_url(self, image_url: str) -> str:
         """
@@ -493,7 +520,6 @@ class Broadcast:
             "agent": str(integrated_agent.agent.uuid),
         }
 
-        # Only include status if it exists in lambda_data
         if lambda_data and "status" in lambda_data:
             event_data["status"] = lambda_data["status"]
 

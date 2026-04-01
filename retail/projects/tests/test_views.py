@@ -218,7 +218,8 @@ class TestOnboardingPatchView(TestCase):
         )
 
     @_auth_bypass(None)
-    def test_patches_completed_field(self, _mock_auth):
+    @patch("retail.projects.tasks.task_activate_agentic_cx_script")
+    def test_patches_completed_field(self, _mock_task, _mock_auth):
         response = self.client.patch(
             "/api/onboard/mystore/",
             {"completed": True},
@@ -242,7 +243,8 @@ class TestOnboardingPatchView(TestCase):
         self.assertEqual(self.onboarding.current_page, "setup_channel")
 
     @_auth_bypass(None)
-    def test_partial_patch_only_completed(self, _mock_auth):
+    @patch("retail.projects.tasks.task_activate_agentic_cx_script")
+    def test_partial_patch_only_completed(self, _mock_task, _mock_auth):
         self.onboarding.current_page = "initial_page"
         self.onboarding.save()
 
@@ -258,7 +260,8 @@ class TestOnboardingPatchView(TestCase):
         self.assertEqual(self.onboarding.current_page, "initial_page")
 
     @_auth_bypass(None)
-    def test_returns_404_for_unknown_vtex_account(self, _mock_auth):
+    @patch("retail.projects.tasks.task_activate_agentic_cx_script")
+    def test_returns_404_for_unknown_vtex_account(self, _mock_task, _mock_auth):
         response = self.client.patch(
             "/api/onboard/unknown/",
             {"completed": True},
