@@ -3,6 +3,8 @@ from uuid import uuid4
 
 from django.test import TestCase
 
+from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.agents.domains.agent_management.models import Agent
 from retail.projects.models import Project, ProjectOnboarding
 from retail.projects.usecases.install_channel_agents import (
     InstallChannelAgentsError,
@@ -260,3 +262,68 @@ class TestInstallChannelAgentsUseCase(TestCase):
         self.usecase.execute(self._build_dto())
 
         self.usecase.nexus_service.integrate_agent.assert_not_called()
+
+    @patch(
+        "retail.projects.usecases.install_channel_agents.get_channel_agents",
+    )
+    def test_skips_agent_already_integrated_via_retail(self, mock_get_agents):
+        """Agents integrated via Retail (active) should also be skipped."""
+        retail_agent = Agent.objects.create(
+            uuid=uuid4(),
+            name="Active Agent",
+            slug="active",
+            description="",
+            project=self.project,
+        )
+        IntegratedAgent.objects.create(
+            agent=retail_agent,
+            project=self.project,
+            is_active=True,
+        )
+
+        mock_get_agents.return_value = [
+            StubAgent(str(retail_agent.uuid), "Active Agent"),
+            StubAgent("new-uuid", "New Agent"),
+        ]
+        self.usecase.integrations_service.create_channel_app.return_value = {
+            "uuid": "wpp-app-uuid"
+        }
+        self.usecase.nexus_service.list_integrated_agents.return_value = []
+        self.usecase.nexus_service.integrate_agent.return_value = {"ok": True}
+
+        self.usecase.execute(self._build_dto())
+
+        self.usecase.nexus_service.integrate_agent.assert_called_once()
+        call_args = self.usecase.nexus_service.integrate_agent.call_args
+        self.assertEqual(call_args[0][1], "new-uuid")
+
+    @patch(
+        "retail.projects.usecases.install_channel_agents.get_channel_agents",
+    )
+    def test_inactive_retail_agents_are_not_skipped(self, mock_get_agents):
+        """Agents deactivated in Retail should NOT be skipped."""
+        retail_agent = Agent.objects.create(
+            uuid=uuid4(),
+            name="Inactive Agent",
+            slug="inactive",
+            description="",
+            project=self.project,
+        )
+        IntegratedAgent.objects.create(
+            agent=retail_agent,
+            project=self.project,
+            is_active=False,
+        )
+
+        mock_get_agents.return_value = [
+            StubAgent(str(retail_agent.uuid), "Inactive Agent"),
+        ]
+        self.usecase.integrations_service.create_channel_app.return_value = {
+            "uuid": "wpp-app-uuid"
+        }
+        self.usecase.nexus_service.list_integrated_agents.return_value = []
+        self.usecase.nexus_service.integrate_agent.return_value = {"ok": True}
+
+        self.usecase.execute(self._build_dto())
+
+        self.usecase.nexus_service.integrate_agent.assert_called_once()

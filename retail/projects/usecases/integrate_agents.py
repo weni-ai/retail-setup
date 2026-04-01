@@ -1,6 +1,7 @@
 import logging
 from typing import List, Set
 
+from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.clients.nexus.client import NexusClient
 from retail.interfaces.clients.nexus.client import NexusClientInterface
 from retail.projects.models import ProjectOnboarding
@@ -75,13 +76,38 @@ class IntegrateAgentsUseCase:
         self._integrate_agents(onboarding, context, agents, integrated_uuids)
 
     def _get_integrated_agent_uuids(self, project_uuid: str) -> Set[str]:
-        """Fetches UUIDs of agents already integrated in the project."""
+        """
+        Fetches UUIDs of agents already integrated in the project.
+
+        Combines both sources:
+          - Nexus (passive agents via app-assign)
+          - Retail DB (active agents via IntegratedAgent)
+        """
+        nexus_uuids = self._get_nexus_integrated_uuids(project_uuid)
+        retail_uuids = self._get_retail_integrated_uuids(project_uuid)
+        return nexus_uuids | retail_uuids
+
+    def _get_nexus_integrated_uuids(self, project_uuid: str) -> Set[str]:
+        """Fetches UUIDs of passive agents integrated via Nexus."""
         response = self.nexus_service.list_integrated_agents(project_uuid)
         if not response:
             return set()
 
         agents = response if isinstance(response, list) else response.get("results", [])
         return {str(agent.get("uuid", "")) for agent in agents if agent.get("uuid")}
+
+    @staticmethod
+    def _get_retail_integrated_uuids(project_uuid: str) -> Set[str]:
+        """Fetches UUIDs of active agents integrated via Retail."""
+        return {
+            str(uuid)
+            for uuid in IntegratedAgent.objects.filter(
+                project__uuid=project_uuid,
+                is_active=True,
+            )
+            .values_list("agent__uuid", flat=True)
+            .distinct()
+        }
 
     def _integrate_agents(
         self,
