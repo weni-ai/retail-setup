@@ -47,3 +47,14 @@ class LeadSerializer(serializers.Serializer):
     plan = serializers.CharField(max_length=100, required=True)
     vtex_account = serializers.CharField(max_length=100, required=True)
     data = serializers.DictField(required=False, default=dict)
+
+
+class ProxyPaymentTransactionSerializer(serializers.Serializer):
+    """Validates the payload for proxying a payment transaction to VTEX IO."""
+
+    transaction_id = serializers.CharField(required=True)
+    payments = serializers.ListField(
+        child=serializers.DictField(),
+        required=True,
+        allow_empty=False,
+    )

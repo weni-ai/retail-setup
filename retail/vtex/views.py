@@ -15,6 +15,7 @@ from retail.vtex.serializers import (
     LeadSerializer,
     OrderFormTrackingSerializer,
     OrdersQueryParamsSerializer,
+    ProxyPaymentTransactionSerializer,
     VtexProxySerializer,
 )
 from retail.services.vtex_io.service import VtexIOService
@@ -32,6 +33,10 @@ from retail.vtex.usecases.register_lead import (
     RegisterLeadUseCase,
 )
 from retail.vtex.usecases.proxy_vtex import ProxyVtexUsecase
+from retail.vtex.usecases.proxy_payment_transaction import (
+    ProxyPaymentTransactionUseCase,
+)
+from retail.vtex.dtos.proxy_payment_transaction_dto import ProxyPaymentTransactionDTO
 from retail.vtex.tasks import task_notify_lead
 
 logger = logging.getLogger(__name__)
@@ -290,6 +295,46 @@ class VtexProxyView(BaseVtexProxyView):
             project_uuid=self.project_uuid,
         )
 
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class PaymentTransactionProxyView(BaseVtexProxyView):
+    """
+    POST endpoint that proxies payment transaction data to the VTEX IO
+    agentic-cx proxy-payment-transaction route.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._usecase = None
+
+    @property
+    def usecase(self) -> ProxyPaymentTransactionUseCase:
+        if not self._usecase:
+            self._usecase = ProxyPaymentTransactionUseCase(
+                vtex_io_service=VtexIOService()
+            )
+        return self._usecase
+
+    def post(self, request: Request) -> Response:
+        """
+        Forwards a payment transaction to the VTEX IO proxy-payment-transaction route.
+
+        Args:
+            request (Request): The incoming request with transactionId and payments.
+
+        Returns:
+            Response: The response from VTEX IO.
+        """
+        serializer = ProxyPaymentTransactionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dto = ProxyPaymentTransactionDTO(
+            transaction_id=serializer.validated_data["transaction_id"],
+            payments=tuple(serializer.validated_data["payments"]),
+        )
+
+        result = self.usecase.execute(dto=dto, project_uuid=self.project_uuid)
         return Response(result, status=status.HTTP_200_OK)
 
 

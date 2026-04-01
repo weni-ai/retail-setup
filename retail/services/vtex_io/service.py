@@ -159,3 +159,29 @@ class VtexIOService:
             data=data,
             params=params,
         )
+
+    def proxy_payment_transaction(
+        self,
+        account_domain: str,
+        vtex_account: str,
+        transaction_id: str,
+        payments: list,
+    ) -> dict:
+        """
+        Proxies a payment transaction request to VTEX IO.
+
+        Args:
+            account_domain (str): The domain of the VTEX account.
+            vtex_account (str): VTEX account for JWT token generation.
+            transaction_id (str): The payment transaction ID.
+            payments (list): Non-empty list of payment objects.
+
+        Returns:
+            dict: Response from the VTEX IO proxy-payment-transaction route.
+        """
+        return self.client.proxy_payment_transaction(
+            account_domain=account_domain,
+            vtex_account=vtex_account,
+            transaction_id=transaction_id,
+            payments=payments,
+        )
