@@ -6,6 +6,7 @@ from retail.projects.usecases.configure_agent_builder import (
     ConfigureAgentBuilderUseCase,
 )
 from retail.projects.usecases.configure_wwc import ConfigureWWCUseCase
+from retail.projects.usecases.configure_wpp_cloud import ConfigureWPPCloudUseCase
 from retail.projects.usecases.integrate_agents import IntegrateAgentsUseCase
 from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 CHANNEL_USECASES = {
     "wwc": ConfigureWWCUseCase,
+    "wpp-cloud": ConfigureWPPCloudUseCase,
 }
 
 

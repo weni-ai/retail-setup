@@ -16,13 +16,33 @@ class ProjectVtexConfigSerializer(serializers.Serializer):
     vtex_store_type = serializers.CharField(required=True)
 
 
-class StartOnboardingSerializer(serializers.Serializer):
-    """Serializer to validate the start onboarding (crawl) request."""
+class ChannelDataSerializer(serializers.Serializer):
+    """Serializer to validate WPP Cloud channel data from Meta signup."""
+
+    auth_code = serializers.CharField(required=True)
+    waba_id = serializers.CharField(required=True)
+    phone_number_id = serializers.CharField(required=True)
+
+
+class StartSetupSerializer(serializers.Serializer):
+    """Serializer to validate the start-setup request."""
 
     crawl_url = serializers.URLField(required=True)
     channel = serializers.ChoiceField(
         choices=["wwc", "wpp-cloud"],
     )
+    channel_data = ChannelDataSerializer(required=False, default=dict)
+
+    def validate(self, attrs):
+        channel = attrs.get("channel")
+        channel_data = attrs.get("channel_data")
+
+        if channel == "wpp-cloud" and not channel_data:
+            raise serializers.ValidationError(
+                {"channel_data": "Required when channel is 'wpp-cloud'."}
+            )
+
+        return attrs
 
 
 class CrawlerWebhookSerializer(serializers.Serializer):

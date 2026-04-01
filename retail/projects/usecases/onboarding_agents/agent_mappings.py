@@ -10,6 +10,7 @@ over the agents and calls ``agent.integrate(context, nexus_service)``.
 """
 
 from retail.projects.usecases.onboarding_agents.agents import (
+    AbandonedCartAgent,
     FeedbackRecorder,
     OrdersAgentCommerceIO,
     PaymentAgent,
@@ -25,7 +26,14 @@ CHANNEL_AGENT_MAPPINGS = {
         PaymentAgent(),
         SendCatalogAgent(),
     ],
-    "wpp-cloud": [],
+    "wpp-cloud": [
+        OrdersAgentCommerceIO(),
+        FeedbackRecorder(),
+        ProductConcierge(),
+        PaymentAgent(),
+        SendCatalogAgent(),
+        AbandonedCartAgent(),
+    ],
 }
 
 SUPPORTED_CHANNELS = list(CHANNEL_AGENT_MAPPINGS.keys())
