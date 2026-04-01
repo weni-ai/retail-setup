@@ -12,34 +12,44 @@ class TestWebchatPushService(TestCase):
         self.service = WebchatPushService(client=self.mock_client)
         self.script_url = "https://integrations.example.com/wwc/script.js"
         self.account_id = "b1165658e9e54790881952eb99341e51"
+        self.vtex_account = "mystore"
 
     def test_publish_webchat_script_success(self):
-        expected_url = (
-            "https://bucket.s3.amazonaws.com/"
-            f"VTEXApp/accounts/{self.account_id}/webchat.js"
-        )
-        self.mock_client.upload_script.return_value = expected_url
+        self.mock_client.upload_script.side_effect = [
+            f"https://bucket.s3.amazonaws.com/VTEXApp/accounts/{self.account_id}/webchat.js",
+            f"https://bucket.s3.amazonaws.com/VTEXApp/accounts/{self.vtex_account}/webchat.js",
+        ]
 
         result = self.service.publish_webchat_script(
             script_url=self.script_url,
             account_id=self.account_id,
+            vtex_account=self.vtex_account,
         )
 
-        self.assertEqual(result, expected_url)
-        self.mock_client.upload_script.assert_called_once()
+        self.assertEqual(result, [
+            f"https://bucket.s3.amazonaws.com/VTEXApp/accounts/{self.account_id}/webchat.js",
+            f"https://bucket.s3.amazonaws.com/VTEXApp/accounts/{self.vtex_account}/webchat.js",
+        ])
+        self.assertEqual(self.mock_client.upload_script.call_count, 2)
 
-    def test_publish_webchat_script_builds_correct_key(self):
+    def test_publish_webchat_script_builds_correct_keys(self):
         self.mock_client.upload_script.return_value = "https://example.com/script.js"
 
         self.service.publish_webchat_script(
             script_url=self.script_url,
             account_id=self.account_id,
+            vtex_account=self.vtex_account,
         )
 
-        call_kwargs = self.mock_client.upload_script.call_args[1]
+        calls = self.mock_client.upload_script.call_args_list
+        self.assertEqual(len(calls), 2)
         self.assertEqual(
-            call_kwargs["key"],
+            calls[0][1]["key"],
             f"VTEXApp/accounts/{self.account_id}/webchat.js",
+        )
+        self.assertEqual(
+            calls[1][1]["key"],
+            f"VTEXApp/accounts/{self.vtex_account}/webchat.js",
         )
 
     def test_publish_webchat_script_upload_failure_raises_webchat_publish_error(self):
@@ -49,6 +59,7 @@ class TestWebchatPushService(TestCase):
             self.service.publish_webchat_script(
                 script_url=self.script_url,
                 account_id=self.account_id,
+                vtex_account=self.vtex_account,
             )
 
         self.assertIn("S3 connection failed", str(ctx.exception))
