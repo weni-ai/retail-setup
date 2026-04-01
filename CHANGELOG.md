@@ -1,3 +1,11 @@
+# 5.7.0
+- feat: Add payment transaction proxy endpoint for agentic-cx
+- feat: Add endpoint to install agents for a new channel on existing onboarding
+- feat: Adds WhatsApp Cloud channel integration to the setup flow
+- feat: Adds WPP Cloud activate endpoint for abandoned cart
+- feat: Add endpoint to send test template via WhatsApp broadcast
+- fix: Adjust WWC config defaults and add conversationStartersPDP
+
 # 5.6.0
 - feat: Add vtex_account field to ActivateWebchatSerializer
 
