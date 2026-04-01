@@ -268,3 +268,35 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         )
 
         return response.json()
+
+    def proxy_payment_transaction(
+        self,
+        account_domain: str,
+        vtex_account: str,
+        transaction_id: str,
+        payments: list,
+    ) -> dict:
+        """
+        Proxies a payment transaction request to the VTEX IO agentic-cx app.
+
+        Forwards transactionId and payments to the /_v/proxy-payment-transaction
+        route, which in turn calls the VTEX Vault payments API.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            vtex_account (str): VTEX account for JWT token generation.
+            transaction_id (str): The payment transaction ID.
+            payments (list): Non-empty list of payment objects.
+
+        Returns:
+            dict: Response from the VTEX IO proxy-payment-transaction route.
+        """
+        url = self._get_url(account_domain, "/proxy-payment-transaction")
+        payload = {
+            "transactionId": transaction_id,
+            "payments": payments,
+        }
+        headers = self._get_jwt_headers(vtex_account)
+        response = self.make_request(url, method="POST", json=payload, headers=headers)
+
+        return response.json()
