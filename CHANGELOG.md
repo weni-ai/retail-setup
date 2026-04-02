@@ -1,3 +1,7 @@
+# 5.8.0
+- fix: Use dedicated endpoint for wpp-cloud channel creation
+- fix: Update MANAGER_PERSONALITY to use English term "friendly"
+
 # 5.7.0
 - feat: Add payment transaction proxy endpoint for agentic-cx
 - feat: Add endpoint to install agents for a new channel on existing onboarding
