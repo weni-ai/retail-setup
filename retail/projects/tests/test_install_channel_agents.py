@@ -68,7 +68,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
         ],
     )
     def test_creates_channel_and_integrates_agents(self, _mock_agents):
-        self.usecase.integrations_service.create_channel_app.return_value = {
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
             "uuid": "wpp-app-uuid"
         }
         self.usecase.nexus_service.list_integrated_agents.return_value = []
@@ -76,10 +76,11 @@ class TestInstallChannelAgentsUseCase(TestCase):
 
         self.usecase.execute(self._build_dto())
 
-        self.usecase.integrations_service.create_channel_app.assert_called_once_with(
-            "wpp-cloud",
-            str(self.project.uuid),
-            {"auth_code": "abc123", "waba_id": "waba-1", "phone_number_id": "phone-1"},
+        self.usecase.integrations_service.create_wpp_cloud_channel.assert_called_once_with(
+            project_uuid=str(self.project.uuid),
+            auth_code="abc123",
+            waba_id="waba-1",
+            phone_number_id="phone-1",
         )
 
         self.onboarding.refresh_from_db()
@@ -98,7 +99,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
         ],
     )
     def test_skips_already_integrated_agents(self, _mock_agents):
-        self.usecase.integrations_service.create_channel_app.return_value = {
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
             "uuid": "wpp-app-uuid"
         }
         self.usecase.nexus_service.list_integrated_agents.return_value = [
@@ -121,7 +122,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
         ],
     )
     def test_skips_all_when_all_already_integrated(self, _mock_agents):
-        self.usecase.integrations_service.create_channel_app.return_value = {
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
             "uuid": "wpp-app-uuid"
         }
         self.usecase.nexus_service.list_integrated_agents.return_value = [
@@ -138,7 +139,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
         return_value=[],
     )
     def test_skips_integration_when_no_agents_configured(self, _mock_agents):
-        self.usecase.integrations_service.create_channel_app.return_value = {
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
             "uuid": "wpp-app-uuid"
         }
 
@@ -192,7 +193,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
         return_value=[StubAgent("uuid-1", "Agent A")],
     )
     def test_raises_error_when_channel_creation_fails(self, _mock_agents):
-        self.usecase.integrations_service.create_channel_app.return_value = None
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = None
 
         with self.assertRaises(InstallChannelAgentsError) as ctx:
             self.usecase.execute(self._build_dto())
@@ -204,7 +205,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
         return_value=[StubAgent("uuid-1", "Agent A")],
     )
     def test_raises_error_when_agent_integration_fails(self, _mock_agents):
-        self.usecase.integrations_service.create_channel_app.return_value = {
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
             "uuid": "wpp-app-uuid"
         }
         self.usecase.nexus_service.list_integrated_agents.return_value = []
@@ -220,7 +221,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
         return_value=[StubAgent("uuid-1", "Agent A")],
     )
     def test_preserves_existing_channels_in_config(self, _mock_agents):
-        self.usecase.integrations_service.create_channel_app.return_value = {
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
             "uuid": "wpp-app-uuid"
         }
         self.usecase.nexus_service.list_integrated_agents.return_value = []
@@ -244,7 +245,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
     )
     def test_handles_nexus_list_agents_returning_none(self, _mock_agents):
         """When Nexus list fails (returns None), all agents should be integrated."""
-        self.usecase.integrations_service.create_channel_app.return_value = {
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
             "uuid": "wpp-app-uuid"
         }
         self.usecase.nexus_service.list_integrated_agents.return_value = None
@@ -260,7 +261,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
     )
     def test_handles_nexus_list_agents_with_results_key(self, _mock_agents):
         """Handles Nexus response wrapped in a 'results' key."""
-        self.usecase.integrations_service.create_channel_app.return_value = {
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
             "uuid": "wpp-app-uuid"
         }
         self.usecase.nexus_service.list_integrated_agents.return_value = {
@@ -293,7 +294,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
             StubAgent(str(retail_agent.uuid), "Active Agent"),
             StubAgent("new-uuid", "New Agent"),
         ]
-        self.usecase.integrations_service.create_channel_app.return_value = {
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
             "uuid": "wpp-app-uuid"
         }
         self.usecase.nexus_service.list_integrated_agents.return_value = []
@@ -326,7 +327,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
         mock_get_agents.return_value = [
             StubAgent(str(retail_agent.uuid), "Inactive Agent"),
         ]
-        self.usecase.integrations_service.create_channel_app.return_value = {
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
             "uuid": "wpp-app-uuid"
         }
         self.usecase.nexus_service.list_integrated_agents.return_value = []
@@ -362,7 +363,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
     )
     def test_wpp_cloud_skips_configure_step(self, _mock_agents):
         """WPP-Cloud channels do not need a separate configure step."""
-        self.usecase.integrations_service.create_channel_app.return_value = {
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
             "uuid": "wpp-app-uuid"
         }
 

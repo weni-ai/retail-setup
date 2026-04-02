@@ -1,5 +1,5 @@
 import logging
-from typing import Callable, Optional, Set
+from typing import Optional, Protocol, Set
 
 from retail.clients.integrations.client import IntegrationsClient
 from retail.clients.nexus.client import NexusClient
@@ -27,17 +27,83 @@ from retail.services.nexus.service import NexusService
 
 logger = logging.getLogger(__name__)
 
-CHANNEL_CREATION_CONFIGS: dict[str, dict] = {
-    "wwc": WWC_CREATION_CONFIG,
-}
-
-CHANNEL_CONFIGURE_BUILDERS: dict[str, Callable[[str], dict]] = {
-    "wwc": build_wwc_channel_config,
-}
-
 
 class InstallChannelAgentsError(Exception):
     """Raised when channel agent installation fails."""
+
+
+class ChannelInstaller(Protocol):
+    def install(
+        self,
+        service: IntegrationsService,
+        project_uuid: str,
+        channel_data: dict,
+        language: str,
+    ) -> dict:
+        ...
+
+
+class WWCChannelInstaller:
+    def install(
+        self,
+        service: IntegrationsService,
+        project_uuid: str,
+        channel_data: dict,
+        language: str,
+    ) -> dict:
+        app_data = service.create_channel_app("wwc", project_uuid, WWC_CREATION_CONFIG)
+        if app_data is None:
+            raise InstallChannelAgentsError(
+                f"Failed to create wwc channel for project={project_uuid}"
+            )
+
+        app_uuid = app_data.get("uuid", "")
+        logger.info(
+            f"Channel 'wwc' created for project={project_uuid}: app_uuid={app_uuid}"
+        )
+
+        config = build_wwc_channel_config(language)
+        if service.configure_channel_app("wwc", app_uuid, config) is None:
+            raise InstallChannelAgentsError(
+                f"Failed to configure wwc app={app_uuid} for project={project_uuid}"
+            )
+
+        logger.info(
+            f"Channel 'wwc' configured for project={project_uuid}: app_uuid={app_uuid}"
+        )
+        return app_data
+
+
+class WppCloudChannelInstaller:
+    def install(
+        self,
+        service: IntegrationsService,
+        project_uuid: str,
+        channel_data: dict,
+        language: str,
+    ) -> dict:
+        app_data = service.create_wpp_cloud_channel(
+            project_uuid=project_uuid,
+            auth_code=channel_data.get("auth_code", ""),
+            waba_id=channel_data.get("waba_id", ""),
+            phone_number_id=channel_data.get("phone_number_id", ""),
+        )
+        if app_data is None:
+            raise InstallChannelAgentsError(
+                f"Failed to create wpp-cloud channel for project={project_uuid}"
+            )
+
+        logger.info(
+            f"Channel 'wpp-cloud' created for project={project_uuid}: "
+            f"app_uuid={app_data.get('uuid')}"
+        )
+        return app_data
+
+
+CHANNEL_INSTALLERS: dict[str, ChannelInstaller] = {
+    "wwc": WWCChannelInstaller(),
+    "wpp-cloud": WppCloudChannelInstaller(),
+}
 
 
 class InstallChannelAgentsUseCase:
@@ -81,11 +147,11 @@ class InstallChannelAgentsUseCase:
             f"channel={dto.channel} vtex_account={dto.vtex_account}"
         )
 
-        creation_config = CHANNEL_CREATION_CONFIGS.get(dto.channel, dto.channel_data)
-        app_data = self._create_channel(dto.channel, project_uuid, creation_config)
+        installer = CHANNEL_INSTALLERS[dto.channel]
+        app_data = installer.install(
+            self.integrations_service, project_uuid, dto.channel_data, language
+        )
         app_uuid = app_data.get("uuid", "")
-
-        self._configure_channel(dto.channel, app_uuid, project_uuid, language)
         self._persist_channel(onboarding, dto.channel, app_uuid)
 
         agents = get_channel_agents(dto.channel)
@@ -118,49 +184,6 @@ class InstallChannelAgentsUseCase:
             )
 
         return onboarding
-
-    def _create_channel(
-        self, channel: str, project_uuid: str, channel_data: dict
-    ) -> dict:
-        """Creates the channel app via Integrations API."""
-        response = self.integrations_service.create_channel_app(
-            channel, project_uuid, channel_data
-        )
-
-        if response is None:
-            raise InstallChannelAgentsError(
-                f"Failed to create {channel} channel for project={project_uuid}"
-            )
-
-        logger.info(
-            f"Channel '{channel}' created for project={project_uuid}: "
-            f"app_uuid={response.get('uuid')}"
-        )
-        return response
-
-    def _configure_channel(
-        self, channel: str, app_uuid: str, project_uuid: str, language: str
-    ) -> None:
-        """Applies channel-specific configuration when required (e.g. WWC)."""
-        config_builder = CHANNEL_CONFIGURE_BUILDERS.get(channel)
-        if not config_builder:
-            return
-
-        config = config_builder(language)
-        response = self.integrations_service.configure_channel_app(
-            channel, app_uuid, config
-        )
-
-        if response is None:
-            raise InstallChannelAgentsError(
-                f"Failed to configure {channel} app={app_uuid} "
-                f"for project={project_uuid}"
-            )
-
-        logger.info(
-            f"Channel '{channel}' configured for project={project_uuid}: "
-            f"app_uuid={app_uuid}"
-        )
 
     @staticmethod
     def _persist_channel(
