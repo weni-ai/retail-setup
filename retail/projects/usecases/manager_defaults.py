@@ -34,7 +34,7 @@ MANAGER_DEFAULTS = {
     },
 }
 
-MANAGER_PERSONALITY = "Amigável"
+MANAGER_PERSONALITY = "friendly"
 
 FALLBACK_LANGUAGE = "en"
 
