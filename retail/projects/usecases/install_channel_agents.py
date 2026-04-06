@@ -152,6 +152,7 @@ class InstallChannelAgentsUseCase:
             self.integrations_service, project_uuid, dto.channel_data, language
         )
         app_uuid = app_data.get("uuid", "")
+        channel_uuid = app_data.get("flow_object_uuid", "")
         self._persist_channel(onboarding, dto.channel, app_uuid)
 
         agents = get_channel_agents(dto.channel)
@@ -168,6 +169,8 @@ class InstallChannelAgentsUseCase:
         context = AgentContext(
             project_uuid=project_uuid,
             vtex_account=dto.vtex_account,
+            app_uuid=app_uuid,
+            channel_uuid=channel_uuid,
         )
 
         self._integrate_agents(agents, context, integrated_uuids)
