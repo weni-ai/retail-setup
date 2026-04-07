@@ -93,6 +93,8 @@ class WppCloudChannelInstaller:
                 f"Failed to create wpp-cloud channel for project={project_uuid}"
             )
 
+        app_data["uuid"] = app_data.get("app_uuid", "")
+
         logger.info(
             f"Channel 'wpp-cloud' created for project={project_uuid}: "
             f"app_uuid={app_data.get('uuid')}"
