@@ -1,3 +1,6 @@
+# 5.8.1
+- fix: Pass app_uuid and channel_uuid to AgentContext in install-agents
+
 # 5.8.0
 - fix: Use dedicated endpoint for wpp-cloud channel creation
 - fix: Update MANAGER_PERSONALITY to use English term "friendly"
