@@ -233,12 +233,17 @@ class AssignAgentUseCase:
 
             template, version = create_library_use_case.execute(data)
 
-            if not metadata.get("buttons"):
+            buttons = metadata.get("buttons", [])
+            has_url_button = any(button.get("type") == "URL" for button in buttons)
+
+            if has_url_button:
+                template.needs_button_edit = True
+            else:
+                # Submit template to Meta via integrations-engine (Celery task).
+                # Skipped for URL buttons because the URL must be customized first.
                 create_library_use_case.notify_integrations(
                     version.template_name, version.uuid, data
                 )
-            else:
-                template.needs_button_edit = True
 
             template.metadata = pre_approved.metadata
             template.config = pre_approved.config or {}
