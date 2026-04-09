@@ -1,3 +1,7 @@
+# 5.9.0
+- fix: Restrict needs_button_edit flag to URL-type buttons only
+- feat: Add Payment Gateway proxy endpoint (retail → IO)
+
 # 5.8.1
 - fix: Pass app_uuid and channel_uuid to AgentContext in install-agents
 
