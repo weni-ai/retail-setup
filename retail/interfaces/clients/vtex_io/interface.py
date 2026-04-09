@@ -150,3 +150,31 @@ class VtexIOClientInterface(ABC):
             dict: Response from the VTEX IO proxy-payment-transaction route.
         """
         pass
+
+    @abstractmethod
+    def proxy_payment_gateway(
+        self,
+        account_domain: str,
+        vtex_account: str,
+        method: str,
+        path: str,
+        headers: dict = None,
+        data: Union[dict, list] = None,
+        params: dict = None,
+    ) -> dict:
+        """
+        Proxies requests to the VTEX IO Payment Gateway proxy route.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            vtex_account (str): VTEX account for JWT token generation.
+            method (str): HTTP method (GET, POST, PUT).
+            path (str): Payment Gateway API path.
+            headers (dict, optional): Additional headers.
+            data (Union[dict, list], optional): Request body data.
+            params (dict, optional): Query parameters.
+
+        Returns:
+            dict: Response from the VTEX IO proxy-payment-gateway route.
+        """
+        pass

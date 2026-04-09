@@ -15,6 +15,7 @@ from retail.vtex.serializers import (
     LeadSerializer,
     OrderFormTrackingSerializer,
     OrdersQueryParamsSerializer,
+    PaymentGatewayProxySerializer,
     ProxyPaymentTransactionSerializer,
     VtexProxySerializer,
 )
@@ -36,7 +37,9 @@ from retail.vtex.usecases.proxy_vtex import ProxyVtexUsecase
 from retail.vtex.usecases.proxy_payment_transaction import (
     ProxyPaymentTransactionUseCase,
 )
+from retail.vtex.usecases.proxy_payment_gateway import ProxyPaymentGatewayUseCase
 from retail.vtex.dtos.proxy_payment_transaction_dto import ProxyPaymentTransactionDTO
+from retail.vtex.dtos.proxy_payment_gateway_dto import ProxyPaymentGatewayDTO
 from retail.vtex.tasks import task_notify_lead
 
 logger = logging.getLogger(__name__)
@@ -332,6 +335,52 @@ class PaymentTransactionProxyView(BaseVtexProxyView):
         dto = ProxyPaymentTransactionDTO(
             transaction_id=serializer.validated_data["transaction_id"],
             payments=tuple(serializer.validated_data["payments"]),
+        )
+
+        result = self.usecase.execute(dto=dto, project_uuid=self.project_uuid)
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class PaymentGatewayProxyView(BaseVtexProxyView):
+    """
+    POST endpoint that proxies requests to the VTEX IO Payment Gateway
+    proxy route (/_v/proxy-payment-gateway).
+
+    Targets the {account}.vtexpayments.com.br host for read operations
+    on transactions, interactions, payments and settlements.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._usecase = None
+
+    @property
+    def usecase(self) -> ProxyPaymentGatewayUseCase:
+        if not self._usecase:
+            self._usecase = ProxyPaymentGatewayUseCase(vtex_io_service=VtexIOService())
+        return self._usecase
+
+    def post(self, request: Request) -> Response:
+        """
+        Forwards a Payment Gateway request to the VTEX IO proxy-payment-gateway route.
+
+        Args:
+            request (Request): The incoming request with method, path, and optional params.
+
+        Returns:
+            Response: The response from VTEX IO.
+        """
+        serializer = PaymentGatewayProxySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        validated = serializer.validated_data
+
+        dto = ProxyPaymentGatewayDTO(
+            method=validated["method"],
+            path=validated["path"],
+            headers=validated.get("headers"),
+            data=validated.get("data"),
+            params=validated.get("params"),
         )
 
         result = self.usecase.execute(dto=dto, project_uuid=self.project_uuid)

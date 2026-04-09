@@ -6,6 +6,7 @@ from retail.vtex.views import (
     OrderFormTrackingView,
     OrderDetailsProxyView,
     OrdersProxyView,
+    PaymentGatewayProxyView,
     PaymentTransactionProxyView,
     StoreUrlView,
     VtexProxyView,
@@ -43,6 +44,11 @@ urlpatterns = [
         "payments/send-transaction/",
         PaymentTransactionProxyView.as_view(),
         name="vtex-payment-transaction-proxy",
+    ),
+    path(
+        "payments/gateway-proxy/",
+        PaymentGatewayProxyView.as_view(),
+        name="vtex-payment-gateway-proxy",
     ),
     path(
         "account/<str:vtex_account>/project-user/",
