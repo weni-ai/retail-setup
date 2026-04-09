@@ -58,3 +58,13 @@ class ProxyPaymentTransactionSerializer(serializers.Serializer):
         required=True,
         allow_empty=False,
     )
+
+
+class PaymentGatewayProxySerializer(serializers.Serializer):
+    """Validates the payload for proxying requests to the VTEX Payment Gateway."""
+
+    method = serializers.ChoiceField(choices=["GET", "POST", "PUT"], required=True)
+    path = serializers.CharField(required=True)
+    headers = serializers.DictField(required=False, allow_null=True)
+    data = serializers.JSONField(required=False, allow_null=True)
+    params = serializers.DictField(required=False, allow_null=True)

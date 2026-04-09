@@ -133,3 +133,47 @@ class TestVtexIOService(TestCase):
             vtex_account=self.vtex_account,
         )
         self.assertEqual(result, expected_response)
+
+    def test_proxy_payment_gateway_delegates_to_client(self):
+        self.mock_client.proxy_payment_gateway.return_value = {"status": 200}
+
+        result = self.service.proxy_payment_gateway(
+            account_domain=self.account_domain,
+            vtex_account=self.vtex_account,
+            method="GET",
+            path="/api/pvt/transactions/ABC123/interactions",
+            headers={"X-Custom": "value"},
+            data={"key": "value"},
+            params={"an": "teststore"},
+        )
+
+        self.mock_client.proxy_payment_gateway.assert_called_once_with(
+            account_domain=self.account_domain,
+            vtex_account=self.vtex_account,
+            method="GET",
+            path="/api/pvt/transactions/ABC123/interactions",
+            headers={"X-Custom": "value"},
+            data={"key": "value"},
+            params={"an": "teststore"},
+        )
+        self.assertEqual(result, {"status": 200})
+
+    def test_proxy_payment_gateway_with_minimal_params(self):
+        self.mock_client.proxy_payment_gateway.return_value = {}
+
+        self.service.proxy_payment_gateway(
+            account_domain=self.account_domain,
+            vtex_account=self.vtex_account,
+            method="GET",
+            path="/api/pvt/transactions/ABC123",
+        )
+
+        self.mock_client.proxy_payment_gateway.assert_called_once_with(
+            account_domain=self.account_domain,
+            vtex_account=self.vtex_account,
+            method="GET",
+            path="/api/pvt/transactions/ABC123",
+            headers=None,
+            data=None,
+            params=None,
+        )
