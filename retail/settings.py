@@ -277,9 +277,10 @@ CRAWLER_REST_ENDPOINT = env.str("CRAWLER_REST_ENDPOINT", "")
 # WWC (Weni Web Chat) default profile avatar
 WWC_PROFILE_AVATAR_URL = env.str("WWC_PROFILE_AVATAR_URL", "")
 
-# Onboarding agent UUIDs — passive and active (vary between staging and production)
-# Format: {"OrdersAgentCommerceIO": "uuid", "FeedbackRecorder": "uuid", ...}
-ONBOARDING_AGENT_UUIDS = env.json("ONBOARDING_AGENT_UUIDS", default={})
+# Passive agent UUIDs per channel — JSON dict mapping agent name to UUID
+# Format: {"Order Status": "136eb450-...", "Product Concierge": "3e51cf10-...", ...}
+PASSIVE_AGENTS_WWC = env.json("PASSIVE_AGENTS_WWC", default={})
+PASSIVE_AGENTS_WPP_CLOUD = env.json("PASSIVE_AGENTS_WPP_CLOUD", default={})
 
 
 # VTEX IO workspace configuration
