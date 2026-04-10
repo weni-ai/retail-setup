@@ -406,6 +406,104 @@ class BroadcastHandlerTest(TestCase):
         self.assertNotIn("interaction_type", result["msg"])
         self.assertNotIn("order_details", result["msg"])
 
+    def test_build_broadcast_template_message_with_payment_buttons(self):
+        """Includes payment_request buttons in msg when payment_buttons provided."""
+        mock_template = MagicMock()
+        mock_template.current_version.template_name = "payment_recovery"
+        mock_template.metadata = {}
+
+        payment_buttons = [
+            {
+                "type": "pix_dynamic_code",
+                "text": "00020126580014br.gov.bcb.pix",
+            },
+            {
+                "type": "payment_link",
+                "text": "https://example.com/pay",
+            },
+        ]
+
+        data = {
+            "template_variables": {
+                "1": "Roberta",
+                "payment_buttons": payment_buttons,
+            },
+            "contact_urn": "whatsapp:5584999999999",
+            "language": "pt-BR",
+        }
+
+        result = self.handler.build_broadcast_template_message(
+            data=data,
+            channel_uuid="channel-uuid",
+            project_uuid="project-uuid",
+            template=mock_template,
+        )
+
+        self.assertIn("buttons", result["msg"])
+        buttons = result["msg"]["buttons"]
+        self.assertEqual(len(buttons), 2)
+        self.assertEqual(buttons[0]["sub_type"], "payment_request")
+        self.assertEqual(buttons[0]["parameters"][0]["type"], "pix_dynamic_code")
+        self.assertEqual(
+            buttons[0]["parameters"][0]["text"], "00020126580014br.gov.bcb.pix"
+        )
+        self.assertEqual(buttons[1]["sub_type"], "payment_request")
+        self.assertEqual(buttons[1]["parameters"][0]["type"], "payment_link")
+        self.assertEqual(buttons[1]["parameters"][0]["text"], "https://example.com/pay")
+        self.assertEqual(result["msg"]["template"]["variables"], ["Roberta"])
+
+    def test_build_broadcast_template_message_without_payment_buttons(self):
+        """Does not include payment buttons when not provided."""
+        mock_template = MagicMock()
+        mock_template.current_version.template_name = "order_update"
+        mock_template.metadata = {}
+
+        data = {
+            "template_variables": {"1": "Value1"},
+            "contact_urn": "whatsapp:123",
+        }
+
+        result = self.handler.build_broadcast_template_message(
+            data=data,
+            channel_uuid="channel-uuid",
+            project_uuid="project-uuid",
+            template=mock_template,
+        )
+
+        self.assertNotIn("buttons", result["msg"])
+
+    def test_build_broadcast_template_message_payment_buttons_with_three_types(self):
+        """Supports pix, boleto and payment_link buttons together."""
+        mock_template = MagicMock()
+        mock_template.current_version.template_name = "payment_recovery"
+        mock_template.metadata = {}
+
+        payment_buttons = [
+            {"type": "pix_dynamic_code", "text": "PIX_CODE_HERE"},
+            {"type": "boleto", "text": "BOLETO_LINE_HERE"},
+            {"type": "payment_link", "text": "https://pay.example.com"},
+        ]
+
+        data = {
+            "template_variables": {
+                "1": "Carlos",
+                "payment_buttons": payment_buttons,
+            },
+            "contact_urn": "whatsapp:5584999999999",
+        }
+
+        result = self.handler.build_broadcast_template_message(
+            data=data,
+            channel_uuid="channel-uuid",
+            project_uuid="project-uuid",
+            template=mock_template,
+        )
+
+        buttons = result["msg"]["buttons"]
+        self.assertEqual(len(buttons), 3)
+        types = [b["parameters"][0]["type"] for b in buttons]
+        self.assertEqual(types, ["pix_dynamic_code", "boleto", "payment_link"])
+
     def test_resolve_language_from_lambda_payload(self):
         """Language from Lambda payload takes priority."""
         mock_template = MagicMock()

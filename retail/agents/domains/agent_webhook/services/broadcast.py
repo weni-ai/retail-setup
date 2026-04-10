@@ -72,6 +72,9 @@ class Broadcast:
         # Extract order_details for Meta WhatsApp payment flows
         order_details = template_variables.pop("order_details", None)
 
+        # Extract payment_buttons for PAYMENT_REQUEST template buttons
+        payment_buttons = template_variables.pop("payment_buttons", None)
+
         # Extract image s3 key if present
         header = template.metadata.get("header", None)
         s3_key = None
@@ -146,6 +149,9 @@ class Broadcast:
         if order_details:
             self._apply_order_details(order_details, message)
 
+        if payment_buttons:
+            self._apply_payment_buttons(payment_buttons, message)
+
         return message
 
     def _resolve_language(
@@ -193,6 +199,45 @@ class Broadcast:
         logger.info(
             f"Applied order_details with reference_id="
             f"{order_details.get('reference_id', 'N/A')}"
+        )
+
+    def _apply_payment_buttons(
+        self, payment_buttons: list, message: Dict[str, Any]
+    ) -> None:
+        """
+        Apply PAYMENT_REQUEST buttons to the message payload.
+
+        Expects the Lambda to provide a list of button dicts, each with:
+        - type: payment type (e.g., "pix_dynamic_code", "payment_link", "boleto")
+        - text: the payment data (PIX code, URL, or boleto line)
+
+        Transforms into the Flows Broadcast API format with sub_type "payment_request".
+
+        Args:
+            payment_buttons: List of payment button dicts from the Lambda.
+            message: The broadcast message dict being built (mutated in place).
+        """
+        buttons = []
+        for pb in payment_buttons:
+            buttons.append(
+                {
+                    "sub_type": "payment_request",
+                    "parameters": [
+                        {
+                            "type": pb.get("type"),
+                            "text": pb.get("text"),
+                        }
+                    ],
+                }
+            )
+
+        if buttons:
+            existing_buttons = message["msg"].get("buttons", [])
+            existing_buttons.extend(buttons)
+            message["msg"]["buttons"] = existing_buttons
+
+        logger.info(
+            f"Applied {len(buttons)} payment_request buttons to broadcast message"
         )
 
     def _build_image_attachment_from_url(self, image_url: str) -> str:
