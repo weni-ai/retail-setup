@@ -33,6 +33,11 @@ from retail.agents.shared.country_code_utils import DEFAULT_TEMPLATE_LANGUAGE
 from retail.agents.domains.agent_integration.usecases.build_abandoned_cart_translation import (
     BuildAbandonedCartTranslationUseCase,
 )
+from retail.agents.domains.agent_integration.usecases.build_payment_recovery_translation import (
+    BuildPaymentRecoveryTranslationUseCase,
+)
+from retail.vtex.usecases.proxy_vtex import ProxyVtexUsecase
+from retail.services.vtex_io.service import VtexIOService
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +158,19 @@ class AssignAgentUseCase:
         abandoned_cart_agent_uuid = getattr(settings, "ABANDONED_CART_AGENT_UUID", "")
         if abandoned_cart_agent_uuid and str(agent.uuid) == abandoned_cart_agent_uuid:
             config["abandoned_cart"] = self._get_abandoned_cart_default_config()
+
+        # Check if this is the payment recovery agent
+        payment_recovery_agent_uuid = getattr(
+            settings, "PAYMENT_RECOVERY_AGENT_UUID", ""
+        )
+        if (
+            payment_recovery_agent_uuid
+            and str(agent.uuid) == payment_recovery_agent_uuid
+        ):
+            config["payment_recovery"] = {
+                "hook_created": False,
+                "delay_minutes": 10,
+            }
 
         return config
 
@@ -377,21 +395,11 @@ class AssignAgentUseCase:
         1) Create IntegratedAgent and credentials (with auto-detected language from VTEX)
         2) Create templates from the agent's PreApprovedTemplate definitions
         3) If the agent is the Abandoned Cart agent (ABANDONED_CART_AGENT_UUID),
-           create a default custom template using the custom template flow
-           (lifecycle PENDING -> APPROVED, versioning, etc.).
+           create a default custom template using the custom template flow.
+        4) If the agent is the Payment Recovery agent (PAYMENT_RECOVERY_AGENT_UUID),
+           create a default custom template and a VTEX hook via proxy.
 
         The initial_template_language is automatically detected from VTEX tenant locale.
-
-        Args:
-            agent: The agent to assign.
-            project_uuid: UUID of the project to assign the agent to.
-            app_uuid: UUID of the WhatsApp app.
-            channel_uuid: UUID of the channel.
-            credentials: Agent credentials mapping.
-            include_templates: List of template UUIDs to include.
-
-        Returns:
-            The created IntegratedAgent instance.
         """
         project = self._get_project(project_uuid)
         self._validate_credentials(agent, credentials)
@@ -423,6 +431,28 @@ class AssignAgentUseCase:
                 project_uuid=project_uuid,
                 app_uuid=app_uuid,
             )
+
+        # If this is the payment recovery agent, create template + VTEX hook
+        payment_recovery_agent_uuid = getattr(
+            settings, "PAYMENT_RECOVERY_AGENT_UUID", ""
+        )
+        if (
+            payment_recovery_agent_uuid
+            and str(agent.uuid) == payment_recovery_agent_uuid
+        ):
+            logger.info(f"[AssignAgent] payment recovery agent detected={agent.uuid}")
+            template_created = self._create_default_payment_recovery_template(
+                integrated_agent=integrated_agent,
+                project_uuid=project_uuid,
+                app_uuid=app_uuid,
+            )
+            if template_created:
+                self._create_payment_recovery_hook(integrated_agent)
+            else:
+                logger.warning(
+                    f"[AssignAgent] Skipping hook creation — template failed for "
+                    f"integrated_agent={integrated_agent.uuid}"
+                )
 
         return integrated_agent
 
@@ -559,4 +589,159 @@ class AssignAgentUseCase:
                 "integrated agent %s: %s",
                 integrated_agent.uuid,
                 exc,
+            )
+
+    def _build_payment_recovery_webhook_url(
+        self, integrated_agent: IntegratedAgent
+    ) -> str:
+        domain_url = settings.DOMAIN
+        return (
+            f"{domain_url}/api/v3/agents/"
+            f"payment-recovery-webhook/{integrated_agent.uuid}/"
+        )
+
+    def _create_default_payment_recovery_template(
+        self,
+        integrated_agent: IntegratedAgent,
+        project_uuid: UUID,
+        app_uuid: UUID,
+    ) -> bool:
+        """
+        Create a default custom template for the payment recovery agent.
+
+        Uses the same image placeholder as abandoned cart. The template has
+        PAYMENT_REQUEST buttons with placeholder payment data for approval.
+
+        Returns:
+            True if the template was created (or already exists), False on failure.
+        """
+        template_language = integrated_agent.config.get(
+            "initial_template_language", DEFAULT_TEMPLATE_LANGUAGE
+        )
+
+        try:
+            logger.info(
+                f"[AssignAgent] Payment recovery template flow start for "
+                f"integrated_agent={integrated_agent.uuid}, "
+                f"language={template_language}"
+            )
+
+            placeholder_image_url = settings.ABANDONED_CART_DEFAULT_IMAGE_URL
+            image_converter = ImageUrlToBase64Converter()
+            placeholder_image_base64 = image_converter.convert(placeholder_image_url)
+            if not placeholder_image_base64:
+                raise ValueError(
+                    f"Failed to convert placeholder image URL to base64: "
+                    f"{placeholder_image_url}"
+                )
+
+            template_translation = (
+                BuildPaymentRecoveryTranslationUseCase.build_template_translation(
+                    language_code=template_language,
+                    header_image_base64=placeholder_image_base64,
+                )
+            )
+
+            payload: CreateCustomTemplateData = {
+                "template_translation": template_translation,
+                "category": "UTILITY",
+                "app_uuid": str(app_uuid),
+                "project_uuid": str(project_uuid),
+                "display_name": "Payment Recovery",
+                "start_condition": "If payment_status is pending",
+                "parameters": [
+                    {
+                        "name": "start_condition",
+                        "value": "If payment_status is pending",
+                    },
+                    {
+                        "name": "variables",
+                        "value": [
+                            {
+                                "name": "1",
+                                "type": "text",
+                                "definition": "Client name",
+                                "fallback": "Cliente",
+                            },
+                        ],
+                    },
+                ],
+                "integrated_agent_uuid": integrated_agent.uuid,
+                "use_agent_rule": True,
+            }
+
+            use_case = CreateCustomTemplateUseCase()
+            use_case.execute(payload)
+            logger.info(
+                f"[AssignAgent] Payment recovery template creation completed for "
+                f"integrated_agent={integrated_agent.uuid}, "
+                f"language={template_language}"
+            )
+            return True
+        except CustomTemplateAlreadyExists:
+            logger.info(
+                f"[AssignAgent] Payment recovery template already exists for "
+                f"integrated_agent={integrated_agent.uuid}"
+            )
+            return True
+        except Exception as exc:
+            logger.exception(
+                f"[AssignAgent] Error creating payment recovery template for "
+                f"integrated_agent={integrated_agent.uuid}: {exc}"
+            )
+            return False
+
+    def _create_payment_recovery_hook(self, integrated_agent: IntegratedAgent) -> None:
+        """
+        Create a VTEX hook via proxy to monitor payment-pending orders.
+
+        Uses the proxy route (retail -> IO) so no VTEX app key/token is needed.
+        Saves the webhook URL and hook status in integrated_agent.config.
+        """
+        try:
+            webhook_url = self._build_payment_recovery_webhook_url(integrated_agent)
+
+            logger.info(
+                f"[AssignAgent] Creating payment recovery VTEX hook for "
+                f"integrated_agent={integrated_agent.uuid}, "
+                f"webhook_url={webhook_url}"
+            )
+
+            hook_data = {
+                "filter": {
+                    "type": "FromOrders",
+                    "expression": (
+                        'isCompleted = false and (salesChannel = "1") '
+                        "and (paymentData.transactions.payments"
+                        '[paymentSystem = "125"])'
+                    ),
+                    "disableSingleFire": False,
+                },
+                "hook": {"url": webhook_url},
+            }
+
+            proxy_usecase = ProxyVtexUsecase(vtex_io_service=VtexIOService())
+            proxy_usecase.execute(
+                method="POST",
+                path="/api/orders/hook/config",
+                data=hook_data,
+                project_uuid=str(integrated_agent.project.uuid),
+            )
+
+            current_config = integrated_agent.config.copy()
+            current_config["payment_recovery"] = {
+                "webhook_url": webhook_url,
+                "hook_created": True,
+            }
+            integrated_agent.config = current_config
+            integrated_agent.save(update_fields=["config"])
+
+            logger.info(
+                f"[AssignAgent] Payment recovery VTEX hook created for "
+                f"integrated_agent={integrated_agent.uuid}"
+            )
+        except Exception as exc:
+            logger.exception(
+                f"[AssignAgent] Error creating payment recovery VTEX hook for "
+                f"integrated_agent={integrated_agent.uuid}: {exc}"
             )

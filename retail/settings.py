@@ -330,6 +330,7 @@ ABANDONED_CART_DEFAULT_IMAGE_URL = env.str(
     "ABANDONED_CART_DEFAULT_IMAGE_URL",
     default="https://placehold.co/1200x628/png?text=Your+Product",
 )
+PAYMENT_RECOVERY_AGENT_UUID = env.str("PAYMENT_RECOVERY_AGENT_UUID", default="")
 
 CONNECT_REST_ENDPOINT = env.str("CONNECT_REST_ENDPOINT", default="")
 
