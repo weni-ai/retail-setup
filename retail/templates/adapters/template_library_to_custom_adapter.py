@@ -158,6 +158,10 @@ class ButtonTransformer(ComponentTransformer):
                 button["phone_number"] = btn["phone_number"]
                 button["country_code"] = btn.get("country_code", "55")
 
+            elif btn["type"] == "PAYMENT_REQUEST":
+                if btn.get("payment_setting"):
+                    button["payment_setting"] = btn["payment_setting"]
+
             buttons_data.append(button)
 
         return buttons_data
