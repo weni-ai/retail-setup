@@ -1,7 +1,5 @@
 import logging
 
-from django.conf import settings
-
 from retail.clients.integrations.client import IntegrationsClient
 from retail.interfaces.clients.integrations.interface import IntegrationsClientInterface
 from retail.projects.models import ProjectOnboarding
@@ -27,6 +25,7 @@ WWC_CHANNEL_BASE_CONFIG = {
     "showFullScreenButton": False,
     "showVoiceRecordingButton": False,
     "displayUnreadCount": True,
+    "addToCart": True,
     "timeBetweenMessages": 1,
     "navigateIfSameDomain": False,
     "conversationStartersPDP": True,
@@ -37,14 +36,8 @@ WWC_CHANNEL_BASE_CONFIG = {
         "storage": "local",
     },
     "customizeWidget": {
-        "launcherColor": "#3d3d3d",
-        "headerBackgroundColor": "#3d3d3d",
-        "quickRepliesFontColor": "#3d3d3d",
-        "userMessageBubbleColor": "#3d3d3d",
-        "quickRepliesBorderColor": "#3d3d3d",
-        "quickRepliesBackgroundColor": "#3d3d3d33",
+        "mainColor": "#0366DD",
     },
-    "profileAvatar": settings.WWC_PROFILE_AVATAR_URL,
 }
 
 
