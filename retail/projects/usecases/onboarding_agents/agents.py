@@ -1,9 +1,10 @@
 """
-Hard-coded onboarding agents.
+Active onboarding agents.
 
-Each class represents a Nexus agent that must be integrated
-during the onboarding flow. UUIDs are resolved automatically
-from ONBOARDING_AGENT_UUIDS using the class name as key.
+Passive agents are loaded dynamically from environment variables
+(PASSIVE_AGENTS_WWC / PASSIVE_AGENTS_WPP_CLOUD) via agent_mappings.py.
+Only active agents — which require complex integration logic — are
+defined as explicit classes here.
 """
 
 import logging
@@ -15,31 +16,10 @@ from retail.agents.domains.agent_management.models import Agent
 from retail.projects.usecases.onboarding_agents.base import (
     ActiveAgent,
     AgentContext,
-    PassiveAgent,
 )
 from retail.services.nexus.service import NexusService
 
 logger = logging.getLogger(__name__)
-
-
-class OrdersAgentCommerceIO(PassiveAgent):
-    name = "Orders Agent Commerce IO"
-
-
-class FeedbackRecorder(PassiveAgent):
-    name = "Feedback Recorder 2.0"
-
-
-class ProductConcierge(PassiveAgent):
-    name = "Product Concierge"
-
-
-class PaymentAgent(PassiveAgent):
-    name = "Payment Agent (without catalog)"
-
-
-class SendCatalogAgent(PassiveAgent):
-    name = "Send Catalog Agent"
 
 
 class AbandonedCartAgent(ActiveAgent):

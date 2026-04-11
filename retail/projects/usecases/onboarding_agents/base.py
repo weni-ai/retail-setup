@@ -2,8 +2,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
-from django.conf import settings
-
 from retail.services.nexus.service import NexusService
 
 
@@ -30,24 +28,16 @@ class OnboardingAgent(ABC):
     logic following the rule_mappings pattern: a registry maps channel
     codes to lists of agent instances, and each agent knows how to
     integrate itself.
-
-    The UUID is resolved automatically from ONBOARDING_AGENT_UUIDS
-    using the class name as key.
     """
 
     uuid: str = ""
     name: str
 
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        agent_uuids = getattr(settings, "ONBOARDING_AGENT_UUIDS", {})
-        cls.uuid = agent_uuids.get(cls.__name__, cls.uuid)
-
     def _validate_uuid(self) -> None:
         if not self.uuid:
             raise ValueError(
                 f"Agent '{self.name}' ({self.__class__.__name__}) has no UUID "
-                f"configured. Check ONBOARDING_AGENT_UUIDS in environment variables."
+                f"configured."
             )
 
     @abstractmethod
@@ -56,7 +46,18 @@ class OnboardingAgent(ABC):
 
 
 class PassiveAgent(OnboardingAgent):
-    """Integrated via Nexus app-assign endpoint (simple toggle)."""
+    """Integrated via Nexus app-assign endpoint (simple toggle).
+
+    Instantiated directly with a UUID loaded from environment variables.
+    """
+
+    name = "Passive Agent"
+
+    def __init__(self, uuid: str = "", name: str = ""):
+        if uuid:
+            self.uuid = uuid
+        if name:
+            self.name = name
 
     def integrate(self, context: AgentContext, nexus_service: NexusService) -> dict:
         self._validate_uuid()
