@@ -1,3 +1,9 @@
+# 5.10.0
+- feat: Add WhatsApp Payment Recovery agent with VTEX hook integration
+- refactor: Load passive onboarding agents from environment variables
+- feat: Add payment_request button support in broadcast message builder
+- feat: Update WWC channel config with addToCart and simplified widget colors
+
 # 5.9.0
 - fix: Restrict needs_button_edit flag to URL-type buttons only
 - feat: Add Payment Gateway proxy endpoint (retail → IO)
