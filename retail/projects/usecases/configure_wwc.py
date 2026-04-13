@@ -18,7 +18,7 @@ WWC_CHANNEL_BASE_CONFIG = {
     "version": "2",
     "selector": "#wwc",
     "embedded": False,
-    "mainColor": "#3d3d3d",
+    "mainColor": "#0366DD",
     "contactTimeout": 0,
     "startFullScreen": False,
     "showCameraButton": False,
@@ -34,9 +34,6 @@ WWC_CHANNEL_BASE_CONFIG = {
     "params": {
         "images": {"dims": {"width": 300, "height": 200}},
         "storage": "local",
-    },
-    "customizeWidget": {
-        "mainColor": "#0366DD",
     },
 }
 
