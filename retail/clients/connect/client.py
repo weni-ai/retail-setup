@@ -76,7 +76,7 @@ class ConnectClient(RequestClient, ConnectClientInterface):
         response = self.make_request(
             url=url,
             method="PATCH",
-            json=config,
+            json={"config": config},
             headers=self.internal_authentication.headers,
         )
         return response.json()
