@@ -35,7 +35,7 @@ class BuildPaymentRecoveryTranslationUseCase:
             "body_example": ["João"],
             "footer_text": "VTEX CX Platform",
             "button_pix_text": "Copiar código Pix",
-            "button_link_text": "Outros métodos de pagamento",
+            "button_link_text": "Outros meios de pagamento",
         },
         "en": {
             "body_text": (
