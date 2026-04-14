@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from django.test import TestCase
@@ -31,25 +31,21 @@ class TestStartSetupUseCase(TestCase):
             "mystore", "https://www.mystore.com.br/"
         )
 
-    @patch("retail.projects.usecases.start_setup.StartCrawlUseCase")
-    def test_starts_crawl_immediately_when_project_exists(self, mock_crawl_cls):
-        """When a project is linked, should start crawl immediately."""
+    def test_initiates_crawl_immediately_when_project_exists(self):
+        """When a project is linked, should call InitiateCrawlUseCase."""
         project = Project.objects.create(
             name="Test", uuid=uuid4(), vtex_account="mystore"
         )
 
-        mock_crawl_instance = MagicMock()
-        mock_crawl_cls.return_value = mock_crawl_instance
-
-        usecase = StartSetupUseCase()
-        usecase.start_crawl_usecase = mock_crawl_instance
+        mock_initiate_crawl = MagicMock()
+        usecase = StartSetupUseCase(initiate_crawl_usecase=mock_initiate_crawl)
 
         usecase.execute(self.dto)
 
         onboarding = ProjectOnboarding.objects.get(vtex_account="mystore")
         self.assertEqual(onboarding.project, project)
-        mock_crawl_instance.execute.assert_called_once_with(
-            "mystore", "https://www.mystore.com.br/"
+        mock_initiate_crawl.execute.assert_called_once_with(
+            project, "mystore", "https://www.mystore.com.br/"
         )
 
     @patch("retail.projects.usecases.start_setup.task_wait_and_start_crawl")
@@ -112,47 +108,6 @@ class TestStartSetupUseCase(TestCase):
 
         with self.assertRaises(Project.MultipleObjectsReturned):
             StartSetupUseCase._try_link_project(onboarding)
-
-    @patch("retail.projects.usecases.start_setup.StartCrawlUseCase")
-    def test_sends_vtex_host_store_when_project_linked(self, mock_crawl_cls):
-        """When a project is linked, should call set_vtex_host_store on ConnectService."""
-        Project.objects.create(name="Test", uuid=uuid4(), vtex_account="mystore")
-
-        mock_crawl = MagicMock()
-        mock_crawl_cls.return_value = mock_crawl
-
-        mock_connect = Mock()
-        usecase = StartSetupUseCase(connect_service=mock_connect)
-        usecase.start_crawl_usecase = mock_crawl
-
-        usecase.execute(self.dto)
-
-        mock_connect.set_vtex_host_store.assert_called_once()
-        call_kwargs = mock_connect.set_vtex_host_store.call_args
-        self.assertEqual(
-            call_kwargs.kwargs["vtex_host_store"],
-            "https://www.mystore.com.br/",
-        )
-
-    @patch("retail.projects.usecases.start_setup.StartCrawlUseCase")
-    def test_continues_crawl_if_vtex_host_store_fails(self, mock_crawl_cls):
-        """If set_vtex_host_store fails, the crawl should still proceed."""
-        Project.objects.create(name="Test", uuid=uuid4(), vtex_account="mystore")
-
-        mock_crawl = MagicMock()
-        mock_crawl_cls.return_value = mock_crawl
-
-        mock_connect = Mock()
-        mock_connect.set_vtex_host_store.side_effect = Exception("connect down")
-
-        usecase = StartSetupUseCase(connect_service=mock_connect)
-        usecase.start_crawl_usecase = mock_crawl
-
-        usecase.execute(self.dto)
-
-        mock_crawl.execute.assert_called_once_with(
-            "mystore", "https://www.mystore.com.br/"
-        )
 
     @patch("retail.projects.usecases.start_setup.task_wait_and_start_crawl")
     def test_stores_channel_data_in_config(self, mock_task):

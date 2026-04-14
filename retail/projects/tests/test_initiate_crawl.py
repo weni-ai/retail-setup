@@ -1,0 +1,81 @@
+from unittest.mock import MagicMock, Mock
+from uuid import uuid4
+
+from django.test import TestCase
+
+from retail.projects.models import Project, ProjectOnboarding
+from retail.projects.usecases.initiate_crawl import InitiateCrawlUseCase
+from retail.projects.usecases.start_crawl import CrawlerStartError
+
+
+class TestInitiateCrawlUseCase(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(
+            name="Test Project",
+            uuid=uuid4(),
+            vtex_account="mystore",
+            language="pt-br",
+        )
+        self.onboarding = ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+            project=self.project,
+        )
+        self.mock_connect = Mock()
+        self.mock_start_crawl = MagicMock()
+        self.mock_detect_storefront = MagicMock()
+
+        self.usecase = InitiateCrawlUseCase(connect_service=self.mock_connect)
+        self.usecase.start_crawl_usecase = self.mock_start_crawl
+        self.usecase.detect_storefront_usecase = self.mock_detect_storefront
+
+    def test_runs_full_sequence(self):
+        self.usecase.execute(
+            self.project, "mystore", "https://www.mystore.com.br/"
+        )
+
+        self.mock_connect.set_vtex_host_store.assert_called_once()
+        self.mock_start_crawl.execute.assert_called_once_with(
+            "mystore", "https://www.mystore.com.br/"
+        )
+        self.mock_detect_storefront.execute.assert_called_once_with(
+            self.project, "https://www.mystore.com.br/"
+        )
+
+    def test_sends_vtex_host_store_with_correct_args(self):
+        self.usecase.execute(
+            self.project, "mystore", "https://www.mystore.com.br/"
+        )
+
+        call_kwargs = self.mock_connect.set_vtex_host_store.call_args
+        self.assertEqual(
+            call_kwargs.kwargs["vtex_host_store"],
+            "https://www.mystore.com.br/",
+        )
+        self.assertEqual(
+            call_kwargs.kwargs["project_uuid"],
+            str(self.project.uuid),
+        )
+
+    def test_crawl_proceeds_when_connect_fails(self):
+        self.mock_connect.set_vtex_host_store.side_effect = Exception(
+            "connect down"
+        )
+
+        self.usecase.execute(
+            self.project, "mystore", "https://www.mystore.com.br/"
+        )
+
+        self.mock_start_crawl.execute.assert_called_once()
+        self.mock_detect_storefront.execute.assert_called_once()
+
+    def test_storefront_detection_skipped_when_crawl_fails(self):
+        self.mock_start_crawl.execute.side_effect = CrawlerStartError(
+            "crawler down"
+        )
+
+        with self.assertRaises(CrawlerStartError):
+            self.usecase.execute(
+                self.project, "mystore", "https://www.mystore.com.br/"
+            )
+
+        self.mock_detect_storefront.execute.assert_not_called()

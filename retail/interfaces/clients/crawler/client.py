@@ -21,3 +21,16 @@ class CrawlerClientInterface(Protocol):
             Dict: Response data from the crawler service (initial status).
         """
         ...
+
+    def detect_storefront_type(self, store_url: str) -> Dict:
+        """
+        Detects the storefront technology used by a VTEX store.
+
+        Args:
+            store_url: The store URL to inspect (must start with http:// or https://).
+
+        Returns:
+            Dict with ``store_url`` and ``storefront_type``
+            (one of: faststore, vtex_io, legacy, unknown).
+        """
+        ...

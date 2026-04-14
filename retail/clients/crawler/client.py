@@ -46,3 +46,21 @@ class CrawlerClient(RequestClient, CrawlerClientInterface):
             json=payload,
         )
         return response.json()
+
+    def detect_storefront_type(self, store_url: str) -> Dict:
+        """
+        Detects which VTEX storefront platform a store is running.
+
+        Args:
+            store_url: The store URL to inspect (must start with http:// or https://).
+
+        Returns:
+            Dict with ``store_url`` and ``storefront_type``.
+        """
+        url = f"{self.base_url}/api/storefront-type"
+        response = self.make_request(
+            url,
+            method="GET",
+            params={"store_url": store_url},
+        )
+        return response.json()
