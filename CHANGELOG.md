@@ -1,3 +1,7 @@
+# 5.12.0
+- feat: Expose template language in metadata serialization
+- feat: Implement storefront type detection and initiate crawl use case
+
 # 5.11.0
 - feat: Updates WWC config with new titles, subtitle and fullscreen option
 - fix: Shorten payment recovery button text to comply with Meta limit
