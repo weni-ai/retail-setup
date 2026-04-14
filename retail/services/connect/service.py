@@ -32,12 +32,12 @@ class ConnectService(ConnectServiceInterface):
             project_name=project_name,
         )
 
-    def set_vtex_host_store(
+    def update_project_config(
         self,
         project_uuid: str,
-        vtex_host_store: str,
+        config: Dict,
     ) -> Dict:
-        return self.connect_client.set_vtex_host_store(
+        return self.connect_client.update_project_config(
             project_uuid=project_uuid,
-            vtex_host_store=vtex_host_store,
+            config=config,
         )
