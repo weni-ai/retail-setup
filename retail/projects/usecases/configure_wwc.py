@@ -22,7 +22,7 @@ WWC_CHANNEL_BASE_CONFIG = {
     "contactTimeout": 0,
     "startFullScreen": False,
     "showCameraButton": False,
-    "showFullScreenButton": False,
+    "showFullScreenButton": True,
     "showVoiceRecordingButton": False,
     "displayUnreadCount": True,
     "addToCart": True,
@@ -39,11 +39,12 @@ WWC_CHANNEL_BASE_CONFIG = {
 
 
 def build_wwc_channel_config(language: str) -> dict:
-    """Builds the full WWC channel config with translated title and placeholder."""
+    """Builds the full WWC channel config with translated title, subtitle and placeholder."""
     translations = get_wwc_translations(language)
     return {
         **WWC_CHANNEL_BASE_CONFIG,
         "title": translations["title"],
+        "subtitle": translations["subtitle"],
         "inputTextFieldHint": translations["inputTextFieldHint"],
     }
 
@@ -89,6 +90,12 @@ class ConfigureWWCUseCase:
         onboarding = self._load_onboarding(vtex_account)
         project_uuid = str(onboarding.project.uuid)
         language = onboarding.project.language or ""
+
+        if not language:
+            logger.warning(
+                f"Project language is empty for project={project_uuid} "
+                f"vtex_account={vtex_account}. WWC will use English defaults."
+            )
 
         onboarding.current_step = "NEXUS_CONFIG"
         onboarding.progress = 0
