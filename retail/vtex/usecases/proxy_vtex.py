@@ -1,7 +1,14 @@
+import logging
 from typing import Union
 
+import sentry_sdk
+from rest_framework.exceptions import ValidationError
+
+from retail.clients.exceptions import CustomAPIException
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.usecases.base import BaseVtexUseCase
+
+logger = logging.getLogger(__name__)
 
 
 class ProxyVtexUsecase(BaseVtexUseCase):
@@ -40,14 +47,46 @@ class ProxyVtexUsecase(BaseVtexUseCase):
 
         Returns:
             dict: Response data from VTEX platform.
+
+        Raises:
+            ValidationError: When the project or VTEX account context is invalid.
+            CustomAPIException: When the upstream VTEX IO request fails.
         """
-        vtex_account, account_domain = self._get_vtex_context(project_uuid)
-        return self.vtex_io_service.proxy_vtex(
-            account_domain=account_domain,
-            vtex_account=vtex_account,
-            method=method,
-            path=path,
-            headers=headers,
-            data=data,
-            params=params,
+        try:
+            vtex_account, account_domain = self._get_vtex_context(project_uuid)
+        except ValueError as exc:
+            logger.error(f"VTEX context error for project_uuid={project_uuid}: {exc}")
+            raise ValidationError({"detail": str(exc)}) from exc
+
+        logger.info(
+            f"Proxying VTEX request: method={method} path={path} "
+            f"project_uuid={project_uuid} vtex_account={vtex_account}"
         )
+
+        try:
+            return self.vtex_io_service.proxy_vtex(
+                account_domain=account_domain,
+                vtex_account=vtex_account,
+                method=method,
+                path=path,
+                headers=headers,
+                data=data,
+                params=params,
+            )
+        except CustomAPIException:
+            logger.error(
+                f"VTEX IO proxy error: method={method} path={path} "
+                f"project_uuid={project_uuid} vtex_account={vtex_account}"
+            )
+            raise
+        except Exception as exc:
+            logger.error(
+                f"Unexpected error proxying VTEX: method={method} path={path} "
+                f"project_uuid={project_uuid} vtex_account={vtex_account}: {exc}",
+                exc_info=True,
+            )
+            sentry_sdk.capture_exception(exc)
+            raise CustomAPIException(
+                detail=f"Unexpected proxy error: {exc}",
+                status_code=502,
+            ) from exc

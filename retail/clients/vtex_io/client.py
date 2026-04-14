@@ -1,12 +1,16 @@
 """Client for connection with Vtex IO"""
 
+import logging
 from typing import Optional, Union
 
 from django.conf import settings
 
 from retail.clients.base import RequestClient
+from retail.clients.exceptions import CustomAPIException
 from retail.interfaces.clients.vtex_io.interface import VtexIOClientInterface
 from retail.jwt_keys.usecases.generate_jwt import JWTUsecase
+
+logger = logging.getLogger(__name__)
 
 
 JWT_EXPIRATION_MINUTES = 1
@@ -63,6 +67,7 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         )
         return {
             "Content-Type": "application/json; charset: utf-8",
+            "Accept-Encoding": "identity",
             "X-Weni-Auth": token,
         }
 
@@ -267,7 +272,18 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
             url, method="POST", json=payload, headers=jwt_headers
         )
 
-        return response.json()
+        try:
+            return response.json()
+        except (ValueError, TypeError) as exc:
+            logger.error(
+                f"Failed to parse VTEX IO proxy response as JSON: "
+                f"url={url} status={response.status_code} "
+                f"body={response.text[:500]}"
+            )
+            raise CustomAPIException(
+                detail="VTEX IO returned a non-JSON response",
+                status_code=502,
+            ) from exc
 
     def proxy_payment_gateway(
         self,

@@ -1,6 +1,7 @@
 import requests
 import logging
 
+import sentry_sdk
 from django.conf import settings
 
 from retail.clients.exceptions import CustomAPIException
@@ -46,21 +47,27 @@ class RequestClient:
                 params=params,
                 files=files,
             )
+            sentry_sdk.capture_exception(e)
             raise CustomAPIException(
                 detail=f"Base request error: {str(e)}",
                 status_code=getattr(e.response, "status_code", None),
             ) from e
 
         if response.status_code >= 400:
-            self._generate_log(
+            self._log_http_error(
                 response, url, method, headers, json, data, params, files
             )
+
             detail = ""
             try:
                 detail = response.json()
             except ValueError:
                 detail = response.text
-            raise CustomAPIException(detail=detail, status_code=response.status_code)
+
+            exc = CustomAPIException(detail=detail, status_code=response.status_code)
+            if response.status_code >= 500:
+                sentry_sdk.capture_exception(exc)
+            raise exc
 
         # Handle empty responses to prevent JSON parsing errors
         if not response.text.strip():
@@ -70,33 +77,32 @@ class RequestClient:
 
         return response
 
-    def _generate_log(self, response, url, method, headers, json, data, params, files):
+    def _log_http_error(
+        self, response, url, method, headers, json, data, params, files
+    ):
         if response is None:
             logger.error("Response object is None, request failed.")
             return
 
-        request_details = {
-            "method": method,
-            "url": url,
-            "headers": headers,
-            "json": json,
-            "data": data,
-            "params": params,
-            "files": files,
-        }
-        response_details = {
-            "status_code": response.status_code,
-            "headers": dict(response.headers),
-            "body": response.text,
-            "url": response.url,
-        }
-
+        body = response.text[:1000] if response.text else ""
         logger.error(
-            f"Response:[{str(response.status_code)}] Error on request url {url}",
-            stack_info=False,
+            f"HTTP {response.status_code} {method.upper()} {url} — body={body}",
             extra={
-                "request_details": request_details,
-                "response_details": response_details,
+                "request_details": {
+                    "method": method,
+                    "url": url,
+                    "headers": headers,
+                    "json": json,
+                    "data": data,
+                    "params": params,
+                    "files": files,
+                },
+                "response_details": {
+                    "status_code": response.status_code,
+                    "headers": dict(response.headers),
+                    "body": response.text,
+                    "url": response.url,
+                },
             },
         )
 
@@ -128,9 +134,9 @@ class RequestClient:
             )
 
         logger.error(
-            f"Request exception for URL {url}",
+            f"Request exception {type(exception).__name__} "
+            f"{method.upper()} {url}: {exception}",
             exc_info=True,
-            stack_info=False,
             extra={
                 "request_details": request_details,
                 "exception_details": exception_details,
