@@ -40,6 +40,7 @@ class TemplateMetadataSerializer(serializers.Serializer):
     footer = serializers.CharField(allow_null=True, required=False)
     buttons = serializers.JSONField(allow_null=True, required=False)
     category = serializers.CharField(allow_null=True, required=False)
+    language = serializers.CharField(allow_null=True, required=False)
 
     def __init__(self, *args, **kwargs):
         self.s3_service = kwargs.pop("s3_service", None)

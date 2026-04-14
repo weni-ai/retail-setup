@@ -108,6 +108,7 @@ class TestTemplateMetadataSerializer(TestCase):
             "footer": "Footer text",
             "buttons": [{"type": "QUICK_REPLY", "text": "Reply"}],
             "category": "UTILITY",
+            "language": "pt_BR",
         }
 
         serializer = TemplateMetadataSerializer(
@@ -120,6 +121,7 @@ class TestTemplateMetadataSerializer(TestCase):
         self.assertEqual(result["footer"], "Footer text")
         self.assertEqual(result["buttons"], [{"type": "QUICK_REPLY", "text": "Reply"}])
         self.assertEqual(result["category"], "UTILITY")
+        self.assertEqual(result["language"], "pt_BR")
         self.assertIsNotNone(result["header"])
 
     def test_metadata_serialization_with_image_header(self):
@@ -157,6 +159,17 @@ class TestTemplateMetadataSerializer(TestCase):
 
         result = serializer.data
         self.assertIsNone(result["header"])
+
+    def test_metadata_serialization_without_language(self):
+        metadata = {"body": "Test body", "category": "UTILITY"}
+
+        serializer = TemplateMetadataSerializer(
+            metadata, s3_service=self.mock_s3_service
+        )
+
+        result = serializer.data
+        self.assertEqual(result["body"], "Test body")
+        self.assertNotIn("language", result)
 
 
 class TestReadTemplateSerializer(TestCase):
