@@ -70,13 +70,13 @@ class ConnectClient(RequestClient, ConnectClientInterface):
     ) -> Dict:
         url = (
             f"{self.base_url}/v2/commerce/projects/"
-            f"{project_uuid}/config"
+            f"{project_uuid}/config/"
         )
 
         response = self.make_request(
             url=url,
             method="PATCH",
-            json=config,
+            json={"config": config},
             headers=self.internal_authentication.headers,
         )
         return response.json()
