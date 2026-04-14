@@ -1,3 +1,8 @@
+# 5.11.0
+- feat: Updates WWC config with new titles, subtitle and fullscreen option
+- fix: Shorten payment recovery button text to comply with Meta limit
+- fix: Unifies WWC widget color using mainColor instead of custom
+
 # 5.10.0
 - feat: Add WhatsApp Payment Recovery agent with VTEX hook integration
 - refactor: Load passive onboarding agents from environment variables
