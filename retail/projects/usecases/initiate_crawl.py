@@ -37,9 +37,9 @@ class InitiateCrawlUseCase:
 
     def _send_vtex_host_store(self, project: Project, crawl_url: str) -> None:
         try:
-            self.connect_service.set_vtex_host_store(
+            self.connect_service.update_project_config(
                 project_uuid=str(project.uuid),
-                vtex_host_store=crawl_url,
+                config={"vtex_host_store": crawl_url},
             )
         except Exception:
             logger.exception(

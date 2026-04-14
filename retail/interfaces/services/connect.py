@@ -17,9 +17,9 @@ class ConnectServiceInterface(Protocol):
     ) -> Dict:
         ...
 
-    def set_vtex_host_store(
+    def update_project_config(
         self,
         project_uuid: str,
-        vtex_host_store: str,
+        config: Dict,
     ) -> Dict:
         ...

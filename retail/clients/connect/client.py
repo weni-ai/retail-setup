@@ -63,20 +63,20 @@ class ConnectClient(RequestClient, ConnectClientInterface):
         )
         return response.json()
 
-    def set_vtex_host_store(
+    def update_project_config(
         self,
         project_uuid: str,
-        vtex_host_store: str,
+        config: Dict,
     ) -> Dict:
         url = (
             f"{self.base_url}/v2/commerce/projects/"
-            f"{project_uuid}/set-vtex-host-store/"
+            f"{project_uuid}/config"
         )
 
         response = self.make_request(
             url=url,
             method="PATCH",
-            json={"vtex_host_store": vtex_host_store},
+            json=config,
             headers=self.internal_authentication.headers,
         )
         return response.json()

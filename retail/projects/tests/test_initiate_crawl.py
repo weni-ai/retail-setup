@@ -33,7 +33,7 @@ class TestInitiateCrawlUseCase(TestCase):
             self.project, "mystore", "https://www.mystore.com.br/"
         )
 
-        self.mock_connect.set_vtex_host_store.assert_called_once()
+        self.mock_connect.update_project_config.assert_called_once()
         self.mock_start_crawl.execute.assert_called_once_with(
             "mystore", "https://www.mystore.com.br/"
         )
@@ -46,18 +46,13 @@ class TestInitiateCrawlUseCase(TestCase):
             self.project, "mystore", "https://www.mystore.com.br/"
         )
 
-        call_kwargs = self.mock_connect.set_vtex_host_store.call_args
-        self.assertEqual(
-            call_kwargs.kwargs["vtex_host_store"],
-            "https://www.mystore.com.br/",
-        )
-        self.assertEqual(
-            call_kwargs.kwargs["project_uuid"],
-            str(self.project.uuid),
+        self.mock_connect.update_project_config.assert_called_once_with(
+            project_uuid=str(self.project.uuid),
+            config={"vtex_host_store": "https://www.mystore.com.br/"},
         )
 
     def test_crawl_proceeds_when_connect_fails(self):
-        self.mock_connect.set_vtex_host_store.side_effect = Exception(
+        self.mock_connect.update_project_config.side_effect = Exception(
             "connect down"
         )
 
