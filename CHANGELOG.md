@@ -1,3 +1,7 @@
+# 5.12.1
+- feat: Add GET health check to payment recovery webhook
+- fix: Starts onboarding progress at 10% to avoid visual stall at 0%
+
 # 5.12.0
 - feat: Expose template language in metadata serialization
 - feat: Implement storefront type detection and initiate crawl use case
