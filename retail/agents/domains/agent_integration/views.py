@@ -353,12 +353,12 @@ class PaymentRecoveryWebhookView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request: Request, pk: UUID) -> Response:
-        logger.info(f"Health check received for payment recovery webhook - agent {pk}")
+        logger.info(f"[PaymentRecovery] Health check received - agent={pk}")
         return Response({"message": "Webhook available"}, status=status.HTTP_200_OK)
 
     def post(self, request: Request, pk: UUID) -> Response:
         if request.data.get("hookConfig") == "ping":
-            logger.info(f"VTEX ping received for payment recovery webhook - agent {pk}")
+            logger.info(f"[PaymentRecovery] VTEX ping received - agent={pk}")
             return Response({"message": "Webhook available"}, status=status.HTTP_200_OK)
 
         try:
@@ -372,13 +372,13 @@ class PaymentRecoveryWebhookView(APIView):
             )
 
             logger.info(
-                f"Payment recovery webhook scheduled for processing - agent {pk} "
-                f"countdown={countdown}s"
+                f"[PaymentRecovery] Webhook scheduled for processing - "
+                f"agent={pk} countdown={countdown}s"
             )
             return Response({"message": "Webhook received"}, status=status.HTTP_200_OK)
 
         except Exception as e:
             logger.exception(
-                f"Error queuing payment recovery webhook for agent {pk}: {e}"
+                f"[PaymentRecovery] Error queuing webhook - agent={pk}: {e}"
             )
             return Response({"message": "Webhook received"}, status=status.HTTP_200_OK)
