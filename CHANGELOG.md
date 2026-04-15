@@ -1,3 +1,6 @@
+# 5.12.2
+- fix: Set payment recovery template category to MARKETING and standardize logs
+
 # 5.12.1
 - feat: Add GET health check to payment recovery webhook
 - fix: Starts onboarding progress at 10% to avoid visual stall at 0%
