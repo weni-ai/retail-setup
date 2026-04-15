@@ -352,6 +352,10 @@ class PaymentRecoveryWebhookView(APIView):
 
     permission_classes = [AllowAny]
 
+    def get(self, request: Request, pk: UUID) -> Response:
+        logger.info(f"Health check received for payment recovery webhook - agent {pk}")
+        return Response({"message": "Webhook available"}, status=status.HTTP_200_OK)
+
     def post(self, request: Request, pk: UUID) -> Response:
         if request.data.get("hookConfig") == "ping":
             logger.info(f"VTEX ping received for payment recovery webhook - agent {pk}")
