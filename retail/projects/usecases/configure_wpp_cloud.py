@@ -41,7 +41,7 @@ class ConfigureWPPCloudUseCase:
         channel_data = self._get_channel_data(onboarding)
 
         onboarding.current_step = "NEXUS_CONFIG"
-        onboarding.progress = 0
+        onboarding.progress = 10
         onboarding.save(update_fields=["current_step", "progress"])
 
         app_data = self._create_channel(onboarding, project_uuid, channel_data)
@@ -112,11 +112,10 @@ class ConfigureWPPCloudUseCase:
                 f"for project={project_uuid}"
             )
 
-        onboarding.progress = 3
+        onboarding.progress = 13
         onboarding.save(update_fields=["progress"])
-
         logger.info(
-            f"WPP Cloud channel created: app_uuid={app_uuid} " f"project={project_uuid}"
+            f"WPP Cloud channel created: app_uuid={app_uuid} project={project_uuid}"
         )
 
         return response
@@ -133,7 +132,7 @@ class ConfigureWPPCloudUseCase:
         wpp_cloud["flow_object_uuid"] = flow_object_uuid
         channels["wpp-cloud"] = wpp_cloud
         onboarding.config = config
-        onboarding.progress = 10
+        onboarding.progress = 20
         onboarding.save(update_fields=["config", "progress"])
 
         logger.info(

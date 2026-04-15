@@ -29,7 +29,7 @@ class FileUploadError(Exception):
     """Raised when a file upload to Nexus fails."""
 
 
-CHANNEL_PROGRESS_OFFSET = 10
+CHANNEL_PROGRESS_OFFSET = 20
 MAX_UPLOAD_PROGRESS = 75
 
 FILE_STATUS_POLL_INTERVAL = 3  # seconds between status checks
@@ -46,7 +46,7 @@ class ConfigureAgentBuilderUseCase:
          project language for translation.
       3. Upload crawled content files to the Nexus content base.
 
-    Progress is tracked from 10% (after channel) to 75%.
+    Progress is tracked from 20% (after channel) to 75%.
     Agent integration (75-100%) follows as a separate step.
     """
 
