@@ -107,7 +107,7 @@ class AssignPaymentRecoveryTemplateTest(TestCase):
         self.assertTrue(result)
         mock_template_usecase.execute.assert_called_once()
         payload = mock_template_usecase.execute.call_args[0][0]
-        self.assertEqual(payload["category"], "UTILITY")
+        self.assertEqual(payload["category"], "MARKETING")
         self.assertEqual(payload["display_name"], "Payment Recovery")
         self.assertTrue(payload["use_agent_rule"])
 
