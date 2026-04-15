@@ -41,7 +41,7 @@ class TestConfigureWWCUseCase(TestCase):
 
         self.onboarding.refresh_from_db()
         self.assertEqual(self.onboarding.current_step, "NEXUS_CONFIG")
-        self.assertEqual(self.onboarding.progress, 10)
+        self.assertEqual(self.onboarding.progress, 20)
         self.assertEqual(
             self.onboarding.config["channels"]["wwc"]["app_uuid"], app_uuid
         )

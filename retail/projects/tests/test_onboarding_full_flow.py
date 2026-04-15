@@ -38,8 +38,8 @@ class TestFullOnboardingFlow(TestCase):
     2. EDA links the project -> PROJECT_CONFIG 100%
     3. Crawler sends progress events
     4. Crawler sends crawl.completed
-    5. Channel creation and configuration (0-25%)
-    6. Nexus agent config + content upload (25-75%)
+    5. Channel creation and configuration (10-20%)
+    6. Nexus agent config + content upload (20-75%)
     7. Agent integration (75-100%)
     """
 
@@ -88,7 +88,7 @@ class TestFullOnboardingFlow(TestCase):
 
         onboarding.refresh_from_db()
         self.assertEqual(onboarding.current_step, "CRAWL")
-        self.assertEqual(onboarding.progress, 0)
+        self.assertEqual(onboarding.progress, 10)
 
         # -- Step 4: Crawler sends progress update --
         progress_dto = CrawlerWebhookDTO(
@@ -141,7 +141,7 @@ class TestFullOnboardingFlow(TestCase):
             self.vtex_account, crawled_contents
         )
 
-        # -- Step 6: WWC channel creation and configuration (0-25%) --
+        # -- Step 6: WWC channel creation and configuration (10-20%) --
         mock_integrations_service = MagicMock()
         mock_integrations_service.create_channel_app.return_value = {
             "uuid": self.channel_app_uuid,
@@ -158,13 +158,13 @@ class TestFullOnboardingFlow(TestCase):
 
         onboarding.refresh_from_db()
         self.assertEqual(onboarding.current_step, "NEXUS_CONFIG")
-        self.assertEqual(onboarding.progress, 10)
+        self.assertEqual(onboarding.progress, 20)
         self.assertEqual(
             onboarding.config["channels"]["wwc"]["app_uuid"],
             self.channel_app_uuid,
         )
 
-        # -- Step 7: Nexus agent config + content upload (25-75%) --
+        # -- Step 7: Nexus agent config + content upload (20-75%) --
         mock_nexus_service = MagicMock()
         mock_nexus_service.check_agent_builder_exists.return_value = {
             "data": {"has_agent": False}

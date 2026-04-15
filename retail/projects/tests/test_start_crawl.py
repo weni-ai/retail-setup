@@ -28,14 +28,14 @@ class TestStartCrawlUseCase(TestCase):
         self.usecase = StartCrawlUseCase(crawler_client=MagicMock())
         self.usecase.crawler_service = self.mock_crawler_service
 
-    def test_sets_step_to_crawl_and_progress_to_zero(self):
+    def test_sets_step_to_crawl_and_initial_progress(self):
         self.mock_crawler_service.start_crawling.return_value = {"status": "started"}
 
         self.usecase.execute("mystore", "https://www.mystore.com.br/")
 
         self.onboarding.refresh_from_db()
         self.assertEqual(self.onboarding.current_step, "CRAWL")
-        self.assertEqual(self.onboarding.progress, 0)
+        self.assertEqual(self.onboarding.progress, 10)
 
     def test_calls_crawler_service_with_correct_args(self):
         self.mock_crawler_service.start_crawling.return_value = {"status": "started"}
