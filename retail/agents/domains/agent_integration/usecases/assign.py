@@ -621,9 +621,8 @@ class AssignAgentUseCase:
 
         try:
             logger.info(
-                f"[AssignAgent] Payment recovery template flow start for "
-                f"integrated_agent={integrated_agent.uuid}, "
-                f"language={template_language}"
+                f"[PaymentRecovery] Template creation started - "
+                f"agent={integrated_agent.uuid} language={template_language}"
             )
 
             placeholder_image_url = settings.ABANDONED_CART_DEFAULT_IMAGE_URL
@@ -644,7 +643,7 @@ class AssignAgentUseCase:
 
             payload: CreateCustomTemplateData = {
                 "template_translation": template_translation,
-                "category": "UTILITY",
+                "category": "MARKETING",
                 "app_uuid": str(app_uuid),
                 "project_uuid": str(project_uuid),
                 "display_name": "Payment Recovery",
@@ -673,21 +672,20 @@ class AssignAgentUseCase:
             use_case = CreateCustomTemplateUseCase()
             use_case.execute(payload)
             logger.info(
-                f"[AssignAgent] Payment recovery template creation completed for "
-                f"integrated_agent={integrated_agent.uuid}, "
-                f"language={template_language}"
+                f"[PaymentRecovery] Template created successfully - "
+                f"agent={integrated_agent.uuid} language={template_language}"
             )
             return True
         except CustomTemplateAlreadyExists:
             logger.info(
-                f"[AssignAgent] Payment recovery template already exists for "
-                f"integrated_agent={integrated_agent.uuid}"
+                f"[PaymentRecovery] Template already exists - "
+                f"agent={integrated_agent.uuid}"
             )
             return True
         except Exception as exc:
             logger.exception(
-                f"[AssignAgent] Error creating payment recovery template for "
-                f"integrated_agent={integrated_agent.uuid}: {exc}"
+                f"[PaymentRecovery] Template creation failed - "
+                f"agent={integrated_agent.uuid}: {exc}"
             )
             return False
 
@@ -702,9 +700,8 @@ class AssignAgentUseCase:
             webhook_url = self._build_payment_recovery_webhook_url(integrated_agent)
 
             logger.info(
-                f"[AssignAgent] Creating payment recovery VTEX hook for "
-                f"integrated_agent={integrated_agent.uuid}, "
-                f"webhook_url={webhook_url}"
+                f"[PaymentRecovery] Creating VTEX hook - "
+                f"agent={integrated_agent.uuid} webhook_url={webhook_url}"
             )
 
             hook_data = {
@@ -737,11 +734,11 @@ class AssignAgentUseCase:
             integrated_agent.save(update_fields=["config"])
 
             logger.info(
-                f"[AssignAgent] Payment recovery VTEX hook created for "
-                f"integrated_agent={integrated_agent.uuid}"
+                f"[PaymentRecovery] VTEX hook created successfully - "
+                f"agent={integrated_agent.uuid}"
             )
         except Exception as exc:
             logger.exception(
-                f"[AssignAgent] Error creating payment recovery VTEX hook for "
-                f"integrated_agent={integrated_agent.uuid}: {exc}"
+                f"[PaymentRecovery] VTEX hook creation failed - "
+                f"agent={integrated_agent.uuid}: {exc}"
             )

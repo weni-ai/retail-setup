@@ -62,8 +62,8 @@ class PaymentRecoveryWebhookUseCase:
         self.validate_payment_recovery_enabled(integrated_agent)
 
         logger.info(
-            f"[PaymentRecovery] Processing webhook for "
-            f"agent={integrated_agent.uuid}: {webhook_data}"
+            f"[PaymentRecovery] Processing webhook notification - "
+            f"agent={integrated_agent.uuid} data={webhook_data}"
         )
 
         self._process_payment_recovery_notification(integrated_agent, webhook_data)
@@ -90,14 +90,14 @@ class PaymentRecoveryWebhookUseCase:
         )
 
         logger.info(
-            f"[PaymentRecovery] OrderStatusDTO built: "
-            f"order_id={order_status_dto.orderId} agent={integrated_agent.uuid}"
+            f"[PaymentRecovery] OrderStatusDTO built - "
+            f"agent={integrated_agent.uuid} order_id={order_status_dto.orderId}"
         )
 
         order_status_usecase = AgentOrderStatusUpdateUsecase()
         order_status_usecase.execute(integrated_agent, order_status_dto)
 
         logger.info(
-            f"[PaymentRecovery] Processing completed for "
-            f"agent={integrated_agent.uuid} order={order_status_dto.orderId}"
+            f"[PaymentRecovery] Webhook processed successfully - "
+            f"agent={integrated_agent.uuid} order_id={order_status_dto.orderId}"
         )

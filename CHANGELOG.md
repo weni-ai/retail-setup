@@ -1,3 +1,19 @@
+# 5.12.2
+- fix: Set payment recovery template category to MARKETING and standardize logs
+
+# 5.12.1
+- feat: Add GET health check to payment recovery webhook
+- fix: Starts onboarding progress at 10% to avoid visual stall at 0%
+
+# 5.12.0
+- feat: Expose template language in metadata serialization
+- feat: Implement storefront type detection and initiate crawl use case
+
+# 5.11.0
+- feat: Updates WWC config with new titles, subtitle and fullscreen option
+- fix: Shorten payment recovery button text to comply with Meta limit
+- fix: Unifies WWC widget color using mainColor instead of custom
+
 # 5.10.0
 - feat: Add WhatsApp Payment Recovery agent with VTEX hook integration
 - refactor: Load passive onboarding agents from environment variables

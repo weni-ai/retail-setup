@@ -49,7 +49,7 @@ class StartCrawlUseCase:
         )
 
         onboarding.current_step = "CRAWL"
-        onboarding.progress = 0
+        onboarding.progress = 10
         onboarding.save(update_fields=["current_step", "progress"])
 
         onboarding_uuid = str(onboarding.uuid)

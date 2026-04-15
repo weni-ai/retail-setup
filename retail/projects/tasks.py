@@ -4,10 +4,10 @@ from celery import shared_task
 from django.core.cache import cache
 
 from retail.projects.models import ProjectOnboarding
-from retail.services.connect.service import ConnectService
+from retail.projects.usecases.initiate_crawl import InitiateCrawlUseCase
 from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.projects.usecases.onboarding_orchestrator import OnboardingOrchestrator
-from retail.projects.usecases.start_crawl import CrawlerStartError, StartCrawlUseCase
+from retail.projects.usecases.start_crawl import CrawlerStartError
 from retail.services.vtex_io.service import VtexIOService
 
 logger = logging.getLogger(__name__)
@@ -71,18 +71,9 @@ def task_wait_and_start_crawl(self, vtex_account: str, crawl_url: str) -> None:
     logger.info(f"Project linked for vtex_account={vtex_account}. Starting crawl.")
 
     try:
-        ConnectService().set_vtex_host_store(
-            project_uuid=str(onboarding.project.uuid),
-            vtex_host_store=crawl_url,
+        InitiateCrawlUseCase().execute(
+            onboarding.project, vtex_account, crawl_url
         )
-    except Exception:
-        logger.exception(
-            f"Failed to send vtex_host_store to Connect for "
-            f"project={onboarding.project.uuid}"
-        )
-
-    try:
-        StartCrawlUseCase().execute(vtex_account, crawl_url)
     except CrawlerStartError as e:
         logger.error(f"Crawl start failed for vtex_account={vtex_account}: {e}")
         raise

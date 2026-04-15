@@ -63,21 +63,18 @@ def task_payment_recovery_webhook(
         webhook_data: Data received from VTEX webhook
     """
     try:
-        logger.info(
-            f"Processing payment recovery webhook task for agent {integrated_agent_uuid}"
-        )
+        logger.info(f"[PaymentRecovery] Task started - agent={integrated_agent_uuid}")
 
         use_case = PaymentRecoveryWebhookUseCase()
         integrated_agent = use_case.get_integrated_agent(integrated_agent_uuid)
         result = use_case.process_webhook_notification(integrated_agent, webhook_data)
 
         logger.info(
-            f"Successfully processed payment recovery webhook for "
-            f"agent {integrated_agent_uuid}: {result}"
+            f"[PaymentRecovery] Task completed successfully - "
+            f"agent={integrated_agent_uuid} result={result}"
         )
 
     except Exception as e:
         logger.exception(
-            f"Error processing payment recovery webhook task for "
-            f"agent {integrated_agent_uuid}: {e}"
+            f"[PaymentRecovery] Task failed - agent={integrated_agent_uuid}: {e}"
         )

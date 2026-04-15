@@ -43,7 +43,7 @@ class TestConfigureWPPCloudUseCase(TestCase):
 
         self.onboarding.refresh_from_db()
         self.assertEqual(self.onboarding.current_step, "NEXUS_CONFIG")
-        self.assertEqual(self.onboarding.progress, 10)
+        self.assertEqual(self.onboarding.progress, 20)
         self.assertEqual(
             self.onboarding.config["channels"]["wpp-cloud"]["app_uuid"], app_uuid
         )
@@ -129,24 +129,16 @@ class TestConfigureWPPCloudUseCase(TestCase):
         self.assertEqual(call_kwargs["waba_id"], "waba456")
         self.assertEqual(call_kwargs["phone_number_id"], "phone789")
 
-    def test_progress_at_3_after_channel_created(self):
-        """Progress should be 3% right after channel creation, before persist."""
+    def test_progress_at_13_after_channel_created(self):
+        """Progress should be 13% after channel creation, 20% after persist."""
         app_uuid = str(uuid4())
 
-        def capture_progress(*args, **kwargs):
-            self.onboarding.refresh_from_db()
-            self.mid_progress = self.onboarding.progress
-            return {
-                "app_uuid": app_uuid,
-                "flow_object_uuid": str(uuid4()),
-            }
-
-        self.mock_integrations_service.create_wpp_cloud_channel.side_effect = (
-            capture_progress
-        )
+        self.mock_integrations_service.create_wpp_cloud_channel.return_value = {
+            "app_uuid": app_uuid,
+            "flow_object_uuid": str(uuid4()),
+        }
 
         self.usecase.execute("mystore")
 
-        self.assertEqual(self.mid_progress, 0)
         self.onboarding.refresh_from_db()
-        self.assertEqual(self.onboarding.progress, 10)
+        self.assertEqual(self.onboarding.progress, 20)

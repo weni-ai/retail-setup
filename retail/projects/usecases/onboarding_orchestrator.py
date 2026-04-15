@@ -21,8 +21,8 @@ CHANNEL_USECASES = {
 class OnboardingOrchestrator:
     """
     Orchestrates post-crawl configuration:
-      1. Channel creation (0-25%)   -- dispatches to the channel-specific use case
-      2. Nexus manager + upload (25-75%) -- configures agent and uploads content
+      1. Channel creation (10-20%)       -- dispatches to the channel-specific use case
+      2. Nexus manager + upload (20-75%) -- configures agent and uploads content
       3. Agent integration (75-100%)     -- integrates Nexus agents for the channel
 
     Each step is sequential. If any step fails, progress freezes
