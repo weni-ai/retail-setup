@@ -177,7 +177,10 @@ class DeliveredOrderTrackingConfigUseCase:
                     "expression": '$count(packageAttachment.packages[courierStatus.deliveredDate != "" or courierStatus.finished = true]) > 0',  # noqa: E501
                     "disableSingleFire": False,
                 },
-                "hook": {"url": tracking_config["webhook_url"]},
+                "hook": {
+                    "url": tracking_config["webhook_url"],
+                    "headers": {"User-Agent": "vtex-retail/0.0.0"},
+                },
             }
 
             # Prepare headers for VTEX API
