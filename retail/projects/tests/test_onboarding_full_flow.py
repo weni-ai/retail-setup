@@ -98,7 +98,7 @@ class TestFullOnboardingFlow(TestCase):
             url=self.crawl_url,
             progress=50,
         )
-        result = UpdateOnboardingProgressUseCase.execute(
+        result = UpdateOnboardingProgressUseCase().execute(
             str(onboarding.uuid), progress_dto
         )
         self.assertEqual(result.progress, 50)
@@ -131,7 +131,7 @@ class TestFullOnboardingFlow(TestCase):
                 progress=100,
                 data={"contents": crawled_contents},
             )
-            result = UpdateOnboardingProgressUseCase.execute(
+            result = UpdateOnboardingProgressUseCase().execute(
                 str(onboarding.uuid), completed_dto
             )
 

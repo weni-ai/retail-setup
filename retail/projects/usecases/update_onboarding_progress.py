@@ -1,14 +1,17 @@
 import logging
+from typing import Optional
 
 from retail.projects.models import ProjectOnboarding
 from retail.projects.tasks import acquire_task_lock, task_configure_nexus
 from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.projects.usecases.onboarding_dto import CrawlerWebhookDTO
+from retail.services.connect.service import ConnectService
 
 logger = logging.getLogger(__name__)
 
 COMPLETED_EVENT = "crawl.completed"
 FAILED_EVENT = "crawl.failed"
+URL_REDIRECTED_EVENT = "crawl.url_redirected"
 
 
 class UpdateOnboardingProgressUseCase:
@@ -19,8 +22,12 @@ class UpdateOnboardingProgressUseCase:
     the orchestrator (execute) focused on routing only.
     """
 
-    @staticmethod
-    def execute(onboarding_uuid: str, dto: CrawlerWebhookDTO) -> ProjectOnboarding:
+    def __init__(self, connect_service: Optional[ConnectService] = None):
+        self.connect_service = connect_service or ConnectService()
+
+    def execute(
+        self, onboarding_uuid: str, dto: CrawlerWebhookDTO
+    ) -> ProjectOnboarding:
         """
         Routes the crawler webhook event to the appropriate handler.
 
@@ -34,17 +41,20 @@ class UpdateOnboardingProgressUseCase:
         Raises:
             ProjectOnboarding.DoesNotExist: If no onboarding record is found.
         """
-        onboarding = ProjectOnboarding.objects.get(
+        onboarding = ProjectOnboarding.objects.select_related("project").get(
             uuid=onboarding_uuid,
         )
 
         if dto.event == COMPLETED_EVENT:
-            return UpdateOnboardingProgressUseCase._handle_completed(onboarding, dto)
+            return self._handle_completed(onboarding, dto)
 
         if dto.event == FAILED_EVENT:
-            return UpdateOnboardingProgressUseCase._handle_failed(onboarding, dto)
+            return self._handle_failed(onboarding, dto)
 
-        return UpdateOnboardingProgressUseCase._handle_progress(onboarding, dto)
+        if dto.event == URL_REDIRECTED_EVENT:
+            return self._handle_url_redirected(onboarding, dto)
+
+        return self._handle_progress(onboarding, dto)
 
     @staticmethod
     def _handle_completed(
@@ -84,6 +94,60 @@ class UpdateOnboardingProgressUseCase:
         error_msg = dto.data.get("error", "Unknown error")
         mark_onboarding_failed(onboarding.vtex_account, f"Crawler failed: {error_msg}")
         return onboarding
+
+    def _handle_url_redirected(
+        self, onboarding: ProjectOnboarding, dto: CrawlerWebhookDTO
+    ) -> ProjectOnboarding:
+        """
+        Persists the resolved store URL locally and propagates it to Connect.
+
+        Triggered when the original URL failed but a variant (e.g. with `www.`)
+        succeeded. The resolved URL becomes the canonical store URL going forward.
+        """
+        resolved_url = dto.data.get("resolved_url")
+        original_url = dto.data.get("original_url")
+
+        if not resolved_url:
+            logger.warning(
+                f"[url_redirected] Missing resolved_url in webhook payload for "
+                f"onboarding={onboarding.uuid}. Skipping update."
+            )
+            return onboarding
+
+        config = onboarding.config or {}
+        config["vtex_host_store"] = resolved_url
+        onboarding.config = config
+        onboarding.save(update_fields=["config"])
+
+        logger.info(
+            f"[url_redirected] Updated store URL for onboarding={onboarding.uuid}: "
+            f"original={original_url} -> resolved={resolved_url}"
+        )
+
+        self._send_vtex_host_store_to_connect(onboarding, resolved_url)
+        return onboarding
+
+    def _send_vtex_host_store_to_connect(
+        self, onboarding: ProjectOnboarding, resolved_url: str
+    ) -> None:
+        """Propagates the resolved store URL to Connect. Non-blocking by design."""
+        if onboarding.project is None:
+            logger.warning(
+                f"[url_redirected] Onboarding={onboarding.uuid} has no linked project. "
+                f"Skipping Connect update."
+            )
+            return
+
+        try:
+            self.connect_service.update_project_config(
+                project_uuid=str(onboarding.project.uuid),
+                config={"vtex_host_store": resolved_url},
+            )
+        except Exception:
+            logger.exception(
+                f"[url_redirected] Failed to propagate vtex_host_store to Connect "
+                f"for project={onboarding.project.uuid}"
+            )
 
     @staticmethod
     def _handle_progress(

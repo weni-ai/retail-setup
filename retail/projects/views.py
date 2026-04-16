@@ -165,7 +165,7 @@ class CrawlerWebhookView(APIView):
         dto = CrawlerWebhookDTO(**serializer.validated_data)
 
         try:
-            onboarding = UpdateOnboardingProgressUseCase.execute(
+            onboarding = UpdateOnboardingProgressUseCase().execute(
                 str(onboarding_uuid), dto
             )
         except ProjectOnboarding.DoesNotExist:
