@@ -80,6 +80,12 @@ class StartSetupUseCase:
         onboarding.completed = False
         onboarding.failed = False
         onboarding.current_step = ""
+
+        config = onboarding.config or {}
+        config.pop("last_failure", None)
+        config.pop("reason_failed", None)
+        onboarding.config = config
+
         onboarding.save(
             update_fields=[
                 "progress",
@@ -87,6 +93,7 @@ class StartSetupUseCase:
                 "completed",
                 "failed",
                 "current_step",
+                "config",
             ]
         )
 

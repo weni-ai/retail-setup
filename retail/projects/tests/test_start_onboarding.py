@@ -58,6 +58,10 @@ class TestStartSetupUseCase(TestCase):
             progress=80,
             crawler_result=ProjectOnboarding.SUCCESS,
             completed=True,
+            config={
+                "last_failure": {"stage": "start_setup_validation"},
+                "reason_failed": "previous error",
+            },
         )
 
         usecase = StartSetupUseCase()
@@ -68,6 +72,8 @@ class TestStartSetupUseCase(TestCase):
         self.assertEqual(onboarding.current_step, "")
         self.assertIsNone(onboarding.crawler_result)
         self.assertFalse(onboarding.completed)
+        self.assertNotIn("last_failure", onboarding.config)
+        self.assertNotIn("reason_failed", onboarding.config)
 
     def test_try_link_project_finds_existing_project(self):
         """_try_link_project should link a matching project."""

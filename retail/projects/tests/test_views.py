@@ -101,6 +101,28 @@ class TestStartSetupView(TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    @_auth_bypass(None)
+    def test_stores_failure_snapshot_on_validation_error(self, _mock_auth):
+        """When the payload is invalid, the snapshot must be persisted in config."""
+        payload = {
+            "crawl_url": "https://www.mystore.com.br/",
+            "channel": "wpp-cloud",
+        }
+
+        response = self.client.post(
+            "/api/onboard/mystore/start-setup/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        onboarding = ProjectOnboarding.objects.get(vtex_account="mystore")
+        last_failure = onboarding.config["last_failure"]
+        self.assertEqual(last_failure["stage"], "start_setup_validation")
+        self.assertEqual(last_failure["payload"], payload)
+        self.assertIn("channel_data", last_failure["errors"])
+
 
 class TestCrawlerWebhookView(TestCase):
     def setUp(self):
