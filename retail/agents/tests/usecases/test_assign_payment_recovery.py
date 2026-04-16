@@ -209,6 +209,10 @@ class AssignPaymentRecoveryHookTest(TestCase):
         self.assertEqual(call_kwargs["path"], "/api/orders/hook/config")
         self.assertIn("filter", call_kwargs["data"])
         self.assertIn("hook", call_kwargs["data"])
+        self.assertEqual(
+            call_kwargs["data"]["hook"]["headers"],
+            {"User-Agent": "vtex-retail/0.0.0"},
+        )
 
         self.integrated_agent.save.assert_called()
         saved_config = self.integrated_agent.config

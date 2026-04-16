@@ -714,7 +714,10 @@ class AssignAgentUseCase:
                     ),
                     "disableSingleFire": False,
                 },
-                "hook": {"url": webhook_url},
+                "hook": {
+                    "url": webhook_url,
+                    "headers": {"User-Agent": "vtex-retail/0.0.0"},
+                },
             }
 
             proxy_usecase = ProxyVtexUsecase(vtex_io_service=VtexIOService())
