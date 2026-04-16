@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from django.test import TestCase
@@ -8,6 +8,7 @@ from retail.projects.usecases.onboarding_dto import CrawlerWebhookDTO
 from retail.projects.usecases.update_onboarding_progress import (
     COMPLETED_EVENT,
     FAILED_EVENT,
+    URL_REDIRECTED_EVENT,
     UpdateOnboardingProgressUseCase,
 )
 
@@ -25,6 +26,10 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             current_step="CRAWL",
         )
         self.onboarding_uuid = str(self.onboarding.uuid)
+        self.connect_service = MagicMock()
+        self.use_case = UpdateOnboardingProgressUseCase(
+            connect_service=self.connect_service
+        )
 
     # ── Progress handling ──────────────────────────────────────────
 
@@ -37,7 +42,7 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             progress=35,
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
+        result = self.use_case.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.progress, 35)
 
@@ -54,7 +59,7 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             progress=49,
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
+        result = self.use_case.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.progress, 50)
 
@@ -70,7 +75,7 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             progress=60,
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
+        result = self.use_case.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.progress, 60)
 
@@ -96,7 +101,7 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             data={"contents": contents},
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
+        result = self.use_case.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.progress, 100)
         self.assertEqual(result.crawler_result, ProjectOnboarding.SUCCESS)
@@ -118,7 +123,7 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             data={"contents": []},
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
+        result = self.use_case.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.progress, 100)
         self.assertEqual(result.crawler_result, ProjectOnboarding.SUCCESS)
@@ -136,9 +141,105 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             data={"error": "Connection timeout"},
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
+        result = self.use_case.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.crawler_result, ProjectOnboarding.FAIL)
+
+    # ── URL redirected event ───────────────────────────────────────
+
+    def test_url_redirected_persists_resolved_url_and_notifies_connect(self):
+        dto = CrawlerWebhookDTO(
+            task_id="task-1",
+            event=URL_REDIRECTED_EVENT,
+            timestamp="2026-01-01T00:00:00Z",
+            url="https://mystore.com/",
+            data={
+                "original_url": "https://mystore.com/",
+                "resolved_url": "https://www.mystore.com/",
+            },
+        )
+
+        result = self.use_case.execute(self.onboarding_uuid, dto)
+
+        self.assertEqual(
+            result.config.get("vtex_host_store"), "https://www.mystore.com/"
+        )
+        self.connect_service.update_project_config.assert_called_once_with(
+            project_uuid=str(self.project.uuid),
+            config={"vtex_host_store": "https://www.mystore.com/"},
+        )
+
+    def test_url_redirected_preserves_existing_config(self):
+        self.onboarding.config = {"channels": {"wwc": {"channel_data": {"x": 1}}}}
+        self.onboarding.save()
+
+        dto = CrawlerWebhookDTO(
+            task_id="task-1",
+            event=URL_REDIRECTED_EVENT,
+            timestamp="2026-01-01T00:00:00Z",
+            url="https://mystore.com/",
+            data={
+                "original_url": "https://mystore.com/",
+                "resolved_url": "https://www.mystore.com/",
+            },
+        )
+
+        result = self.use_case.execute(self.onboarding_uuid, dto)
+
+        self.assertEqual(result.config["vtex_host_store"], "https://www.mystore.com/")
+        self.assertEqual(result.config["channels"]["wwc"]["channel_data"], {"x": 1})
+
+    def test_url_redirected_skips_when_resolved_url_missing(self):
+        dto = CrawlerWebhookDTO(
+            task_id="task-1",
+            event=URL_REDIRECTED_EVENT,
+            timestamp="2026-01-01T00:00:00Z",
+            url="https://mystore.com/",
+            data={"original_url": "https://mystore.com/"},
+        )
+
+        result = self.use_case.execute(self.onboarding_uuid, dto)
+
+        self.assertNotIn("vtex_host_store", result.config or {})
+        self.connect_service.update_project_config.assert_not_called()
+
+    def test_url_redirected_skips_connect_when_no_project_linked(self):
+        self.onboarding.project = None
+        self.onboarding.save()
+
+        dto = CrawlerWebhookDTO(
+            task_id="task-1",
+            event=URL_REDIRECTED_EVENT,
+            timestamp="2026-01-01T00:00:00Z",
+            url="https://mystore.com/",
+            data={
+                "original_url": "https://mystore.com/",
+                "resolved_url": "https://www.mystore.com/",
+            },
+        )
+
+        result = self.use_case.execute(self.onboarding_uuid, dto)
+
+        self.assertEqual(result.config["vtex_host_store"], "https://www.mystore.com/")
+        self.connect_service.update_project_config.assert_not_called()
+
+    def test_url_redirected_swallows_connect_failure(self):
+        self.connect_service.update_project_config.side_effect = RuntimeError("boom")
+
+        dto = CrawlerWebhookDTO(
+            task_id="task-1",
+            event=URL_REDIRECTED_EVENT,
+            timestamp="2026-01-01T00:00:00Z",
+            url="https://mystore.com/",
+            data={
+                "original_url": "https://mystore.com/",
+                "resolved_url": "https://www.mystore.com/",
+            },
+        )
+
+        result = self.use_case.execute(self.onboarding_uuid, dto)
+
+        self.assertEqual(result.config["vtex_host_store"], "https://www.mystore.com/")
 
     # ── Edge cases ─────────────────────────────────────────────────
 
@@ -152,4 +253,4 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
         )
 
         with self.assertRaises(ProjectOnboarding.DoesNotExist):
-            UpdateOnboardingProgressUseCase.execute(str(uuid4()), dto)
+            self.use_case.execute(str(uuid4()), dto)
