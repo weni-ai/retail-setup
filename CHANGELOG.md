@@ -1,3 +1,6 @@
+# 5.12.3
+- fix: Add User-Agent header to VTEX webhook hook config
+
 # 5.12.2
 - fix: Set payment recovery template category to MARKETING and standardize logs
 
