@@ -1,3 +1,6 @@
+# 5.13.1
+- fix: Preserve payment_recovery config when creating VTEX hook
+
 # 5.13.0
 - feat: Persist start-setup failure snapshot in onboarding config
 - feat: Handle crawl.url_redirected webhook event
