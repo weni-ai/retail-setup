@@ -417,6 +417,7 @@ class AssignAgentUseCase:
         logger.info(f"[AssignAgent] integrated_agent created={integrated_agent.uuid}")
 
         self._create_credentials(integrated_agent, agent, credentials)
+
         self._create_templates(
             integrated_agent, templates, project_uuid, app_uuid, ignore_templates
         )
@@ -729,10 +730,14 @@ class AssignAgentUseCase:
             )
 
             current_config = integrated_agent.config.copy()
-            current_config["payment_recovery"] = {
-                "webhook_url": webhook_url,
-                "hook_created": True,
-            }
+            payment_recovery_config = current_config.get("payment_recovery", {})
+            payment_recovery_config.update(
+                {
+                    "webhook_url": webhook_url,
+                    "hook_created": True,
+                }
+            )
+            current_config["payment_recovery"] = payment_recovery_config
             integrated_agent.config = current_config
             integrated_agent.save(update_fields=["config"])
 
