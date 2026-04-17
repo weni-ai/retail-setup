@@ -1,7 +1,7 @@
 import logging
 from urllib.parse import urlparse
 
-from typing import List, TypedDict, Mapping, Any, Optional
+from typing import Dict, List, TypedDict, Mapping, Any, Optional
 
 from uuid import UUID
 
@@ -56,6 +56,16 @@ class IntegrationsButtonUrlFormat(TypedDict):
 class IntegrationsButtonFormat(TypedDict):
     type: str
     url: IntegrationsButtonUrlFormat
+
+
+# Settings key -> display_name for agents that manage their own default
+# custom template. Single source of truth used by both the template creation
+# flows and the reserved-names check that prevents customer templates with
+# the same name from shadowing our `weni_<name>_<timestamp>` template.
+AGENT_DEFAULT_TEMPLATE_DISPLAY_NAMES: Dict[str, str] = {
+    "ABANDONED_CART_AGENT_UUID": "Abandoned Cart",
+    "PAYMENT_RECOVERY_AGENT_UUID": "Payment Recovery",
+}
 
 
 class AssignAgentUseCase:
@@ -324,6 +334,20 @@ class AssignAgentUseCase:
                 version.status = "APPROVED"
                 version.save()
 
+    def _get_reserved_display_names(self, agent: Agent) -> List[str]:
+        """
+        Return the display names reserved by this agent's default custom template.
+
+        These names must not be adopted from the customer's WABA by
+        `_create_invalid_templates` — adoption would shadow our
+        `weni_<name>_<timestamp>` template at broadcast time.
+        """
+        reserved: List[str] = []
+        for setting_name, display_name in AGENT_DEFAULT_TEMPLATE_DISPLAY_NAMES.items():
+            if str(agent.uuid) == getattr(settings, setting_name, ""):
+                reserved.append(display_name)
+        return reserved
+
     def _create_templates(
         self,
         integrated_agent: IntegratedAgent,
@@ -340,8 +364,33 @@ class AssignAgentUseCase:
           (or flag for button edit when buttons are present).
         - Invalid pre-approved: fetch user's approved translations and adapt them,
           creating an approved version directly.
+
+        Pre-approved templates whose display_name collides with a default custom
+        template managed by the agent are skipped to avoid shadowing the
+        `weni_<name>_<timestamp>` template we will create later.
         """
         pre_approveds = pre_approveds.exclude(uuid__in=ignore_templates)
+
+        reserved_display_names = self._get_reserved_display_names(
+            integrated_agent.agent
+        )
+        if reserved_display_names:
+            skipped = list(
+                pre_approveds.filter(
+                    display_name__in=reserved_display_names
+                ).values_list("name", flat=True)
+            )
+            if skipped:
+                logger.info(
+                    f"[AssignAgent] Skipping pre-approved templates reserved by "
+                    f"default custom template flow - "
+                    f"agent={integrated_agent.agent.uuid} "
+                    f"reserved={reserved_display_names} skipped={skipped}"
+                )
+                pre_approveds = pre_approveds.exclude(
+                    display_name__in=reserved_display_names
+                )
+
         valid_pre_approveds = pre_approveds.filter(is_valid=True)
         invalid_pre_approveds = pre_approveds.filter(is_valid=False)
 
@@ -534,7 +583,9 @@ class AssignAgentUseCase:
                 "category": "MARKETING",
                 "app_uuid": str(app_uuid),
                 "project_uuid": str(project_uuid),
-                "display_name": "Abandoned Cart",
+                "display_name": AGENT_DEFAULT_TEMPLATE_DISPLAY_NAMES[
+                    "ABANDONED_CART_AGENT_UUID"
+                ],
                 # NOTE: start_condition is derived from parameters by TemplateMetadataHandler
                 "start_condition": "If cart_link is not empty",
                 "parameters": [
@@ -647,7 +698,9 @@ class AssignAgentUseCase:
                 "category": "MARKETING",
                 "app_uuid": str(app_uuid),
                 "project_uuid": str(project_uuid),
-                "display_name": "Payment Recovery",
+                "display_name": AGENT_DEFAULT_TEMPLATE_DISPLAY_NAMES[
+                    "PAYMENT_RECOVERY_AGENT_UUID"
+                ],
                 "start_condition": "If payment_status is pending",
                 "parameters": [
                     {
