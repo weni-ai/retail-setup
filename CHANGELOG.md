@@ -1,3 +1,7 @@
+# 5.13.0
+- feat: Persist start-setup failure snapshot in onboarding config
+- feat: Handle crawl.url_redirected webhook event
+
 # 5.12.3
 - fix: Add User-Agent header to VTEX webhook hook config
 
