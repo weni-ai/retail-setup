@@ -34,6 +34,9 @@ from retail.projects.usecases.onboarding_dto import (
     InstallChannelAgentsDTO,
 )
 from retail.projects.usecases.project_vtex import ProjectVtexConfigUseCase
+from retail.projects.usecases.save_onboarding_failure import (
+    SaveOnboardingFailureUseCase,
+)
 from retail.projects.usecases.start_crawl import CrawlerStartError
 from retail.projects.usecases.start_setup import StartSetupUseCase
 from retail.projects.usecases.update_onboarding_progress import (
@@ -121,7 +124,18 @@ class StartSetupView(KeycloakAPIView):
 
     def post(self, request, vtex_account: str) -> Response:
         serializer = StartSetupSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            logger.warning(
+                f"[StartSetup] Invalid payload for vtex_account={vtex_account}: "
+                f"errors={serializer.errors}"
+            )
+            SaveOnboardingFailureUseCase.execute(
+                vtex_account=vtex_account,
+                stage="start_setup_validation",
+                payload=request.data,
+                errors=serializer.errors,
+            )
+            raise ValidationError(serializer.errors)
 
         channel_data = serializer.validated_data.get("channel_data", {})
 
