@@ -231,6 +231,31 @@ class AssignPaymentRecoveryHookTest(TestCase):
     @patch("retail.agents.domains.agent_integration.usecases.assign.ProxyVtexUsecase")
     @patch("retail.agents.domains.agent_integration.usecases.assign.VtexIOService")
     @override_settings(DOMAIN="https://retail.example.com")
+    def test_create_payment_recovery_hook_preserves_existing_config(
+        self, mock_vtex_service_cls, mock_proxy_cls
+    ):
+        mock_proxy = MagicMock()
+        mock_proxy_cls.return_value = mock_proxy
+
+        self.integrated_agent.config = {
+            "payment_recovery": {
+                "hook_created": False,
+                "delay_minutes": 10,
+            },
+            "country_phone_code": "55",
+        }
+
+        self.use_case._create_payment_recovery_hook(self.integrated_agent)
+
+        saved_config = self.integrated_agent.config
+        self.assertEqual(saved_config["payment_recovery"]["delay_minutes"], 10)
+        self.assertTrue(saved_config["payment_recovery"]["hook_created"])
+        self.assertIn("webhook_url", saved_config["payment_recovery"])
+        self.assertEqual(saved_config["country_phone_code"], "55")
+
+    @patch("retail.agents.domains.agent_integration.usecases.assign.ProxyVtexUsecase")
+    @patch("retail.agents.domains.agent_integration.usecases.assign.VtexIOService")
+    @override_settings(DOMAIN="https://retail.example.com")
     def test_create_payment_recovery_hook_proxy_failure_does_not_raise(
         self, mock_vtex_service_cls, mock_proxy_cls
     ):
