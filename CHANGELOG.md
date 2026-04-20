@@ -1,3 +1,7 @@
+# 5.14.0
+- refactor: Clarify pre-approved template source naming
+- fix: Prevent customer templates from shadowing defaults
+
 # 5.13.1
 - fix: Preserve payment_recovery config when creating VTEX hook
 
