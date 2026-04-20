@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
-from retail.agents.domains.agent_management.models import Agent
+from retail.agents.domains.agent_management.models import Agent, PreApprovedTemplate
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_integration.usecases.assign import AssignAgentUseCase
 from retail.agents.domains.agent_integration.usecases.fetch_country_phone_code import (
@@ -15,6 +15,7 @@ from retail.projects.models import Project
 
 
 PAYMENT_RECOVERY_UUID = str(uuid.uuid4())
+ABANDONED_CART_UUID = str(uuid.uuid4())
 
 
 class AssignPaymentRecoveryBuildConfigTest(TestCase):
@@ -266,3 +267,189 @@ class AssignPaymentRecoveryHookTest(TestCase):
         self.use_case._create_payment_recovery_hook(self.integrated_agent)
 
         self.integrated_agent.save.assert_not_called()
+
+
+class GetReservedDisplayNamesTest(TestCase):
+    def setUp(self):
+        self.mock_fetch_phone_code = MagicMock(spec=FetchCountryPhoneCodeUseCase)
+        self.use_case = AssignAgentUseCase(
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
+        self.project = Project.objects.create(
+            uuid=uuid.uuid4(), name="Test Project", vtex_account="teststore"
+        )
+
+    @override_settings(
+        PAYMENT_RECOVERY_AGENT_UUID=PAYMENT_RECOVERY_UUID,
+        ABANDONED_CART_AGENT_UUID=ABANDONED_CART_UUID,
+    )
+    def test_returns_payment_recovery_for_payment_recovery_agent(self):
+        agent = Agent.objects.create(
+            uuid=PAYMENT_RECOVERY_UUID,
+            name="Payment Recovery",
+            lambda_arn="arn:aws:lambda:fake",
+            project=self.project,
+            credentials={},
+        )
+        reserved = self.use_case._get_reserved_display_names(agent)
+        self.assertEqual(reserved, ["Payment Recovery"])
+
+    @override_settings(
+        PAYMENT_RECOVERY_AGENT_UUID=PAYMENT_RECOVERY_UUID,
+        ABANDONED_CART_AGENT_UUID=ABANDONED_CART_UUID,
+    )
+    def test_returns_abandoned_cart_for_abandoned_cart_agent(self):
+        agent = Agent.objects.create(
+            uuid=ABANDONED_CART_UUID,
+            name="Abandoned Cart",
+            lambda_arn="arn:aws:lambda:fake",
+            project=self.project,
+            credentials={},
+        )
+        reserved = self.use_case._get_reserved_display_names(agent)
+        self.assertEqual(reserved, ["Abandoned Cart"])
+
+    @override_settings(
+        PAYMENT_RECOVERY_AGENT_UUID=PAYMENT_RECOVERY_UUID,
+        ABANDONED_CART_AGENT_UUID=ABANDONED_CART_UUID,
+    )
+    def test_returns_empty_list_for_unrelated_agent(self):
+        agent = Agent.objects.create(
+            name="Generic Agent",
+            lambda_arn="arn:aws:lambda:fake",
+            project=self.project,
+            credentials={},
+        )
+        reserved = self.use_case._get_reserved_display_names(agent)
+        self.assertEqual(reserved, [])
+
+
+class CreateTemplatesSkipReservedDisplayNamesTest(TestCase):
+    def setUp(self):
+        self.mock_fetch_phone_code = MagicMock(spec=FetchCountryPhoneCodeUseCase)
+        self.mock_fetch_phone_code.fetch_locale_info.return_value = VtexLocaleInfo(
+            country_phone_code="55",
+            meta_language="pt_BR",
+            vtex_locale="pt-BR",
+        )
+        self.mock_integrations_service = MagicMock()
+        self.mock_integrations_service.fetch_templates_from_user.return_value = {}
+
+        self.use_case = AssignAgentUseCase(
+            integrations_service=self.mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
+        self.project = Project.objects.create(
+            uuid=uuid.uuid4(), name="Test Project", vtex_account="teststore"
+        )
+        self.agent = Agent.objects.create(
+            uuid=PAYMENT_RECOVERY_UUID,
+            name="Payment Recovery",
+            lambda_arn="arn:aws:lambda:fake",
+            project=self.project,
+            credentials={},
+        )
+        self.integrated_agent = IntegratedAgent.objects.create(
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=uuid.uuid4(),
+            is_active=True,
+        )
+
+    @override_settings(PAYMENT_RECOVERY_AGENT_UUID=PAYMENT_RECOVERY_UUID)
+    def test_pre_approved_matching_reserved_display_name_is_skipped(self):
+        """
+        When the agent owns the "Payment Recovery" display_name, any
+        PreApprovedTemplate with that display_name must be skipped to prevent
+        adoption of a customer's manually created template.
+        """
+        PreApprovedTemplate.objects.create(
+            agent=self.agent,
+            uuid=uuid.uuid4(),
+            slug="payment-recovery",
+            name="payment_recovery",
+            display_name="Payment Recovery",
+            is_valid=False,
+            start_condition="start",
+            metadata={"category": "MARKETING"},
+        )
+        app_uuid = uuid.uuid4()
+
+        self.use_case._create_templates(
+            self.integrated_agent,
+            self.agent.templates.all(),
+            self.project.uuid,
+            app_uuid,
+            [],
+        )
+
+        self.mock_integrations_service.fetch_templates_from_user.assert_called_once_with(
+            app_uuid,
+            str(self.project.uuid),
+            [],
+            self.agent.language,
+        )
+
+    @override_settings(PAYMENT_RECOVERY_AGENT_UUID=PAYMENT_RECOVERY_UUID)
+    def test_pre_approved_with_other_display_name_is_still_processed(self):
+        """Non-reserved pre-approved templates must continue to be processed."""
+        PreApprovedTemplate.objects.create(
+            agent=self.agent,
+            uuid=uuid.uuid4(),
+            slug="order-update",
+            name="order_update",
+            display_name="Order Update",
+            is_valid=False,
+            start_condition="start",
+            metadata={"category": "UTILITY"},
+        )
+        app_uuid = uuid.uuid4()
+
+        self.use_case._create_templates(
+            self.integrated_agent,
+            self.agent.templates.all(),
+            self.project.uuid,
+            app_uuid,
+            [],
+        )
+
+        self.mock_integrations_service.fetch_templates_from_user.assert_called_once_with(
+            app_uuid,
+            str(self.project.uuid),
+            ["order_update"],
+            self.agent.language,
+        )
+
+    @override_settings(PAYMENT_RECOVERY_AGENT_UUID="")
+    def test_reserved_filter_inactive_when_agent_uuid_not_configured(self):
+        """
+        When the agent setting is unset the reserved filter must not drop
+        pre-approved templates — otherwise customer integrations without the
+        env var configured would silently lose adoption behaviour.
+        """
+        PreApprovedTemplate.objects.create(
+            agent=self.agent,
+            uuid=uuid.uuid4(),
+            slug="payment-recovery",
+            name="payment_recovery",
+            display_name="Payment Recovery",
+            is_valid=False,
+            start_condition="start",
+            metadata={"category": "MARKETING"},
+        )
+        app_uuid = uuid.uuid4()
+
+        self.use_case._create_templates(
+            self.integrated_agent,
+            self.agent.templates.all(),
+            self.project.uuid,
+            app_uuid,
+            [],
+        )
+
+        self.mock_integrations_service.fetch_templates_from_user.assert_called_once_with(
+            app_uuid,
+            str(self.project.uuid),
+            ["payment_recovery"],
+            self.agent.language,
+        )

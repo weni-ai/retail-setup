@@ -1,7 +1,7 @@
 import logging
 from urllib.parse import urlparse
 
-from typing import List, TypedDict, Mapping, Any, Optional
+from typing import Dict, List, TypedDict, Mapping, Any, Optional
 
 from uuid import UUID
 
@@ -56,6 +56,16 @@ class IntegrationsButtonUrlFormat(TypedDict):
 class IntegrationsButtonFormat(TypedDict):
     type: str
     url: IntegrationsButtonUrlFormat
+
+
+# Settings key -> display_name for agents that manage their own default
+# custom template. Single source of truth used by both the template creation
+# flows and the reserved-names check that prevents customer templates with
+# the same name from shadowing our `weni_<name>_<timestamp>` template.
+AGENT_DEFAULT_TEMPLATE_DISPLAY_NAMES: Dict[str, str] = {
+    "ABANDONED_CART_AGENT_UUID": "Abandoned Cart",
+    "PAYMENT_RECOVERY_AGENT_UUID": "Payment Recovery",
+}
 
 
 class AssignAgentUseCase:
@@ -225,15 +235,22 @@ class AssignAgentUseCase:
                 },
             )
 
-    def _create_valid_templates(
+    def _create_library_templates(
         self,
         integrated_agent: IntegratedAgent,
-        valid_pre_approveds: List[PreApprovedTemplate],
+        library_pre_approveds: List[PreApprovedTemplate],
         project_uuid: UUID,
         app_uuid: UUID,
     ) -> None:
+        """
+        Instantiate pre-approveds that are available in Meta's Library catalog.
+
+        For each spec, create a local Template+Version and (unless the template
+        has a URL button requiring manual customization) trigger submission to
+        Meta via `CreateLibraryTemplateUseCase.notify_integrations`.
+        """
         create_library_use_case = CreateLibraryTemplateUseCase()
-        for pre_approved in valid_pre_approveds:
+        for pre_approved in library_pre_approveds:
             metadata = pre_approved.metadata or {}
             # TODO: Currently uses metadata.language from validation (fixed pt_BR).
             # To support dynamic language per project, use:
@@ -272,15 +289,24 @@ class AssignAgentUseCase:
             integrated_agent.ignore_templates.append(template.parent.slug)
             integrated_agent.save(update_fields=["ignore_templates"])
 
-    def _create_invalid_templates(
+    def _adopt_customer_templates(
         self,
         integrated_agent: IntegratedAgent,
-        invalid_pre_approveds: List[PreApprovedTemplate],
+        customer_sourced_pre_approveds: List[PreApprovedTemplate],
         project_uuid: UUID,
         app_uuid: UUID,
     ) -> None:
+        """
+        Adopt pre-approveds whose source is the customer's WABA.
+
+        No template is submitted to Meta here — we fetch the customer's
+        approved translations via `integrations_service.fetch_templates_from_user`
+        and register a local Template+Version pointing at the existing Meta
+        template. Specs without a matching customer translation are skipped
+        silently (nothing to adopt yet).
+        """
         logger.info(
-            "Fetching user templates in integrations service (non-pre-approved)..."
+            "Fetching customer-approved translations for customer-sourced pre-approveds..."
         )
 
         template_builder = TemplateBuilderMixin()
@@ -292,15 +318,15 @@ class AssignAgentUseCase:
         translations_by_name = self.integrations_service.fetch_templates_from_user(
             app_uuid,
             str(project_uuid),
-            [pre_approved.name for pre_approved in invalid_pre_approveds],
+            [pre_approved.name for pre_approved in customer_sourced_pre_approveds],
             language,
         )
 
         logger.info(
-            f"Found {len(translations_by_name)} templates in integrations service (non-pre-approved)"
+            f"Found {len(translations_by_name)} customer-approved translations to adopt"
         )
 
-        for pre_approved in invalid_pre_approveds:
+        for pre_approved in customer_sourced_pre_approveds:
             translation = translations_by_name.get(pre_approved.name)
             if translation is not None:
                 template, version = template_builder.build_template_and_version(
@@ -324,6 +350,20 @@ class AssignAgentUseCase:
                 version.status = "APPROVED"
                 version.save()
 
+    def _get_reserved_display_names(self, agent: Agent) -> List[str]:
+        """
+        Return the display names reserved by this agent's default custom template.
+
+        These names must not be adopted from the customer's WABA by
+        `_adopt_customer_templates` — adoption would shadow our
+        `weni_<name>_<timestamp>` template at broadcast time.
+        """
+        reserved: List[str] = []
+        for setting_name, display_name in AGENT_DEFAULT_TEMPLATE_DISPLAY_NAMES.items():
+            if str(agent.uuid) == getattr(settings, setting_name, ""):
+                reserved.append(display_name)
+        return reserved
+
     def _create_templates(
         self,
         integrated_agent: IntegratedAgent,
@@ -335,25 +375,52 @@ class AssignAgentUseCase:
         """
         Create templates for the integrated agent based on PreApprovedTemplate.
 
-        Responsibilities:
-        - Valid pre-approved: create library templates and notify integrations
-          (or flag for button edit when buttons are present).
-        - Invalid pre-approved: fetch user's approved translations and adapt them,
-          creating an approved version directly.
+        Each spec is routed by its source:
+        - Library-sourced (`is_valid=True`): instantiate via Meta Library
+          catalog and submit to Meta (unless a URL button requires manual
+          customization first).
+        - Customer-sourced (`is_valid=False`): reuse a translation the
+          customer already has approved in their WABA, without submitting to
+          Meta. Specs without a matching customer translation are ignored.
+
+        Pre-approveds whose display_name is reserved by the agent's default
+        custom template flow are dropped upfront to avoid shadowing the
+        `weni_<name>_<timestamp>` template we will create later.
         """
         pre_approveds = pre_approveds.exclude(uuid__in=ignore_templates)
-        valid_pre_approveds = pre_approveds.filter(is_valid=True)
-        invalid_pre_approveds = pre_approveds.filter(is_valid=False)
 
-        self._create_valid_templates(
+        reserved_display_names = self._get_reserved_display_names(
+            integrated_agent.agent
+        )
+        if reserved_display_names:
+            skipped = list(
+                pre_approveds.filter(
+                    display_name__in=reserved_display_names
+                ).values_list("name", flat=True)
+            )
+            if skipped:
+                logger.info(
+                    f"[AssignAgent] Skipping pre-approved templates reserved by "
+                    f"default custom template flow - "
+                    f"agent={integrated_agent.agent.uuid} "
+                    f"reserved={reserved_display_names} skipped={skipped}"
+                )
+                pre_approveds = pre_approveds.exclude(
+                    display_name__in=reserved_display_names
+                )
+
+        library_pre_approveds = pre_approveds.filter(is_valid=True)
+        customer_sourced_pre_approveds = pre_approveds.filter(is_valid=False)
+
+        self._create_library_templates(
             integrated_agent,
-            valid_pre_approveds,
+            library_pre_approveds,
             project_uuid,
             app_uuid,
         )
-        self._create_invalid_templates(
+        self._adopt_customer_templates(
             integrated_agent,
-            invalid_pre_approveds,
+            customer_sourced_pre_approveds,
             project_uuid,
             app_uuid,
         )
@@ -534,7 +601,9 @@ class AssignAgentUseCase:
                 "category": "MARKETING",
                 "app_uuid": str(app_uuid),
                 "project_uuid": str(project_uuid),
-                "display_name": "Abandoned Cart",
+                "display_name": AGENT_DEFAULT_TEMPLATE_DISPLAY_NAMES[
+                    "ABANDONED_CART_AGENT_UUID"
+                ],
                 # NOTE: start_condition is derived from parameters by TemplateMetadataHandler
                 "start_condition": "If cart_link is not empty",
                 "parameters": [
@@ -647,7 +716,9 @@ class AssignAgentUseCase:
                 "category": "MARKETING",
                 "app_uuid": str(app_uuid),
                 "project_uuid": str(project_uuid),
-                "display_name": "Payment Recovery",
+                "display_name": AGENT_DEFAULT_TEMPLATE_DISPLAY_NAMES[
+                    "PAYMENT_RECOVERY_AGENT_UUID"
+                ],
                 "start_condition": "If payment_status is pending",
                 "parameters": [
                     {
