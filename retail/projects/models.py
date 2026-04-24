@@ -6,6 +6,8 @@ from django.db.models.signals import post_save, pre_delete, pre_save
 from django.dispatch import receiver
 from django.core.cache import cache
 
+from retail.agents.shared.cache import IntegratedAgentCacheHandlerRedis
+
 logger = logging.getLogger(__name__)
 
 
@@ -16,6 +18,7 @@ class Project(models.Model):
     vtex_account = models.CharField(max_length=100, null=True, blank=True)
     language = models.CharField(max_length=64, null=True, blank=True)
     config = models.JSONField(default=dict)
+    is_blocked = models.BooleanField(default=False, db_index=True)
 
     def __str__(self) -> str:
         return f"{self.name} [VTEX] {self.vtex_account}"
@@ -36,6 +39,16 @@ class Project(models.Model):
             cache.delete(f"project_by_uuid_{self.uuid}")
         if self.vtex_account:
             cache.delete(f"project_by_vtex_account_{self.vtex_account}")
+
+    def clear_integrated_agents_cache(self) -> None:
+        """
+        Clears the IntegratedAgent webhook cache for every agent linked to
+        this project. Used when a project-wide flag (e.g. is_blocked) changes
+        and cached IntegratedAgent instances must re-read the new state.
+        """
+        IntegratedAgentCacheHandlerRedis().clear_cached_agents(
+            self.integrated_agents.values_list("uuid", flat=True)
+        )
 
 
 class ProjectOnboarding(models.Model):

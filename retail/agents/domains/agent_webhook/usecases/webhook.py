@@ -44,15 +44,28 @@ class AgentWebhookUseCase:
         cached_integrated_agent = self.cache_handler.get_cached_agent(uuid)
 
         if cached_integrated_agent is not None:
+            if self._is_project_blocked(cached_integrated_agent):
+                logger.info(f"Project is blocked, skipping cached agent: {uuid}")
+                return None
             return cached_integrated_agent
 
         try:
             db_integrated_agent = IntegratedAgent.objects.get(uuid=uuid, is_active=True)
-            self.cache_handler.set_cached_agent(db_integrated_agent)
-            return db_integrated_agent
         except IntegratedAgent.DoesNotExist:
             logger.info(f"Integrated agent not found: {uuid}")
             return None
+
+        if self._is_project_blocked(db_integrated_agent):
+            logger.info(f"Project is blocked, skipping agent: {uuid}")
+            return None
+
+        self.cache_handler.set_cached_agent(db_integrated_agent)
+        return db_integrated_agent
+
+    @staticmethod
+    def _is_project_blocked(integrated_agent: IntegratedAgent) -> bool:
+        """Return True when the agent's project is flagged as blocked."""
+        return integrated_agent.project.is_blocked
 
     def _addapt_credentials(self, integrated_agent: IntegratedAgent) -> Dict[str, str]:
         """Convert integrated agent credentials to dictionary format."""

@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     "retail.vtex",
     "retail.templates",
     "retail.agents",
+    "retail.broadcasts",
 ]
 
 MIDDLEWARE = [
@@ -178,6 +179,9 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Event Driven Architecture configurations
 
 USE_EDA = env.bool("USE_EDA", default=False)
+
+# Per-project cap of delivered broadcasts; on reach, triggers trial suspension.
+RETAIL_TRIAL_BROADCAST_LIMIT = env.int("RETAIL_TRIAL_BROADCAST_LIMIT", default=100)
 
 ACTION_TYPES = env.json("ACTION_TYPES", default={})
 

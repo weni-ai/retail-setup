@@ -33,6 +33,7 @@ class AgentWebhookUseCaseTest(TestCase):
         self.mock_agent.ignore_templates = False
         self.mock_agent.project.uuid = uuid4()
         self.mock_agent.project.vtex_account = "test_account"
+        self.mock_agent.project.is_blocked = False
         self.mock_agent.agent.lambda_arn = (
             "arn:aws:lambda:region:account-id:function:function-name"
         )
@@ -93,6 +94,7 @@ class AgentWebhookUseCaseTest(TestCase):
     )
     def test_get_integrated_agent_found(self, mock_get):
         mock_agent = MagicMock()
+        mock_agent.project.is_blocked = False
         mock_get.return_value = mock_agent
         test_uuid = uuid4()
 
@@ -241,6 +243,7 @@ class AgentWebhookUseCaseTest(TestCase):
         mock_agent = MagicMock()
         test_uuid = uuid4()
         mock_agent.uuid = test_uuid
+        mock_agent.project.is_blocked = False
 
         self.mock_cache_handler.set_cached_agent(mock_agent)
 
@@ -256,6 +259,7 @@ class AgentWebhookUseCaseTest(TestCase):
         mock_agent = MagicMock()
         test_uuid = uuid4()
         mock_agent.uuid = test_uuid
+        mock_agent.project.is_blocked = False
         mock_get.return_value = mock_agent
 
         result = self.usecase._get_integrated_agent(test_uuid)
@@ -286,6 +290,7 @@ class AgentWebhookUseCaseTest(TestCase):
         mock_agent = MagicMock()
         test_uuid = uuid4()
         mock_agent.uuid = test_uuid
+        mock_agent.project.is_blocked = False
         mock_get.return_value = mock_agent
 
         self.mock_cache_handler.cache[str(test_uuid)] = None
