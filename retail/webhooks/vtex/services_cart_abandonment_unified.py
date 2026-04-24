@@ -29,6 +29,10 @@ from retail.clients.exceptions import CustomAPIException
 from retail.clients.vtex_io.client import VtexIOClient
 
 
+# VTEX order statuses that count as a finalized purchase.
+PURCHASED_ORDER_STATUSES = frozenset({"invoiced"})
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -281,18 +285,32 @@ class CartAbandonmentService(BaseVtexUseCase):
             return
 
         recent_orders = orders.get("list", [])[:5]
+        invoiced_orders = self._filter_invoiced_orders(recent_orders)
 
-        if self._check_recent_purchases_for_cart_items(cart, recent_orders):
+        if not invoiced_orders:
+            logger.info(
+                f"[CART_SERVICE] No invoiced orders among recent ones: {log_context} "
+                f"recent_orders_checked={len(recent_orders)} "
+                f"recent_statuses={[o.get('status') for o in recent_orders]} "
+                f"action=mark_as_abandoned reason=no_purchased_status_found"
+            )
+            self._mark_cart_as_abandoned(
+                cart, order_form, client_profile, integration_config
+            )
+            return
+
+        if self._check_recent_purchases_for_cart_items(cart, invoiced_orders):
             logger.info(
                 f"[CART_SERVICE] Cart items already purchased: {log_context} "
-                f"final_status=purchased reason=items_found_in_recent_orders"
+                f"final_status=purchased reason=items_found_in_invoiced_orders "
+                f"invoiced_orders_checked={len(invoiced_orders)}"
             )
             self._update_cart_status(cart, "purchased")
             return
 
         logger.info(
-            f"[CART_SERVICE] Orders found but items not purchased: {log_context} "
-            f"recent_orders_checked={len(recent_orders)} action=mark_as_abandoned"
+            f"[CART_SERVICE] Invoiced orders found but items not purchased: {log_context} "
+            f"invoiced_orders_checked={len(invoiced_orders)} action=mark_as_abandoned"
         )
         self._mark_cart_as_abandoned(
             cart, order_form, client_profile, integration_config
@@ -889,61 +907,73 @@ class CartAbandonmentService(BaseVtexUseCase):
         )
         return False
 
+    @staticmethod
+    def _filter_invoiced_orders(recent_orders: list) -> list:
+        """Return the subset of ``recent_orders`` whose status is in ``PURCHASED_ORDER_STATUSES``."""
+        return [
+            order
+            for order in recent_orders
+            if order.get("status") in PURCHASED_ORDER_STATUSES
+        ]
+
     def _check_recent_purchases_for_cart_items(
         self, cart: Cart, recent_orders: list
     ) -> bool:
         """
         Check if any of the cart's items have been purchased in recent orders.
 
-        This method:
-        1. Extracts order IDs from recent orders
-        2. Fetches detailed order information for each order
-        3. Compares cart items with order items
-        4. Returns True if any overlap is found
+        Fetches detailed information for each order and compares its items
+        with the cart items, returning True at the first overlap found.
+
+        Callers must pre-filter ``recent_orders`` by status (see
+        ``PURCHASED_ORDER_STATUSES``); this method does not validate status.
 
         Args:
             cart (Cart): The cart being processed.
-            recent_orders (list): List of recent orders from the user.
+            recent_orders (list): Recent orders already filtered by status.
 
         Returns:
-            bool: True if any cart items were found in recent purchases.
+            bool: True if any cart item is found in a recent order.
         """
         cart_items = cart.config.get("cart_items", [])
         if not cart_items:
             logger.info(f"Cart {cart.uuid} has no products to compare")
             return False
 
-        # Extract order IDs from recent orders
-        order_ids = []
+        orders_to_fetch = []
         for order in recent_orders:
             order_id = order.get("orderId")
             if order_id:
-                order_ids.append(order_id)
+                orders_to_fetch.append(
+                    {"orderId": order_id, "status": order.get("status")}
+                )
 
-        if not order_ids:
+        if not orders_to_fetch:
             logger.info(
                 f"No valid order IDs found in recent orders for cart {cart.uuid}"
             )
             return False
 
         logger.info(
-            f"Checking {len(order_ids)} recent orders for cart {cart.uuid}: {order_ids}"
+            f"Checking {len(orders_to_fetch)} recent orders for cart {cart.uuid}: "
+            f"{[o['orderId'] for o in orders_to_fetch]}"
         )
 
         # Store recent orders details for logging/debugging
         recent_orders_details = []
 
-        # Fetch detailed order information for each order
-        for order_id in order_ids:
+        for order_meta in orders_to_fetch:
+            order_id = order_meta["orderId"]
             try:
                 logger.info(f"Fetching details for order {order_id}")
                 order_details = self._fetch_order_details_by_id(cart, order_id)
                 if order_details:
-                    # Store order details for logging
                     recent_orders_details.append(
                         {
                             "orderId": order_id,
                             "orderFormId": order_details.get("orderFormId"),
+                            "status": order_details.get("status")
+                            or order_meta.get("status"),
                             "items": order_details.get("itemMetadata", {}).get(
                                 "Items", []
                             ),
@@ -955,7 +985,6 @@ class CartAbandonmentService(BaseVtexUseCase):
                             f"Found matching products in order {order_id} for cart {cart.uuid}"
                         )
 
-                        # Store recent orders in cart config for debugging
                         cart.config["recent_orders_checked"] = recent_orders_details
                         cart.save()
                         logger.info(
@@ -968,7 +997,6 @@ class CartAbandonmentService(BaseVtexUseCase):
                 logger.error(f"Error fetching order details for {order_id}: {str(e)}")
                 continue
 
-        # Store recent orders in cart config even if no match found (for debugging)
         cart.config["recent_orders_checked"] = recent_orders_details
         cart.save()
         logger.info(
