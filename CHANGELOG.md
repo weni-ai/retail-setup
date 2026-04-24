@@ -1,3 +1,6 @@
+# 5.15.0
+- fix: Only treat invoiced VTEX orders as confirmed purchase
+
 # 5.14.0
 - refactor: Clarify pre-approved template source naming
 - fix: Prevent customer templates from shadowing defaults
