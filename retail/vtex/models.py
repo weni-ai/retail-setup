@@ -16,6 +16,10 @@ class Cart(models.Model):
         ("skipped_identical_cart", "Skipped Identical Cart"),
         ("skipped_abandoned_cart_cooldown", "Skipped Abandoned Cart Cooldown"),
         ("skipped_below_minimum_value", "Skipped Below Minimum Value"),
+        (
+            "skipped_order_form_already_notified",
+            "Skipped Order Form Already Notified",
+        ),
     ]
 
     uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
@@ -23,7 +27,7 @@ class Cart(models.Model):
     created_on = models.DateTimeField(auto_now_add=True)
     modified_on = models.DateTimeField(auto_now=True)
     status = models.CharField(
-        max_length=35,
+        max_length=50,
         choices=STATUS_CHOICES,
         default="created",
         verbose_name="Status of Cart",

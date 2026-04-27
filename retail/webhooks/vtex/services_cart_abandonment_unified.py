@@ -32,6 +32,9 @@ from retail.clients.vtex_io.client import VtexIOClient
 # VTEX order statuses that count as a finalized purchase.
 PURCHASED_ORDER_STATUSES = frozenset({"invoiced"})
 
+# Lookback window aligned with the Cart cleanup task TTL.
+ORDER_FORM_DEDUPLICATION_WINDOW = timedelta(days=15)
+
 
 logger = logging.getLogger(__name__)
 
@@ -353,6 +356,16 @@ class CartAbandonmentService(BaseVtexUseCase):
             if self._check_minimum_cart_value(cart, integration_config):
                 # Log is already inside the method, just return
                 return
+
+        # Skip when this order form already produced a successful notification
+        if self._check_order_form_already_notified(cart):
+            logger.info(
+                f"[CART_SERVICE] SKIP - Order form already notified: {log_context} "
+                f"final_status=skipped_order_form_already_notified "
+                f"reason=order_form_delivered_within_window"
+            )
+            self._update_cart_status(cart, "skipped_order_form_already_notified")
+            return
 
         # Check if abandoned cart notification cooldown is configured and should be applied
         if self._check_abandoned_cart_notification_cooldown(cart, integration_config):
@@ -765,6 +778,51 @@ class CartAbandonmentService(BaseVtexUseCase):
         logger.info(
             f"[CART_SERVICE] Minimum value check passed: {log_context} "
             f"cart_value_brl={cart_total_brl:.2f} minimum_value_brl={minimum_value:.2f}"
+        )
+        return False
+
+    def _check_order_form_already_notified(self, cart: Cart) -> bool:
+        """
+        Return True when this order form already produced a successful
+        notification within ``ORDER_FORM_DEDUPLICATION_WINDOW``.
+
+        Same order form lingering on the user's browser must not trigger
+        repeated notifications. The window matches the Cart cleanup task
+        TTL so the rule degrades gracefully if the cleanup is delayed.
+        """
+        log_context = _build_log_context(cart)
+
+        if not cart.order_form_id:
+            logger.info(
+                f"[CART_SERVICE] Order form dedup skipped: {log_context} "
+                f"reason=cart_without_order_form_id"
+            )
+            return False
+
+        window_start = timezone.now() - ORDER_FORM_DEDUPLICATION_WINDOW
+        previous_cart = (
+            Cart.objects.filter(
+                order_form_id=cart.order_form_id,
+                project=cart.project,
+                status="delivered_success",
+                modified_on__gte=window_start,
+            )
+            .exclude(uuid=cart.uuid)
+            .first()
+        )
+
+        if previous_cart:
+            logger.info(
+                f"[CART_SERVICE] Order form dedup HIT: {log_context} "
+                f"previous_cart_uuid={previous_cart.uuid} "
+                f"previous_sent_at={previous_cart.modified_on} "
+                f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days}"
+            )
+            return True
+
+        logger.info(
+            f"[CART_SERVICE] Order form dedup PASSED: {log_context} "
+            f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days}"
         )
         return False
 
