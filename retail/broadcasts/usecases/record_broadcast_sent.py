@@ -60,10 +60,10 @@ class RecordBroadcastSentUseCase:
         if is_failure and not error_message:
             error_message = "Flows response missing broadcast_id"
             logger.error(
-                "Broadcast dispatched without broadcast_id in Flows response. "
-                f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
-                f"Agent: {integrated_agent.uuid}, Template: {template_name}, "
-                f"Response: {dto.flows_response}"
+                f"[BROADCAST_TRACKING] dispatch_failed: missing broadcast_id "
+                f"project_uuid={project_uuid} vtex_account={vtex_account} "
+                f"agent_uuid={integrated_agent.uuid} template={template_name} "
+                f"response={dto.flows_response}"
             )
 
         broadcast_message = BroadcastMessage.objects.create(
@@ -81,12 +81,12 @@ class RecordBroadcastSentUseCase:
         )
 
         logger.info(
-            f"BroadcastMessage recorded. "
-            f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
-            f"Agent: {integrated_agent.uuid}, Template: {template_name}, "
-            f"Status: {status}, broadcast_id={dto.broadcast_id}, "
-            f"contact_urn={dto.contact_urn}, "
-            f"broadcast_uuid={broadcast_message.uuid}"
+            f"[BROADCAST_TRACKING] recorded: "
+            f"broadcast_uuid={broadcast_message.uuid} "
+            f"status={status} broadcast_id={dto.broadcast_id} "
+            f"project_uuid={project_uuid} vtex_account={vtex_account} "
+            f"agent_uuid={integrated_agent.uuid} template={template_name} "
+            f"contact_urn={dto.contact_urn}"
         )
 
         return broadcast_message

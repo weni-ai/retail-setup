@@ -86,10 +86,10 @@ class HandleStatusUpdateUseCase:
                 # message_id than what we already stored. Indicates an
                 # unexpected re-send or courier bug.
                 logger.warning(
-                    f"Conflicting external_message_id for broadcast_id={broadcast_id}: "
-                    f"existing={message.external_message_id} "
-                    f"incoming={event.message_id} "
-                    f"status={event.status}"
+                    f"[BROADCAST_TRACKING] message_id_conflict: "
+                    f"broadcast_uuid={message.uuid} broadcast_id={broadcast_id} "
+                    f"existing_message_id={message.external_message_id} "
+                    f"incoming_message_id={event.message_id} status={event.status}"
                 )
 
             message.external_message_id = event.message_id
@@ -99,11 +99,9 @@ class HandleStatusUpdateUseCase:
             )
 
             logger.info(
-                "WhatsApp message from Meta API linked to broadcast. "
-                f"broadcast_id={broadcast_id} "
-                f"message_id={event.message_id} "
-                f"status={event.status} "
-                f"broadcast_uuid={message.uuid}"
+                f"[BROADCAST_TRACKING] linked: "
+                f"broadcast_uuid={message.uuid} broadcast_id={broadcast_id} "
+                f"message_id={event.message_id} status={event.status}"
             )
 
             if event.status:
@@ -132,10 +130,9 @@ class HandleStatusUpdateUseCase:
                 return
 
             logger.info(
-                "Status event received for tracked broadcast. "
-                f"message_id={message_id} "
-                f"status={event.status} "
-                f"broadcast_uuid={message.uuid}"
+                f"[BROADCAST_TRACKING] status_received: "
+                f"broadcast_uuid={message.uuid} message_id={message_id} "
+                f"status={event.status}"
             )
 
             self._apply_status_transition(message, event)
@@ -158,8 +155,9 @@ class HandleStatusUpdateUseCase:
         valid_values = {choice for choice, _ in BroadcastStatus.choices}
         if new_status not in valid_values:
             logger.warning(
-                f"Unrecognized status '{new_status}' from courier; "
-                f"saving as UNKNOWN. broadcast_uuid={message.uuid}"
+                f"[BROADCAST_TRACKING] status_unknown: "
+                f"broadcast_uuid={message.uuid} raw_status='{new_status}' "
+                f"saved_as={BroadcastStatus.UNKNOWN}"
             )
             new_status = BroadcastStatus.UNKNOWN
 
@@ -179,8 +177,9 @@ class HandleStatusUpdateUseCase:
         )
 
         logger.info(
-            f"Status transition: {previous_status} → {new_status}. "
-            f"broadcast_uuid={message.uuid}"
+            f"[BROADCAST_TRACKING] status_transition: "
+            f"broadcast_uuid={message.uuid} "
+            f"previous_status={previous_status} new_status={new_status}"
         )
 
         is_first_delivery = (
@@ -191,12 +190,14 @@ class HandleStatusUpdateUseCase:
             self._increment_broadcast_counter_and_maybe_block(
                 project_id=message.project_id,
                 integrated_agent_id=message.integrated_agent_id,
+                broadcast_uuid=message.uuid,
             )
 
     def _increment_broadcast_counter_and_maybe_block(
         self,
         project_id: int,
         integrated_agent_id: Optional[str],
+        broadcast_uuid,
     ) -> None:
         """Increment the delivered counters and re-evaluate the block guard.
 
@@ -216,12 +217,27 @@ class HandleStatusUpdateUseCase:
             updated_at=timezone.now(),
         )
 
+        agent_total: Optional[int] = None
         if integrated_agent_id is not None:
             IntegratedAgent.objects.filter(uuid=integrated_agent_id).update(
                 broadcasts_delivered=F("broadcasts_delivered") + 1,
             )
+            agent_total = (
+                IntegratedAgent.objects.filter(uuid=integrated_agent_id)
+                .values_list("broadcasts_delivered", flat=True)
+                .first()
+            )
 
         counter.refresh_from_db(fields=["total_delivered", "blocked_at"])
+
+        logger.info(
+            f"[BROADCAST_TRACKING] counters_incremented: "
+            f"broadcast_uuid={broadcast_uuid} "
+            f"project_uuid={counter.project.uuid} "
+            f"project_total_delivered={counter.total_delivered} "
+            f"agent_uuid={integrated_agent_id} "
+            f"agent_total_delivered={agent_total}"
+        )
 
         if self.limit_guard.should_block(counter):
             self.limit_guard.trigger_block(project_id)

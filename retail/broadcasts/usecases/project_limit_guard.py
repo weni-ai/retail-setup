@@ -44,11 +44,13 @@ class ProjectLimitGuard:
     def should_block(self, counter: ProjectBroadcastCounter) -> bool:
         """Return True when the counter has reached the project-specific
         limit (or global fallback) and the project is not yet blocked."""
+        project_uuid = counter.project.uuid
         limit = self.limit_resolver.resolve(counter.project)
+
         if not limit:
             logger.debug(
-                "Broadcast limit disabled; skipping block check. "
-                f"project_id={counter.project_id}"
+                f"[BROADCAST_TRACKING] block_check_skipped: "
+                f"project_uuid={project_uuid} reason=limit_disabled"
             )
             return False
 
@@ -56,10 +58,19 @@ class ProjectLimitGuard:
         reached_limit = counter.total_delivered >= limit
 
         logger.debug(
-            "Block check: "
-            f"project_id={counter.project_id} total_delivered={counter.total_delivered} "
-            f"limit={limit} already_blocked={already_blocked}"
+            f"[BROADCAST_TRACKING] block_check: "
+            f"project_uuid={project_uuid} "
+            f"total_delivered={counter.total_delivered} "
+            f"limit={limit} already_blocked={already_blocked} "
+            f"reached_limit={reached_limit}"
         )
+
+        if reached_limit and not already_blocked:
+            logger.warning(
+                f"[BROADCAST_TRACKING] limit_reached: "
+                f"project_uuid={project_uuid} "
+                f"total_delivered={counter.total_delivered} limit={limit}"
+            )
 
         return not already_blocked and reached_limit
 
@@ -82,14 +93,17 @@ class ProjectLimitGuard:
             )
             if counter is None:
                 logger.warning(
-                    f"ProjectBroadcastCounter not found for project_id={project_id} "
-                    f"while triggering block."
+                    f"[BROADCAST_TRACKING] block_skipped_no_counter: "
+                    f"project_id={project_id}"
                 )
                 return
 
+            project_uuid = str(counter.project.uuid)
+
             if counter.blocked_at is not None:
                 logger.info(
-                    f"Project already blocked, skipping. project_id={project_id}"
+                    f"[BROADCAST_TRACKING] already_blocked: "
+                    f"project_uuid={project_uuid}"
                 )
                 return
 
@@ -101,13 +115,12 @@ class ProjectLimitGuard:
                 project.is_blocked = True
                 project.save(update_fields=["is_blocked"])
 
-            project_uuid = str(project.uuid)
             limit = self.limit_resolver.resolve(project) or 0
 
         self._invalidate_caches(project)
 
-        logger.info(
-            f"Project blocked locally due to trial broadcast limit. "
+        logger.warning(
+            f"[BROADCAST_TRACKING] project_blocked: "
             f"project_uuid={project_uuid} broadcast_limit={limit} "
             f"total_delivered={counter.total_delivered}"
         )
@@ -119,4 +132,7 @@ class ProjectLimitGuard:
             project.clear_cache()
             project.clear_integrated_agents_cache()
         except Exception as exc:
-            logger.warning(f"Failed to clear caches for project {project.uuid}: {exc}")
+            logger.warning(
+                f"[BROADCAST_TRACKING] cache_invalidation_failed: "
+                f"project_uuid={project.uuid} error={exc}"
+            )

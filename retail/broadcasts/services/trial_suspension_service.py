@@ -32,9 +32,9 @@ class TrialSuspensionService:
     """
 
     def suspend(self, project_uuid: str, limit: int) -> None:
-        logger.info(
-            "Trial suspension placeholder: broadcast limit reached. "
-            f"project_uuid={project_uuid} broadcast_limit={limit}. "
-            "Local block applied; remote Connect suspension not implemented "
-            "yet (pending feature/suspend-trial-project merge)."
+        logger.warning(
+            f"[BROADCAST_TRACKING] suspension_placeholder: "
+            f"project_uuid={project_uuid} broadcast_limit={limit} "
+            f"local_block=applied remote_connect_suspension=not_implemented "
+            f"reason=pending_feature_suspend_trial_project_merge"
         )

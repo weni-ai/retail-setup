@@ -13,11 +13,14 @@ class TrialSuspensionServiceTest(TestCase):
         service = TrialSuspensionService()
 
         with self.assertLogs(
-            "retail.broadcasts.services.trial_suspension_service", level="INFO"
+            "retail.broadcasts.services.trial_suspension_service", level="WARNING"
         ) as captured:
             service.suspend(project_uuid="project-1", limit=100)
 
         self.assertTrue(
-            any("Trial suspension placeholder" in line for line in captured.output)
+            any(
+                "[BROADCAST_TRACKING] suspension_placeholder" in line
+                for line in captured.output
+            )
         )
         self.assertTrue(any("project-1" in line for line in captured.output))

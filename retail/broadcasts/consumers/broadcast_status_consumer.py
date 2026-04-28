@@ -43,13 +43,11 @@ class BroadcastStatusConsumer(EDAConsumer):  # pragma: no cover
         return handler
 
     def consume(self, message: amqp.Message):
-        logger.info(
-            f"[BroadcastStatusConsumer] - Consuming a message. Body: {message.body}"
-        )
+        logger.info(f"[BROADCAST_TRACKING] consume_event: body={message.body}")
         try:
             body = JSONParser.parse(message.body)
         except Exception as exc:
-            logger.error(f"[BroadcastStatusConsumer] - Failed to parse payload: {exc}")
+            logger.error(f"[BROADCAST_TRACKING] consume_parse_failed: error={exc}")
             self.ack()
             return
 
@@ -59,7 +57,7 @@ class BroadcastStatusConsumer(EDAConsumer):  # pragma: no cover
             self.ack()
         except Exception as exc:
             logger.exception(
-                f"[BroadcastStatusConsumer] - Error processing message: {exc}"
+                f"[BROADCAST_TRACKING] consume_processing_failed: error={exc}"
             )
             self.nack()
 
@@ -77,8 +75,8 @@ class BroadcastStatusConsumer(EDAConsumer):  # pragma: no cover
                 broadcast_id = int(raw_broadcast_id)
             except (TypeError, ValueError):
                 logger.warning(
-                    f"[BroadcastStatusConsumer] - Unexpected broadcast_id: "
-                    f"{raw_broadcast_id!r}"
+                    f"[BROADCAST_TRACKING] consume_invalid_broadcast_id: "
+                    f"raw={raw_broadcast_id!r}"
                 )
 
         message_id = body.get("message_id") or None
