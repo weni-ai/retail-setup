@@ -137,8 +137,15 @@ class AgentWebhookUseCase:
             logger.exception(f"Unexpected error while building broadcast message: {e}")
             return None
 
-    def execute(self, integrated_agent: IntegratedAgent, data: "RequestData") -> None:
-        """Execute agent webhook broadcast process."""
+    def execute(
+        self, integrated_agent: IntegratedAgent, data: "RequestData"
+    ) -> Optional[Dict[str, Any]]:
+        """Execute agent webhook broadcast process.
+
+        Returns the Lambda response dict when the broadcast was successfully
+        dispatched to Flows, or None when it was not sent for any reason
+        (sampling, restrictions, Lambda failures, etc.).
+        """
         logger.info(f"Executing broadcast for agent: {integrated_agent.uuid}")
 
         if not self._should_send_broadcast(integrated_agent):
@@ -156,3 +163,5 @@ class AgentWebhookUseCase:
             logger.info(
                 f"Successfully executed broadcast for agent: {integrated_agent.uuid}"
             )
+
+        return result

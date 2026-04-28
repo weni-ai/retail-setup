@@ -128,7 +128,10 @@ class AgentWebhookUseCaseTest(TestCase):
 
         result = self.usecase.execute(self.mock_agent, MagicMock())
 
-        self.assertIsNone(result)
+        # On success, execute returns the Lambda response so callers (e.g. the
+        # cart abandonment service) can tell that the broadcast was dispatched.
+        self.assertIsNotNone(result)
+        self.assertIs(result, mock_response)
         self.mock_broadcast_handler.send_message.assert_called_once()
 
     def test_execute_should_not_send_broadcast(self):
@@ -148,9 +151,21 @@ class AgentWebhookUseCaseTest(TestCase):
         self.assertIsNone(result)
 
     def test_execute_template_not_active(self):
-        self.mock_agent.templates.get.return_value.is_active = False
+        # build_message returning None simulates the template lookup failing
+        # (e.g. inactive or without an approved current_version).
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:123",
+        }
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = None
+
         result = self.usecase.execute(self.mock_agent, MagicMock())
+
         self.assertIsNone(result)
+        self.mock_broadcast_handler.send_message.assert_not_called()
 
     def test_execute_contact_not_allowed(self):
         mock_response = {"Payload": MagicMock()}

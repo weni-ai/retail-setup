@@ -489,11 +489,24 @@ class CartAbandonmentService(BaseVtexUseCase):
                 "cart_items": cart_data.cart_items,
             }
 
-            task_agent_webhook(
+            result = task_agent_webhook(
                 integrated_agent_uuid=str(integrated_agent.uuid),
                 payload=payload,
                 params={},  # Empty params - all data is in payload
             )
+
+            if result is None:
+                logger.info(
+                    "CartAbandonmentService: AGENT flow did not dispatch broadcast for cart=%s"
+                    " (sampling, restrictions, Lambda failure or template issue)",
+                    cart.uuid,
+                )
+                self._update_cart_status(
+                    cart,
+                    "delivered_error",
+                    "Broadcast not dispatched: agent flow returned no result.",
+                )
+                return False
 
             self._update_cart_status(cart, "delivered_success")
             logger.info(

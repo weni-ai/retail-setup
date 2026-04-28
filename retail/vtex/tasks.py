@@ -170,7 +170,7 @@ def task_agent_webhook(integrated_agent_uuid: str, payload: dict, params: dict):
     request_data.set_credentials(credentials)
     request_data.set_ignored_official_rules(integrated_agent.ignore_templates)
 
-    use_case.execute(integrated_agent, request_data)
+    return use_case.execute(integrated_agent, request_data)
 
 
 @shared_task
