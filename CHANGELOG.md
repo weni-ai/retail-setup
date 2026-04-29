@@ -1,3 +1,7 @@
+# 5.16.0
+- fix: Skip duplicate order status events
+- fix: Skip abandoned cart notification when order form already notified
+
 # 5.15.0
 - fix: Only treat invoiced VTEX orders as confirmed purchase
 
