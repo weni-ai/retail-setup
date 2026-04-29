@@ -141,9 +141,51 @@ class AgentOrderStatusUpdateUsecase:
             )
             return None
 
+    def _is_duplicate_event(
+        self,
+        integrated_agent: IntegratedAgent,
+        order_status_dto: OrderStatusDTO,
+    ) -> bool:
+        """
+        Check whether an identical order status event was already processed
+        within ORDER_STATUS_DUPLICATE_WINDOW_SECONDS.
+
+        An "identical event" is uniquely defined by:
+        project + integrated agent + order id + current state.
+
+        Returns:
+            True: an identical event is already registered in cache, so this
+                call should be treated as a duplicate and skipped.
+            False: the event is new within the window and has just been
+                registered; processing should continue.
+        """
+        cache_key = (
+            f"order_status_event:"
+            f"{integrated_agent.project_id}:"
+            f"{integrated_agent.uuid}:"
+            f"{order_status_dto.orderId}:"
+            f"{order_status_dto.currentState}"
+        )
+        event_registered_now = cache.add(
+            cache_key,
+            1,
+            timeout=settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS,
+        )
+        return not event_registered_now
+
     def execute(
         self, integrated_agent: IntegratedAgent, order_status_dto: OrderStatusDTO
     ) -> None:
+        if self._is_duplicate_event(integrated_agent, order_status_dto):
+            logger.info(
+                f"Skipping duplicate order status event within dedup window. "
+                f"agent={integrated_agent.uuid} "
+                f"order_id={order_status_dto.orderId} "
+                f"current_state={order_status_dto.currentState} "
+                f"vtex_account={order_status_dto.vtexAccount}"
+            )
+            return
+
         logger.info(
             f"Starting execution for integrated agent: {integrated_agent.uuid} "
             f"and order ID: {order_status_dto.orderId}"

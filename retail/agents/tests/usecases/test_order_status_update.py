@@ -22,6 +22,7 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         self.mock_project.uuid = uuid4()
         self.mock_integrated_agent = MagicMock(spec=IntegratedAgent)
         self.mock_integrated_agent.uuid = uuid4()
+        self.mock_integrated_agent.project_id = 12345
         self.mock_integrated_agent.ignore_templates = False
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
@@ -249,13 +250,22 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
             vtex_account="vtex_account"
         )
 
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
     @patch(
         "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
     )
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.RequestData")
     def test_execute_calls_agent_webhook_use_case(
-        self, mock_request_data_cls, mock_agent_webhook_use_case_cls
+        self,
+        mock_request_data_cls,
+        mock_agent_webhook_use_case_cls,
+        mock_cache,
+        mock_settings,
     ):
+        mock_settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = 60
+        mock_cache.add.return_value = True
+
         mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
         mock_order_status_dto.orderId = "order-id"
         mock_order_status_dto.domain = "test-domain"
@@ -293,6 +303,115 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         mock_agent_webhook_use_case.execute.assert_called_once_with(
             self.mock_integrated_agent, mock_request_data
         )
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
+    )
+    def test_execute_skips_duplicate_event_within_window(
+        self, mock_agent_webhook_use_case_cls, mock_cache, mock_settings
+    ):
+        mock_settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = 60
+        mock_cache.add.return_value = False
+
+        mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
+        mock_order_status_dto.orderId = "order-id"
+        mock_order_status_dto.currentState = "invoiced"
+        mock_order_status_dto.vtexAccount = "test-account"
+
+        mock_agent_webhook_use_case = MagicMock()
+        mock_agent_webhook_use_case_cls.return_value = mock_agent_webhook_use_case
+
+        self.usecase.execute(self.mock_integrated_agent, mock_order_status_dto)
+
+        mock_agent_webhook_use_case_cls.assert_not_called()
+        mock_agent_webhook_use_case.execute.assert_not_called()
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
+    )
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.RequestData")
+    def test_execute_uses_cache_key_with_all_required_components(
+        self,
+        mock_request_data_cls,
+        mock_agent_webhook_use_case_cls,
+        mock_cache,
+        mock_settings,
+    ):
+        mock_settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = 90
+        mock_cache.add.return_value = True
+
+        mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
+        mock_order_status_dto.orderId = "1628250823413-01"
+        mock_order_status_dto.currentState = "order-created"
+        mock_order_status_dto.lastState = "not-started"
+        mock_order_status_dto.domain = "Marketplace"
+        mock_order_status_dto.vtexAccount = "citerol"
+
+        mock_agent_webhook_use_case_cls.return_value._addapt_credentials.return_value = (
+            {}
+        )
+
+        self.usecase.execute(self.mock_integrated_agent, mock_order_status_dto)
+
+        expected_cache_key = (
+            f"order_status_event:"
+            f"{self.mock_integrated_agent.project_id}:"
+            f"{self.mock_integrated_agent.uuid}:"
+            f"1628250823413-01:"
+            f"order-created"
+        )
+        mock_cache.add.assert_called_once_with(
+            expected_cache_key,
+            1,
+            timeout=90,
+        )
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
+    )
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.RequestData")
+    def test_execute_different_states_produce_different_cache_keys(
+        self,
+        mock_request_data_cls,
+        mock_agent_webhook_use_case_cls,
+        mock_cache,
+        mock_settings,
+    ):
+        mock_settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = 60
+        mock_cache.add.return_value = True
+        mock_agent_webhook_use_case_cls.return_value._addapt_credentials.return_value = (
+            {}
+        )
+
+        first_dto = MagicMock(spec=OrderStatusDTO)
+        first_dto.orderId = "order-1"
+        first_dto.currentState = "approve-payment"
+        first_dto.lastState = "payment-pending"
+        first_dto.domain = "Marketplace"
+        first_dto.vtexAccount = "test-account"
+
+        second_dto = MagicMock(spec=OrderStatusDTO)
+        second_dto.orderId = "order-1"
+        second_dto.currentState = "payment-approved"
+        second_dto.lastState = "approve-payment"
+        second_dto.domain = "Marketplace"
+        second_dto.vtexAccount = "test-account"
+
+        self.usecase.execute(self.mock_integrated_agent, first_dto)
+        self.usecase.execute(self.mock_integrated_agent, second_dto)
+
+        self.assertEqual(mock_cache.add.call_count, 2)
+        first_key = mock_cache.add.call_args_list[0][0][0]
+        second_key = mock_cache.add.call_args_list[1][0][0]
+        self.assertNotEqual(first_key, second_key)
+        self.assertTrue(first_key.endswith(":approve-payment"))
+        self.assertTrue(second_key.endswith(":payment-approved"))
 
     def test_adapt_order_status_to_webhook_payload(self):
         mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
