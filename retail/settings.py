@@ -333,6 +333,14 @@ ABANDONED_CART_DEFAULT_IMAGE_URL = env.str(
 )
 PAYMENT_RECOVERY_AGENT_UUID = env.str("PAYMENT_RECOVERY_AGENT_UUID", default="")
 
+# Time window (in seconds) to ignore repeated order status events.
+# An identical event (same project, agent, order, and current state) arriving
+# twice within this window is processed only once. This prevents duplicate
+# broadcasts caused by upstream retries.
+ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = env.int(
+    "ORDER_STATUS_DUPLICATE_WINDOW_SECONDS", default=60
+)
+
 CONNECT_REST_ENDPOINT = env.str("CONNECT_REST_ENDPOINT", default="")
 
 # Slack notifications (hire intent)
