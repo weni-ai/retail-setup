@@ -3,12 +3,23 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from retail.broadcasts.services.trial_status_service import TrialStatusService
 from retail.clients.exceptions import CustomAPIException
 
 
+# Force the local-memory cache during these tests so they do not depend
+# on a running Redis (the default backend in settings.py points to one
+# and the CI environment does not provision it).
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "trial-status-service-test",
+        }
+    }
+)
 class TrialStatusServiceTest(TestCase):
     def setUp(self):
         cache.clear()
