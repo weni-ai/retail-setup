@@ -6,25 +6,41 @@ from django.db import models
 class BroadcastStatus(models.TextChoices):
     """Canonical statuses for a WhatsApp broadcast message lifecycle.
 
-    Values are lowercase to match the payload emitted by the courier on
-    the msgs.topic exchange (which mirrors Meta's WhatsApp Business API).
+    Values are lowercase to match the payloads emitted by the Flows API
+    (on dispatch) and by the courier on the msgs.topic exchange (during
+    the lifecycle). The enum mirrors the upstream domain so dashboards
+    and metrics can reason about the real state without lossy mappings.
 
-    Lifecycle:
-        SENT       → Integrated agent called the WPP broadcast successfully;
-                     message is on its way to Meta via the courier.
-        DELIVERED  → Courier notified us that Meta confirmed delivery to
-                     the recipient's device.
-        READ       → Courier notified us that the recipient opened the message.
-        FAILED     → Dispatch failed (e.g. Flows API error or future courier
-                     failure notification). error_message holds the reason.
-        UNKNOWN    → Unrecognized status received from the courier; the
-                     full payload is preserved in last_payload for analysis
-                     and the enum extended when the status is confirmed.
+    Lifecycle (typical happy path):
+        INITIALIZING → PENDING → QUEUED → SENT → WIRED → DELIVERED → READ
+
+    Failure states are terminal and exclusive:
+        ERRORED  → Transient failure; the courier will retry automatically.
+        FAILED   → Permanent failure; no further attempts will be made.
+                   error_message holds the reason for both states.
+
+    States in detail:
+        INITIALIZING → Flows internal pre-queue state (rare).
+        PENDING      → Courier accepted the request, not queued yet.
+        QUEUED       → In broker, waiting to be sent to the provider.
+        SENT         → Handed off to Meta.
+        WIRED        → Meta acknowledged receipt.
+        DELIVERED    → Reached the recipient's device.
+        READ         → Opened by the recipient.
+        ERRORED      → Transient error (will retry).
+        FAILED       → Permanent failure (no retries).
+        UNKNOWN      → Unmapped upstream value; payload preserved in
+                       last_payload for analysis.
     """
 
+    INITIALIZING = "initializing", "Initializing"
+    PENDING = "pending", "Pending"
+    QUEUED = "queued", "Queued"
     SENT = "sent", "Sent"
+    WIRED = "wired", "Wired"
     DELIVERED = "delivered", "Delivered"
     READ = "read", "Read"
+    ERRORED = "errored", "Errored"
     FAILED = "failed", "Failed"
     UNKNOWN = "unknown", "Unknown"
 
@@ -80,7 +96,7 @@ class BroadcastMessage(models.Model):
     status = models.CharField(
         max_length=32,
         choices=BroadcastStatus.choices,
-        default=BroadcastStatus.SENT,
+        default=BroadcastStatus.QUEUED,
     )
     # The status before the last transition; empty string on the initial row.
     previous_status = models.CharField(max_length=32, blank=True, default="")

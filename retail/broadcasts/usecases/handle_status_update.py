@@ -20,7 +20,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class BroadcastStatusEvent:
-    """Normalized representation of a msgs.topic event."""
+    """Normalized representation of a msgs.topic event.
+
+    ``status`` is already mapped to a ``BroadcastStatus`` value by the
+    consumer (``CourierStatusMapper``) before reaching the use case;
+    a value of ``None`` means the event carried no status to apply.
+    """
 
     message_id: Optional[str]
     broadcast_id: Optional[int]
@@ -145,36 +150,37 @@ class HandleStatusUpdateUseCase:
         Accepts the already-locked BroadcastMessage object to avoid a
         redundant SELECT inside the caller's transaction.
 
-        Unknown statuses are saved as UNKNOWN (not dropped) so their
-        payloads can be analyzed and the enum extended later if needed.
+        The ``event.status`` is expected to already be a mapped
+        ``BroadcastStatus`` value (the consumer translates the courier's
+        single-letter status before reaching here). UNKNOWN is preserved
+        as-is so the payload can be diagnosed later.
         """
-        new_status = (event.status or "").lower() or None
+        new_status = event.status
         if new_status is None:
             return
 
-        valid_values = {choice for choice, _ in BroadcastStatus.choices}
-        if new_status not in valid_values:
-            logger.warning(
-                f"[BROADCAST_TRACKING] status_unknown: "
-                f"broadcast_uuid={message.uuid} raw_status='{new_status}' "
-                f"saved_as={BroadcastStatus.UNKNOWN}"
-            )
-            new_status = BroadcastStatus.UNKNOWN
+        if new_status == BroadcastStatus.UNKNOWN:
+            self._log_unknown_status_for_drill_down(message, event)
 
         previous_status = message.status
         message.previous_status = previous_status
         message.status = new_status
         message.status_updated_at = timezone.now()
         message.last_payload = event.payload
-        message.save(
-            update_fields=[
-                "previous_status",
-                "status",
-                "status_updated_at",
-                "last_payload",
-                "updated_at",
-            ]
-        )
+
+        update_fields = [
+            "previous_status",
+            "status",
+            "status_updated_at",
+            "last_payload",
+            "updated_at",
+        ]
+
+        if new_status in (BroadcastStatus.ERRORED, BroadcastStatus.FAILED):
+            message.error_message = self._extract_error_reason(event, new_status)
+            update_fields.append("error_message")
+
+        message.save(update_fields=update_fields)
 
         logger.info(
             f"[BROADCAST_TRACKING] status_transition: "
@@ -192,6 +198,38 @@ class HandleStatusUpdateUseCase:
                 integrated_agent_id=message.integrated_agent_id,
                 broadcast_uuid=message.uuid,
             )
+
+    @staticmethod
+    def _extract_error_reason(
+        event: BroadcastStatusEvent, status: BroadcastStatus
+    ) -> str:
+        """Pull a human-readable error from the courier payload so a row
+        transitioning to ERRORED/FAILED never ends up with an empty
+        error_message. Falls back to a synthetic reason when the courier
+        carries no error/message field."""
+        payload = event.payload or {}
+        for key in ("error", "message", "detail"):
+            value = payload.get(key)
+            if value:
+                return str(value)
+        return f"Courier reported status={status} without error detail"
+
+    def _log_unknown_status_for_drill_down(
+        self, message: BroadcastMessage, event: BroadcastStatusEvent
+    ) -> None:
+        """Emit a per-broadcast log line when an UNKNOWN status is persisted.
+
+        ``CourierStatusMapper`` already logs the unmapped courier letter
+        with no row context. This method complements that log by tying
+        the same event to the specific ``broadcast_uuid``, enabling
+        operators to drill down by message in dashboards instead of only
+        seeing the aggregate "we got status X today".
+        """
+        logger.warning(
+            f"[BROADCAST_TRACKING] status_unknown_persisted: "
+            f"broadcast_uuid={message.uuid} "
+            f"raw_payload_status={event.payload.get('status')!r}"
+        )
 
     def _increment_broadcast_counter_and_maybe_block(
         self,

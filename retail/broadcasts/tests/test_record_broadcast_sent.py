@@ -41,7 +41,7 @@ class RecordBroadcastSentUseCaseTest(TestCase):
             contact_urn="whatsapp:5511999999999",
             channel_uuid=str(self.integrated_agent.channel_uuid),
             flows_template_uuid="0fb99299-3553-4c40-b174-6a66c647c12e",
-            flows_response={"id": 12345},
+            flows_response={"id": 12345, "status": "queued"},
         )
         defaults.update(overrides)
         return RecordBroadcastSentDTO(**defaults)
@@ -55,13 +55,69 @@ class RecordBroadcastSentUseCaseTest(TestCase):
         self.assertEqual(row.broadcast_id, 12345)
         self.assertEqual(row.project_id, self.project.pk)
         self.assertEqual(row.integrated_agent_id, self.integrated_agent.pk)
-        self.assertEqual(row.status, BroadcastStatus.SENT)
+        self.assertEqual(row.status, BroadcastStatus.QUEUED)
         self.assertEqual(row.contact_urn, "whatsapp:5511999999999")
         self.assertEqual(row.template_name, "abandoned_cart")
         self.assertEqual(row.template_version, "weni_abandoned_cart_1768996789226396")
         self.assertEqual(
             str(row.flows_template_uuid), "0fb99299-3553-4c40-b174-6a66c647c12e"
         )
+
+    def test_persists_status_sent_when_flows_returns_sent(self):
+        result = self.use_case.execute(
+            self._build_dto(flows_response={"id": 12345, "status": "sent"})
+        )
+
+        row = BroadcastMessage.objects.get()
+        self.assertEqual(row.status, BroadcastStatus.SENT)
+        self.assertEqual(row.error_message, "")
+        self.assertIsNotNone(result)
+
+    def test_persists_status_failed_when_flows_returns_failed(self):
+        result = self.use_case.execute(
+            self._build_dto(flows_response={"id": 12345, "status": "failed"})
+        )
+
+        row = BroadcastMessage.objects.get()
+        self.assertEqual(row.status, BroadcastStatus.FAILED)
+        self.assertIsNotNone(result)
+        self.assertIn("status=failed", row.error_message)
+
+    def test_failed_response_extracts_error_from_payload(self):
+        result = self.use_case.execute(
+            self._build_dto(
+                flows_response={
+                    "id": 12345,
+                    "status": "failed",
+                    "error": "channel temporarily unavailable",
+                }
+            )
+        )
+
+        row = BroadcastMessage.objects.get()
+        self.assertEqual(row.status, BroadcastStatus.FAILED)
+        self.assertEqual(row.error_message, "channel temporarily unavailable")
+        self.assertIsNotNone(result)
+
+    def test_persists_status_unknown_when_flows_returns_unmapped(self):
+        result = self.use_case.execute(
+            self._build_dto(
+                flows_response={"id": 12345, "status": "future-flows-status"}
+            )
+        )
+
+        row = BroadcastMessage.objects.get()
+        self.assertEqual(row.status, BroadcastStatus.UNKNOWN)
+        self.assertIsNotNone(result)
+
+    def test_falls_back_to_queued_when_flows_status_is_missing(self):
+        """Flows responses without an explicit status are treated as
+        QUEUED — the dispatch was accepted but no state was reported."""
+        result = self.use_case.execute(self._build_dto(flows_response={"id": 12345}))
+
+        row = BroadcastMessage.objects.get()
+        self.assertEqual(row.status, BroadcastStatus.QUEUED)
+        self.assertIsNotNone(result)
 
     def test_persists_even_when_broadcast_id_is_missing(self):
         result = self.use_case.execute(self._build_dto(broadcast_id=None))

@@ -51,9 +51,11 @@ class BroadcastLifecycleFlowTest(TestCase):
             project=self.project,
             channel_uuid=uuid4(),
         )
+        # Real Flows responses to POST /whatsapp_broadcasts arrive with
+        # "queued" most of the time; "sent"/"failed" are also valid.
         self.flows_response = {
             "id": self.BROADCAST_ID,
-            "status": "sent",
+            "status": "queued",
             "urns": ["whatsapp:5511950944479"],
             "channel": 15387,
             "metadata": {
@@ -104,7 +106,7 @@ class BroadcastLifecycleFlowTest(TestCase):
     # Step 2 & 3: courier events
     # ------------------------------------------------------------------
 
-    def _create_event(self, status="sent") -> BroadcastStatusEvent:
+    def _create_event(self, status=BroadcastStatus.SENT) -> BroadcastStatusEvent:
         return BroadcastStatusEvent(
             broadcast_id=self.BROADCAST_ID,
             message_id=self.EXTERNAL_MESSAGE_ID,
@@ -116,7 +118,7 @@ class BroadcastLifecycleFlowTest(TestCase):
             },
         )
 
-    def _status_event(self, status: str) -> BroadcastStatusEvent:
+    def _status_event(self, status) -> BroadcastStatusEvent:
         return BroadcastStatusEvent(
             broadcast_id=None,
             message_id=self.EXTERNAL_MESSAGE_ID,
@@ -128,11 +130,12 @@ class BroadcastLifecycleFlowTest(TestCase):
     # Tests
     # ------------------------------------------------------------------
 
-    def test_dispatch_creates_sent_broadcast_message(self):
+    def test_dispatch_creates_broadcast_message_mirroring_flows_status(self):
         message = self._dispatch()
 
         self.assertIsNotNone(message)
-        self.assertEqual(message.status, BroadcastStatus.SENT)
+        # Flows returned "queued"; the row mirrors that initial state.
+        self.assertEqual(message.status, BroadcastStatus.QUEUED)
         self.assertEqual(message.broadcast_id, self.BROADCAST_ID)
         self.assertEqual(message.project, self.project)
         self.assertEqual(message.integrated_agent, self.integrated_agent)
@@ -140,7 +143,7 @@ class BroadcastLifecycleFlowTest(TestCase):
     def test_create_event_links_meta_message_id(self):
         self._dispatch()
 
-        self.use_case.execute(self._create_event(status="sent"))
+        self.use_case.execute(self._create_event(status=BroadcastStatus.SENT))
 
         message = BroadcastMessage.objects.get(broadcast_id=self.BROADCAST_ID)
         self.assertEqual(message.external_message_id, self.EXTERNAL_MESSAGE_ID)
@@ -148,16 +151,18 @@ class BroadcastLifecycleFlowTest(TestCase):
 
     def test_previous_status_is_tracked_on_each_transition(self):
         self._dispatch()
-        self.use_case.execute(self._create_event(status="delivered"))
+        self.use_case.execute(self._create_event(status=BroadcastStatus.DELIVERED))
 
         message = BroadcastMessage.objects.get(broadcast_id=self.BROADCAST_ID)
         self.assertEqual(message.status, BroadcastStatus.DELIVERED)
-        self.assertEqual(message.previous_status, BroadcastStatus.SENT)
+        # Initial status mirrors the Flows response ("queued"); the
+        # transition therefore goes QUEUED → DELIVERED.
+        self.assertEqual(message.previous_status, BroadcastStatus.QUEUED)
 
     def test_full_status_progression(self):
         self._dispatch()
-        self.use_case.execute(self._create_event(status="sent"))
-        self.use_case.execute(self._status_event("delivered"))
+        self.use_case.execute(self._create_event(status=BroadcastStatus.SENT))
+        self.use_case.execute(self._status_event(BroadcastStatus.DELIVERED))
 
         message = BroadcastMessage.objects.get(broadcast_id=self.BROADCAST_ID)
         self.assertEqual(message.status, BroadcastStatus.DELIVERED)
@@ -165,24 +170,24 @@ class BroadcastLifecycleFlowTest(TestCase):
 
     def test_delivered_increments_project_counter(self):
         self._dispatch()
-        self.use_case.execute(self._create_event(status="sent"))
-        self.use_case.execute(self._status_event("delivered"))
+        self.use_case.execute(self._create_event(status=BroadcastStatus.SENT))
+        self.use_case.execute(self._status_event(BroadcastStatus.DELIVERED))
 
         counter = ProjectBroadcastCounter.objects.get(project=self.project)
         self.assertEqual(counter.total_delivered, 1)
 
     def test_delivered_increments_agent_counter(self):
         self._dispatch()
-        self.use_case.execute(self._create_event(status="sent"))
-        self.use_case.execute(self._status_event("delivered"))
+        self.use_case.execute(self._create_event(status=BroadcastStatus.SENT))
+        self.use_case.execute(self._status_event(BroadcastStatus.DELIVERED))
 
         self.integrated_agent.refresh_from_db()
         self.assertEqual(self.integrated_agent.broadcasts_delivered, 1)
 
     def test_replay_delivered_does_not_double_count(self):
         self._dispatch()
-        self.use_case.execute(self._create_event(status="sent"))
-        delivered = self._status_event("delivered")
+        self.use_case.execute(self._create_event(status=BroadcastStatus.SENT))
+        delivered = self._status_event(BroadcastStatus.DELIVERED)
         self.use_case.execute(delivered)
         self.use_case.execute(delivered)
         self.use_case.execute(delivered)
@@ -191,9 +196,11 @@ class BroadcastLifecycleFlowTest(TestCase):
         self.assertEqual(counter.total_delivered, 1)
 
     def test_unknown_status_saved_not_dropped(self):
+        """An unmapped courier letter (e.g. a future status) is mapped by
+        the consumer to UNKNOWN; the use case must persist it for analysis."""
         self._dispatch()
-        self.use_case.execute(self._create_event(status="sent"))
-        self.use_case.execute(self._status_event("some-future-courier-status"))
+        self.use_case.execute(self._create_event(status=BroadcastStatus.SENT))
+        self.use_case.execute(self._status_event(BroadcastStatus.UNKNOWN))
 
         message = BroadcastMessage.objects.get(broadcast_id=self.BROADCAST_ID)
         self.assertEqual(message.status, BroadcastStatus.UNKNOWN)
@@ -201,8 +208,8 @@ class BroadcastLifecycleFlowTest(TestCase):
     @override_settings(RETAIL_TRIAL_BROADCAST_LIMIT=1)
     def test_reaching_dispatch_limit_blocks_project(self):
         self._dispatch()
-        self.use_case.execute(self._create_event(status="sent"))
-        self.use_case.execute(self._status_event("delivered"))
+        self.use_case.execute(self._create_event(status=BroadcastStatus.SENT))
+        self.use_case.execute(self._status_event(BroadcastStatus.DELIVERED))
 
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_blocked)
@@ -210,8 +217,8 @@ class BroadcastLifecycleFlowTest(TestCase):
     @override_settings(RETAIL_TRIAL_BROADCAST_LIMIT=1)
     def test_reaching_limit_invokes_suspension_service(self):
         self._dispatch()
-        self.use_case.execute(self._create_event(status="sent"))
-        self.use_case.execute(self._status_event("delivered"))
+        self.use_case.execute(self._create_event(status=BroadcastStatus.SENT))
+        self.use_case.execute(self._status_event(BroadcastStatus.DELIVERED))
 
         self.mock_suspension.suspend.assert_called_once_with(
             project_uuid=str(self.project.uuid), limit=1
@@ -220,8 +227,8 @@ class BroadcastLifecycleFlowTest(TestCase):
     @override_settings(RETAIL_TRIAL_BROADCAST_LIMIT=2)
     def test_below_limit_does_not_block_project(self):
         self._dispatch()
-        self.use_case.execute(self._create_event(status="sent"))
-        self.use_case.execute(self._status_event("delivered"))
+        self.use_case.execute(self._create_event(status=BroadcastStatus.SENT))
+        self.use_case.execute(self._status_event(BroadcastStatus.DELIVERED))
 
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_blocked)
@@ -230,8 +237,8 @@ class BroadcastLifecycleFlowTest(TestCase):
     @override_settings(RETAIL_TRIAL_BROADCAST_LIMIT=1)
     def test_blocked_project_counter_has_blocked_at_set(self):
         self._dispatch()
-        self.use_case.execute(self._create_event(status="sent"))
-        self.use_case.execute(self._status_event("delivered"))
+        self.use_case.execute(self._create_event(status=BroadcastStatus.SENT))
+        self.use_case.execute(self._status_event(BroadcastStatus.DELIVERED))
 
         counter = ProjectBroadcastCounter.objects.get(project=self.project)
         self.assertIsNotNone(counter.blocked_at)
@@ -248,7 +255,7 @@ class BroadcastFlowUnknownEventTest(TestCase):
         event = BroadcastStatusEvent(
             broadcast_id=99999999,
             message_id="ext-unknown",
-            status="sent",
+            status=BroadcastStatus.SENT,
             payload={},
         )
         self.use_case.execute(event)
@@ -259,7 +266,7 @@ class BroadcastFlowUnknownEventTest(TestCase):
         event = BroadcastStatusEvent(
             broadcast_id=None,
             message_id="ext-unknown",
-            status="delivered",
+            status=BroadcastStatus.DELIVERED,
             payload={},
         )
         self.use_case.execute(event)

@@ -41,14 +41,14 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         defaults = dict(
             message_id=self.external_message_id,
             broadcast_id=self.broadcast_id,
-            status="sent",
+            status=BroadcastStatus.SENT,
             payload={"message_id": self.external_message_id},
         )
         defaults.update(kwargs)
         return BroadcastStatusEvent(**defaults)
 
     def test_create_event_links_message_id_and_updates_status(self):
-        event = self._event(status="sent")
+        event = self._event(status=BroadcastStatus.SENT)
 
         self.use_case.execute(event)
 
@@ -59,7 +59,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
 
     def test_transition_persists_previous_status_field(self):
         """Verifies that previous_status is saved to the model on every transition."""
-        event = self._event(status="delivered")
+        event = self._event(status=BroadcastStatus.DELIVERED)
 
         self.use_case.execute(event)
 
@@ -80,7 +80,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         self.message.external_message_id = self.external_message_id
         self.message.save(update_fields=["external_message_id"])
 
-        event = self._event(broadcast_id=None, status="delivered")
+        event = self._event(broadcast_id=None, status=BroadcastStatus.DELIVERED)
 
         self.use_case.execute(event)
 
@@ -100,7 +100,9 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         self.message.status = BroadcastStatus.SENT
         self.message.save()
 
-        delivered_event = self._event(broadcast_id=None, status="delivered")
+        delivered_event = self._event(
+            broadcast_id=None, status=BroadcastStatus.DELIVERED
+        )
         self.use_case.execute(delivered_event)
         # Replay — idempotent since status is already DELIVERED.
         self.use_case.execute(delivered_event)
@@ -113,7 +115,9 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         self.message.status = BroadcastStatus.SENT
         self.message.save()
 
-        delivered_event = self._event(broadcast_id=None, status="delivered")
+        delivered_event = self._event(
+            broadcast_id=None, status=BroadcastStatus.DELIVERED
+        )
         self.use_case.execute(delivered_event)
         self.use_case.execute(delivered_event)
 
@@ -126,7 +130,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         self.message.status = BroadcastStatus.SENT
         self.message.save()
 
-        event = self._event(broadcast_id=None, status="delivered")
+        event = self._event(broadcast_id=None, status=BroadcastStatus.DELIVERED)
         self.use_case.execute(event)
 
         counter = ProjectBroadcastCounter.objects.get(project_id=self.project.pk)
@@ -140,14 +144,17 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         self.message.external_message_id = self.external_message_id
         self.message.save(update_fields=["external_message_id"])
 
-        event = self._event(broadcast_id=None, status="delivered")
+        event = self._event(broadcast_id=None, status=BroadcastStatus.DELIVERED)
         self.use_case.execute(event)
 
         self.limit_guard.trigger_block.assert_called_once_with(self.project.pk)
 
     def test_missing_ids_are_silently_ignored(self):
         event = BroadcastStatusEvent(
-            message_id=None, broadcast_id=None, status="delivered", payload={}
+            message_id=None,
+            broadcast_id=None,
+            status=BroadcastStatus.DELIVERED,
+            payload={},
         )
 
         self.use_case.execute(event)
@@ -155,28 +162,62 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         self.message.refresh_from_db()
         self.assertEqual(self.message.status, BroadcastStatus.SENT)
 
-    def test_unknown_status_is_saved_as_unknown_not_dropped(self):
+    def test_failed_transition_extracts_error_from_payload(self):
         self.message.external_message_id = self.external_message_id
         self.message.save(update_fields=["external_message_id"])
 
-        event = self._event(broadcast_id=None, status="some-future-status")
+        event = BroadcastStatusEvent(
+            message_id=self.external_message_id,
+            broadcast_id=None,
+            status=BroadcastStatus.FAILED,
+            payload={
+                "message_id": self.external_message_id,
+                "status": "F",
+                "error": "channel_revoked",
+            },
+        )
+        self.use_case.execute(event)
+
+        self.message.refresh_from_db()
+        self.assertEqual(self.message.status, BroadcastStatus.FAILED)
+        self.assertEqual(self.message.error_message, "channel_revoked")
+
+    def test_errored_transition_uses_synthetic_reason_when_payload_lacks_error(self):
+        self.message.external_message_id = self.external_message_id
+        self.message.save(update_fields=["external_message_id"])
+
+        event = self._event(broadcast_id=None, status=BroadcastStatus.ERRORED)
+        self.use_case.execute(event)
+
+        self.message.refresh_from_db()
+        self.assertEqual(self.message.status, BroadcastStatus.ERRORED)
+        self.assertIn("status=", self.message.error_message)
+
+    def test_unknown_status_event_persists_as_unknown(self):
+        """When the consumer maps an unrecognized courier letter to UNKNOWN,
+        the use case must persist it (not drop) so the payload can be
+        analyzed and the enum extended later if needed."""
+        self.message.external_message_id = self.external_message_id
+        self.message.save(update_fields=["external_message_id"])
+
+        event = self._event(broadcast_id=None, status=BroadcastStatus.UNKNOWN)
         self.use_case.execute(event)
 
         self.message.refresh_from_db()
         self.assertEqual(self.message.status, BroadcastStatus.UNKNOWN)
 
-    def test_unknown_status_payload_is_preserved(self):
+    def test_event_payload_is_preserved_on_transition(self):
         self.message.external_message_id = self.external_message_id
         self.message.save(update_fields=["external_message_id"])
 
         payload = {
-            "status": "some-future-status",
+            "status": "X",
             "message_id": self.external_message_id,
         }
         event = BroadcastStatusEvent(
             message_id=self.external_message_id,
             broadcast_id=None,
-            status="some-future-status",
+            status=BroadcastStatus.UNKNOWN,
             payload=payload,
         )
         self.use_case.execute(event)
@@ -204,7 +245,7 @@ class HandleStatusUpdateIdempotencyTest(TestCase):
         event = BroadcastStatusEvent(
             message_id="ext-1",
             broadcast_id=None,
-            status="delivered",
+            status=BroadcastStatus.DELIVERED,
             payload={},
         )
 
