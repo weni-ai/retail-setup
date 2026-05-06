@@ -16,7 +16,7 @@ from retail.broadcasts.usecases.handle_status_update import (
 logger = logging.getLogger(__name__)
 
 
-class BroadcastStatusConsumer(EDAConsumer):  # pragma: no cover
+class BroadcastStatusConsumer(EDAConsumer):
     """Consumes courier events from the msgs.topic exchange.
 
     The courier publishes outbound message lifecycle events under two
@@ -50,7 +50,10 @@ class BroadcastStatusConsumer(EDAConsumer):  # pragma: no cover
             self._handler = handler
         return handler
 
-    def consume(self, message: amqp.Message):
+    def consume(self, message: amqp.Message):  # pragma: no cover
+        # Integration entry-point invoked by weni.eda inside the broker;
+        # exercised end-to-end in stg/prod, not in unit tests. The
+        # payload-shaping helpers below are unit-tested directly.
         logger.info(f"[BROADCAST_TRACKING] consume_event: body={message.body}")
         try:
             body = JSONParser.parse(message.body)
