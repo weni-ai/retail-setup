@@ -95,6 +95,26 @@ class BroadcastStatusConsumerRoutingTest(TestCase):
         self.assertIsNone(event.broadcast_id)
         self.assertEqual(event.status, BroadcastStatus.DELIVERED)
 
+    def test_ensure_handler_lazily_instantiates_default(self):
+        """The consumer postpones building the use case until the first
+        event arrives so it can safely live as a class attribute without
+        clashing with EDAConsumer's __init__."""
+        consumer = BroadcastStatusConsumer.__new__(BroadcastStatusConsumer)
+
+        first = consumer._ensure_handler()
+        second = consumer._ensure_handler()
+
+        self.assertIs(first, second)
+
+    def test_ensure_handler_keeps_injected_instance(self):
+        from unittest.mock import MagicMock
+
+        injected = MagicMock()
+        consumer = BroadcastStatusConsumer.__new__(BroadcastStatusConsumer)
+        consumer._handler = injected
+
+        self.assertIs(consumer._ensure_handler(), injected)
+
     def test_inbound_messages_are_filtered(self):
         """Inbound payloads (direction='I') must be skipped without
         producing a BroadcastStatusEvent for the use case."""

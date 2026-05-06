@@ -162,6 +162,40 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         self.message.refresh_from_db()
         self.assertEqual(self.message.status, BroadcastStatus.SENT)
 
+    def test_create_event_with_conflicting_message_id_logs_warning(self):
+        """When the same broadcast_id arrives with a message_id different
+        from the one we already stored, a warning is emitted and the
+        new value overrides the previous one."""
+        self.message.external_message_id = "previous-meta-id"
+        self.message.save(update_fields=["external_message_id"])
+
+        event = self._event(
+            broadcast_id=self.broadcast_id,
+            message_id="incoming-meta-id",
+            status=BroadcastStatus.SENT,
+        )
+
+        with self.assertLogs(
+            "retail.broadcasts.usecases.handle_status_update", level="WARNING"
+        ) as captured:
+            self.use_case.execute(event)
+
+        self.assertTrue(any("message_id_conflict" in line for line in captured.output))
+        self.message.refresh_from_db()
+        self.assertEqual(self.message.external_message_id, "incoming-meta-id")
+
+    def test_event_without_status_does_not_change_persisted_status(self):
+        """Status-only events that arrive with no status payload are
+        silently no-op."""
+        self.message.external_message_id = self.external_message_id
+        self.message.save(update_fields=["external_message_id"])
+
+        event = self._event(broadcast_id=None, status=None)
+        self.use_case.execute(event)
+
+        self.message.refresh_from_db()
+        self.assertEqual(self.message.status, BroadcastStatus.SENT)
+
     def test_failed_transition_extracts_error_from_payload(self):
         self.message.external_message_id = self.external_message_id
         self.message.save(update_fields=["external_message_id"])

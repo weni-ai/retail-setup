@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from uuid import uuid4
 
@@ -79,6 +79,29 @@ class ProjectLimitGuardTest(TestCase):
         self.counter.refresh_from_db()
         self.assertEqual(self.counter.blocked_at, original_blocked_at)
         self.suspension_service.suspend.assert_not_called()
+
+    @override_settings(RETAIL_TRIAL_BROADCAST_LIMIT=1)
+    def test_trigger_block_swallows_cache_invalidation_failures(self):
+        """Cache invalidation is best-effort — a redis/network blip must
+        not make the dispatch counter logic fail."""
+        self.counter.total_delivered = 1
+        self.counter.save()
+
+        with patch.object(
+            type(self.project),
+            "clear_integrated_agents_cache",
+            side_effect=Exception("redis down"),
+        ):
+            with self.assertLogs(
+                "retail.broadcasts.usecases.project_limit_guard", level="WARNING"
+            ) as captured:
+                self.guard.trigger_block(self.project.pk)
+
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_blocked)
+        self.assertTrue(
+            any("cache_invalidation_failed" in line for line in captured.output)
+        )
 
     def test_trigger_block_does_nothing_when_counter_missing(self):
         self.counter.delete()
