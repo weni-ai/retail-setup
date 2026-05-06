@@ -47,10 +47,20 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         defaults.update(kwargs)
         return BroadcastStatusEvent(**defaults)
 
+    def _dispatch(self, event):
+        """Helper that dispatches to the right public method based on the
+        event shape — equivalent to what the consumer routing does in
+        production. Keeps each test focused on the business assertion
+        instead of restating the routing rule."""
+        if event.broadcast_id is not None:
+            self.use_case.link_send_event(event)
+        else:
+            self.use_case.apply_status_event(event)
+
     def test_create_event_links_message_id_and_updates_status(self):
         event = self._event(status=BroadcastStatus.SENT)
 
-        self.use_case.execute(event)
+        self._dispatch(event)
 
         self.message.refresh_from_db()
         self.assertEqual(self.message.external_message_id, self.external_message_id)
@@ -61,7 +71,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         """Verifies that previous_status is saved to the model on every transition."""
         event = self._event(status=BroadcastStatus.DELIVERED)
 
-        self.use_case.execute(event)
+        self._dispatch(event)
 
         self.message.refresh_from_db()
         self.assertEqual(self.message.status, BroadcastStatus.DELIVERED)
@@ -70,7 +80,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
     def test_create_event_unknown_broadcast_id_is_ignored(self):
         event = self._event(broadcast_id=999999)
 
-        self.use_case.execute(event)
+        self._dispatch(event)
 
         self.assertEqual(BroadcastMessage.objects.count(), 1)
         self.message.refresh_from_db()
@@ -82,7 +92,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
 
         event = self._event(broadcast_id=None, status=BroadcastStatus.DELIVERED)
 
-        self.use_case.execute(event)
+        self._dispatch(event)
 
         self.message.refresh_from_db()
         self.assertEqual(self.message.status, BroadcastStatus.DELIVERED)
@@ -90,7 +100,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
     def test_status_only_event_unknown_message_id_is_ignored(self):
         event = self._event(broadcast_id=None, message_id="unknown-id")
 
-        self.use_case.execute(event)
+        self._dispatch(event)
 
         self.message.refresh_from_db()
         self.assertEqual(self.message.status, BroadcastStatus.SENT)
@@ -103,9 +113,9 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         delivered_event = self._event(
             broadcast_id=None, status=BroadcastStatus.DELIVERED
         )
-        self.use_case.execute(delivered_event)
+        self._dispatch(delivered_event)
         # Replay — idempotent since status is already DELIVERED.
-        self.use_case.execute(delivered_event)
+        self._dispatch(delivered_event)
 
         counter = ProjectBroadcastCounter.objects.get(project_id=self.project.pk)
         self.assertEqual(counter.total_delivered, 1)
@@ -118,8 +128,8 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         delivered_event = self._event(
             broadcast_id=None, status=BroadcastStatus.DELIVERED
         )
-        self.use_case.execute(delivered_event)
-        self.use_case.execute(delivered_event)
+        self._dispatch(delivered_event)
+        self._dispatch(delivered_event)
 
         self.integrated_agent.refresh_from_db()
         self.assertEqual(self.integrated_agent.broadcasts_delivered, 1)
@@ -131,7 +141,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         self.message.save()
 
         event = self._event(broadcast_id=None, status=BroadcastStatus.DELIVERED)
-        self.use_case.execute(event)
+        self._dispatch(event)
 
         counter = ProjectBroadcastCounter.objects.get(project_id=self.project.pk)
         self.assertEqual(counter.total_delivered, 1)
@@ -145,7 +155,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         self.message.save(update_fields=["external_message_id"])
 
         event = self._event(broadcast_id=None, status=BroadcastStatus.DELIVERED)
-        self.use_case.execute(event)
+        self._dispatch(event)
 
         self.limit_guard.trigger_block.assert_called_once_with(self.project.pk)
 
@@ -157,7 +167,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
             payload={},
         )
 
-        self.use_case.execute(event)
+        self._dispatch(event)
 
         self.message.refresh_from_db()
         self.assertEqual(self.message.status, BroadcastStatus.SENT)
@@ -178,7 +188,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         with self.assertLogs(
             "retail.broadcasts.usecases.handle_status_update", level="WARNING"
         ) as captured:
-            self.use_case.execute(event)
+            self._dispatch(event)
 
         self.assertTrue(any("message_id_conflict" in line for line in captured.output))
         self.message.refresh_from_db()
@@ -191,7 +201,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         self.message.save(update_fields=["external_message_id"])
 
         event = self._event(broadcast_id=None, status=None)
-        self.use_case.execute(event)
+        self._dispatch(event)
 
         self.message.refresh_from_db()
         self.assertEqual(self.message.status, BroadcastStatus.SENT)
@@ -210,7 +220,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
                 "error": "channel_revoked",
             },
         )
-        self.use_case.execute(event)
+        self._dispatch(event)
 
         self.message.refresh_from_db()
         self.assertEqual(self.message.status, BroadcastStatus.FAILED)
@@ -221,7 +231,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         self.message.save(update_fields=["external_message_id"])
 
         event = self._event(broadcast_id=None, status=BroadcastStatus.ERRORED)
-        self.use_case.execute(event)
+        self._dispatch(event)
 
         self.message.refresh_from_db()
         self.assertEqual(self.message.status, BroadcastStatus.ERRORED)
@@ -235,7 +245,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         self.message.save(update_fields=["external_message_id"])
 
         event = self._event(broadcast_id=None, status=BroadcastStatus.UNKNOWN)
-        self.use_case.execute(event)
+        self._dispatch(event)
 
         self.message.refresh_from_db()
         self.assertEqual(self.message.status, BroadcastStatus.UNKNOWN)
@@ -254,7 +264,7 @@ class HandleStatusUpdateUseCaseTest(TestCase):
             status=BroadcastStatus.UNKNOWN,
             payload=payload,
         )
-        self.use_case.execute(event)
+        self._dispatch(event)
 
         self.message.refresh_from_db()
         self.assertEqual(self.message.last_payload, payload)
@@ -283,9 +293,9 @@ class HandleStatusUpdateIdempotencyTest(TestCase):
             payload={},
         )
 
-        self.use_case.execute(event)
-        self.use_case.execute(event)
-        self.use_case.execute(event)
+        self.use_case.apply_status_event(event)
+        self.use_case.apply_status_event(event)
+        self.use_case.apply_status_event(event)
 
         counter = ProjectBroadcastCounter.objects.get(project_id=self.project.pk)
         self.assertEqual(counter.total_delivered, 1)

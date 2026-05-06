@@ -36,10 +36,12 @@ class BroadcastStatusEvent:
 class HandleStatusUpdateUseCase:
     """Applies a status event coming from the courier to a BroadcastMessage.
 
-    Handles two distinct flows:
-      - Create event: carries both broadcast_id and message_id; links the
-        external_message_id (Meta's ID) to the row created at dispatch.
-      - Status-only event: carries only message_id; updates the row status.
+    Two routing-key-driven flows are exposed as public methods:
+      - ``link_send_event``: handles the first event of a new outbound
+        broadcast (template-send). Links the external_message_id
+        (Meta's ID) to the row created at dispatch.
+      - ``apply_status_event``: handles subsequent transitions
+        (template-status). Updates the row status by message_id.
 
     The DELIVERED transition is idempotent and triggers an atomic increment
     on ProjectBroadcastCounter.total_delivered (outbound broadcast counter,
@@ -50,17 +52,37 @@ class HandleStatusUpdateUseCase:
     def __init__(self, limit_guard: Optional[ProjectLimitGuard] = None):
         self.limit_guard = limit_guard or ProjectLimitGuard()
 
-    def execute(self, event: BroadcastStatusEvent) -> None:
-        # msgs.topic is a shared exchange; most events will not match any
-        # broadcast we recorded. Unknown ids are silently discarded to keep
-        # log volume manageable — only matching rows produce log entries.
-        if event.broadcast_id is not None and event.message_id:
-            self._link_message_to_broadcast(event)
-            return
+    def link_send_event(self, event: BroadcastStatusEvent) -> None:
+        """Public entry point for the template-send routing key.
 
-        if event.message_id:
-            self._update_status_by_message_id(event)
+        The send event MUST carry a broadcast_id; missing it indicates a
+        contract drift on the courier side and is logged as ERROR so the
+        anomaly is surfaced (the row cannot be linked without it).
+        """
+        if event.broadcast_id is None:
+            logger.error(
+                f"[BROADCAST_TRACKING] send_event_missing_broadcast_id: "
+                f"message_id={event.message_id} payload={event.payload}"
+            )
             return
+        if not event.message_id:
+            logger.error(
+                f"[BROADCAST_TRACKING] send_event_missing_message_id: "
+                f"broadcast_id={event.broadcast_id} payload={event.payload}"
+            )
+            return
+        self._link_message_to_broadcast(event)
+
+    def apply_status_event(self, event: BroadcastStatusEvent) -> None:
+        """Public entry point for the template-status routing key.
+
+        Status events are looked up by ``message_id`` only; any
+        ``broadcast_id`` in the payload is ignored on purpose because
+        the courier emits 0 (or omits it) at this stage.
+        """
+        if not event.message_id:
+            return
+        self._update_status_by_message_id(event)
 
     def _link_message_to_broadcast(self, event: BroadcastStatusEvent) -> None:
         """Attach the Meta message_id to our dispatch row.

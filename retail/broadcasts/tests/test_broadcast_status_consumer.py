@@ -1,105 +1,44 @@
+from unittest.mock import MagicMock
+
 from django.test import TestCase
 
 from retail.broadcasts.consumers.broadcast_status_consumer import (
+    BroadcastSendConsumer,
     BroadcastStatusConsumer,
 )
-from retail.broadcasts.models import BroadcastStatus
-from retail.broadcasts.usecases.handle_status_update import BroadcastStatusEvent
+from retail.broadcasts.usecases.handle_status_update import HandleStatusUpdateUseCase
 
 
-class BroadcastStatusConsumerRoutingTest(TestCase):
-    """Focus on the payload-to-event normalization logic. The full amqp
-    integration (ack/nack) is covered by the weni.eda framework and is
-    exercised through _handler execution in other tests."""
+class BroadcastSendConsumerTest(TestCase):
+    """The send consumer must always invoke ``link_send_event`` —
+    routing key is the source of truth for the action, not the payload."""
 
-    def test_to_event_with_create_payload_carries_both_ids(self):
-        # Real example from the courier "create" routing key.
-        payload = {
-            "message_id": "wamid.HBgMNTU4NDk2NzY1MjQ1FQ==",
-            "broadcast_id": 7346,
-            "status": "Q",
-            "direction": "O",
-            "channel_type": "WAC",
-            "contact_urn": "whatsapp:5511999999999",
-            "template_uuid": "9b191149-6bba-4112-a955-3022e99e6486",
-        }
-
-        event = BroadcastStatusConsumer._to_event(payload)
-
-        self.assertIsInstance(event, BroadcastStatusEvent)
-        self.assertEqual(event.broadcast_id, 7346)
-        self.assertEqual(event.message_id, "wamid.HBgMNTU4NDk2NzY1MjQ1FQ==")
-        self.assertEqual(event.status, BroadcastStatus.QUEUED)
-        self.assertEqual(event.payload, payload)
-
-    def test_to_event_with_status_only_payload(self):
-        # Real example from the courier "status-update" routing key.
-        payload = {
-            "message_id": "wamid.HBgMNTU4NDk2NzY1MjQ1FQ==",
-            "status": "D",
-            "channel_uuid": "86a16568-432c-4dab-9aa0-91ecf6723870",
-            "channel_type": "WAC",
-            "broadcast_id": None,
-        }
-
-        event = BroadcastStatusConsumer._to_event(payload)
-
-        self.assertIsNone(event.broadcast_id)
-        self.assertEqual(event.message_id, "wamid.HBgMNTU4NDk2NzY1MjQ1FQ==")
-        self.assertEqual(event.status, BroadcastStatus.DELIVERED)
-
-    def test_to_event_maps_each_courier_status_letter(self):
-        cases = {
-            "P": BroadcastStatus.PENDING,
-            "Q": BroadcastStatus.QUEUED,
-            "S": BroadcastStatus.SENT,
-            "W": BroadcastStatus.WIRED,
-            "D": BroadcastStatus.DELIVERED,
-            "V": BroadcastStatus.READ,
-            "E": BroadcastStatus.ERRORED,
-            "F": BroadcastStatus.FAILED,
-        }
-        for letter, expected in cases.items():
-            with self.subTest(letter=letter):
-                event = BroadcastStatusConsumer._to_event(
-                    {"message_id": "msg-1", "status": letter}
-                )
-                self.assertEqual(event.status, expected)
-
-    def test_to_event_unknown_status_letter_maps_to_unknown(self):
-        event = BroadcastStatusConsumer._to_event(
-            {"message_id": "msg-1", "status": "X"}
+    def test_handler_method_points_to_link_send_event(self):
+        # Class-level binding is the contract: any rename on the use case
+        # must be reflected here, and the IDE/type-checker will catch it
+        # because the reference is to the method itself, not a string.
+        self.assertIs(
+            BroadcastSendConsumer.handler_method,
+            HandleStatusUpdateUseCase.link_send_event,
         )
-        self.assertEqual(event.status, BroadcastStatus.UNKNOWN)
 
-    def test_to_event_empty_status_returns_none(self):
-        event = BroadcastStatusConsumer._to_event({"message_id": "msg-1"})
-        self.assertIsNone(event.status)
 
-    def test_to_event_coerces_string_broadcast_id(self):
-        event = BroadcastStatusConsumer._to_event(
-            {"message_id": "msg-1", "broadcast_id": "12345", "status": "Q"}
+class BroadcastStatusConsumerTest(TestCase):
+    """The status consumer must always invoke ``apply_status_event``."""
+
+    def test_handler_method_points_to_apply_status_event(self):
+        self.assertIs(
+            BroadcastStatusConsumer.handler_method,
+            HandleStatusUpdateUseCase.apply_status_event,
         )
-        self.assertEqual(event.broadcast_id, 12345)
 
-    def test_to_event_tolerates_invalid_broadcast_id(self):
-        event = BroadcastStatusConsumer._to_event(
-            {"message_id": "msg-1", "broadcast_id": "not-a-number", "status": "Q"}
-        )
-        self.assertIsNone(event.broadcast_id)
 
-    def test_to_event_without_message_id(self):
-        event = BroadcastStatusConsumer._to_event({"status": "D"})
-
-        self.assertIsNone(event.message_id)
-        self.assertIsNone(event.broadcast_id)
-        self.assertEqual(event.status, BroadcastStatus.DELIVERED)
+class BroadcastConsumerLazyHandlerTest(TestCase):
+    """Both consumers share the same lazy-handler infrastructure inherited
+    from the base class. Validating the contract on one instance is enough."""
 
     def test_ensure_handler_lazily_instantiates_default(self):
-        """The consumer postpones building the use case until the first
-        event arrives so it can safely live as a class attribute without
-        clashing with EDAConsumer's __init__."""
-        consumer = BroadcastStatusConsumer.__new__(BroadcastStatusConsumer)
+        consumer = BroadcastSendConsumer.__new__(BroadcastSendConsumer)
 
         first = consumer._ensure_handler()
         second = consumer._ensure_handler()
@@ -107,61 +46,8 @@ class BroadcastStatusConsumerRoutingTest(TestCase):
         self.assertIs(first, second)
 
     def test_ensure_handler_keeps_injected_instance(self):
-        from unittest.mock import MagicMock
-
         injected = MagicMock()
         consumer = BroadcastStatusConsumer.__new__(BroadcastStatusConsumer)
         consumer._handler = injected
 
         self.assertIs(consumer._ensure_handler(), injected)
-
-    def test_inbound_messages_are_filtered(self):
-        """Inbound payloads (direction='I') must be skipped without
-        producing a BroadcastStatusEvent for the use case."""
-        self.assertTrue(BroadcastStatusConsumer._is_inbound({"direction": "I"}))
-        self.assertFalse(BroadcastStatusConsumer._is_inbound({"direction": "O"}))
-        self.assertFalse(BroadcastStatusConsumer._is_inbound({}))
-
-    def test_is_relevant_accepts_outbound_wac_with_message_id(self):
-        body = {
-            "direction": "O",
-            "channel_type": "WAC",
-            "message_id": "wamid.HBgM",
-        }
-        self.assertTrue(BroadcastStatusConsumer._is_relevant(body))
-
-    def test_is_relevant_accepts_status_only_event_without_direction(self):
-        # status-update events do not carry direction at all.
-        body = {
-            "channel_type": "WAC",
-            "message_id": "wamid.HBgM",
-            "status": "D",
-        }
-        self.assertTrue(BroadcastStatusConsumer._is_relevant(body))
-
-    def test_is_relevant_rejects_inbound(self):
-        body = {
-            "direction": "I",
-            "channel_type": "WAC",
-            "message_id": "wamid.HBgM",
-        }
-        self.assertFalse(BroadcastStatusConsumer._is_relevant(body))
-
-    def test_is_relevant_rejects_non_wac_channel(self):
-        body = {
-            "direction": "O",
-            "channel_type": "WWC",
-            "message_id": "wamid.HBgM",
-        }
-        self.assertFalse(BroadcastStatusConsumer._is_relevant(body))
-
-    def test_is_relevant_rejects_payload_without_message_id(self):
-        body = {"channel_type": "WAC"}
-        self.assertFalse(BroadcastStatusConsumer._is_relevant(body))
-
-    def test_is_relevant_accepts_payload_with_unknown_channel_type_field_missing(self):
-        # Some broker events may not carry channel_type at all (legacy
-        # payloads); we only reject when the field is set to a value
-        # outside the whitelist.
-        body = {"direction": "O", "message_id": "wamid.HBgM"}
-        self.assertTrue(BroadcastStatusConsumer._is_relevant(body))
