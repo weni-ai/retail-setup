@@ -68,15 +68,48 @@ class ConnectClient(RequestClient, ConnectClientInterface):
         project_uuid: str,
         config: Dict,
     ) -> Dict:
-        url = (
-            f"{self.base_url}/v2/commerce/projects/"
-            f"{project_uuid}/config/"
-        )
+        url = f"{self.base_url}/v2/commerce/projects/" f"{project_uuid}/config/"
 
         response = self.make_request(
             url=url,
             method="PATCH",
             json={"config": config},
+            headers=self.internal_authentication.headers,
+        )
+        return response.json()
+
+    def get_project_plan_status(self, project_uuid: str) -> Dict:
+        """
+        Fetch the billing plan status for a project from Connect.
+
+        The endpoint is service-to-service and requires the
+        ``can_communicate_internally`` permission, which is granted via
+        the JWT claim used by ``InternalAuthentication``.
+
+        Connect caches the response in Redis for ~15 minutes and
+        invalidates it on plan/suspension signals, so this call is safe
+        to invoke per request.
+
+        Response payload (7 fields):
+            project_uuid (str)
+            organization_uuid (str | None)
+            plan (str | None) — trial | free | start | scale |
+                advanced | enterprise | internal_weni | None
+            is_trial (bool) — UI/badge only; do NOT use for gating
+            is_trial_active (bool) — single source of truth for gating
+                trial-only features. Equivalent to
+                ``plan == "trial" AND is_active AND NOT is_suspended``.
+            is_active (bool)
+            is_suspended (bool)
+        """
+        url = (
+            f"{self.base_url}/v2/internals/connect/projects/"
+            f"{project_uuid}/plan-status"
+        )
+
+        response = self.make_request(
+            url=url,
+            method="GET",
             headers=self.internal_authentication.headers,
         )
         return response.json()

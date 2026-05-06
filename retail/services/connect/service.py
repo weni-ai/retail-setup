@@ -41,3 +41,8 @@ class ConnectService(ConnectServiceInterface):
             project_uuid=project_uuid,
             config=config,
         )
+
+    def get_project_plan_status(self, project_uuid: str) -> Dict:
+        return self.connect_client.get_project_plan_status(
+            project_uuid=project_uuid,
+        )

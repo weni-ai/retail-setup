@@ -23,3 +23,6 @@ class ConnectServiceInterface(Protocol):
         config: Dict,
     ) -> Dict:
         ...
+
+    def get_project_plan_status(self, project_uuid: str) -> Dict:
+        ...

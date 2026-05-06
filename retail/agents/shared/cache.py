@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from typing import Optional
+from typing import Iterable, Optional
 
 from uuid import UUID
 
@@ -32,6 +32,16 @@ class IntegratedAgentCacheHandler(ABC):
         """Clear the integrated agent from cache."""
         pass
 
+    def clear_cached_agents(self, integrated_agent_uuids: Iterable[UUID]) -> None:
+        """Clear multiple integrated agents from cache.
+
+        Default implementation calls ``clear_cached_agent`` per uuid;
+        backends that support batch deletion may override this for a
+        single round-trip.
+        """
+        for integrated_agent_uuid in integrated_agent_uuids:
+            self.clear_cached_agent(integrated_agent_uuid)
+
 
 class IntegratedAgentCacheHandlerRedis(IntegratedAgentCacheHandler):
     def __init__(
@@ -56,3 +66,8 @@ class IntegratedAgentCacheHandlerRedis(IntegratedAgentCacheHandler):
     def clear_cached_agent(self, integrated_agent_uuid: UUID) -> None:
         cache_key = self.get_cache_key(integrated_agent_uuid)
         cache.delete(cache_key)
+
+    def clear_cached_agents(self, integrated_agent_uuids: Iterable[UUID]) -> None:
+        keys = [self.get_cache_key(u) for u in integrated_agent_uuids]
+        if keys:
+            cache.delete_many(keys)
