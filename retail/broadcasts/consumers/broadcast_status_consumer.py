@@ -16,6 +16,12 @@ from retail.broadcasts.usecases.handle_status_update import (
 logger = logging.getLogger(__name__)
 
 
+# Channel types we own on the courier side. Any event published with a
+# different channel_type belongs to other modules (chat widget, external
+# providers, etc.) and is discarded silently.
+RELEVANT_CHANNEL_TYPES = frozenset({"WAC"})
+
+
 class BroadcastStatusConsumer(EDAConsumer):
     """Consumes courier events from the msgs.topic exchange.
 
@@ -54,7 +60,6 @@ class BroadcastStatusConsumer(EDAConsumer):
         # Integration entry-point invoked by weni.eda inside the broker;
         # exercised end-to-end in stg/prod, not in unit tests. The
         # payload-shaping helpers below are unit-tested directly.
-        logger.info(f"[BROADCAST_TRACKING] consume_event: body={message.body}")
         try:
             body = JSONParser.parse(message.body)
         except Exception as exc:
@@ -62,9 +67,14 @@ class BroadcastStatusConsumer(EDAConsumer):
             self.ack()
             return
 
-        if self._is_inbound(body):
+        if not self._is_relevant(body):
             self.ack()
             return
+
+        # Only events that survive the relevance filter are worth logging:
+        # downstream INFO entries (linked, status_received, status_transition,
+        # counters_incremented) carry the business context.
+        logger.debug(f"[BROADCAST_TRACKING] consume_event: body={body}")
 
         try:
             event = self._to_event(body)
@@ -75,6 +85,29 @@ class BroadcastStatusConsumer(EDAConsumer):
                 f"[BROADCAST_TRACKING] consume_processing_failed: error={exc}"
             )
             self.nack()
+
+    @staticmethod
+    def _is_relevant(body: Dict[str, Any]) -> bool:
+        """Return True only when the event has a chance of matching one
+        of our broadcasts. Used to discard cheaply (no log, no DB hit)
+        the bulk of msgs.topic traffic that belongs to other modules.
+
+        An event is considered relevant when ALL hold:
+          - direction is not "I" (inbound replies are not broadcasts);
+          - channel_type is in RELEVANT_CHANNEL_TYPES (we only own WAC);
+          - message_id is present (without it we cannot link/lookup).
+        """
+        if BroadcastStatusConsumer._is_inbound(body):
+            return False
+
+        channel_type = body.get("channel_type")
+        if channel_type and channel_type not in RELEVANT_CHANNEL_TYPES:
+            return False
+
+        if not body.get("message_id"):
+            return False
+
+        return True
 
     @staticmethod
     def _is_inbound(body: Dict[str, Any]) -> bool:

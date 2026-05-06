@@ -121,3 +121,47 @@ class BroadcastStatusConsumerRoutingTest(TestCase):
         self.assertTrue(BroadcastStatusConsumer._is_inbound({"direction": "I"}))
         self.assertFalse(BroadcastStatusConsumer._is_inbound({"direction": "O"}))
         self.assertFalse(BroadcastStatusConsumer._is_inbound({}))
+
+    def test_is_relevant_accepts_outbound_wac_with_message_id(self):
+        body = {
+            "direction": "O",
+            "channel_type": "WAC",
+            "message_id": "wamid.HBgM",
+        }
+        self.assertTrue(BroadcastStatusConsumer._is_relevant(body))
+
+    def test_is_relevant_accepts_status_only_event_without_direction(self):
+        # status-update events do not carry direction at all.
+        body = {
+            "channel_type": "WAC",
+            "message_id": "wamid.HBgM",
+            "status": "D",
+        }
+        self.assertTrue(BroadcastStatusConsumer._is_relevant(body))
+
+    def test_is_relevant_rejects_inbound(self):
+        body = {
+            "direction": "I",
+            "channel_type": "WAC",
+            "message_id": "wamid.HBgM",
+        }
+        self.assertFalse(BroadcastStatusConsumer._is_relevant(body))
+
+    def test_is_relevant_rejects_non_wac_channel(self):
+        body = {
+            "direction": "O",
+            "channel_type": "WWC",
+            "message_id": "wamid.HBgM",
+        }
+        self.assertFalse(BroadcastStatusConsumer._is_relevant(body))
+
+    def test_is_relevant_rejects_payload_without_message_id(self):
+        body = {"channel_type": "WAC"}
+        self.assertFalse(BroadcastStatusConsumer._is_relevant(body))
+
+    def test_is_relevant_accepts_payload_with_unknown_channel_type_field_missing(self):
+        # Some broker events may not carry channel_type at all (legacy
+        # payloads); we only reject when the field is set to a value
+        # outside the whitelist.
+        body = {"direction": "O", "message_id": "wamid.HBgM"}
+        self.assertTrue(BroadcastStatusConsumer._is_relevant(body))
