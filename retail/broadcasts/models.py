@@ -80,7 +80,7 @@ class BroadcastMessage(models.Model):
         ``BroadcastConversion`` once the purchase is confirmed.
     """
 
-    uuid = models.UUIDField(primary_key=True, default=uuid_lib.uuid4, editable=False)
+    uuid = models.UUIDField(default=uuid_lib.uuid4, editable=False, unique=True)
 
     broadcast_id = models.BigIntegerField(null=True, blank=True)
     external_message_id = models.CharField(max_length=255, null=True, blank=True)
