@@ -18,6 +18,28 @@ from retail.broadcasts.usecases.project_limit_guard import ProjectLimitGuard
 logger = logging.getLogger(__name__)
 
 
+# Position of each status in the forward lifecycle. Used to reject
+# out-of-order events (e.g. a "sent" arriving after "delivered" because
+# the courier reordered the message). Statuses absent from this map
+# (terminals and UNKNOWN) are handled separately and always accepted.
+_STATUS_RANK = {
+    BroadcastStatus.INITIALIZING: 10,
+    BroadcastStatus.PENDING: 20,
+    BroadcastStatus.QUEUED: 30,
+    BroadcastStatus.SENT: 40,
+    BroadcastStatus.WIRED: 50,
+    BroadcastStatus.DELIVERED: 60,
+    BroadcastStatus.READ: 70,
+}
+
+# Statuses that may legitimately arrive at any point in the lifecycle
+# (e.g. a delivery failure can be reported even after a previous
+# success notification due to provider-side issues).
+_ALWAYS_ACCEPTED = frozenset(
+    {BroadcastStatus.ERRORED, BroadcastStatus.FAILED, BroadcastStatus.UNKNOWN}
+)
+
+
 @dataclass(frozen=True)
 class BroadcastStatusEvent:
     """Normalized representation of a msgs.topic event.
@@ -181,10 +203,20 @@ class HandleStatusUpdateUseCase:
         if new_status is None:
             return
 
+        previous_status = message.status
+
+        if self._is_out_of_order(previous_status, new_status):
+            logger.info(
+                f"[BROADCAST_TRACKING] status_out_of_order_ignored: "
+                f"broadcast_uuid={message.uuid} "
+                f"previous_status={previous_status} "
+                f"incoming_status={new_status}"
+            )
+            return
+
         if new_status == BroadcastStatus.UNKNOWN:
             self._log_unknown_status_for_drill_down(message, event)
 
-        previous_status = message.status
         message.previous_status = previous_status
         message.status = new_status
         message.status_updated_at = timezone.now()
@@ -235,6 +267,35 @@ class HandleStatusUpdateUseCase:
             if value:
                 return str(value)
         return f"Courier reported status={status} without error detail"
+
+    @staticmethod
+    def _is_out_of_order(previous_status: str, new_status: BroadcastStatus) -> bool:
+        """Return True when the incoming status would regress the row
+        backwards in the forward lifecycle.
+
+        The courier may publish status updates out of order (network
+        retries, provider reordering). Without this guard a "sent"
+        arriving after a "delivered" would silently downgrade the row,
+        and the next "delivered" would incorrectly be counted as a new
+        first-delivery — duplicating the project counter.
+
+        Terminal states (ERRORED, FAILED) and UNKNOWN are always
+        accepted because they may legitimately follow any previous
+        status (e.g. a late failure notification).
+        """
+        if new_status in _ALWAYS_ACCEPTED:
+            return False
+        if previous_status in _ALWAYS_ACCEPTED:
+            # Once the row reached a terminal/unknown state we still
+            # allow forward progress (e.g. a follow-up DELIVERED after
+            # an UNKNOWN). Only block backwards moves below.
+            pass
+
+        new_rank = _STATUS_RANK.get(new_status)
+        prev_rank = _STATUS_RANK.get(previous_status)
+        if new_rank is None or prev_rank is None:
+            return False
+        return new_rank < prev_rank
 
     def _log_unknown_status_for_drill_down(
         self, message: BroadcastMessage, event: BroadcastStatusEvent

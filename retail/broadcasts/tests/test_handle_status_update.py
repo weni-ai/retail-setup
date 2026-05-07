@@ -237,6 +237,59 @@ class HandleStatusUpdateUseCaseTest(TestCase):
         self.assertEqual(self.message.status, BroadcastStatus.ERRORED)
         self.assertIn("status=", self.message.error_message)
 
+    def test_out_of_order_status_does_not_regress_or_double_count(self):
+        """Reproduces a real production bug: courier reordered events
+        delivered → sent → delivered. Without the rank guard, the second
+        delivered would re-count because previous_status would be sent.
+        With the guard, sent is rejected (regression), so previous_status
+        stays delivered and the second delivered is a no-op for the
+        counter."""
+        self.message.external_message_id = self.external_message_id
+        self.message.save(update_fields=["external_message_id"])
+
+        delivered = self._event(broadcast_id=None, status=BroadcastStatus.DELIVERED)
+        sent_out_of_order = self._event(broadcast_id=None, status=BroadcastStatus.SENT)
+
+        self._dispatch(delivered)  # legitimate first delivery
+        self._dispatch(sent_out_of_order)  # rejected (regression)
+        self._dispatch(delivered)  # no-op (already delivered)
+
+        counter = ProjectBroadcastCounter.objects.get(project_id=self.project.pk)
+        self.assertEqual(counter.total_delivered, 1)
+        self.message.refresh_from_db()
+        self.assertEqual(self.message.status, BroadcastStatus.DELIVERED)
+
+    def test_failed_can_arrive_after_delivered(self):
+        """Terminal states may legitimately be reported after delivery
+        (e.g. provider-side reconciliation), so the rank guard must let
+        them through."""
+        self.message.status = BroadcastStatus.DELIVERED
+        self.message.external_message_id = self.external_message_id
+        self.message.save()
+
+        event = self._event(broadcast_id=None, status=BroadcastStatus.FAILED)
+        self._dispatch(event)
+
+        self.message.refresh_from_db()
+        self.assertEqual(self.message.status, BroadcastStatus.FAILED)
+
+    def test_forward_progression_is_accepted(self):
+        """Sanity check that the rank guard doesn't block legitimate
+        forward transitions (sent → wired → delivered → read)."""
+        self.message.status = BroadcastStatus.SENT
+        self.message.external_message_id = self.external_message_id
+        self.message.save()
+
+        for next_status in (
+            BroadcastStatus.WIRED,
+            BroadcastStatus.DELIVERED,
+            BroadcastStatus.READ,
+        ):
+            self._dispatch(self._event(broadcast_id=None, status=next_status))
+
+        self.message.refresh_from_db()
+        self.assertEqual(self.message.status, BroadcastStatus.READ)
+
     def test_unknown_status_event_persists_as_unknown(self):
         """When the consumer maps an unrecognized courier letter to UNKNOWN,
         the use case must persist it (not drop) so the payload can be
