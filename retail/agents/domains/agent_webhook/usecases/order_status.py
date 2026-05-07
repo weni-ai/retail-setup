@@ -6,6 +6,7 @@ from django.core.cache import cache
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
 
+from retail.agents.domains.agent_execution.services.logger import ExecutionLoggerService
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_webhook.usecases.webhook import (
     AgentWebhookUseCase,
@@ -43,6 +44,9 @@ def adapt_order_status_to_webhook_payload(
 
 
 class AgentOrderStatusUpdateUsecase:
+    def __init__(self, exec_logger: Optional[ExecutionLoggerService] = None):
+        self.exec_logger = exec_logger or ExecutionLoggerService()
+
     def get_integrated_agent_if_exists(
         self, project: Project
     ) -> Optional[IntegratedAgent]:
@@ -174,7 +178,9 @@ class AgentOrderStatusUpdateUsecase:
         return not event_registered_now
 
     def execute(
-        self, integrated_agent: IntegratedAgent, order_status_dto: OrderStatusDTO
+        self,
+        integrated_agent: IntegratedAgent,
+        order_status_dto: OrderStatusDTO,
     ) -> None:
         if self._is_duplicate_event(integrated_agent, order_status_dto):
             logger.info(
@@ -183,6 +189,17 @@ class AgentOrderStatusUpdateUsecase:
                 f"order_id={order_status_dto.orderId} "
                 f"current_state={order_status_dto.currentState} "
                 f"vtex_account={order_status_dto.vtexAccount}"
+            )
+            # Close the execution row opened by the upstream task; without
+            # this skip the row would linger at `processing` until the
+            # ZSET deadline force-finalises it as `Execution timed out`.
+            self.exec_logger.log_execution_skip(
+                reason="duplicate_order_status_event_within_window",
+                skip_data={
+                    "order_id": order_status_dto.orderId,
+                    "current_state": order_status_dto.currentState,
+                    "vtex_account": order_status_dto.vtexAccount,
+                },
             )
             return
 
@@ -201,7 +218,7 @@ class AgentOrderStatusUpdateUsecase:
             payload=webhook_payload,
         )
 
-        agent_webhook_use_case = AgentWebhookUseCase()
+        agent_webhook_use_case = AgentWebhookUseCase(exec_logger=self.exec_logger)
         credentials = agent_webhook_use_case._addapt_credentials(integrated_agent)
 
         request_data.set_credentials(credentials)

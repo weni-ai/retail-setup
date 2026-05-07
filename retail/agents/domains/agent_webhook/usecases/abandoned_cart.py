@@ -1,6 +1,7 @@
 import logging
 
 from typing import Optional
+from uuid import UUID
 
 from django.conf import settings
 
@@ -48,7 +49,12 @@ class AgentAbandonedCartUseCase(BaseAgentWebhookUseCase):
 
         return integrated_agent
 
-    def execute(self, cart: Cart, integrated_agent: IntegratedAgent) -> None:
+    def execute(
+        self,
+        cart: Cart,
+        integrated_agent: IntegratedAgent,
+        execution_uuid: Optional[UUID] = None,
+    ) -> None:
         """
         Execute the abandoned cart agent webhook process.
         Now delegates to the unified CartAbandonmentService.
@@ -56,6 +62,9 @@ class AgentAbandonedCartUseCase(BaseAgentWebhookUseCase):
         Args:
             cart (Cart): The abandoned cart instance.
             integrated_agent (IntegratedAgent): The integrated agent to execute.
+            execution_uuid: Optional caller-provided AgentExecution UUID,
+                forwarded so the inner ``task_agent_webhook`` reuses it
+                instead of creating a duplicate execution log.
         """
         try:
             logger.info(
@@ -65,7 +74,9 @@ class AgentAbandonedCartUseCase(BaseAgentWebhookUseCase):
 
             # Use the unified service to process the cart
             self.cart_abandonment_service.process_abandoned_cart(
-                cart=cart, integration_config=integrated_agent
+                cart=cart,
+                integration_config=integrated_agent,
+                execution_uuid=execution_uuid,
             )
 
             logger.info(
@@ -76,3 +87,4 @@ class AgentAbandonedCartUseCase(BaseAgentWebhookUseCase):
             logger.exception(
                 f"Unexpected error while processing cart {cart.uuid}: {str(e)}"
             )
+            raise

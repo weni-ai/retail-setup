@@ -3,12 +3,29 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.agents.domains.agent_webhook.services.broadcast import (
+    BroadcastDispatchResult,
+)
 from retail.agents.domains.agent_webhook.usecases.webhook import (
     AgentWebhookUseCase,
 )
 from retail.agents.tests.mocks.cache.integrated_agent_webhook import (
     IntegratedAgentCacheHandlerMock,
 )
+
+
+def _dispatch_result(response=None, broadcast_message_uuid=None):
+    """Build a ``BroadcastDispatchResult`` with sensible defaults.
+
+    Centralised here so the matrix of webhook-usecase tests doesn't
+    repeat the dataclass construction noise. Defaults keep the tests
+    that don't care about the persisted ``BroadcastMessage`` UUID
+    short.
+    """
+    return BroadcastDispatchResult(
+        response=response if response is not None else {},
+        broadcast_message_uuid=broadcast_message_uuid,
+    )
 
 
 class AgentWebhookUseCaseTest(TestCase):
@@ -325,3 +342,371 @@ class AgentWebhookUseCaseTest(TestCase):
         self.assertIsNone(result)
         cached_agent = self.mock_cache_handler.get_cached_agent(blocked_uuid)
         self.assertIsNone(cached_agent)
+
+
+class AgentWebhookUseCaseLoggingTest(TestCase):
+    """Pin the exec_logger.* contract added in feat/add-logging-config.
+
+    The mock logger is injected into ``AgentWebhookUseCase`` via its
+    constructor so we can assert which logging method fires for every
+    branch of ``execute`` / ``_process_lambda_response``.
+    """
+
+    def setUp(self):
+        patcher = patch("weni_datalake_sdk.clients.client.send_commerce_webhook_data")
+        self.mock_audit = patcher.start()
+        self.addCleanup(patcher.stop)
+
+        self.mock_lambda_handler = MagicMock()
+        self.mock_broadcast_handler = MagicMock()
+        self.mock_cache_handler = IntegratedAgentCacheHandlerMock()
+
+        self.exec_logger = MagicMock()
+        self.usecase = AgentWebhookUseCase(
+            active_agent=self.mock_lambda_handler,
+            broadcast=self.mock_broadcast_handler,
+            cache=self.mock_cache_handler,
+            exec_logger=self.exec_logger,
+        )
+
+        self.mock_agent = MagicMock()
+        self.mock_agent.uuid = uuid4()
+        self.mock_agent.contact_percentage = 100
+        self.mock_agent.config = None
+        self.mock_agent.templates.filter.return_value.values.return_value = []
+        self.mock_agent.credentials.all.return_value = []
+
+    def _build_request_data(self, params=None, payload=None):
+        data = MagicMock()
+        data.params = params if params is not None else {"k": "v"}
+        data.payload = payload if payload is not None else {"event": "order"}
+        data.project_rules = None
+
+        def _set_project_rules(rules):
+            data.project_rules = rules
+
+        data.set_project_rules.side_effect = _set_project_rules
+        return data
+
+    def test_execute_logs_skip_when_contact_percentage_blocks(self):
+        self.mock_agent.contact_percentage = 0
+
+        result = self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.assertIsNone(result)
+        self.exec_logger.log_execution_skip.assert_called_once_with(
+            reason="Broadcast not allowed (contact percentage check)",
+            skip_data={"contact_percentage": 0},
+        )
+        self.exec_logger.log_lambda_request.assert_not_called()
+        self.exec_logger.log_lambda_response.assert_not_called()
+
+    def test_execute_logs_lambda_request_with_params_payload_and_project_rules(self):
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = {
+            "template": "order_update",
+        }
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
+        self.mock_broadcast_handler.send_message.return_value = _dispatch_result(
+            response={"id": 7}
+        )
+        template = MagicMock()
+        template.uuid = uuid4()
+        self.mock_broadcast_handler.get_current_template.return_value = template
+
+        params = {"foo": "bar"}
+        payload = {"order": "123"}
+        data = self._build_request_data(params=params, payload=payload)
+
+        self.usecase.execute(self.mock_agent, data)
+
+        self.exec_logger.log_lambda_request.assert_called_once_with(
+            request_data={
+                "params": params,
+                "payload": payload,
+                "project_rules": [],
+            },
+        )
+
+    def test_execute_logs_lambda_response_with_parsed_payload(self):
+        parsed = {"template": "order_update", "contact_urn": "whatsapp:123"}
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = parsed
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
+        self.mock_broadcast_handler.send_message.return_value = _dispatch_result(
+            response={"id": 1}
+        )
+        self.mock_broadcast_handler.get_current_template.return_value = MagicMock(
+            uuid=uuid4()
+        )
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.log_lambda_response.assert_called_once_with(
+            response_data=parsed,
+        )
+
+    def test_execute_logs_update_contact_urn_when_payload_has_it(self):
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:5511999999999",
+        }
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
+        self.mock_broadcast_handler.send_message.return_value = _dispatch_result(
+            response={"id": 1}
+        )
+        self.mock_broadcast_handler.get_current_template.return_value = MagicMock(
+            uuid=uuid4()
+        )
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.update_contact_urn.assert_called_once_with(
+            contact_urn="whatsapp:5511999999999",
+        )
+
+    def test_execute_does_not_log_update_contact_urn_when_payload_missing_it(self):
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = {
+            "template": "order_update",
+        }
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
+        self.mock_broadcast_handler.send_message.return_value = _dispatch_result(
+            response={"id": 1}
+        )
+        self.mock_broadcast_handler.get_current_template.return_value = MagicMock(
+            uuid=uuid4()
+        )
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.update_contact_urn.assert_not_called()
+
+    def test_execute_logs_lambda_response_with_error_fallback_when_parse_returns_none(
+        self,
+    ):
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = None
+
+        result = self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.assertIsNone(result)
+        self.exec_logger.log_lambda_response.assert_called_once_with(
+            response_data={"error": "Failed to parse response"},
+        )
+        self.exec_logger.log_execution_error.assert_called_once_with(
+            error_message="Error parsing lambda response",
+        )
+        self.mock_broadcast_handler.send_message.assert_not_called()
+
+    def test_execute_logs_skip_when_validation_fails(self):
+        parsed = {"status": "ERROR", "error": "boom"}
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = parsed
+        self.mock_lambda_handler.validate_response.return_value = False
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.log_execution_skip.assert_called_once_with(
+            reason="Lambda response validation failed",
+            skip_data={"status": "ERROR", "error": "boom"},
+        )
+        self.mock_broadcast_handler.send_message.assert_not_called()
+
+    def test_execute_logs_skip_when_contact_not_allowed(self):
+        parsed = {"template": "order_update", "contact_urn": "whatsapp:123"}
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = parsed
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = False
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.log_execution_skip.assert_called_once_with(
+            reason="Contact not allowed to receive broadcast",
+            skip_data={"contact_urn": "whatsapp:123"},
+        )
+        self.mock_broadcast_handler.send_message.assert_not_called()
+
+    def test_execute_logs_skip_when_build_message_returns_none(self):
+        parsed = {"template": "missing_one", "contact_urn": "whatsapp:123"}
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = parsed
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = None
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.log_execution_skip.assert_called_once_with(
+            reason="Failed to build broadcast message",
+            skip_data={"template": "missing_one"},
+        )
+        self.mock_broadcast_handler.send_message.assert_not_called()
+
+    def test_execute_logs_skip_when_build_message_returns_empty_dict(self):
+        parsed = {"template": "order_update", "contact_urn": "whatsapp:123"}
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = parsed
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {}
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.log_execution_skip.assert_called_once_with(
+            reason="Failed to build broadcast message",
+            skip_data={"template": "order_update"},
+        )
+        self.mock_broadcast_handler.send_message.assert_not_called()
+
+    def test_execute_logs_broadcast_sent_with_id_and_template_uuid(self):
+        parsed = {"template": "order_update", "contact_urn": "whatsapp:123"}
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = parsed
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
+
+        broadcast_response = {"id": 42, "status": "queued"}
+        broadcast_message_uuid = uuid4()
+        self.mock_broadcast_handler.send_message.return_value = _dispatch_result(
+            response=broadcast_response,
+            broadcast_message_uuid=broadcast_message_uuid,
+        )
+        template = MagicMock()
+        template_uuid = uuid4()
+        template.uuid = template_uuid
+        self.mock_broadcast_handler.get_current_template.return_value = template
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.log_broadcast_sent.assert_called_once_with(
+            broadcast_response=broadcast_response,
+            template_uuid=template_uuid,
+            broadcast_id=42,
+            broadcast_message_uuid=broadcast_message_uuid,
+        )
+        self.exec_logger.log_execution_error.assert_not_called()
+
+    def test_execute_logs_broadcast_sent_when_dispatch_persistence_failed(self):
+        # ``Broadcast.send_message`` is defensive on the BroadcastMessage
+        # persistence path: when ``RecordBroadcastSentUseCase`` fails the
+        # dispatch result still carries the Flows response but the UUID
+        # is ``None``. The execution log records success but the FK
+        # stays unlinked.
+        parsed = {"template": "order_update", "contact_urn": "whatsapp:123"}
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = parsed
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
+        self.mock_broadcast_handler.send_message.return_value = _dispatch_result(
+            response={}, broadcast_message_uuid=None
+        )
+        self.mock_broadcast_handler.get_current_template.return_value = None
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.log_broadcast_sent.assert_called_once_with(
+            broadcast_response={},
+            template_uuid=None,
+            broadcast_id=None,
+            broadcast_message_uuid=None,
+        )
+        self.exec_logger.log_execution_error.assert_not_called()
+
+    def test_execute_logs_broadcast_sent_with_none_template_uuid_when_template_is_false(
+        self,
+    ):
+        parsed = {"template": "order_update", "contact_urn": "whatsapp:123"}
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = parsed
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
+        broadcast_message_uuid = uuid4()
+        self.mock_broadcast_handler.send_message.return_value = _dispatch_result(
+            response={"id": 9},
+            broadcast_message_uuid=broadcast_message_uuid,
+        )
+        self.mock_broadcast_handler.get_current_template.return_value = False
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.log_broadcast_sent.assert_called_once_with(
+            broadcast_response={"id": 9},
+            template_uuid=None,
+            broadcast_id=9,
+            broadcast_message_uuid=broadcast_message_uuid,
+        )
+
+    def test_execute_logs_error_when_build_message_raises(self):
+        parsed = {"template": "order_update", "contact_urn": "whatsapp:123"}
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = parsed
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.side_effect = RuntimeError("kaboom")
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.log_execution_error.assert_called_once_with(
+            error_message="Error building/sending broadcast: kaboom",
+        )
+        self.exec_logger.log_broadcast_sent.assert_not_called()
+        self.mock_broadcast_handler.send_message.assert_not_called()
+
+    def test_execute_logs_error_when_send_message_raises(self):
+        parsed = {"template": "order_update", "contact_urn": "whatsapp:123"}
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = parsed
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
+        self.mock_broadcast_handler.send_message.side_effect = RuntimeError(
+            "flows down"
+        )
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.log_execution_error.assert_called_once_with(
+            error_message="Error building/sending broadcast: flows down",
+        )
+        self.exec_logger.log_broadcast_sent.assert_not_called()
+
+    def test_execute_logs_unhandled_exception_and_reraises(self):
+        """An exception that doesn't have its own try/except (e.g. raised from
+        ``_set_project_rules``) must still produce an error trace
+        before propagating, so the row never lingers at ``processing``.
+        """
+        # Force ``_set_project_rules`` to blow up by making the templates
+        # filter raise — that sits between the contact-percentage check
+        # and the lambda-request log, so neither a skip nor a normal
+        # error trace would otherwise fire.
+        self.mock_agent.templates.filter.side_effect = RuntimeError(
+            "templates lookup boom"
+        )
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.assertEqual(str(ctx.exception), "templates lookup boom")
+        self.exec_logger.log_execution_error.assert_called_once_with(
+            error_message="templates lookup boom",
+            error_data={"phase": "agent_webhook_execute"},
+        )
+        # We bailed before any of the inner branches got a chance to fire.
+        self.exec_logger.log_lambda_request.assert_not_called()
+        self.exec_logger.log_lambda_response.assert_not_called()
+        self.exec_logger.log_broadcast_sent.assert_not_called()
+        self.exec_logger.log_execution_skip.assert_not_called()

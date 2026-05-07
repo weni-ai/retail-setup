@@ -2,6 +2,10 @@ from django.urls import path
 
 from rest_framework.routers import SimpleRouter
 
+from retail.agents.domains.agent_execution.views import (
+    AgentLogsExportView,
+    AgentLogsView,
+)
 from retail.agents.domains.agent_management.views import AgentViewSet, PushAgentView
 
 from retail.agents.domains.agent_integration.views import (
@@ -62,6 +66,16 @@ urlpatterns = [
         "payment-recovery-webhook/<uuid:pk>/",
         PaymentRecoveryWebhookView.as_view(),
         name="payment-recovery-webhook",
+    ),
+    path(
+        "assigneds/<uuid:agent_uuid>/logs/",
+        AgentLogsView.as_view(),
+        name="agent-logs",
+    ),
+    path(
+        "assigneds/<uuid:agent_uuid>/logs/export/",
+        AgentLogsExportView.as_view(),
+        name="agent-logs-export",
     ),
 ]
 

@@ -13,6 +13,7 @@ from retail.agents.domains.agent_webhook.services.broadcast import (
 from retail.agents.domains.agent_webhook.services.active_agent import (
     ActiveAgent,
 )
+from retail.agents.domains.agent_execution.services.logger import ExecutionLoggerService
 
 from retail.agents.shared.cache import (
     IntegratedAgentCacheHandler,
@@ -29,10 +30,12 @@ class AgentWebhookUseCase:
         active_agent: Optional[ActiveAgent] = None,
         broadcast: Optional[Broadcast] = None,
         cache: Optional[IntegratedAgentCacheHandler] = None,
+        exec_logger: Optional[ExecutionLoggerService] = None,
     ):
         self.active_agent = active_agent or ActiveAgent()
         self.broadcast_handler = broadcast or Broadcast()
         self.cache_handler = cache or IntegratedAgentCacheHandlerRedis()
+        self.exec_logger = exec_logger or ExecutionLoggerService()
         self.IGNORE_INTEGRATED_AGENT_UUID = "d30bcce8-ce67-4677-8a33-c12b62a51d4f"
 
     def _get_integrated_agent(self, uuid: UUID):
@@ -104,22 +107,37 @@ class AgentWebhookUseCase:
         data.set_project_rules(project_rules)
 
     def _process_lambda_response(
-        self, integrated_agent: IntegratedAgent, response: Dict[str, Any]
+        self,
+        integrated_agent: IntegratedAgent,
+        parsed_data: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """Process lambda response and build broadcast message."""
-        data = self.active_agent.parse_response(response)
+        """Process parsed lambda response and build broadcast message.
 
-        if not data:
-            logger.info("Error in parsing lambda response.")
-            return None
+        Args:
+            integrated_agent: The integrated agent
+            parsed_data: Already parsed lambda response data (parse only once
+                         since AWS Lambda StreamingBody can only be read once)
+        """
+        exec_logger = self.exec_logger
+        data = parsed_data
 
-        response["payload"] = data
+        # Update contact_urn if we now have it from lambda response
+        if data.get("contact_urn"):
+            exec_logger.update_contact_urn(contact_urn=data["contact_urn"])
 
         if not self.active_agent.validate_response(data, integrated_agent):
+            exec_logger.log_execution_skip(
+                reason="Lambda response validation failed",
+                skip_data={"status": data.get("status"), "error": data.get("error")},
+            )
             return None
 
         if not self.broadcast_handler.can_send_to_contact(integrated_agent, data):
             logger.info("Contact is not allowed to receive the broadcast.")
+            exec_logger.log_execution_skip(
+                reason="Contact not allowed to receive broadcast",
+                skip_data={"contact_urn": data.get("contact_urn")},
+            )
             return None
 
         try:
@@ -128,13 +146,41 @@ class AgentWebhookUseCase:
                 logger.info(
                     f"Failed to build broadcast message from payload data: {data}"
                 )
+                exec_logger.log_execution_error(
+                    error_message="Failed to build broadcast message",
+                    error_data={"payload_data": data},
+                )
                 return None
 
-            self.broadcast_handler.send_message(message, integrated_agent, data)
-            return response
+            dispatch_result = self.broadcast_handler.send_message(
+                message, integrated_agent, data
+            )
+            broadcast_response = dispatch_result.response
+            broadcast_message_uuid = dispatch_result.broadcast_message_uuid
+
+            # Log successful broadcast
+            template = self.broadcast_handler.get_current_template(
+                integrated_agent, data
+            )
+            template_uuid = (
+                template.uuid if template and template is not False else None
+            )
+            broadcast_id = broadcast_response.get("id") if broadcast_response else None
+
+            exec_logger.log_broadcast_sent(
+                broadcast_response=broadcast_response or {},
+                template_uuid=template_uuid,
+                broadcast_id=broadcast_id,
+                broadcast_message_uuid=broadcast_message_uuid,
+            )
+
+            return data
 
         except Exception as e:
             logger.exception(f"Unexpected error while building broadcast message: {e}")
+            exec_logger.log_execution_error(
+                error_message=f"Error building/sending broadcast: {str(e)}",
+            )
             return None
 
     def execute(
@@ -147,21 +193,64 @@ class AgentWebhookUseCase:
         (sampling, restrictions, Lambda failures, etc.).
         """
         logger.info(f"Executing broadcast for agent: {integrated_agent.uuid}")
+        exec_logger = self.exec_logger
 
-        if not self._should_send_broadcast(integrated_agent):
-            logger.info("Broadcast not allowed for this agent.")
-            return None
+        # Wrapping here guarantees the trace lands
+        # regardless of who invokes the use case. The exception is
+        # re-raised so outer handlers (e.g. `task_agent_webhook`'s
+        # `except`) keep their current behaviour.
+        try:
+            if not self._should_send_broadcast(integrated_agent):
+                logger.info("Broadcast not allowed for this agent.")
+                exec_logger.log_execution_skip(
+                    reason="Broadcast not allowed (contact percentage check)",
+                    skip_data={
+                        "contact_percentage": integrated_agent.contact_percentage
+                    },
+                )
+                return None
 
-        self._set_project_rules(integrated_agent, data)
+            self._set_project_rules(integrated_agent, data)
 
-        response = self.active_agent.invoke(
-            integrated_agent=integrated_agent, data=data
-        )
-        result = self._process_lambda_response(integrated_agent, response)
-
-        if result:
-            logger.info(
-                f"Successfully executed broadcast for agent: {integrated_agent.uuid}"
+            # Log lambda request
+            exec_logger.log_lambda_request(
+                request_data={
+                    "params": dict(data.params) if data.params else {},
+                    "payload": dict(data.payload) if data.payload else {},
+                    "project_rules": data.project_rules,
+                },
             )
 
-        return result
+            response = self.active_agent.invoke(
+                integrated_agent=integrated_agent, data=data
+            )
+
+            # Parse response once (AWS Lambda StreamingBody can only be read once)
+            parsed_response = self.active_agent.parse_response(response)
+
+            # Log lambda response
+            exec_logger.log_lambda_response(
+                response_data=parsed_response or {"error": "Failed to parse response"},
+            )
+
+            if not parsed_response:
+                logger.info("Error in parsing lambda response.")
+                exec_logger.log_execution_error(
+                    error_message="Error parsing lambda response",
+                )
+                return None
+
+            result = self._process_lambda_response(integrated_agent, parsed_response)
+
+            if result:
+                logger.info(
+                    f"Successfully executed broadcast for agent: {integrated_agent.uuid}"
+                )
+
+            return result
+        except Exception as e:
+            exec_logger.log_execution_error(
+                error_message=str(e),
+                error_data={"phase": "agent_webhook_execute"},
+            )
+            raise
