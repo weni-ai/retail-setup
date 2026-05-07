@@ -1,3 +1,6 @@
+# 5.17.0
+- feat: Track broadcasts and enforce trial broadcast limit
+
 # 5.16.0
 - fix: Skip duplicate order status events
 - fix: Skip abandoned cart notification when order form already notified
