@@ -8,6 +8,11 @@ from typing import Any, Callable, Dict, Optional
 from datetime import datetime
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.broadcasts.usecases.record_broadcast_sent import (
+    RecordBroadcastSentDTO,
+    RecordBroadcastSentUseCase,
+)
+from retail.clients.exceptions import CustomAPIException
 from retail.services.flows.service import FlowsService
 from retail.templates.models import Template
 from retail.interfaces.services.aws_s3 import S3ServiceInterface
@@ -395,17 +400,194 @@ class Broadcast:
             message.get("msg", {}).get("template", {}).get("name", "unknown")
         )
 
-        response = self.flows_service.send_whatsapp_broadcast(message)
+        try:
+            response = self.flows_service.send_whatsapp_broadcast(message)
+        except CustomAPIException as exc:
+            # Audit the failure before re-raising the original error.
+            self._record_failed_dispatch(
+                message=message,
+                integrated_agent=integrated_agent,
+                lambda_data=lambda_data,
+                exc=exc,
+            )
+            raise
+
         self._register_broadcast_event(message, response, integrated_agent, lambda_data)
+
+        # Resolve the template from the Lambda payload so we can store
+        # both template_name and template_version in BroadcastMessage.
+        resolved_template: Optional[Template] = None
+        if lambda_data:
+            try:
+                resolved_template = self.get_current_template(
+                    integrated_agent, lambda_data
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"Could not resolve template for BroadcastMessage record: {exc}"
+                )
+
+        self._record_broadcast_message(
+            message=message,
+            response=response,
+            integrated_agent=integrated_agent,
+            template=resolved_template,
+        )
         logger.info(
             f"Broadcast message sent. "
             f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
             f"Template: {template_name}, Response: {response}"
         )
 
+    def _record_broadcast_message(
+        self,
+        message: Dict[str, Any],
+        response: Dict[str, Any],
+        integrated_agent: IntegratedAgent,
+        template: Optional[Template],
+    ) -> None:
+        """Persist a BroadcastMessage row for end-to-end tracking.
+
+        Kept defensive: a failure to persist must not break the user-facing
+        broadcast flow, only surface as a logged error so we can diagnose
+        and retry later.
+        """
+        try:
+            broadcast_id = self._extract_broadcast_id(response)
+            contact_urn = self._extract_contact_urn(message)
+            channel_uuid = (
+                str(integrated_agent.channel_uuid)
+                if integrated_agent.channel_uuid
+                else None
+            )
+            flows_template_uuid = self._extract_flows_template_uuid(response)
+
+            RecordBroadcastSentUseCase().execute(
+                RecordBroadcastSentDTO(
+                    broadcast_id=broadcast_id,
+                    integrated_agent=integrated_agent,
+                    template=template,
+                    contact_urn=contact_urn,
+                    channel_uuid=channel_uuid,
+                    flows_template_uuid=flows_template_uuid,
+                    flows_response=response or {},
+                )
+            )
+        except Exception as exc:
+            logger.exception(
+                f"Failed to persist BroadcastMessage for agent "
+                f"{integrated_agent.uuid}: {exc}"
+            )
+
+    def _record_failed_dispatch(
+        self,
+        message: Dict[str, Any],
+        integrated_agent: IntegratedAgent,
+        lambda_data: Optional[Dict[str, Any]],
+        exc: CustomAPIException,
+    ) -> None:
+        """Persist a FAILED BroadcastMessage when the Flows call raises.
+
+        Defensive by design: persisting must never mask the original
+        dispatch error, so any exception while recording is logged and
+        swallowed; the caller re-raises ``exc`` after this returns.
+        """
+        try:
+            resolved_template: Optional[Template] = None
+            if lambda_data:
+                try:
+                    resolved_template = self.get_current_template(
+                        integrated_agent, lambda_data
+                    )
+                except Exception:
+                    resolved_template = None
+
+            status_code = getattr(exc, "status_code", None)
+            error_detail = getattr(exc, "detail", str(exc))
+            error_message = (
+                f"{type(exc).__name__}(status_code={status_code}): {error_detail}"
+            )
+            contact_urn = self._extract_contact_urn(message)
+            channel_uuid = (
+                str(integrated_agent.channel_uuid)
+                if integrated_agent.channel_uuid
+                else None
+            )
+
+            RecordBroadcastSentUseCase().execute(
+                RecordBroadcastSentDTO(
+                    broadcast_id=None,
+                    integrated_agent=integrated_agent,
+                    template=resolved_template,
+                    contact_urn=contact_urn,
+                    channel_uuid=channel_uuid,
+                    flows_template_uuid=None,
+                    flows_response={
+                        "error": str(error_detail),
+                        "status_code": status_code,
+                    },
+                    error_message=error_message,
+                )
+            )
+        except Exception as record_exc:
+            logger.exception(
+                f"Failed to persist FAILED BroadcastMessage for agent "
+                f"{integrated_agent.uuid}: {record_exc}"
+            )
+
+    @staticmethod
+    def _extract_broadcast_id(response: Optional[Dict[str, Any]]) -> Optional[int]:
+        """Extract the broadcast id from the Flows response.
+
+        Flows returns the broadcast id under the key ``id`` in the
+        top-level of the JSON body. Coerce to int defensively so that
+        the consumer side always sees an integer.
+        """
+        if not response or not isinstance(response, dict):
+            return None
+
+        raw_value = response.get("id")
+        if raw_value is None:
+            return None
+
+        try:
+            return int(raw_value)
+        except (TypeError, ValueError):
+            logger.warning(
+                f"Unexpected broadcast id format in Flows response: {raw_value!r}"
+            )
+            return None
+
+    @staticmethod
+    def _extract_flows_template_uuid(
+        response: Optional[Dict[str, Any]],
+    ) -> Optional[str]:
+        """Extract the template UUID from the Flows response metadata.
+
+        The Flows response carries the template identity in
+        ``metadata.template.uuid``; this is the template UUID on the
+        Flows side and is distinct from our local ``Template.uuid``.
+        """
+        if not response or not isinstance(response, dict):
+            return None
+
+        metadata = response.get("metadata") or {}
+        template = metadata.get("template") or {}
+        value = template.get("uuid")
+        return value if value else None
+
+    @staticmethod
+    def _extract_contact_urn(message: Optional[Dict[str, Any]]) -> str:
+        if not message or not isinstance(message, dict):
+            return ""
+        urns = message.get("urns") or []
+        if urns:
+            return urns[0]
+        return ""
+
     def get_current_template(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
-    ) -> Optional[str | bool]:
+    ) -> Optional[Template]:
         """
         Get current template from integrated agent templates.
 
@@ -462,17 +644,9 @@ class Broadcast:
         )
         template = self.get_current_template(integrated_agent, data)
 
-        if template is False:
-            logger.info(
-                f"Could not build message because template has no current version. "
-                f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
-                f"Template: {template_name}, Data: {data}"
-            )
-            return
-
         if template is None:
             logger.warning(
-                f"Template not found. "
+                f"Template not found or has no approved current version. "
                 f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
                 f"Template: {template_name}, Data: {data}"
             )

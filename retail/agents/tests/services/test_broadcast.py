@@ -553,3 +553,156 @@ class BroadcastHandlerTest(TestCase):
         result = self.handler._resolve_language(data, mock_template)
 
         self.assertIsNone(result)
+
+
+class BroadcastPayloadHelpersTest(TestCase):
+    """Coverage for the static helpers that parse Flows responses and
+    Flows broadcast payloads. They are exercised end-to-end by the
+    integration flow but tested directly here to keep coverage close to
+    the boundary code that handles upstream contract drift."""
+
+    def test_extract_broadcast_id_returns_int(self):
+        self.assertEqual(Broadcast._extract_broadcast_id({"id": 173720899}), 173720899)
+
+    def test_extract_broadcast_id_coerces_numeric_string(self):
+        self.assertEqual(Broadcast._extract_broadcast_id({"id": "12345"}), 12345)
+
+    def test_extract_broadcast_id_returns_none_when_missing(self):
+        self.assertIsNone(Broadcast._extract_broadcast_id({}))
+        self.assertIsNone(Broadcast._extract_broadcast_id(None))
+
+    def test_extract_broadcast_id_returns_none_for_invalid(self):
+        self.assertIsNone(Broadcast._extract_broadcast_id({"id": "not-a-number"}))
+
+    def test_extract_flows_template_uuid_reads_metadata(self):
+        response = {
+            "metadata": {"template": {"uuid": "0fb99299-3553-4c40-b174-6a66c647c12e"}}
+        }
+        self.assertEqual(
+            Broadcast._extract_flows_template_uuid(response),
+            "0fb99299-3553-4c40-b174-6a66c647c12e",
+        )
+
+    def test_extract_flows_template_uuid_returns_none_when_metadata_missing(self):
+        self.assertIsNone(Broadcast._extract_flows_template_uuid({}))
+        self.assertIsNone(Broadcast._extract_flows_template_uuid(None))
+        self.assertIsNone(
+            Broadcast._extract_flows_template_uuid({"metadata": {"template": {}}})
+        )
+
+    def test_extract_contact_urn_returns_first_urn(self):
+        message = {"urns": ["whatsapp:5511999999999", "whatsapp:5511888888888"]}
+        self.assertEqual(
+            Broadcast._extract_contact_urn(message), "whatsapp:5511999999999"
+        )
+
+    def test_extract_contact_urn_returns_empty_string_when_missing(self):
+        self.assertEqual(Broadcast._extract_contact_urn({}), "")
+        self.assertEqual(Broadcast._extract_contact_urn(None), "")
+        self.assertEqual(Broadcast._extract_contact_urn({"urns": []}), "")
+
+
+class BroadcastRecordingTest(TestCase):
+    """Validates that the dispatch path records a BroadcastMessage in
+    both the success and the failure case. The persistence use case is
+    mocked so the test stays unit-level — the use case itself has its
+    own test suite."""
+
+    def setUp(self):
+        self.mock_flows_service = MagicMock()
+        self.handler = Broadcast(
+            flows_service=self.mock_flows_service, audit_func=MagicMock()
+        )
+        self.integrated_agent = MagicMock()
+        self.integrated_agent.uuid = uuid4()
+        self.integrated_agent.channel_uuid = uuid4()
+        self.integrated_agent.project.uuid = uuid4()
+
+    @patch(
+        "retail.agents.domains.agent_webhook.services.broadcast.RecordBroadcastSentUseCase"
+    )
+    def test_record_broadcast_message_executes_use_case_with_extracted_fields(
+        self, mock_use_case_cls
+    ):
+        message = {
+            "urns": ["whatsapp:5511999999999"],
+            "msg": {"template": {"name": "abandoned_cart"}},
+        }
+        response = {
+            "id": 12345,
+            "status": "queued",
+            "metadata": {"template": {"uuid": "tpl-uuid"}},
+        }
+
+        self.handler._record_broadcast_message(
+            message=message,
+            response=response,
+            integrated_agent=self.integrated_agent,
+            template=None,
+        )
+
+        mock_use_case_cls.return_value.execute.assert_called_once()
+        dto = mock_use_case_cls.return_value.execute.call_args.args[0]
+        self.assertEqual(dto.broadcast_id, 12345)
+        self.assertEqual(dto.contact_urn, "whatsapp:5511999999999")
+        self.assertEqual(dto.flows_template_uuid, "tpl-uuid")
+
+    @patch(
+        "retail.agents.domains.agent_webhook.services.broadcast.RecordBroadcastSentUseCase"
+    )
+    def test_record_broadcast_message_swallows_exceptions_to_protect_dispatch(
+        self, mock_use_case_cls
+    ):
+        mock_use_case_cls.return_value.execute.side_effect = Exception("DB down")
+
+        # Must not raise even when the use case blows up — the dispatch
+        # itself already happened and shouldn't be punished by a
+        # tracking persistence failure.
+        self.handler._record_broadcast_message(
+            message={"urns": ["whatsapp:5511"]},
+            response={"id": 1},
+            integrated_agent=self.integrated_agent,
+            template=None,
+        )
+
+    @patch(
+        "retail.agents.domains.agent_webhook.services.broadcast.RecordBroadcastSentUseCase"
+    )
+    def test_record_failed_dispatch_records_failure_with_exception_detail(
+        self, mock_use_case_cls
+    ):
+        from retail.clients.exceptions import CustomAPIException
+
+        exc = CustomAPIException(detail="boom", status_code=503)
+
+        self.handler._record_failed_dispatch(
+            message={"urns": ["whatsapp:5511"]},
+            integrated_agent=self.integrated_agent,
+            lambda_data=None,
+            exc=exc,
+        )
+
+        mock_use_case_cls.return_value.execute.assert_called_once()
+        dto = mock_use_case_cls.return_value.execute.call_args.args[0]
+        self.assertIsNone(dto.broadcast_id)
+        self.assertIn("CustomAPIException", dto.error_message)
+        self.assertIn("503", dto.error_message)
+
+    @patch(
+        "retail.agents.domains.agent_webhook.services.broadcast.RecordBroadcastSentUseCase"
+    )
+    def test_record_failed_dispatch_swallows_exceptions_to_preserve_original_error(
+        self, mock_use_case_cls
+    ):
+        from retail.clients.exceptions import CustomAPIException
+
+        mock_use_case_cls.return_value.execute.side_effect = Exception("DB down")
+
+        # Must not raise — caller will re-raise the original dispatch
+        # error after this returns.
+        self.handler._record_failed_dispatch(
+            message={"urns": ["whatsapp:5511"]},
+            integrated_agent=self.integrated_agent,
+            lambda_data=None,
+            exc=CustomAPIException(detail="boom", status_code=500),
+        )

@@ -26,6 +26,13 @@ class IntegratedAgent(models.Model):
         blank=True,
     )
 
+    # Timestamp of when the agent was integrated into the project.
+    created_on = models.DateTimeField(auto_now_add=True)
+    # Running total of broadcasts delivered by this integrated agent.
+    # Incremented atomically alongside ProjectBroadcastCounter on each
+    # DELIVERED transition handled by the broadcast status consumer.
+    broadcasts_delivered = models.PositiveBigIntegerField(default=0)
+
     def __str__(self):
         return f"{self.agent} - {self.project}"
 
