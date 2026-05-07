@@ -61,6 +61,23 @@ class BroadcastMessage(models.Model):
            to the row via broadcast_id.
         3. Subsequent courier events update status via external_message_id
            (broadcast_id is no longer present after the first event).
+
+    Conversion attribution:
+        ``order_form_id`` and ``order_id`` capture the commercial origin
+        of the broadcast so a later VTEX ``invoiced`` event can be
+        attributed back to it. The conversion itself is materialized in
+        a dedicated ``BroadcastConversion`` row (one per (project,
+        order_id)) so multiple broadcasts targeting the same purchase
+        share a single conversion record without inflating metrics.
+
+        - Abandoned cart flow: ``order_form_id`` is filled at dispatch
+          (the cart exists but no order does).
+        - Order-status / payment-recovery flows: ``order_id`` is filled
+          at dispatch (the order already exists).
+
+        Both columns stay nullable on this row; the canonical pairing
+        of ``order_form_id`` and ``order_id`` lives on
+        ``BroadcastConversion`` once the purchase is confirmed.
     """
 
     uuid = models.UUIDField(primary_key=True, default=uuid_lib.uuid4, editable=False)
@@ -109,6 +126,9 @@ class BroadcastMessage(models.Model):
 
     last_payload = models.JSONField(default=dict, blank=True)
 
+    order_form_id = models.CharField(max_length=255, null=True, blank=True)
+    order_id = models.CharField(max_length=255, null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -119,6 +139,8 @@ class BroadcastMessage(models.Model):
             models.Index(fields=["project", "created_at"]),
             models.Index(fields=["integrated_agent", "created_at"]),
             models.Index(fields=["project", "status"]),
+            models.Index(fields=["project", "order_form_id"]),
+            models.Index(fields=["project", "order_id"]),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -175,4 +197,69 @@ class ProjectBroadcastCounter(models.Model):
             f"project_uuid={self.project.uuid}, "
             f"total_delivered={self.total_delivered}, "
             f"blocked_at={self.blocked_at.isoformat()})"
+        )
+
+
+class BroadcastConversion(models.Model):
+    """Represents a finalized purchase attributed to a broadcast dispatch.
+
+    A single row materializes the moment a VTEX order transitions to
+    ``invoiced``. The unique constraint on ``(project, order_id)``
+    enforces a 1:1 mapping with the purchase event — multiple
+    BroadcastMessage rows targeting the same order (e.g. abandoned
+    cart followed by payment recovery) collapse here into a single
+    conversion, avoiding double-counting in analytics.
+
+    ``integrated_agent`` is filled with the last-touch broadcast's
+    agent at creation time so per-agent conversion reports can be
+    answered by a simple ``GROUP BY integrated_agent_id``. It is
+    nullable because the matched broadcast may have lost its agent
+    (``SET_NULL`` on agent deletion) by the time the invoice arrives,
+    and may also remain unset for projects that disabled tracking.
+
+    The row is write-once: subsequent ``invoiced`` re-deliveries hit
+    the unique constraint and are ignored at the use-case level
+    (logged as ``conversion_already_recorded``).
+    """
+
+    uuid = models.UUIDField(default=uuid_lib.uuid4, editable=False, unique=True)
+
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="broadcast_conversions",
+    )
+    integrated_agent = models.ForeignKey(
+        "agents.IntegratedAgent",
+        on_delete=models.SET_NULL,
+        related_name="broadcast_conversions",
+        null=True,
+        blank=True,
+    )
+
+    order_id = models.CharField(max_length=255)
+    order_form_id = models.CharField(max_length=255, null=True, blank=True)
+
+    value = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    currency = models.CharField(max_length=8, blank=True, default="")
+
+    converted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["project", "converted_at"]),
+            models.Index(fields=["integrated_agent", "converted_at"]),
+            models.Index(fields=["project", "order_form_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "order_id"],
+                name="broadcast_conversions_project_order_unique",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"BroadcastConversion(uuid={self.uuid}, "
+            f"order_id={self.order_id}, project_id={self.project_id})"
         )

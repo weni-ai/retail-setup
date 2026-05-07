@@ -12,12 +12,36 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class BroadcastDispatchContext:
+    """Commercial context of a broadcast at dispatch time.
+
+    Captures the VTEX identifiers that originated the broadcast so a
+    later ``invoiced`` event can be attributed back to it. Both fields
+    are optional because a broadcast may legitimately have neither
+    (e.g. generic webhook with no commercial intent), only one
+    (abandoned cart only knows ``order_form_id``; order-status only
+    knows ``order_id``), or both (rare, but allowed).
+    """
+
+    order_form_id: Optional[str] = None
+    order_id: Optional[str] = None
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.order_form_id and not self.order_id
+
+
+@dataclass(frozen=True)
 class RecordBroadcastSentDTO:
     """Input DTO for persisting a broadcast right after dispatch.
 
     ``error_message`` is populated only on the failure path; when present
     the row is recorded with status=FAILED regardless of what the Flows
     response says.
+
+    ``dispatch_context`` carries the commercial origin (order_form_id /
+    order_id) so the row can later be matched against an ``invoiced``
+    event for conversion attribution.
     """
 
     broadcast_id: Optional[int]
@@ -28,6 +52,7 @@ class RecordBroadcastSentDTO:
     flows_template_uuid: Optional[str]
     flows_response: Dict[str, Any]
     error_message: str = ""
+    dispatch_context: Optional[BroadcastDispatchContext] = None
 
 
 class RecordBroadcastSentUseCase:
@@ -61,6 +86,8 @@ class RecordBroadcastSentUseCase:
             template_name=template_name,
         )
 
+        order_form_id, order_id = self._resolve_dispatch_context(dto.dispatch_context)
+
         broadcast_message = BroadcastMessage.objects.create(
             broadcast_id=dto.broadcast_id,
             project=project,
@@ -73,6 +100,8 @@ class RecordBroadcastSentUseCase:
             status=status,
             error_message=error_message,
             last_payload={"flows_response": dto.flows_response},
+            order_form_id=order_form_id,
+            order_id=order_id,
         )
 
         logger.info(
@@ -81,10 +110,25 @@ class RecordBroadcastSentUseCase:
             f"status={status} broadcast_id={dto.broadcast_id} "
             f"project_uuid={project_uuid} vtex_account={vtex_account} "
             f"agent_uuid={integrated_agent.uuid} template={template_name} "
-            f"contact_urn={dto.contact_urn}"
+            f"contact_urn={dto.contact_urn} "
+            f"order_form_id={order_form_id} order_id={order_id}"
         )
 
         return broadcast_message
+
+    @staticmethod
+    def _resolve_dispatch_context(
+        dispatch_context: Optional[BroadcastDispatchContext],
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Return ``(order_form_id, order_id)`` from the dispatch context.
+
+        Both fields are stored as nullable on the row so a missing
+        context (generic webhook, manual dispatch) leaves both as NULL
+        and the conversion lookup naturally skips it.
+        """
+        if dispatch_context is None or dispatch_context.is_empty:
+            return None, None
+        return dispatch_context.order_form_id, dispatch_context.order_id
 
     def _resolve_status_and_error(
         self,

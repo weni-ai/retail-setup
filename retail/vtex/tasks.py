@@ -10,6 +10,9 @@ from retail.agents.domains.agent_webhook.usecases.webhook import AgentWebhookUse
 from retail.agents.domains.agent_webhook.usecases.order_status import (
     AgentOrderStatusUpdateUsecase,
 )
+from retail.broadcasts.usecases.mark_broadcast_converted import (
+    MarkBroadcastConvertedUseCase,
+)
 from retail.interfaces.clients.aws_lambda.client import RequestData
 from retail.vtex.models import Cart
 from retail.vtex.usecases.cart_abandonment import CartAbandonmentUseCase
@@ -23,6 +26,13 @@ from retail.agents.domains.agent_webhook.usecases.abandoned_cart import (
 
 
 logger = logging.getLogger(__name__)
+
+
+# VTEX states that confirm a finalized purchase. Kept in sync with
+# ``PURCHASED_ORDER_STATUSES`` in services_cart_abandonment_unified.py
+# so the conversion trigger and the abandonment filter speak the same
+# language.
+_PURCHASE_CONFIRMED_STATES = frozenset({"invoiced"})
 
 
 @shared_task
@@ -115,6 +125,17 @@ def task_order_status_update(order_update_data: dict):
                 queue="vtex-io-orders-update-events",
             )
 
+        if _is_purchase_confirmed(order_status_dto.currentState):
+            logger.info(
+                f"[CONVERSION_TRACKING] dispatching_conversion_check: "
+                f"order_id={order_status_dto.orderId} "
+                f"vtex_account={order_status_dto.vtexAccount}"
+            )
+            task_mark_broadcast_converted.apply_async(
+                args=[order_status_dto.orderId, str(project.uuid)],
+                queue="vtex-io-orders-update-events",
+            )
+
         integrated_agent = use_case.get_integrated_agent_if_exists(project)
 
         if integrated_agent:
@@ -148,6 +169,17 @@ def is_payment_approved(order_status: str) -> bool:
     return order_status in {"payment-approved"}
 
 
+def _is_purchase_confirmed(order_status: str) -> bool:
+    """Return True when the VTEX state confirms a finalized purchase.
+
+    Mirrors the ``PURCHASED_ORDER_STATUSES`` set used by the cart
+    abandonment service, kept here as a private helper so the
+    conversion trigger does not depend on the abandonment service
+    module.
+    """
+    return order_status in _PURCHASE_CONFIRMED_STATES
+
+
 @shared_task
 def task_agent_webhook(integrated_agent_uuid: str, payload: dict, params: dict):
     logger.info(
@@ -176,6 +208,18 @@ def task_agent_webhook(integrated_agent_uuid: str, payload: dict, params: dict):
 @shared_task
 def handle_purchase_event_task(order_id: str, project_uuid: str):
     use_case = HandlePurchaseEventUseCase()
+    use_case.execute(order_id=order_id, project_uuid=project_uuid)
+
+
+@shared_task
+def task_mark_broadcast_converted(order_id: str, project_uuid: str):
+    """Attribute an ``invoiced`` VTEX order to the broadcast that drove it.
+
+    Isolated from ``task_order_status_update`` so a transient VTEX I/O
+    failure on the conversion lookup retries on its own without
+    re-triggering the agent webhook flow that already ran.
+    """
+    use_case = MarkBroadcastConvertedUseCase()
     use_case.execute(order_id=order_id, project_uuid=project_uuid)
 
 
