@@ -2,7 +2,7 @@ import logging
 
 import random
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from uuid import UUID
 
@@ -17,6 +17,9 @@ from retail.agents.domains.agent_webhook.services.active_agent import (
 from retail.agents.shared.cache import (
     IntegratedAgentCacheHandler,
     IntegratedAgentCacheHandlerRedis,
+)
+from retail.broadcasts.usecases.record_broadcast_sent import (
+    BroadcastDispatchContext,
 )
 from retail.interfaces.clients.aws_lambda.client import RequestData
 
@@ -104,7 +107,10 @@ class AgentWebhookUseCase:
         data.set_project_rules(project_rules)
 
     def _process_lambda_response(
-        self, integrated_agent: IntegratedAgent, response: Dict[str, Any]
+        self,
+        integrated_agent: IntegratedAgent,
+        response: Dict[str, Any],
+        dispatch_context: Optional[BroadcastDispatchContext] = None,
     ) -> Optional[Dict[str, Any]]:
         """Process lambda response and build broadcast message."""
         data = self.active_agent.parse_response(response)
@@ -130,7 +136,12 @@ class AgentWebhookUseCase:
                 )
                 return None
 
-            self.broadcast_handler.send_message(message, integrated_agent, data)
+            self.broadcast_handler.send_message(
+                message,
+                integrated_agent,
+                data,
+                dispatch_context=dispatch_context,
+            )
             return response
 
         except Exception as e:
@@ -154,10 +165,16 @@ class AgentWebhookUseCase:
 
         self._set_project_rules(integrated_agent, data)
 
+        # Captured pre-Lambda so attribution survives Lambdas that drop
+        # the order identifiers from their response.
+        dispatch_context = self._extract_dispatch_context(data.payload)
+
         response = self.active_agent.invoke(
             integrated_agent=integrated_agent, data=data
         )
-        result = self._process_lambda_response(integrated_agent, response)
+        result = self._process_lambda_response(
+            integrated_agent, response, dispatch_context=dispatch_context
+        )
 
         if result:
             logger.info(
@@ -165,3 +182,26 @@ class AgentWebhookUseCase:
             )
 
         return result
+
+    @staticmethod
+    def _extract_dispatch_context(
+        payload: Optional[Mapping[Any, Any]],
+    ) -> Optional[BroadcastDispatchContext]:
+        """Build a ``BroadcastDispatchContext`` from the request payload.
+
+        Reads the two literal keys our orchestrators populate today
+        (``order_form_id`` from cart abandonment, ``OrderId`` from the
+        VTEX-shaped order-status / payment-recovery webhook). Any
+        other dispatch path leaves the context as ``None`` because
+        there is no commercial origin to track.
+        """
+        if not payload:
+            return None
+        order_form_id = payload.get("order_form_id")
+        order_id = payload.get("OrderId")
+        if not order_form_id and not order_id:
+            return None
+        return BroadcastDispatchContext(
+            order_form_id=str(order_form_id) if order_form_id else None,
+            order_id=str(order_id) if order_id else None,
+        )

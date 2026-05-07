@@ -9,6 +9,7 @@ from datetime import datetime
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.broadcasts.usecases.record_broadcast_sent import (
+    BroadcastDispatchContext,
     RecordBroadcastSentDTO,
     RecordBroadcastSentUseCase,
 )
@@ -392,8 +393,15 @@ class Broadcast:
         message: Dict[str, Any],
         integrated_agent: IntegratedAgent,
         lambda_data: Optional[Dict[str, Any]] = None,
+        dispatch_context: Optional[BroadcastDispatchContext] = None,
     ):
-        """Send broadcast message via flows service."""
+        """Send broadcast message via flows service.
+
+        ``dispatch_context`` carries the commercial origin (order_form_id /
+        order_id) of the broadcast so the persisted BroadcastMessage row
+        can later be matched against an ``invoiced`` event for conversion
+        attribution. Defaults to ``None`` for non-commercial dispatches.
+        """
         project_uuid = str(integrated_agent.project.uuid)
         vtex_account = integrated_agent.project.vtex_account
         template_name = (
@@ -409,6 +417,7 @@ class Broadcast:
                 integrated_agent=integrated_agent,
                 lambda_data=lambda_data,
                 exc=exc,
+                dispatch_context=dispatch_context,
             )
             raise
 
@@ -432,6 +441,7 @@ class Broadcast:
             response=response,
             integrated_agent=integrated_agent,
             template=resolved_template,
+            dispatch_context=dispatch_context,
         )
         logger.info(
             f"Broadcast message sent. "
@@ -445,6 +455,7 @@ class Broadcast:
         response: Dict[str, Any],
         integrated_agent: IntegratedAgent,
         template: Optional[Template],
+        dispatch_context: Optional[BroadcastDispatchContext] = None,
     ) -> None:
         """Persist a BroadcastMessage row for end-to-end tracking.
 
@@ -471,6 +482,7 @@ class Broadcast:
                     channel_uuid=channel_uuid,
                     flows_template_uuid=flows_template_uuid,
                     flows_response=response or {},
+                    dispatch_context=dispatch_context,
                 )
             )
         except Exception as exc:
@@ -485,6 +497,7 @@ class Broadcast:
         integrated_agent: IntegratedAgent,
         lambda_data: Optional[Dict[str, Any]],
         exc: CustomAPIException,
+        dispatch_context: Optional[BroadcastDispatchContext] = None,
     ) -> None:
         """Persist a FAILED BroadcastMessage when the Flows call raises.
 
@@ -527,6 +540,7 @@ class Broadcast:
                         "status_code": status_code,
                     },
                     error_message=error_message,
+                    dispatch_context=dispatch_context,
                 )
             )
         except Exception as record_exc:

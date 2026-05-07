@@ -8,6 +8,7 @@ from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_management.models import Agent
 from retail.broadcasts.models import BroadcastMessage, BroadcastStatus
 from retail.broadcasts.usecases.record_broadcast_sent import (
+    BroadcastDispatchContext,
     RecordBroadcastSentDTO,
     RecordBroadcastSentUseCase,
 )
@@ -162,3 +163,79 @@ class RecordBroadcastSentUseCaseTest(TestCase):
             row.last_payload,
             {"flows_response": {"error": "ConnectionError: timeout"}},
         )
+
+    def test_persists_dispatch_context_for_abandoned_cart_flow(self):
+        result = self.use_case.execute(
+            self._build_dto(
+                dispatch_context=BroadcastDispatchContext(
+                    order_form_id="of-cart-9",
+                ),
+            )
+        )
+
+        self.assertIsNotNone(result)
+        row = BroadcastMessage.objects.get()
+        self.assertEqual(row.order_form_id, "of-cart-9")
+        self.assertIsNone(row.order_id)
+
+    def test_persists_dispatch_context_for_order_status_flow(self):
+        result = self.use_case.execute(
+            self._build_dto(
+                dispatch_context=BroadcastDispatchContext(
+                    order_id="order-42",
+                ),
+            )
+        )
+
+        self.assertIsNotNone(result)
+        row = BroadcastMessage.objects.get()
+        self.assertIsNone(row.order_form_id)
+        self.assertEqual(row.order_id, "order-42")
+
+    def test_persists_dispatch_context_with_both_identifiers(self):
+        result = self.use_case.execute(
+            self._build_dto(
+                dispatch_context=BroadcastDispatchContext(
+                    order_form_id="of-99",
+                    order_id="order-99",
+                ),
+            )
+        )
+
+        self.assertIsNotNone(result)
+        row = BroadcastMessage.objects.get()
+        self.assertEqual(row.order_form_id, "of-99")
+        self.assertEqual(row.order_id, "order-99")
+
+    def test_omits_dispatch_context_when_empty(self):
+        """A context with no identifiers must persist NULLs, never empty
+        strings, so the conversion lookup ignores the row naturally."""
+        result = self.use_case.execute(
+            self._build_dto(dispatch_context=BroadcastDispatchContext())
+        )
+
+        self.assertIsNotNone(result)
+        row = BroadcastMessage.objects.get()
+        self.assertIsNone(row.order_form_id)
+        self.assertIsNone(row.order_id)
+
+    def test_persists_with_no_dispatch_context_when_omitted(self):
+        result = self.use_case.execute(self._build_dto())
+
+        self.assertIsNotNone(result)
+        row = BroadcastMessage.objects.get()
+        self.assertIsNone(row.order_form_id)
+        self.assertIsNone(row.order_id)
+
+
+class BroadcastDispatchContextTest(TestCase):
+    """Validates the small invariants of the dispatch context dataclass."""
+
+    def test_is_empty_when_both_fields_absent(self):
+        self.assertTrue(BroadcastDispatchContext().is_empty)
+
+    def test_is_not_empty_when_order_form_id_provided(self):
+        self.assertFalse(BroadcastDispatchContext(order_form_id="of-1").is_empty)
+
+    def test_is_not_empty_when_order_id_provided(self):
+        self.assertFalse(BroadcastDispatchContext(order_id="order-1").is_empty)
