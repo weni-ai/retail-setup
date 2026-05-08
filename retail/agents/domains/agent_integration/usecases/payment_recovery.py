@@ -13,7 +13,7 @@ from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_DELAY_MINUTES = 10
+DEFAULT_DELAY_MINUTES = 5
 
 
 class PaymentRecoveryWebhookUseCase:
