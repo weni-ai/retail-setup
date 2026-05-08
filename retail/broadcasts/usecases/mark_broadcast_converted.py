@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Q
 
@@ -52,11 +53,12 @@ class MarkBroadcastConvertedUseCase:
     1. Pull the canonical ``order_form_id`` / ``value`` / ``currency``
        from VTEX so the conversion row is filled with authoritative
        data even if the originating broadcast only knew one identifier.
-    2. Pick the last-touch broadcast (most recent non-failed dispatch
-       that matches by ``order_id`` or ``order_form_id``) so the
-       conversion can be attributed to a specific ``integrated_agent``.
-       No broadcast match means an organic purchase and is a no-op —
-       the conversion table tracks broadcast-driven sales only.
+    2. Pick the last-touch broadcast from the **payment recovery agent**
+       (most recent non-failed dispatch that matches by ``order_id`` or
+       ``order_form_id``). Only payment recovery dispatches are eligible;
+       order-status agents have no conversion tracking and abandoned-cart
+       conversions are handled via UTM on the VTEX side. No match means
+       an organic purchase and is a no-op.
     3. Create a single ``BroadcastConversion`` row per (project,
        order_id). Idempotency is enforced by the unique constraint at
        the database level: a duplicate insert raises ``IntegrityError``
@@ -202,16 +204,27 @@ class MarkBroadcastConvertedUseCase:
     ) -> Optional[BroadcastMessage]:
         """Pick the most recent eligible broadcast this conversion can be attributed to.
 
+        Only broadcasts dispatched by the payment recovery agent are
+        eligible. Order-status agents have no conversion tracking and
+        abandoned-cart conversions are handled via UTM on the VTEX side.
+
         ``select_related("integrated_agent")`` avoids an extra query
         when the caller dereferences the agent for attribution.
         """
+        payment_recovery_uuid = getattr(settings, "PAYMENT_RECOVERY_AGENT_UUID", "")
+        if not payment_recovery_uuid:
+            return None
+
         match_filter = Q(order_id=order_id)
         if order_form_id:
             match_filter |= Q(order_form_id=order_form_id)
 
         return (
             BroadcastMessage.objects.select_related("integrated_agent")
-            .filter(project=project)
+            .filter(
+                project=project,
+                integrated_agent__agent__uuid=payment_recovery_uuid,
+            )
             .filter(match_filter)
             .exclude(status__in=_BROADCAST_STATUSES_INELIGIBLE_FOR_CONVERSION)
             .order_by("-created_at")
