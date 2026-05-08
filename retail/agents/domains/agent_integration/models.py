@@ -5,6 +5,14 @@ from uuid import uuid4
 
 
 class IntegratedAgent(models.Model):
+    # TODO: Migrate the primary key from UUID to integer auto-increment
+    # and keep ``uuid`` as a separate unique field (the canonical
+    # public identifier). The pattern was already applied to
+    # ``BroadcastMessage`` — see
+    # ``retail/broadcasts/migrations/0003_broadcastmessage_integer_pk.py``
+    # for the SQL + state_operations recipe. Smaller indexes and faster
+    # joins, especially in ``BroadcastMessage`` and ``BroadcastConversion``
+    # which carry FKs back here.
     uuid = models.UUIDField(primary_key=True, blank=True, default=uuid4)
     channel_uuid = models.UUIDField(null=True)
     agent = models.ForeignKey(

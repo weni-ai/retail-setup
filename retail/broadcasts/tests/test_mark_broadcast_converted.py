@@ -131,7 +131,7 @@ class MarkBroadcastConvertedUseCaseTest(TestCase):
     def test_creates_conversion_for_order_status_dispatch(self):
         """Order-status / payment-recovery flows fill ``order_id`` at
         dispatch; ``order_form_id`` comes from the VTEX lookup."""
-        self._create_broadcast(order_id="order-99")
+        broadcast = self._create_broadcast(order_id="order-99")
         self.vtex_io_service.get_order_details_by_id.return_value = (
             self._vtex_order_details(
                 order_form_id="of-99", value=29900, currency_code="BRL"
@@ -143,6 +143,7 @@ class MarkBroadcastConvertedUseCaseTest(TestCase):
         conversion = BroadcastConversion.objects.get(order_id="order-99")
         self.assertEqual(conversion.project, self.project)
         self.assertEqual(conversion.integrated_agent, self.integrated_agent)
+        self.assertEqual(conversion.broadcast, broadcast)
         self.assertEqual(conversion.order_form_id, "of-99")
         self.assertEqual(conversion.value, Decimal("299.00"))
         self.assertEqual(conversion.currency, "BRL")
@@ -192,20 +193,13 @@ class MarkBroadcastConvertedUseCaseTest(TestCase):
 
     def test_picks_most_recent_payment_recovery_broadcast(self):
         """Last-touch attribution: the most recent non-failed broadcast
-        from the payment recovery agent wins."""
-        second_pr_integrated = IntegratedAgent.objects.create(
-            agent=self.agent,
-            project=self.project,
-            channel_uuid=uuid4(),
-        )
+        wins, even when multiple broadcasts target the same order."""
         now = timezone.now()
         self._create_broadcast(
-            integrated_agent=self.integrated_agent,
             order_form_id="of-cart-8",
             created_at=now - timedelta(hours=2),
         )
-        self._create_broadcast(
-            integrated_agent=second_pr_integrated,
+        recent = self._create_broadcast(
             order_form_id="of-cart-8",
             created_at=now - timedelta(minutes=5),
         )
@@ -216,7 +210,8 @@ class MarkBroadcastConvertedUseCaseTest(TestCase):
         self.use_case.execute(order_id="order-300", project_uuid=str(self.project.uuid))
 
         conversion = BroadcastConversion.objects.get(order_id="order-300")
-        self.assertEqual(conversion.integrated_agent, second_pr_integrated)
+        self.assertEqual(conversion.broadcast, recent)
+        self.assertEqual(conversion.integrated_agent, self.integrated_agent)
 
     def test_skips_when_only_failed_broadcasts_exist(self):
         """An invoiced order whose only related broadcasts failed must
@@ -461,6 +456,136 @@ class MarkBroadcastConvertedUseCaseTest(TestCase):
         )
 
         self.assertFalse(BroadcastConversion.objects.exists())
+
+
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "mark-broadcast-converted-pr-cache-test",
+        }
+    },
+    PAYMENT_RECOVERY_AGENT_UUID=PAYMENT_RECOVERY_AGENT_UUID,
+)
+class MarkBroadcastConvertedPaymentRecoveryCacheTest(TestCase):
+    """Tests for the payment recovery role cache used by the use case.
+
+    The cache short-circuits the JOIN with ``Agent`` in
+    ``_select_last_touch_broadcast``: the first call resolves the
+    ``IntegratedAgent`` from the database, subsequent calls hit the
+    role cache and filter ``BroadcastMessage`` by
+    ``integrated_agent_id`` directly.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.project = Project.objects.create(
+            name="Project A", uuid=uuid4(), vtex_account="testaccount"
+        )
+        self.agent = Agent.objects.create(
+            uuid=PAYMENT_RECOVERY_AGENT_UUID,
+            name="Payment Recovery",
+            project=self.project,
+        )
+        self.integrated_agent = IntegratedAgent.objects.create(
+            agent=self.agent, project=self.project, channel_uuid=uuid4()
+        )
+        self.vtex_io_service = MagicMock()
+        self.use_case = MarkBroadcastConvertedUseCase(
+            vtex_io_service=self.vtex_io_service
+        )
+
+    def _vtex_order_details(self):
+        return {
+            "orderFormId": "of-1",
+            "value": 10000,
+            "storePreferencesData": {"currencyCode": "BRL"},
+        }
+
+    def _create_broadcast(self, order_id):
+        return BroadcastMessage.objects.create(
+            project=self.project,
+            integrated_agent=self.integrated_agent,
+            template_name="payment_recovery",
+            contact_urn="whatsapp:5511999999999",
+            status=BroadcastStatus.DELIVERED,
+            order_id=order_id,
+        )
+
+    def test_caches_payment_recovery_integrated_agent_after_first_lookup(self):
+        """On cache miss, the resolved IntegratedAgent must be cached
+        for subsequent calls (6h TTL via the role cache)."""
+        self._create_broadcast(order_id="order-cache-1")
+        self.vtex_io_service.get_order_details_by_id.return_value = (
+            self._vtex_order_details()
+        )
+
+        cache_key = f"payment_recovery_agent_{self.project.uuid}"
+        self.assertIsNone(cache.get(cache_key))
+
+        self.use_case.execute(
+            order_id="order-cache-1", project_uuid=str(self.project.uuid)
+        )
+
+        cached = cache.get(cache_key)
+        self.assertIsNotNone(cached)
+        self.assertEqual(cached.uuid, self.integrated_agent.uuid)
+
+    def test_uses_cached_integrated_agent_without_db_lookup(self):
+        """Pre-populating the cache must skip the IntegratedAgent DB
+        lookup entirely on subsequent calls."""
+        self._create_broadcast(order_id="order-cache-2")
+        self.vtex_io_service.get_order_details_by_id.return_value = (
+            self._vtex_order_details()
+        )
+
+        cache.set(
+            f"payment_recovery_agent_{self.project.uuid}",
+            self.integrated_agent,
+            timeout=21600,
+        )
+
+        with patch.object(IntegratedAgent.objects, "get") as mock_get:
+            self.use_case.execute(
+                order_id="order-cache-2", project_uuid=str(self.project.uuid)
+            )
+            mock_get.assert_not_called()
+
+        self.assertTrue(
+            BroadcastConversion.objects.filter(order_id="order-cache-2").exists()
+        )
+
+    def test_skips_db_when_payment_recovery_uuid_is_empty(self):
+        """When the setting is empty no DB lookup happens — the feature
+        is effectively disabled and the cache is never populated."""
+        with self.settings(PAYMENT_RECOVERY_AGENT_UUID=""):
+            self._create_broadcast(order_id="order-cache-3")
+            self.vtex_io_service.get_order_details_by_id.return_value = (
+                self._vtex_order_details()
+            )
+
+            with patch.object(IntegratedAgent.objects, "get") as mock_get:
+                self.use_case.execute(
+                    order_id="order-cache-3", project_uuid=str(self.project.uuid)
+                )
+                mock_get.assert_not_called()
+
+        self.assertFalse(BroadcastConversion.objects.exists())
+        self.assertIsNone(cache.get(f"payment_recovery_agent_{self.project.uuid}"))
+
+    def test_persists_broadcast_reference(self):
+        """The conversion must point at the exact broadcast credited
+        as the attribution source (not just the agent)."""
+        broadcast = self._create_broadcast(order_id="order-fk")
+        self.vtex_io_service.get_order_details_by_id.return_value = (
+            self._vtex_order_details()
+        )
+
+        self.use_case.execute(order_id="order-fk", project_uuid=str(self.project.uuid))
+
+        conversion = BroadcastConversion.objects.get(order_id="order-fk")
+        self.assertEqual(conversion.broadcast, broadcast)
+        self.assertIn(conversion, broadcast.conversions.all())
 
 
 @override_settings(
