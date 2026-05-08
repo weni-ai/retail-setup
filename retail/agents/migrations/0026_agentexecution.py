@@ -5,9 +5,16 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
+    # ``broadcasts.0003`` swaps BroadcastMessage's PK from ``uuid`` to a
+    # ``BIGSERIAL`` ``id`` and re-declares ``uuid`` as a UNIQUE column.
+    # Because the ``broadcast_message`` FK below targets ``uuid``
+    # (``to_field="uuid"``), this migration must run AFTER that swap;
+    # otherwise the FK would be created against the original
+    # ``broadcasts_broadcastmessage_pkey`` index, blocking ``0003`` from
+    # dropping it on a fresh database (see CI failure on staging).
     dependencies = [
         ("agents", "0025_integratedagent_broadcasts_delivered_and_more"),
-        ("broadcasts", "0001_initial"),
+        ("broadcasts", "0003_broadcastmessage_integer_pk"),
         ("templates", "0001_initial"),
     ]
 
