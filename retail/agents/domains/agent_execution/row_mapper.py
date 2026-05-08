@@ -152,12 +152,3 @@ def resolve_log_status(execution: AgentExecution) -> str:
     if broadcast_status == BroadcastStatus.FAILED.value:
         return LOG_STATUS_ERROR
     return LOG_STATUS_SENT
-
-
-def needs_json_url(log_status: str) -> bool:
-    """``True`` when the agent-logs response must include a non-null ``json_url``."""
-    from retail.agents.domains.agent_execution.status_mapping import (
-        JSON_URL_REQUIRED_STATUSES,
-    )
-
-    return log_status in JSON_URL_REQUIRED_STATUSES

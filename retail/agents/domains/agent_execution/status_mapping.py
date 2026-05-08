@@ -65,11 +65,6 @@ INTERNAL_TO_LOG_STATUS: Dict[str, str] = {
 }
 
 
-JSON_URL_REQUIRED_STATUSES: frozenset = frozenset(
-    {LOG_STATUS_SKIPPED, LOG_STATUS_ERROR}
-)
-
-
 # BroadcastMessage states that override the default ``sent`` mapping
 # when the AgentExecution status is ``success``. Kept as a tuple so
 # Django's ``__in`` lookup serializes them correctly.

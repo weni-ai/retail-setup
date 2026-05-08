@@ -16,7 +16,6 @@ from retail.agents.domains.agent_execution.row_mapper import (
     DEFAULT_CURRENCY,
     STATUS_TO_SUMMARY,
     format_contact,
-    needs_json_url,
     resolve_amount_value,
     resolve_currency,
     resolve_log_status,
@@ -219,15 +218,3 @@ class BroadcastMessageStatusEnrichmentTests(SimpleTestCase):
                 status=internal, broadcast_message=broadcast_message
             )
             self.assertEqual(resolve_log_status(execution), expected)
-
-
-class NeedsJsonUrlTests(SimpleTestCase):
-    def test_true_for_skipped_and_error(self):
-        self.assertTrue(needs_json_url(LOG_STATUS_SKIPPED))
-        self.assertTrue(needs_json_url(LOG_STATUS_ERROR))
-
-    def test_false_for_other_statuses(self):
-        self.assertFalse(needs_json_url(LOG_STATUS_SENT))
-        self.assertFalse(needs_json_url("processing"))
-        self.assertFalse(needs_json_url("delivered"))
-        self.assertFalse(needs_json_url("read"))

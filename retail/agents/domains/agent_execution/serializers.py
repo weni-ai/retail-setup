@@ -27,7 +27,6 @@ from rest_framework import serializers
 from retail.agents.domains.agent_execution.models import AgentExecution
 from retail.agents.domains.agent_execution.row_mapper import (
     format_contact,
-    needs_json_url,
     resolve_amount_value,
     resolve_currency,
     resolve_log_status,
@@ -185,9 +184,6 @@ class AgentLogRowSerializer(serializers.Serializer):
         return resolve_summary(resolve_log_status(obj))
 
     def get_json_url(self, obj: AgentExecution) -> Optional[str]:
-        log_status = resolve_log_status(obj)
-        if not needs_json_url(log_status):
-            return None
         if not obj.traces_s3_key or self.s3_service is None:
             return None
         try:

@@ -8,7 +8,8 @@ infrastructure:
   and list entries that aren't valid UUIDs.
 - ``AgentLogRowSerializer.get_json_url`` returns ``None`` across every
   branch that can suppress the presigned URL (no S3 service, missing
-  trace key, presign raises, status that doesn't require a URL).
+  trace key, presign raises) and emits the URL for any status with a
+  stored ``traces_s3_key``.
 - ``AgentLogRowSerializer.get_sent_at`` handles the ``created_on=None``
   legacy row shape without crashing.
 """
@@ -184,18 +185,52 @@ class AgentLogRowSerializerJsonUrlTests(SimpleTestCase):
     rather than failing the request.
     """
 
-    def test_returns_none_when_status_does_not_require_json_url(self):
+    def test_returns_presigned_url_for_success_when_key_present(self):
+        # Locks in the new behaviour for terminal-success rows: with a
+        # ``traces_s3_key`` set the URL is presigned regardless of the
+        # log status the row resolves to.
         execution = _stub_execution(
             status=AgentExecutionStatus.SUCCESS.value,
             traces_s3_key="executions/sent/traces.json",
         )
         s3_service = MagicMock()
-        s3_service.generate_presigned_url.return_value = "https://example.com/presigned"
+        s3_service.generate_presigned_url.return_value = (
+            "https://s3.amazonaws.com/test/sent-signed"
+        )
 
         serializer = AgentLogRowSerializer(execution, s3_service=s3_service)
 
-        self.assertIsNone(serializer.data["json_url"])
-        s3_service.generate_presigned_url.assert_not_called()
+        self.assertEqual(
+            serializer.data["json_url"], "https://s3.amazonaws.com/test/sent-signed"
+        )
+        s3_service.generate_presigned_url.assert_called_once_with(
+            "executions/sent/traces.json", expiration=JSON_URL_TTL_SECONDS
+        )
+
+    def test_returns_presigned_url_for_processing_when_key_present(self):
+        # The most divergent branch from the previous gated behaviour:
+        # ``processing`` rows now also surface the URL. The S3 file may
+        # not exist yet (the buffer hasn't flushed), so a GET against
+        # the URL can 404 transiently — that's a documented trade-off,
+        # not a serializer concern.
+        execution = _stub_execution(
+            status=AgentExecutionStatus.PROCESSING.value,
+            traces_s3_key="executions/processing/traces.json",
+        )
+        s3_service = MagicMock()
+        s3_service.generate_presigned_url.return_value = (
+            "https://s3.amazonaws.com/test/processing-signed"
+        )
+
+        serializer = AgentLogRowSerializer(execution, s3_service=s3_service)
+
+        self.assertEqual(
+            serializer.data["json_url"],
+            "https://s3.amazonaws.com/test/processing-signed",
+        )
+        s3_service.generate_presigned_url.assert_called_once_with(
+            "executions/processing/traces.json", expiration=JSON_URL_TTL_SECONDS
+        )
 
     def test_returns_none_when_traces_s3_key_is_missing(self):
         execution = _stub_execution(

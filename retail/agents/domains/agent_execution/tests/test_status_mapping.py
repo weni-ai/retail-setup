@@ -14,7 +14,6 @@ from django.test import SimpleTestCase
 
 from retail.agents.domains.agent_execution.models import AgentExecutionStatus
 from retail.agents.domains.agent_execution.status_mapping import (
-    JSON_URL_REQUIRED_STATUSES,
     LOG_STATUS_DELIVERED,
     LOG_STATUS_ERROR,
     LOG_STATUS_PROCESSING,
@@ -159,11 +158,3 @@ class ToLogStatusTests(SimpleTestCase):
 
     def test_unknown_internal_status_falls_back_to_processing(self):
         self.assertEqual(to_log_status("brand-new-state"), LOG_STATUS_PROCESSING)
-
-
-class JsonUrlRequiredStatusesTests(SimpleTestCase):
-    def test_only_skipped_and_error_require_json_url(self):
-        self.assertEqual(
-            JSON_URL_REQUIRED_STATUSES,
-            frozenset({LOG_STATUS_SKIPPED, LOG_STATUS_ERROR}),
-        )

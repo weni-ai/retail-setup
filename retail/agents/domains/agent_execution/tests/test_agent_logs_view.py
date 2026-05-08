@@ -109,16 +109,23 @@ class AgentLogsViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_returns_paginated_results_in_log_shape(self):
+    @patch("retail.agents.domains.agent_execution.views.S3Service")
+    def test_returns_paginated_results_in_log_shape(self, mock_s3_class):
         self.setup_connect_service_mock(
             *ConnectServicePermissionScenarios.success_scenario(2)
         )
+        mock_s3 = mock_s3_class.return_value
+        mock_s3.generate_presigned_url.return_value = (
+            "https://s3.amazonaws.com/test/payload.json?signed=yes"
+        )
+
         execution = self._make_execution()
         AgentExecution.objects.filter(uuid=execution.uuid).update(
             created_on=datetime(2026, 5, 1, 14, 2, 0, tzinfo=dt_timezone.utc)
         )
 
-        response = self._request(project_uuid=self.project.uuid)
+        with self.settings(EXECUTION_TRACES_BUCKET="test-traces"):
+            response = self._request(project_uuid=self.project.uuid)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
@@ -133,10 +140,15 @@ class AgentLogsViewTest(BaseTestMixin, APITestCase):
         self.assertEqual(row["order_id"], "ORD-1")
         self.assertEqual(row["amount"], {"value": "100.00", "currency": "BRL"})
         self.assertIn("Message handed off to the messaging provider", row["summary"])
-        self.assertIsNone(row["json_url"])
+        # The fixture sets ``traces_s3_key`` so a healthy ``sent`` row
+        # surfaces the presigned URL — the API consumer decides whether
+        # to display it; the backend just exposes the link to traces.
+        self.assertEqual(
+            row["json_url"], "https://s3.amazonaws.com/test/payload.json?signed=yes"
+        )
 
     @patch("retail.agents.domains.agent_execution.views.S3Service")
-    def test_json_url_is_generated_for_skipped_and_error(self, mock_s3_class):
+    def test_json_url_is_generated_for_all_rows_with_traces(self, mock_s3_class):
         self.setup_connect_service_mock(
             *ConnectServicePermissionScenarios.success_scenario(2)
         )
@@ -172,7 +184,10 @@ class AgentLogsViewTest(BaseTestMixin, APITestCase):
             rows[str(errored.uuid)]["json_url"],
             "https://s3.amazonaws.com/test/payload.json?signed=yes",
         )
-        self.assertIsNone(rows[str(sent.uuid)]["json_url"])
+        self.assertEqual(
+            rows[str(sent.uuid)]["json_url"],
+            "https://s3.amazonaws.com/test/payload.json?signed=yes",
+        )
 
     def test_search_filter_is_forwarded(self):
         self.setup_connect_service_mock(
