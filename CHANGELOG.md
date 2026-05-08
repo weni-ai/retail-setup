@@ -1,3 +1,9 @@
+# 5.19.0
+- feat: Link broadcast conversion to source broadcast and cache PR agent lookup
+- refactor: Centralize integrated agent cache invalidation
+- feat: Restrict broadcast conversion to payment recovery agent
+- feat(payment-recovery): set 100% rollout and 5min delay as defaults
+
 # 5.18.0
 - feat: Add conversion tracking for broadcast-driven sales
 - refactor: Change primary key of BroadcastMessage from UUID to auto-incrementing integer
