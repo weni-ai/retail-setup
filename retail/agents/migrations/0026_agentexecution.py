@@ -104,6 +104,7 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="executions",
                         to="broadcasts.broadcastmessage",
+                        to_field="uuid",
                     ),
                 ),
             ],

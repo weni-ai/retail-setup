@@ -54,12 +54,18 @@ class AgentExecution(models.Model):
     # (see retail.broadcasts). Lets the agent-logs API surface the
     # courier-driven lifecycle (delivered / read / failed) through a
     # single select_related JOIN.
+    #
+    # ``to_field="uuid"`` is required: BroadcastMessage's PK is a
+    # ``BIGSERIAL`` ``id`` (see broadcasts.0003), so without this the
+    # FK column would be ``bigint`` and the buffer's UUID writes would
+    # overflow with ``bigint out of range``.
     broadcast_message = models.ForeignKey(
         "broadcasts.BroadcastMessage",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="executions",
+        to_field="uuid",
     )
 
     # Fields for official agents (order status, abandoned cart)
