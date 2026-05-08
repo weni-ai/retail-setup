@@ -160,20 +160,28 @@ class IntegratedAgentCacheHandlerRedis(IntegratedAgentCacheHandler):
     def __init__(
         self, cache_key_prefix: Optional[str] = None, cache_time: Optional[int] = None
     ) -> None:
-        # The kwargs control the webhook cache only, which is the only
-        # one this class managed before the role-cache extension.
+        """Build the handler with optional overrides for the webhook cache.
+
+        ``cache_key_prefix`` and ``cache_time`` only affect the webhook
+        cache layer (kept for backwards compatibility with callers that
+        pre-date the role-cache extension). The role cache uses
+        ``ROLE_TTL`` and a fixed key format derived from ``AgentRole``.
+        """
         self.cache_key_prefix = cache_key_prefix or "integrated_agent_webhook"
         self.cache_time = cache_time or self.WEBHOOK_TTL
 
     def get_cache_key(self, integrated_agent_uuid: UUID) -> str:
+        """Build the webhook cache key as ``<prefix>_<uuid>``."""
         return f"{self.cache_key_prefix}_{integrated_agent_uuid}"
 
     def get_cached_agent(
         self, integrated_agent_uuid: UUID
     ) -> Optional[IntegratedAgent]:
+        """Return the cached IntegratedAgent for the webhook cache, or None."""
         return cache.get(self.get_cache_key(integrated_agent_uuid))
 
     def set_cached_agent(self, integrated_agent: IntegratedAgent) -> None:
+        """Store the IntegratedAgent in the webhook cache with ``WEBHOOK_TTL``."""
         cache.set(
             self.get_cache_key(integrated_agent.uuid),
             integrated_agent,
@@ -181,24 +189,29 @@ class IntegratedAgentCacheHandlerRedis(IntegratedAgentCacheHandler):
         )
 
     def clear_cached_agent(self, integrated_agent_uuid: UUID) -> None:
+        """Drop the webhook cache entry for ``integrated_agent_uuid``."""
         cache.delete(self.get_cache_key(integrated_agent_uuid))
 
     def clear_cached_agents(self, integrated_agent_uuids: Iterable[UUID]) -> None:
+        """Batch-delete webhook cache entries via ``cache.delete_many``."""
         keys = [self.get_cache_key(u) for u in integrated_agent_uuids]
         if keys:
             cache.delete_many(keys)
 
     def get_role_cache_key(self, project_uuid: UUID, role: AgentRole) -> str:
+        """Build the role cache key as ``<role>_agent_<project_uuid>``."""
         return f"{role.value}_agent_{project_uuid}"
 
     def get_role_agent(
         self, project_uuid: UUID, role: AgentRole
     ) -> Optional[IntegratedAgent]:
+        """Return the cached IntegratedAgent fulfilling ``role`` for the project, or None."""
         return cache.get(self.get_role_cache_key(project_uuid, role))
 
     def set_role_agent(
         self, integrated_agent: IntegratedAgent, role: AgentRole
     ) -> None:
+        """Store the IntegratedAgent in the role cache with ``ROLE_TTL``."""
         cache.set(
             self.get_role_cache_key(integrated_agent.project.uuid, role),
             integrated_agent,
@@ -206,7 +219,9 @@ class IntegratedAgentCacheHandlerRedis(IntegratedAgentCacheHandler):
         )
 
     def clear_role_agent(self, project_uuid: UUID, role: AgentRole) -> None:
+        """Drop the role cache entry for ``(role, project_uuid)``."""
         cache.delete(self.get_role_cache_key(project_uuid, role))
 
     def clear_agent_active_flag(self, vtex_account: str, role: AgentRole) -> None:
+        """Drop the ``CheckAgentActiveUseCase`` flag for ``(vtex_account, role)``."""
         cache.delete(f"agent_active_{vtex_account}_{role.value}")
