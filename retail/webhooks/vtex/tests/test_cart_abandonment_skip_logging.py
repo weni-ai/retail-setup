@@ -159,6 +159,32 @@ class CartAbandonmentServiceSkipLoggingTests(TestCase):
         self.cart.refresh_from_db()
         self.assertEqual(self.cart.status, "purchased")
 
+    def test_order_form_already_notified_logs_skip(self):
+        # Pre-existing delivered cart with the SAME order_form_id within the
+        # 15-day deduplication window triggers the dedup short-circuit.
+        Cart.objects.create(
+            order_form_id=self.cart.order_form_id,
+            phone_number="5511888888888",
+            project=self.project,
+            integrated_feature=self.integrated_feature,
+            status="delivered_success",
+            config={},
+        )
+
+        self.service._mark_cart_as_abandoned(
+            cart=self.cart,
+            order_form=_build_order_form(),
+            client_profile={"email": "buyer@example.com"},
+            integration_config=self.integrated_feature,
+        )
+
+        self._assert_skip_called_with(
+            "order_form_already_notified_within_window",
+            cart_uuid=str(self.cart.uuid),
+        )
+        self.cart.refresh_from_db()
+        self.assertEqual(self.cart.status, "skipped_order_form_already_notified")
+
     def test_cooldown_active_logs_skip(self):
         # Configure cooldown on the integrated feature.
         self.integrated_feature.config = {

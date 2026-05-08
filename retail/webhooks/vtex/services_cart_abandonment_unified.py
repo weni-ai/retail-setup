@@ -427,6 +427,10 @@ class CartAbandonmentService(BaseVtexUseCase):
                 f"final_status=skipped_order_form_already_notified "
                 f"reason=order_form_delivered_within_window"
             )
+            self._log_execution_skip(
+                "order_form_already_notified_within_window",
+                cart_uuid=str(cart.uuid),
+            )
             self._update_cart_status(cart, "skipped_order_form_already_notified")
             return
 
