@@ -2,7 +2,7 @@ import logging
 
 import random
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from uuid import UUID
 
@@ -18,6 +18,9 @@ from retail.agents.domains.agent_execution.services.logger import ExecutionLogge
 from retail.agents.shared.cache import (
     IntegratedAgentCacheHandler,
     IntegratedAgentCacheHandlerRedis,
+)
+from retail.broadcasts.usecases.record_broadcast_sent import (
+    BroadcastDispatchContext,
 )
 from retail.interfaces.clients.aws_lambda.client import RequestData
 
@@ -110,6 +113,7 @@ class AgentWebhookUseCase:
         self,
         integrated_agent: IntegratedAgent,
         parsed_data: Dict[str, Any],
+        dispatch_context: Optional[BroadcastDispatchContext] = None,
     ) -> Optional[Dict[str, Any]]:
         """Process parsed lambda response and build broadcast message.
 
@@ -117,6 +121,10 @@ class AgentWebhookUseCase:
             integrated_agent: The integrated agent
             parsed_data: Already parsed lambda response data (parse only once
                          since AWS Lambda StreamingBody can only be read once)
+            dispatch_context: Optional commercial origin (order_form_id /
+                order_id) captured pre-Lambda so the persisted
+                BroadcastMessage row can later be matched against an
+                ``invoiced`` event for conversion attribution.
         """
         exec_logger = self.exec_logger
         data = parsed_data
@@ -153,12 +161,14 @@ class AgentWebhookUseCase:
                 return None
 
             dispatch_result = self.broadcast_handler.send_message(
-                message, integrated_agent, data
+                message,
+                integrated_agent,
+                data,
+                dispatch_context=dispatch_context,
             )
             broadcast_response = dispatch_result.response
             broadcast_message_uuid = dispatch_result.broadcast_message_uuid
 
-            # Log successful broadcast
             template = self.broadcast_handler.get_current_template(
                 integrated_agent, data
             )
@@ -212,7 +222,6 @@ class AgentWebhookUseCase:
 
             self._set_project_rules(integrated_agent, data)
 
-            # Log lambda request
             exec_logger.log_lambda_request(
                 request_data={
                     "params": dict(data.params) if data.params else {},
@@ -221,14 +230,16 @@ class AgentWebhookUseCase:
                 },
             )
 
+            # Captured pre-Lambda so attribution survives Lambdas that drop
+            # the order identifiers from their response.
+            dispatch_context = self._extract_dispatch_context(data.payload)
+
             response = self.active_agent.invoke(
                 integrated_agent=integrated_agent, data=data
             )
 
-            # Parse response once (AWS Lambda StreamingBody can only be read once)
             parsed_response = self.active_agent.parse_response(response)
 
-            # Log lambda response
             exec_logger.log_lambda_response(
                 response_data=parsed_response or {"error": "Failed to parse response"},
             )
@@ -240,7 +251,11 @@ class AgentWebhookUseCase:
                 )
                 return None
 
-            result = self._process_lambda_response(integrated_agent, parsed_response)
+            result = self._process_lambda_response(
+                integrated_agent,
+                parsed_response,
+                dispatch_context=dispatch_context,
+            )
 
             if result:
                 logger.info(
@@ -254,3 +269,26 @@ class AgentWebhookUseCase:
                 error_data={"phase": "agent_webhook_execute"},
             )
             raise
+
+    @staticmethod
+    def _extract_dispatch_context(
+        payload: Optional[Mapping[Any, Any]],
+    ) -> Optional[BroadcastDispatchContext]:
+        """Build a ``BroadcastDispatchContext`` from the request payload.
+
+        Reads the two literal keys our orchestrators populate today
+        (``order_form_id`` from cart abandonment, ``OrderId`` from the
+        VTEX-shaped order-status / payment-recovery webhook). Any
+        other dispatch path leaves the context as ``None`` because
+        there is no commercial origin to track.
+        """
+        if not payload:
+            return None
+        order_form_id = payload.get("order_form_id")
+        order_id = payload.get("OrderId")
+        if not order_form_id and not order_id:
+            return None
+        return BroadcastDispatchContext(
+            order_form_id=str(order_form_id) if order_form_id else None,
+            order_id=str(order_id) if order_id else None,
+        )

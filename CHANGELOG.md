@@ -1,3 +1,7 @@
+# 5.18.0
+- feat: Add conversion tracking for broadcast-driven sales
+- refactor: Change primary key of BroadcastMessage from UUID to auto-incrementing integer
+
 # 5.17.0
 - feat: Track broadcasts and enforce trial broadcast limit
 

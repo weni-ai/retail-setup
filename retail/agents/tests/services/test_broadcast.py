@@ -712,6 +712,32 @@ class BroadcastRecordingTest(TestCase):
     @patch(
         "retail.agents.domains.agent_webhook.services.broadcast.RecordBroadcastSentUseCase"
     )
+    def test_record_broadcast_message_propagates_dispatch_context(
+        self, mock_use_case_cls
+    ):
+        from retail.broadcasts.usecases.record_broadcast_sent import (
+            BroadcastDispatchContext,
+        )
+
+        context = BroadcastDispatchContext(order_form_id="of-7", order_id="order-7")
+
+        self.handler._record_broadcast_message(
+            message={
+                "urns": ["whatsapp:5511"],
+                "msg": {"template": {"name": "abandoned_cart"}},
+            },
+            response={"id": 999, "status": "queued"},
+            integrated_agent=self.integrated_agent,
+            template=None,
+            dispatch_context=context,
+        )
+
+        dto = mock_use_case_cls.return_value.execute.call_args.args[0]
+        self.assertIs(dto.dispatch_context, context)
+
+    @patch(
+        "retail.agents.domains.agent_webhook.services.broadcast.RecordBroadcastSentUseCase"
+    )
     def test_record_broadcast_message_swallows_exceptions_to_protect_dispatch(
         self, mock_use_case_cls
     ):
@@ -752,6 +778,33 @@ class BroadcastRecordingTest(TestCase):
         self.assertIsNone(dto.broadcast_id)
         self.assertIn("CustomAPIException", dto.error_message)
         self.assertIn("503", dto.error_message)
+
+    @patch(
+        "retail.agents.domains.agent_webhook.services.broadcast.RecordBroadcastSentUseCase"
+    )
+    def test_record_failed_dispatch_propagates_dispatch_context(
+        self, mock_use_case_cls
+    ):
+        """Failed dispatches must still carry the commercial origin so a
+        retry that succeeds later can reuse the same row identifiers."""
+        from retail.broadcasts.usecases.record_broadcast_sent import (
+            BroadcastDispatchContext,
+        )
+        from retail.clients.exceptions import CustomAPIException
+
+        context = BroadcastDispatchContext(order_id="order-77")
+        exc = CustomAPIException(detail="boom", status_code=500)
+
+        self.handler._record_failed_dispatch(
+            message={"urns": ["whatsapp:5511"]},
+            integrated_agent=self.integrated_agent,
+            lambda_data=None,
+            exc=exc,
+            dispatch_context=context,
+        )
+
+        dto = mock_use_case_cls.return_value.execute.call_args.args[0]
+        self.assertIs(dto.dispatch_context, context)
 
     @patch(
         "retail.agents.domains.agent_webhook.services.broadcast.RecordBroadcastSentUseCase"
