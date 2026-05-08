@@ -91,21 +91,25 @@ class AssignAgentUseCase:
         project: Project,
         channel_uuid: UUID,
         ignore_templates: List[str],
+        contact_percentage: Optional[int] = None,
     ) -> IntegratedAgent:
         ignore_templates_slugs = self._get_ignore_templates_slugs(ignore_templates)
 
-        # Build initial config based on agent type and project
         initial_config = self._build_initial_config(agent, project)
+
+        defaults: Dict[str, Any] = {
+            "channel_uuid": channel_uuid,
+            "ignore_templates": ignore_templates_slugs,
+            "config": initial_config,
+        }
+        if contact_percentage is not None:
+            defaults["contact_percentage"] = contact_percentage
 
         integrated_agent, created = IntegratedAgent.objects.get_or_create(
             agent=agent,
             project=project,
             is_active=True,
-            defaults={
-                "channel_uuid": channel_uuid,
-                "ignore_templates": ignore_templates_slugs,
-                "config": initial_config,
-            },
+            defaults=defaults,
         )
 
         if not created:
@@ -179,7 +183,7 @@ class AssignAgentUseCase:
         ):
             config["payment_recovery"] = {
                 "hook_created": False,
-                "delay_minutes": 10,
+                "delay_minutes": 5,
             }
 
         return config
@@ -207,6 +211,23 @@ class AssignAgentUseCase:
             "abandonment_time_minutes": 60,
             "minimum_cart_value": 50.0,
         }
+
+    def _resolve_contact_percentage(self, agent: Agent) -> Optional[int]:
+        """
+        Return the contact_percentage override for specific agent types.
+
+        Payment recovery must reach 100% of eligible contacts from day one;
+        other agents keep the model default (10%).
+        """
+        payment_recovery_agent_uuid = getattr(
+            settings, "PAYMENT_RECOVERY_AGENT_UUID", ""
+        )
+        if (
+            payment_recovery_agent_uuid
+            and str(agent.uuid) == payment_recovery_agent_uuid
+        ):
+            return 100
+        return None
 
     def _validate_credentials(self, agent: Agent, credentials: dict):
         for key in agent.credentials.keys():
@@ -475,11 +496,14 @@ class AssignAgentUseCase:
 
         ignore_templates = self._get_ignore_templates(agent, include_templates)
 
+        contact_percentage = self._resolve_contact_percentage(agent)
+
         integrated_agent = self._create_integrated_agent(
             agent=agent,
             project=project,
             channel_uuid=channel_uuid,
             ignore_templates=ignore_templates,
+            contact_percentage=contact_percentage,
         )
         logger.info(f"[AssignAgent] integrated_agent created={integrated_agent.uuid}")
 

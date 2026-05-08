@@ -18,6 +18,52 @@ PAYMENT_RECOVERY_UUID = str(uuid.uuid4())
 ABANDONED_CART_UUID = str(uuid.uuid4())
 
 
+class ResolveContactPercentageTest(TestCase):
+    def setUp(self):
+        self.mock_fetch_phone_code = MagicMock(spec=FetchCountryPhoneCodeUseCase)
+        self.use_case = AssignAgentUseCase(
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
+        self.project = Project.objects.create(
+            uuid=uuid.uuid4(), name="Test Project", vtex_account="teststore"
+        )
+
+    @override_settings(PAYMENT_RECOVERY_AGENT_UUID=PAYMENT_RECOVERY_UUID)
+    def test_returns_100_for_payment_recovery_agent(self):
+        agent = Agent.objects.create(
+            uuid=PAYMENT_RECOVERY_UUID,
+            name="Payment Recovery",
+            lambda_arn="arn:aws:lambda:fake",
+            project=self.project,
+            credentials={},
+        )
+        result = self.use_case._resolve_contact_percentage(agent)
+        self.assertEqual(result, 100)
+
+    @override_settings(PAYMENT_RECOVERY_AGENT_UUID=PAYMENT_RECOVERY_UUID)
+    def test_returns_none_for_non_payment_recovery_agent(self):
+        agent = Agent.objects.create(
+            name="Generic Agent",
+            lambda_arn="arn:aws:lambda:fake",
+            project=self.project,
+            credentials={},
+        )
+        result = self.use_case._resolve_contact_percentage(agent)
+        self.assertIsNone(result)
+
+    @override_settings(PAYMENT_RECOVERY_AGENT_UUID="")
+    def test_returns_none_when_setting_is_empty(self):
+        agent = Agent.objects.create(
+            uuid=PAYMENT_RECOVERY_UUID,
+            name="Payment Recovery",
+            lambda_arn="arn:aws:lambda:fake",
+            project=self.project,
+            credentials={},
+        )
+        result = self.use_case._resolve_contact_percentage(agent)
+        self.assertIsNone(result)
+
+
 class AssignPaymentRecoveryBuildConfigTest(TestCase):
     def setUp(self):
         self.mock_fetch_phone_code = MagicMock(spec=FetchCountryPhoneCodeUseCase)
@@ -45,7 +91,7 @@ class AssignPaymentRecoveryBuildConfigTest(TestCase):
         config = self.use_case._build_initial_config(agent, self.project)
         self.assertIn("payment_recovery", config)
         self.assertFalse(config["payment_recovery"]["hook_created"])
-        self.assertEqual(config["payment_recovery"]["delay_minutes"], 10)
+        self.assertEqual(config["payment_recovery"]["delay_minutes"], 5)
 
     @override_settings(PAYMENT_RECOVERY_AGENT_UUID="")
     def test_build_initial_config_skips_payment_recovery_when_no_uuid(self):
@@ -241,7 +287,7 @@ class AssignPaymentRecoveryHookTest(TestCase):
         self.integrated_agent.config = {
             "payment_recovery": {
                 "hook_created": False,
-                "delay_minutes": 10,
+                "delay_minutes": 5,
             },
             "country_phone_code": "55",
         }
@@ -249,7 +295,7 @@ class AssignPaymentRecoveryHookTest(TestCase):
         self.use_case._create_payment_recovery_hook(self.integrated_agent)
 
         saved_config = self.integrated_agent.config
-        self.assertEqual(saved_config["payment_recovery"]["delay_minutes"], 10)
+        self.assertEqual(saved_config["payment_recovery"]["delay_minutes"], 5)
         self.assertTrue(saved_config["payment_recovery"]["hook_created"])
         self.assertIn("webhook_url", saved_config["payment_recovery"])
         self.assertEqual(saved_config["country_phone_code"], "55")
