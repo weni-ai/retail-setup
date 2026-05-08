@@ -10,6 +10,11 @@ from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_webhook.usecases.webhook import (
     AgentWebhookUseCase,
 )
+from retail.agents.shared.cache import (
+    AgentRole,
+    IntegratedAgentCacheHandler,
+    IntegratedAgentCacheHandlerRedis,
+)
 from retail.interfaces.clients.aws_lambda.client import RequestData
 from retail.projects.models import Project
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
@@ -43,6 +48,12 @@ def adapt_order_status_to_webhook_payload(
 
 
 class AgentOrderStatusUpdateUsecase:
+    def __init__(
+        self,
+        cache_handler: Optional[IntegratedAgentCacheHandler] = None,
+    ) -> None:
+        self.cache_handler = cache_handler or IntegratedAgentCacheHandlerRedis()
+
     def get_integrated_agent_if_exists(
         self, project: Project
     ) -> Optional[IntegratedAgent]:
@@ -62,14 +73,27 @@ class AgentOrderStatusUpdateUsecase:
             logger.warning("ORDER_STATUS_AGENT_UUID is not set in settings.")
             return None
 
-        cache_key = f"order_status_agent_{str(project.uuid)}"
-        integrated_agent = cache.get(cache_key)
+        cached = self.cache_handler.get_role_agent(project.uuid, AgentRole.ORDER_STATUS)
+        if cached is not None:
+            return cached
 
-        if integrated_agent:
-            return integrated_agent
+        integrated_agent = self._lookup_order_status_agent(project)
+        if integrated_agent is None:
+            return None
 
+        self.cache_handler.set_role_agent(integrated_agent, AgentRole.ORDER_STATUS)
+        return integrated_agent
+
+    def _lookup_order_status_agent(self, project: Project) -> Optional[IntegratedAgent]:
+        """Resolve the order-status agent for ``project`` from the database.
+
+        Tries the official agent first; only when ``DoesNotExist`` is
+        raised, falls back to any custom agent flagged with
+        ``parent_agent_uuid`` (inherited order-status logic). The
+        nested structure mirrors that "fallback only on missing
+        official" intent visually.
+        """
         try:
-            # First try to find the official agent
             integrated_agent = IntegratedAgent.objects.get(
                 agent__uuid=settings.ORDER_STATUS_AGENT_UUID,
                 project=project,
@@ -78,13 +102,13 @@ class AgentOrderStatusUpdateUsecase:
             logger.info(
                 f"Found official integrated agent for ORDER_STATUS_AGENT_UUID: {settings.ORDER_STATUS_AGENT_UUID}"
             )
+            return integrated_agent
         except IntegratedAgent.DoesNotExist:
             logger.info(
                 f"No official integrated agent found for ORDER_STATUS_AGENT_UUID: {settings.ORDER_STATUS_AGENT_UUID}. "
                 f"Looking for agents with parent_agent_uuid filled..."
             )
 
-            # If official agent not found, look for any agent with parent_agent_uuid filled
             try:
                 integrated_agent = IntegratedAgent.objects.get(
                     parent_agent_uuid__isnull=False,
@@ -94,6 +118,7 @@ class AgentOrderStatusUpdateUsecase:
                 logger.info(
                     f"Found integrated agent with parent_agent_uuid: {integrated_agent.parent_agent_uuid}"
                 )
+                return integrated_agent
             except IntegratedAgent.DoesNotExist:
                 logger.info(
                     f"No integrated agent found (official or with parent_agent_uuid) for project {project.uuid}"
@@ -110,9 +135,6 @@ class AgentOrderStatusUpdateUsecase:
                     },
                     code="multiple_parent_agents",
                 )
-
-        cache.set(cache_key, integrated_agent, timeout=21600)  # 6 hours
-        return integrated_agent
 
     def get_project_by_vtex_account(self, vtex_account: str) -> Project:
         """

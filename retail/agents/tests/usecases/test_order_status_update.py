@@ -9,6 +9,7 @@ from retail.agents.domains.agent_webhook.usecases.order_status import (
     adapt_order_status_to_webhook_payload,
 )
 from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.agents.shared.cache import AgentRole
 from retail.projects.models import Project
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
@@ -17,7 +18,10 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
     """Test cases for AgentOrderStatusUpdateUsecase functionality."""
 
     def setUp(self):
-        self.usecase = AgentOrderStatusUpdateUsecase()
+        self.mock_cache_handler = MagicMock()
+        self.usecase = AgentOrderStatusUpdateUsecase(
+            cache_handler=self.mock_cache_handler
+        )
         self.mock_project = MagicMock(spec=Project)
         self.mock_project.uuid = uuid4()
         self.mock_integrated_agent = MagicMock(spec=IntegratedAgent)
@@ -26,28 +30,25 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         self.mock_integrated_agent.ignore_templates = False
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
-    def test_get_integrated_agent_if_exists_returns_from_cache(
-        self, mock_cache, mock_settings
-    ):
+    def test_get_integrated_agent_if_exists_returns_from_cache(self, mock_settings):
         mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
-        mock_cache.get.return_value = self.mock_integrated_agent
+        self.mock_cache_handler.get_role_agent.return_value = self.mock_integrated_agent
 
         result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
 
         self.assertEqual(result, self.mock_integrated_agent)
-        mock_cache.get.assert_called_once_with(
-            f"order_status_agent_{str(self.mock_project.uuid)}"
+        self.mock_cache_handler.get_role_agent.assert_called_once_with(
+            self.mock_project.uuid, AgentRole.ORDER_STATUS
         )
+        self.mock_cache_handler.set_role_agent.assert_not_called()
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.IntegratedAgent")
     def test_get_integrated_agent_if_exists_fetches_and_sets_cache(
-        self, mock_integrated_agent_cls, mock_cache, mock_settings
+        self, mock_integrated_agent_cls, mock_settings
     ):
         mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
-        mock_cache.get.return_value = None
+        self.mock_cache_handler.get_role_agent.return_value = None
         mock_obj = MagicMock()
         mock_integrated_agent_cls.objects.get.return_value = mock_obj
 
@@ -59,103 +60,87 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
             project=self.mock_project,
             is_active=True,
         )
-        mock_cache.set.assert_called_once_with(
-            f"order_status_agent_{str(self.mock_project.uuid)}",
-            mock_obj,
-            timeout=21600,
+        self.mock_cache_handler.set_role_agent.assert_called_once_with(
+            mock_obj, AgentRole.ORDER_STATUS
         )
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.IntegratedAgent")
     def test_get_integrated_agent_if_exists_returns_none_if_not_found(
-        self, mock_integrated_agent_cls, mock_cache, mock_settings
+        self, mock_integrated_agent_cls, mock_settings
     ):
         mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
-        mock_cache.get.return_value = None
+        self.mock_cache_handler.get_role_agent.return_value = None
 
-        # Create a proper exception class that inherits from BaseException
         does_not_exist_exception = type("DoesNotExist", (Exception,), {})
         mock_integrated_agent_cls.DoesNotExist = does_not_exist_exception
-
-        # Both calls (official agent and parent_agent_uuid search) raise DoesNotExist
         mock_integrated_agent_cls.objects.get.side_effect = [
-            does_not_exist_exception(),  # Official agent not found
-            does_not_exist_exception(),  # Agent with parent_agent_uuid not found
+            does_not_exist_exception(),
+            does_not_exist_exception(),
         ]
 
         result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
 
         self.assertIsNone(result)
-        # Should be called twice: once for official agent, once for parent_agent_uuid search
         self.assertEqual(mock_integrated_agent_cls.objects.get.call_count, 2)
+        self.mock_cache_handler.set_role_agent.assert_not_called()
 
-        # Verify the first call was for official agent
         first_call_args = mock_integrated_agent_cls.objects.get.call_args_list[0]
         self.assertEqual(first_call_args[1]["agent__uuid"], "test-agent-uuid")
         self.assertEqual(first_call_args[1]["project"], self.mock_project)
         self.assertEqual(first_call_args[1]["is_active"], True)
 
-        # Verify the second call was for parent_agent_uuid search
         second_call_args = mock_integrated_agent_cls.objects.get.call_args_list[1]
         self.assertEqual(second_call_args[1]["parent_agent_uuid__isnull"], False)
         self.assertEqual(second_call_args[1]["project"], self.mock_project)
         self.assertEqual(second_call_args[1]["is_active"], True)
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.IntegratedAgent")
     def test_get_integrated_agent_if_exists_finds_agent_with_parent_agent_uuid(
-        self, mock_integrated_agent_cls, mock_cache, mock_settings
+        self, mock_integrated_agent_cls, mock_settings
     ):
         mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
-        mock_cache.get.return_value = None
+        self.mock_cache_handler.get_role_agent.return_value = None
 
-        # Mock official agent not found
         does_not_exist_exception = type("DoesNotExist", (Exception,), {})
         mock_integrated_agent_cls.DoesNotExist = does_not_exist_exception
 
-        # First call (official agent) raises DoesNotExist
-        # Second call (agent with parent_agent_uuid) returns a mock agent
         mock_agent_with_parent = MagicMock()
         mock_agent_with_parent.parent_agent_uuid = "parent-uuid-123"
         mock_integrated_agent_cls.objects.get.side_effect = [
-            does_not_exist_exception(),  # Official agent not found
-            mock_agent_with_parent,  # Agent with parent_agent_uuid found
+            does_not_exist_exception(),
+            mock_agent_with_parent,
         ]
 
         result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
 
         self.assertEqual(result, mock_agent_with_parent)
-        # Should be called twice: once for official agent, once for agent with parent_agent_uuid
         self.assertEqual(mock_integrated_agent_cls.objects.get.call_count, 2)
+        self.mock_cache_handler.set_role_agent.assert_called_once_with(
+            mock_agent_with_parent, AgentRole.ORDER_STATUS
+        )
 
-        # Verify the second call was for parent_agent_uuid__isnull=False
         second_call_args = mock_integrated_agent_cls.objects.get.call_args_list[1]
         self.assertEqual(second_call_args[1]["parent_agent_uuid__isnull"], False)
         self.assertEqual(second_call_args[1]["project"], self.mock_project)
         self.assertEqual(second_call_args[1]["is_active"], True)
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.IntegratedAgent")
     def test_get_integrated_agent_if_exists_raises_error_on_multiple_parent_agents(
-        self, mock_integrated_agent_cls, mock_cache, mock_settings
+        self, mock_integrated_agent_cls, mock_settings
     ):
         mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
-        mock_cache.get.return_value = None
+        self.mock_cache_handler.get_role_agent.return_value = None
 
-        # Mock official agent not found
         does_not_exist_exception = type("DoesNotExist", (Exception,), {})
         multiple_objects_exception = type("MultipleObjectsReturned", (Exception,), {})
         mock_integrated_agent_cls.DoesNotExist = does_not_exist_exception
         mock_integrated_agent_cls.MultipleObjectsReturned = multiple_objects_exception
-
-        # First call (official agent) raises DoesNotExist
-        # Second call (agents with parent_agent_uuid) raises MultipleObjectsReturned
         mock_integrated_agent_cls.objects.get.side_effect = [
-            does_not_exist_exception(),  # Official agent not found
-            multiple_objects_exception(),  # Multiple agents with parent_agent_uuid found
+            does_not_exist_exception(),
+            multiple_objects_exception(),
         ]
 
         with self.assertRaises(ValidationError) as context:
@@ -165,7 +150,6 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
             context.exception.detail["error"],
             "Multiple agents with parent_agent_uuid found for this project",
         )
-        # The code is stored in the ErrorDetail object within detail
         self.assertEqual(
             context.exception.detail["error"].code, "multiple_parent_agents"
         )
@@ -177,6 +161,7 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
 
         self.assertIsNone(result)
+        self.mock_cache_handler.get_role_agent.assert_not_called()
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.Project")

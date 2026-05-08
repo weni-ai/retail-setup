@@ -4,9 +4,6 @@ from typing import Callable
 
 from datetime import datetime
 
-from django.conf import settings
-from django.core.cache import cache
-
 from rest_framework.exceptions import NotFound
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
@@ -44,7 +41,7 @@ class UnassignAgentUseCase:
         integrated_agent.is_active = False
         integrated_agent.save()
         self._register_agent_unassign_event(agent, project_uuid)
-        self._clear_cache(agent, integrated_agent)
+        self._clear_cache(integrated_agent)
 
     def _register_agent_unassign_event(self, agent: Agent, project_uuid: str):
         """
@@ -70,42 +67,19 @@ class UnassignAgentUseCase:
         self.audit_func(CommerceWebhookPath, event_data)
         logger.info(f"Agent unassignment event registered for agent {agent.uuid}")
 
-    def _clear_cache(self, agent: Agent, integrated_agent: IntegratedAgent) -> None:
-        # Clear webhook cache (used by AgentWebhookUseCase)
+    def _clear_cache(self, integrated_agent: IntegratedAgent) -> None:
+        """Drop every cache entry derived from this IntegratedAgent.
+
+        Defensive against cache backend failures: a Redis hiccup must
+        not break the unassign flow, so we log and continue.
+        """
         try:
-            self.cache_handler.clear_cached_agent(integrated_agent.uuid)
+            self.cache_handler.invalidate_all_for(integrated_agent)
             logger.info(
-                "Cleared integrated agent webhook cache for %s", integrated_agent.uuid
+                f"Invalidated all caches for integrated agent {integrated_agent.uuid}"
             )
         except Exception as exc:
             logger.warning(
-                "Failed to clear integrated agent webhook cache for %s: %s",
-                integrated_agent.uuid,
-                exc,
+                f"Failed to invalidate caches for integrated agent "
+                f"{integrated_agent.uuid}: {exc}"
             )
-
-        # Clear 6h per-project/agent cache used by BaseAgentWebhookUseCase
-        try:
-            cache_key = (
-                f"integrated_agent_{str(agent.uuid)}_"
-                f"{str(integrated_agent.project.uuid)}"
-            )
-            cache.delete(cache_key)
-            logger.info("Cleared per-project integrated agent cache key: %s", cache_key)
-        except Exception as exc:
-            logger.warning(
-                "Failed to clear per-project integrated agent cache for %s/%s: %s",
-                agent.uuid,
-                integrated_agent.project.uuid,
-                exc,
-            )
-
-        # Clear order status cache if applicable
-        if not settings.ORDER_STATUS_AGENT_UUID:
-            logger.warning("ORDER_STATUS_AGENT_UUID is not set in settings.")
-            return
-
-        if str(agent.uuid) == settings.ORDER_STATUS_AGENT_UUID:
-            cache_key = f"integrated_agent_{settings.ORDER_STATUS_AGENT_UUID}_{str(integrated_agent.project.uuid)}"
-            cache.delete(cache_key)
-            logger.info(f"Cleared cache for key: {cache_key}")
