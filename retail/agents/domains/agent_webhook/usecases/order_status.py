@@ -70,7 +70,10 @@ class AgentOrderStatusUpdateUsecase:
             Optional[IntegratedAgent]: The integrated agent if found, otherwise None.
         """
         if not settings.ORDER_STATUS_AGENT_UUID:
-            logger.warning("ORDER_STATUS_AGENT_UUID is not set in settings.")
+            logger.warning(
+                f"[ORDER_STATUS] agent_uuid_not_set: "
+                f"vtex_account={project.vtex_account} project_uuid={project.uuid}"
+            )
             return None
 
         cached = self.cache_handler.get_role_agent(project.uuid, AgentRole.ORDER_STATUS)
@@ -100,13 +103,16 @@ class AgentOrderStatusUpdateUsecase:
                 is_active=True,
             )
             logger.info(
-                f"Found official integrated agent for ORDER_STATUS_AGENT_UUID: {settings.ORDER_STATUS_AGENT_UUID}"
+                f"[ORDER_STATUS] agent_resolved: "
+                f"vtex_account={project.vtex_account} "
+                f"agent_uuid={integrated_agent.uuid} source=official"
             )
             return integrated_agent
         except IntegratedAgent.DoesNotExist:
             logger.info(
-                f"No official integrated agent found for ORDER_STATUS_AGENT_UUID: {settings.ORDER_STATUS_AGENT_UUID}. "
-                f"Looking for agents with parent_agent_uuid filled..."
+                f"[ORDER_STATUS] official_agent_not_found: "
+                f"vtex_account={project.vtex_account} "
+                f"project_uuid={project.uuid}"
             )
 
             try:
@@ -116,18 +122,25 @@ class AgentOrderStatusUpdateUsecase:
                     is_active=True,
                 )
                 logger.info(
-                    f"Found integrated agent with parent_agent_uuid: {integrated_agent.parent_agent_uuid}"
+                    f"[ORDER_STATUS] agent_resolved: "
+                    f"vtex_account={project.vtex_account} "
+                    f"agent_uuid={integrated_agent.uuid} "
+                    f"source=parent_agent "
+                    f"parent_uuid={integrated_agent.parent_agent_uuid}"
                 )
                 return integrated_agent
             except IntegratedAgent.DoesNotExist:
                 logger.info(
-                    f"No integrated agent found (official or with parent_agent_uuid) for project {project.uuid}"
+                    f"[ORDER_STATUS] no_agent_found: "
+                    f"vtex_account={project.vtex_account} "
+                    f"project_uuid={project.uuid}"
                 )
                 return None
             except IntegratedAgent.MultipleObjectsReturned:
                 logger.error(
-                    f"Multiple agents found with parent_agent_uuid for project {project.uuid}. "
-                    f"This should not happen - only one agent per project should have parent_agent_uuid."
+                    f"[ORDER_STATUS] multiple_parent_agents: "
+                    f"vtex_account={project.vtex_account} "
+                    f"project_uuid={project.uuid}"
                 )
                 raise ValidationError(
                     {
@@ -154,11 +167,13 @@ class AgentOrderStatusUpdateUsecase:
             cache.set(cache_key, project, timeout=43200)  # 12 hours
             return project
         except Project.DoesNotExist:
-            logger.info(f"Project not found for VTEX account {vtex_account}.")
+            logger.info(
+                f"[ORDER_STATUS] project_not_found: vtex_account={vtex_account}"
+            )
             return None
         except Project.MultipleObjectsReturned:
             logger.error(
-                f"Multiple projects found for VTEX account {vtex_account}.",
+                f"[ORDER_STATUS] multiple_projects: vtex_account={vtex_account}",
                 exc_info=True,
             )
             return None
@@ -198,25 +213,28 @@ class AgentOrderStatusUpdateUsecase:
     def execute(
         self, integrated_agent: IntegratedAgent, order_status_dto: OrderStatusDTO
     ) -> None:
+        vtex_account = order_status_dto.vtexAccount
+        current_state = order_status_dto.currentState
+        order_id = order_status_dto.orderId
+        agent_uuid = integrated_agent.uuid
+
         if self._is_duplicate_event(integrated_agent, order_status_dto):
             logger.info(
-                f"Skipping duplicate order status event within dedup window. "
-                f"agent={integrated_agent.uuid} "
-                f"order_id={order_status_dto.orderId} "
-                f"current_state={order_status_dto.currentState} "
-                f"vtex_account={order_status_dto.vtexAccount}"
+                f"[ORDER_STATUS] duplicate_skipped: "
+                f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
+                f"current_state={current_state} order_id={order_id}"
             )
             return
 
         logger.info(
-            f"Starting execution for integrated agent: {integrated_agent.uuid} "
-            f"and order ID: {order_status_dto.orderId}"
+            f"[ORDER_STATUS] executing: "
+            f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
+            f"current_state={current_state} order_id={order_id}"
         )
 
         webhook_payload: Dict[str, Any] = adapt_order_status_to_webhook_payload(
             order_status_dto
         )
-        logger.info(f"Adapted order status to webhook payload: {webhook_payload}")
 
         request_data = RequestData(
             params={},
@@ -231,6 +249,7 @@ class AgentOrderStatusUpdateUsecase:
 
         agent_webhook_use_case.execute(integrated_agent, request_data)
         logger.info(
-            f"Execution completed for integrated agent: {integrated_agent.uuid} "
-            f"and order ID: {order_status_dto.orderId}"
+            f"[ORDER_STATUS] executed: "
+            f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
+            f"current_state={current_state} order_id={order_id}"
         )

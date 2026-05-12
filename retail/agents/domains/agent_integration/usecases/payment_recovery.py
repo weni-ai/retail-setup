@@ -20,6 +20,18 @@ class PaymentRecoveryWebhookUseCase:
     """Use case for processing payment recovery webhook notifications from VTEX."""
 
     def get_integrated_agent(self, integrated_agent_uuid: UUID) -> IntegratedAgent:
+        """
+        Retrieve an integrated agent by UUID.
+
+        Args:
+            integrated_agent_uuid: UUID of the integrated agent.
+
+        Returns:
+            IntegratedAgent: The matching integrated agent instance.
+
+        Raises:
+            NotFound: If no integrated agent exists with the given UUID.
+        """
         try:
             return IntegratedAgent.objects.get(uuid=integrated_agent_uuid)
         except IntegratedAgent.DoesNotExist:
@@ -45,6 +57,15 @@ class PaymentRecoveryWebhookUseCase:
     def validate_payment_recovery_enabled(
         self, integrated_agent: IntegratedAgent
     ) -> None:
+        """
+        Validate that payment recovery is enabled for the integrated agent.
+
+        Args:
+            integrated_agent: The integrated agent to validate.
+
+        Raises:
+            ValidationError: If payment recovery hook is not configured.
+        """
         payment_config = integrated_agent.config.get("payment_recovery", {})
         if not payment_config.get("hook_created", False):
             raise ValidationError("Payment recovery hook not configured")
@@ -58,15 +79,28 @@ class PaymentRecoveryWebhookUseCase:
         Validates that payment recovery is enabled, builds an OrderStatusDTO
         and delegates to AgentOrderStatusUpdateUsecase — same pattern as
         DeliveredOrderTrackingWebhookUseCase.
+
+        Args:
+            integrated_agent: The integrated agent that owns the webhook.
+            webhook_data: Raw data received from the VTEX webhook.
+
+        Returns:
+            Dict[str, str]: A dict with ``status`` and ``message`` keys.
         """
+        vtex_account = integrated_agent.project.vtex_account
+        agent_uuid = integrated_agent.uuid
+
         self.validate_payment_recovery_enabled(integrated_agent)
 
         logger.info(
-            f"[PaymentRecovery] Processing webhook notification - "
-            f"agent={integrated_agent.uuid} data={webhook_data}"
+            f"[PAYMENT_RECOVERY] received: "
+            f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
+            f"data={webhook_data}"
         )
 
-        self._process_payment_recovery_notification(integrated_agent, webhook_data)
+        self._process_payment_recovery_notification(
+            integrated_agent, webhook_data, vtex_account
+        )
 
         return {
             "status": "success",
@@ -74,14 +108,37 @@ class PaymentRecoveryWebhookUseCase:
         }
 
     def _process_payment_recovery_notification(
-        self, integrated_agent: IntegratedAgent, webhook_data: Dict[str, Any]
+        self,
+        integrated_agent: IntegratedAgent,
+        webhook_data: Dict[str, Any],
+        vtex_account: str,
     ) -> None:
-        vtex_account = integrated_agent.project.vtex_account
+        """
+        Build an OrderStatusDTO with ``currentState="payment-pending"``
+        and delegate to AgentOrderStatusUpdateUsecase.
+
+        The raw VTEX state (often ``"unknow"``) is stored as ``lastState``
+        while ``currentState`` is hardcoded because the payment recovery
+        hook only fires for orders awaiting payment.
+
+        Args:
+            integrated_agent: The integrated agent that owns the webhook.
+            webhook_data: Raw data received from the VTEX webhook.
+            vtex_account: The VTEX account identifier for the project.
+        """
+        agent_uuid = integrated_agent.uuid
+        order_id = webhook_data.get("OrderId")
+
+        logger.info(
+            f"[PAYMENT_RECOVERY] converting_state: "
+            f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
+            f"mapped_state=payment-pending data={webhook_data}"
+        )
 
         order_status_dto = OrderStatusDTO(
             recorder={},
             domain="OrdersDocumentUpdated",
-            orderId=webhook_data.get("OrderId"),
+            orderId=order_id,
             currentState="payment-pending",
             lastState=webhook_data.get("State"),
             currentChangeDate=webhook_data.get("CurrentChange"),
@@ -89,15 +146,11 @@ class PaymentRecoveryWebhookUseCase:
             vtexAccount=vtex_account,
         )
 
-        logger.info(
-            f"[PaymentRecovery] OrderStatusDTO built - "
-            f"agent={integrated_agent.uuid} order_id={order_status_dto.orderId}"
-        )
-
         order_status_usecase = AgentOrderStatusUpdateUsecase()
         order_status_usecase.execute(integrated_agent, order_status_dto)
 
         logger.info(
-            f"[PaymentRecovery] Webhook processed successfully - "
-            f"agent={integrated_agent.uuid} order_id={order_status_dto.orderId}"
+            f"[PAYMENT_RECOVERY] completed: "
+            f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
+            f"current_state=payment-pending order_id={order_id}"
         )

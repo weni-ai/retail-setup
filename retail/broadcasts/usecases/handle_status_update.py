@@ -77,12 +77,13 @@ class HandleStatusUpdateUseCase:
     def link_send_event(self, event: BroadcastStatusEvent) -> None:
         """Public entry point for the template-send routing key.
 
-        The send event MUST carry a broadcast_id; missing it indicates a
-        contract drift on the courier side and is logged as ERROR so the
-        anomaly is surfaced (the row cannot be linked without it).
+        Events without a ``broadcast_id`` are non-broadcast templates
+        (NPS, pickup notifications, etc.) flowing through the same
+        courier topic. They are discarded silently since there is no
+        BroadcastMessage row to link.
         """
         if event.broadcast_id is None:
-            logger.error(
+            logger.debug(
                 f"[BROADCAST_TRACKING] send_event_missing_broadcast_id: "
                 f"message_id={event.message_id} payload={event.payload}"
             )
