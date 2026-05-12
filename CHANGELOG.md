@@ -1,3 +1,6 @@
+# 5.21.0
+- fix: handle null buttons metadata when assigning library templates
+
 # 5.20.0
 - chore: Standardize order status and webhook logs for Loki filtering
 - fix: Downgrade non-broadcast send event log from error to debug
