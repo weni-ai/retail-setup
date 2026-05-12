@@ -289,7 +289,9 @@ class AssignAgentUseCase:
 
             template, version = create_library_use_case.execute(data)
 
-            buttons = metadata.get("buttons", [])
+            # `or []` covers both missing key and explicit `None` (some Meta
+            # library specs include `"buttons": null` for templates without buttons).
+            buttons = metadata.get("buttons") or []
             has_url_button = any(button.get("type") == "URL" for button in buttons)
 
             if has_url_button:
