@@ -10,11 +10,11 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
-    """Consumes project update events from update-projects.topic.
+    """Consumes project events from update-projects.topic.
 
-    Performs an additive merge on the local Project.config:
-    creates new keys, updates existing ones, never deletes
-    keys that only exist locally.
+    Handles:
+      - updated: syncs name, language, and config to the local Project.
+      - deleted: removes the local Project (cascades to ProjectOnboarding).
     """
 
     def consume(self, message: amqp.Message):
@@ -23,27 +23,63 @@ class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
         )
         body = JSONParser.parse(message.body)
         action = body.get("action")
-        project_uuid = body.get("project_uuid")
-        config = body.get("config")
 
-        if action != "updated" or config is None:
-            self.ack()
-            return
+        if action == "updated":
+            self._handle_update(body)
+        elif action == "deleted":
+            self._handle_delete(body)
+        else:
+            logger.info(f"[ProjectUpdateConsumer] - Ignoring action={action}")
+
+        self.ack()
+
+    def _handle_update(self, body: dict) -> None:
+        project_uuid = body.get("project_uuid")
 
         try:
             project = Project.objects.get(uuid=project_uuid)
         except Project.DoesNotExist:
             logger.warning(
                 f"[ProjectUpdateConsumer] - Project {project_uuid} not found, "
-                "skipping config update."
+                "skipping update."
             )
-            self.ack()
             return
 
-        project.config.update(config)
-        project.save(update_fields=["config"])
+        updated_fields = []
 
-        logger.info(
-            f"[ProjectUpdateConsumer] - Config updated for project {project_uuid}"
-        )
-        self.ack()
+        name = body.get("name")
+        if name:
+            project.name = name
+            updated_fields.append("name")
+
+        language = body.get("language")
+        if language:
+            project.language = language
+            updated_fields.append("language")
+
+        config = body.get("config")
+        if config:
+            project.config.update(config)
+            updated_fields.append("config")
+
+        if updated_fields:
+            project.save(update_fields=updated_fields)
+            logger.info(
+                f"[ProjectUpdateConsumer] - Updated {updated_fields} "
+                f"for project {project_uuid}"
+            )
+
+    def _handle_delete(self, body: dict) -> None:
+        project_uuid = body.get("project_uuid")
+
+        try:
+            project = Project.objects.get(uuid=project_uuid)
+        except Project.DoesNotExist:
+            logger.warning(
+                f"[ProjectUpdateConsumer] - Project {project_uuid} not found, "
+                "skipping deletion."
+            )
+            return
+
+        project.delete()
+        logger.info(f"[ProjectUpdateConsumer] - Deleted project {project_uuid}")
