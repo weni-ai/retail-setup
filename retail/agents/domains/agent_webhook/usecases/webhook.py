@@ -239,9 +239,11 @@ class AgentWebhookUseCase:
             )
 
             parsed_response = self.active_agent.parse_response(response)
+            log_tail = self.active_agent.parse_log_tail(response)
 
             exec_logger.log_lambda_response(
                 response_data=parsed_response or {"error": "Failed to parse response"},
+                log_tail=log_tail,
             )
 
             if not parsed_response:

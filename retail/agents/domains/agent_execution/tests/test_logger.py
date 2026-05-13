@@ -151,6 +151,36 @@ class LoggerLambdaTraceTests(TestCase):
             data={"status": 0},
         )
 
+    def test_log_lambda_response_attaches_lambda_log_tail_when_provided(self):
+        # The tail comes from AWS LogType="Tail" (last ~4 KB of stdout)
+        # and is folded into the existing LAMBDA_RESPONSE trace so
+        # readers find the Lambda's prints next to the parsed response.
+        self.logger.log_lambda_response(
+            response_data={"status": 0, "template": "t1"},
+            log_tail="START RequestId\nhello\nEND RequestId\n",
+        )
+        self.buffer.add_trace.assert_called_once_with(
+            execution_uuid=self.execution_uuid,
+            trace_type=ExecutionTraceType.LAMBDA_RESPONSE.value,
+            data={
+                "status": 0,
+                "template": "t1",
+                "lambda_log_tail": "START RequestId\nhello\nEND RequestId\n",
+            },
+        )
+
+    def test_log_lambda_response_omits_lambda_log_tail_when_none_or_empty(self):
+        self.logger.log_lambda_response(
+            response_data={"status": 0},
+            log_tail=None,
+        )
+        self.logger.log_lambda_response(
+            response_data={"status": 0},
+            log_tail="",
+        )
+        for call in self.buffer.add_trace.call_args_list:
+            self.assertNotIn("lambda_log_tail", call.kwargs["data"])
+
     def test_log_methods_noop_without_execution_uuid(self):
         clear_execution_context()
         self.logger.log_lambda_request(request_data={"k": "v"})
