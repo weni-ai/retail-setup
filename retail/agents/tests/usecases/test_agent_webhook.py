@@ -430,6 +430,11 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
             exec_logger=self.exec_logger,
         )
 
+        # Tests below assert the exact kwargs passed to log_lambda_response;
+        # default the new log_tail input to None so individual tests only
+        # opt into it when they explicitly exercise the LogResult path.
+        self.mock_lambda_handler.parse_log_tail.return_value = None
+
         self.mock_agent = MagicMock()
         self.mock_agent.uuid = uuid4()
         self.mock_agent.contact_percentage = 100
@@ -509,6 +514,39 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
 
         self.exec_logger.log_lambda_response.assert_called_once_with(
             response_data=parsed,
+            log_tail=None,
+        )
+
+    def test_execute_forwards_lambda_log_tail_to_log_lambda_response(self):
+        # parse_log_tail decodes the LogResult tail returned by AWS when
+        # the invoke uses LogType="Tail"; the use case must hand it to
+        # the exec_logger so the LAMBDA_RESPONSE trace records the
+        # function's prints alongside the parsed payload.
+        parsed = {"template": "order_update", "contact_urn": "whatsapp:123"}
+        invoke_response = {"Payload": MagicMock(), "LogResult": "encoded-bytes"}
+        self.mock_lambda_handler.invoke.return_value = invoke_response
+        self.mock_lambda_handler.parse_response.return_value = parsed
+        self.mock_lambda_handler.parse_log_tail.return_value = (
+            "START RequestId: abc\nhello from print\nEND RequestId: abc\n"
+        )
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
+        self.mock_broadcast_handler.send_message.return_value = _dispatch_result(
+            response={"id": 1}
+        )
+        self.mock_broadcast_handler.get_current_template.return_value = MagicMock(
+            uuid=uuid4()
+        )
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.mock_lambda_handler.parse_log_tail.assert_called_once_with(
+            invoke_response
+        )
+        self.exec_logger.log_lambda_response.assert_called_once_with(
+            response_data=parsed,
+            log_tail="START RequestId: abc\nhello from print\nEND RequestId: abc\n",
         )
 
     def test_execute_logs_update_contact_urn_when_payload_has_it(self):
@@ -563,6 +601,7 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
         self.assertIsNone(result)
         self.exec_logger.log_lambda_response.assert_called_once_with(
             response_data={"error": "Failed to parse response"},
+            log_tail=None,
         )
         self.exec_logger.log_execution_error.assert_called_once_with(
             error_message="Error parsing lambda response",

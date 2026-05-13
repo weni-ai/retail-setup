@@ -131,6 +131,7 @@ class ExecutionLoggerService:
         self,
         response_data: Dict[str, Any],
         execution_uuid: Optional[UUID] = None,
+        log_tail: Optional[str] = None,
     ) -> None:
         """
         Log the lambda invocation response.
@@ -138,15 +139,23 @@ class ExecutionLoggerService:
         Args:
             response_data: The response from the lambda function
             execution_uuid: Optional UUID (uses context if not provided)
+            log_tail: Optional decoded tail (~4 KB) of Lambda stdout/stderr
+                returned via ``LogType="Tail"``. When provided, it is
+                attached to the trace under ``lambda_log_tail`` so prints
+                from the function surface alongside the response.
         """
         exec_uuid = self._get_execution_uuid(execution_uuid)
         if not exec_uuid:
             return
 
+        trace_data: Dict[str, Any] = dict(response_data) if response_data else {}
+        if log_tail:
+            trace_data["lambda_log_tail"] = log_tail
+
         self.buffer.add_trace(
             execution_uuid=exec_uuid,
             trace_type=ExecutionTraceType.LAMBDA_RESPONSE.value,
-            data=response_data,
+            data=trace_data,
         )
         logger.debug(f"[EXEC_LOG] Logged lambda response for execution {exec_uuid}")
 
