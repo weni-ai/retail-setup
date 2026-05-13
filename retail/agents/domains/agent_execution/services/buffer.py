@@ -38,6 +38,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from uuid import UUID, uuid4
 
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.utils import timezone
 from django_redis import get_redis_connection
@@ -170,6 +171,19 @@ class ExecutionBufferService:
             status = status.value
         return status in self._TERMINAL_STATUSES
 
+    @staticmethod
+    def _encode_trace(trace: Dict[str, Any]) -> str:
+        """Serialize a trace using Django's extended JSON encoder.
+
+        Worker-side payloads can carry datetime / Decimal / UUID values
+        that Kombu's typed envelope rehydrates from upstream producers
+        (DRF serializers, VTEX webhooks, etc.). The buffer is the
+        chokepoint for every trace write, so we standardise on
+        ``DjangoJSONEncoder`` here once. Truly exotic types still
+        raise and land in the existing log-and-swallow path.
+        """
+        return json.dumps(trace, ensure_ascii=False, cls=DjangoJSONEncoder)
+
     def _serialize_value(self, value: Any) -> Optional[str]:
         if value is None:
             return None
@@ -273,7 +287,7 @@ class ExecutionBufferService:
             traces_key = self._traces_key(execution_uuid)
             data_key = self._data_key(execution_uuid)
             pipe = redis_client.pipeline(transaction=False)
-            pipe.rpush(traces_key, json.dumps(initial_trace, ensure_ascii=False))
+            pipe.rpush(traces_key, self._encode_trace(initial_trace))
             pipe.expire(traces_key, self.REDIS_TTL_SECONDS)
             pipe.hset(data_key, mapping={"updated_on": now.isoformat()})
             pipe.expire(data_key, self.REDIS_TTL_SECONDS)
@@ -313,7 +327,7 @@ class ExecutionBufferService:
             traces_key = self._traces_key(execution_uuid)
             data_key = self._data_key(execution_uuid)
             pipe = redis_client.pipeline(transaction=False)
-            pipe.rpush(traces_key, json.dumps(trace, ensure_ascii=False))
+            pipe.rpush(traces_key, self._encode_trace(trace))
             pipe.expire(traces_key, self.REDIS_TTL_SECONDS)
             pipe.hset(data_key, mapping={"updated_on": now.isoformat()})
             pipe.expire(data_key, self.REDIS_TTL_SECONDS)

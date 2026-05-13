@@ -9,6 +9,7 @@ with exactly one DB row, exactly one S3 PUT, and clean Redis state.
 """
 
 import json
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
 from uuid import UUID, uuid4
@@ -155,6 +156,51 @@ class ExecutionBufferServiceTests(TestCase):
         row = AgentExecution.objects.get(uuid=execution_uuid)
         self.assertEqual(row.status, AgentExecutionStatus.PROCESSING)
 
+    def test_start_execution_serializes_extended_types_in_webhook_payload(self):
+        """DRF/Kombu can deliver datetime / Decimal / UUID in the payload.
+
+        The OrderStatus webhook is the canonical offender: its
+        ``OrderStatusSerializer`` validates ``currentChangeDate`` and
+        ``lastChangeDate`` into Python ``datetime`` objects, and Kombu's
+        typed JSON envelope rehydrates them on the worker side. The
+        stdlib ``json.dumps`` used here previously raised ``TypeError``
+        and aborted the whole pipeline before ``pipe.execute()``,
+        leaving the row to be force-finalised as ``Execution timed
+        out`` by the stuck sweep. The buffer must encode these
+        ``DjangoJSONEncoder``-friendly types as JSON strings instead.
+        """
+        order_uuid = UUID("04f2b26f-2f34-4b55-a37c-4ead2cd67bcf")
+        webhook_payload = {
+            "domain": "Marketplace",
+            "currentChangeDate": datetime(2026, 5, 12, 18, 20, 0),
+            "lastChangeDate": datetime(2026, 5, 12, 18, 20, 0, tzinfo=timezone.utc),
+            "amount": Decimal("19.99"),
+            "id": order_uuid,
+        }
+
+        execution_uuid = self.buffer.start_execution(
+            integrated_agent_uuid=None,
+            contact_urn="unknown",
+            webhook_payload=webhook_payload,
+        )
+
+        traces_raw = self.fake_redis.lrange(self._traces_key(execution_uuid), 0, -1)
+        self.assertEqual(len(traces_raw), 1)
+        decoded = json.loads(traces_raw[0])
+        self.assertEqual(decoded["type"], ExecutionTraceType.WEBHOOK_RECEIVED.value)
+        data = decoded["data"]
+        self.assertEqual(data["domain"], "Marketplace")
+        self.assertEqual(data["currentChangeDate"], "2026-05-12T18:20:00")
+        self.assertEqual(data["lastChangeDate"], "2026-05-12T18:20:00Z")
+        self.assertEqual(data["amount"], "19.99")
+        self.assertEqual(data["id"], str(order_uuid))
+
+        self.assertIsNotNone(
+            self.fake_redis.zscore(self.buffer.FLUSH_QUEUE_KEY, str(execution_uuid)),
+            "pipe.execute() must run to completion when the payload "
+            "carries datetime/Decimal/UUID values",
+        )
+
     # ------------------------------------------------------------------
     # add_trace
     # ------------------------------------------------------------------
@@ -190,6 +236,41 @@ class ExecutionBufferServiceTests(TestCase):
                 data={"x": 1},
             )
         self.assertTrue(ok)
+
+    def test_add_trace_serializes_extended_types_in_data(self):
+        """``add_trace`` accepts the same DjangoJSONEncoder-friendly types.
+
+        Error traces from ``task_order_status_update`` reuse the raw
+        ``order_update_data`` (with its rehydrated datetimes) as
+        ``error_data``; lambda / broadcast responses can carry
+        ``Decimal`` totals. The buffer must encode them all without
+        dropping the trace.
+        """
+        execution_uuid = self.buffer.start_execution(
+            integrated_agent_uuid=None,
+            contact_urn="unknown",
+            webhook_payload={},
+        )
+        order_uuid = UUID("04f2b26f-2f34-4b55-a37c-4ead2cd67bcf")
+
+        ok = self.buffer.add_trace(
+            execution_uuid=execution_uuid,
+            trace_type=ExecutionTraceType.LAMBDA_RESPONSE.value,
+            data={
+                "order_amount": Decimal("19.99"),
+                "completed_at": datetime(2026, 5, 12, 18, 20, 0),
+                "ref": order_uuid,
+            },
+        )
+
+        self.assertTrue(ok)
+        traces_raw = self.fake_redis.lrange(self._traces_key(execution_uuid), 0, -1)
+        self.assertEqual(len(traces_raw), 2)
+        appended = json.loads(traces_raw[1])
+        self.assertEqual(appended["type"], "lambda_response")
+        self.assertEqual(appended["data"]["order_amount"], "19.99")
+        self.assertEqual(appended["data"]["completed_at"], "2026-05-12T18:20:00")
+        self.assertEqual(appended["data"]["ref"], str(order_uuid))
 
     # ------------------------------------------------------------------
     # update_metadata / update_status
