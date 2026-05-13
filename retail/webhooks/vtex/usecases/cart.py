@@ -10,8 +10,6 @@ from retail.vtex.models import Cart
 from retail.vtex.tasks import task_abandoned_cart_update
 from django_redis import get_redis_connection
 
-from django.conf import settings
-
 from retail.webhooks.vtex.services import (
     CartTimeRestrictionService,
     CartPhoneRestrictionService,
@@ -20,6 +18,7 @@ from retail.webhooks.vtex.services import (
 from retail.agents.domains.agent_webhook.usecases.base_agent_webhook import (
     BaseAgentWebhookUseCase,
 )
+from retail.agents.shared.cache import AgentRole
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 
 
@@ -55,13 +54,8 @@ class CartUseCase(BaseAgentWebhookUseCase):
         if not self.project:
             return None
 
-        if not settings.ABANDONED_CART_AGENT_UUID:
-            logger.info("ABANDONED_CART_AGENT_UUID is not set in settings.")
-            return None
-
-        # Base method already logs when agent is not found
         return self.get_integrated_agent_if_exists(
-            self.project, settings.ABANDONED_CART_AGENT_UUID
+            self.project, AgentRole.ABANDONED_CART
         )
 
     def _get_project_by_account(self) -> Optional[Project]:

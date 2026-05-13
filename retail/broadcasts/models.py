@@ -217,6 +217,15 @@ class BroadcastConversion(models.Model):
     (``SET_NULL`` on agent deletion) by the time the invoice arrives,
     and may also remain unset for projects that disabled tracking.
 
+    ``broadcast`` snapshots the exact ``BroadcastMessage`` credited as
+    the attribution source at conversion time (last-touch rule applied
+    at write). This is the durable source of truth for "which dispatch
+    drove this sale" — the rule that picks the broadcast may evolve,
+    but rows already written keep pointing at the broadcast that was
+    attributed at the moment. Nullable for legacy rows (created before
+    this column existed) and so that ``BroadcastMessage`` deletion via
+    ``SET_NULL`` does not cascade to the conversion.
+
     The row is write-once: subsequent ``invoiced`` re-deliveries hit
     the unique constraint and are ignored at the use-case level
     (logged as ``conversion_already_recorded``).
@@ -233,6 +242,13 @@ class BroadcastConversion(models.Model):
         "agents.IntegratedAgent",
         on_delete=models.SET_NULL,
         related_name="broadcast_conversions",
+        null=True,
+        blank=True,
+    )
+    broadcast = models.ForeignKey(
+        "BroadcastMessage",
+        on_delete=models.SET_NULL,
+        related_name="conversions",
         null=True,
         blank=True,
     )

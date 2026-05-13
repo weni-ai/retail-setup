@@ -428,6 +428,69 @@ class AssignAgentUseCaseTest(TestCase):
         mock_use_case_instance.execute.assert_called_once()
         mock_use_case_instance.notify_integrations.assert_called_once()
 
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
+    )
+    def test_create_templates_with_null_buttons_notifies_integrations(
+        self, mock_create_library_use_case
+    ):
+        """Regression: some Meta library specs ship `"buttons": null` instead of
+        omitting the key. The use case must treat that as "no buttons" and not
+        crash trying to iterate over `None`."""
+        mock_integrations_service = MagicMock()
+        mock_integrations_service.fetch_templates_from_user.return_value = {}
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
+
+        integrated_agent = IntegratedAgent.objects.create(
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=uuid.uuid4(),
+            is_active=True,
+        )
+
+        pre_approved = MagicMock()
+        pre_approved.is_valid = True
+        pre_approved.metadata = {
+            "name": "Order Invoiced",
+            "category": "UTILITY",
+            "language": "pt_BR",
+            "buttons": None,
+        }
+        pre_approved.start_condition = "test_condition"
+        pre_approved.slug = "order-invoiced"
+        pre_approved.config = {}
+
+        pre_approveds = MagicMock()
+        filtered_queryset = MagicMock()
+        filtered_queryset.filter.side_effect = lambda is_valid: (
+            [pre_approved] if is_valid else []
+        )
+        pre_approveds.exclude.return_value = filtered_queryset
+
+        mock_template = MagicMock()
+        mock_template.needs_button_edit = False
+        mock_version = MagicMock()
+        mock_version.template_name = "Order Invoiced"
+        mock_version.uuid = uuid.uuid4()
+
+        mock_use_case_instance = mock_create_library_use_case.return_value
+        mock_use_case_instance.execute.return_value = (mock_template, mock_version)
+
+        use_case._create_templates(
+            integrated_agent=integrated_agent,
+            pre_approveds=pre_approveds,
+            project_uuid=self.project.uuid,
+            app_uuid=uuid.uuid4(),
+            ignore_templates=[],
+        )
+
+        mock_use_case_instance.execute.assert_called_once()
+        mock_use_case_instance.notify_integrations.assert_called_once()
+        self.assertFalse(mock_template.needs_button_edit)
+
     def test_get_ignore_templates(self):
         template1 = PreApprovedTemplate.objects.create(
             agent=self.agent,

@@ -3,12 +3,11 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-from django.conf import settings
-
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_webhook.usecases.base_agent_webhook import (
     BaseAgentWebhookUseCase,
 )
+from retail.agents.shared.cache import AgentRole
 from retail.projects.models import Project
 from retail.vtex.models import Cart
 
@@ -43,11 +42,7 @@ class AgentAbandonedCartUseCase(BaseAgentWebhookUseCase):
         Returns:
             Optional[IntegratedAgent]: The integrated agent if found, None otherwise.
         """
-        integrated_agent = self.get_integrated_agent_if_exists(
-            project, settings.ABANDONED_CART_AGENT_UUID
-        )
-
-        return integrated_agent
+        return self.get_integrated_agent_if_exists(project, AgentRole.ABANDONED_CART)
 
     def execute(
         self,

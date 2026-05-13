@@ -137,33 +137,42 @@ def task_order_status_update(order_update_data: dict):
 
     try:
         order_status_dto = OrderStatusDTO(**order_update_data)
+        vtex_account = order_status_dto.vtexAccount
+        order_id = order_status_dto.orderId
+        current_state = order_status_dto.currentState
+
+        logger.info(
+            f"[ORDER_STATUS] received: "
+            f"vtex_account={vtex_account} data={order_update_data}"
+        )
 
         use_case = AgentOrderStatusUpdateUsecase(exec_logger=exec_logger)
-        project = use_case.get_project_by_vtex_account(order_status_dto.vtexAccount)
+        project = use_case.get_project_by_vtex_account(vtex_account)
         if not project:
             logger.info(
-                f"Project not found for VTEX account {order_status_dto.vtexAccount}."
+                f"[ORDER_STATUS] project_not_found: vtex_account={vtex_account}"
             )
             return
 
-        if is_payment_approved(order_status_dto.currentState):
+        if is_payment_approved(current_state):
             logger.info(
-                f"Processing purchase event for order ID: {order_status_dto.orderId} "
-                f"VTEX account: {order_status_dto.vtexAccount}"
+                f"[ORDER_STATUS] dispatching_purchase_event: "
+                f"vtex_account={vtex_account} current_state={current_state} "
+                f"order_id={order_id}"
             )
             handle_purchase_event_task.apply_async(
-                args=[order_status_dto.orderId, str(project.uuid)],
+                args=[order_id, str(project.uuid)],
                 queue="vtex-io-orders-update-events",
             )
 
-        if _is_purchase_confirmed(order_status_dto.currentState):
+        if _is_purchase_confirmed(current_state):
             logger.info(
                 f"[CONVERSION_TRACKING] dispatching_conversion_check: "
-                f"order_id={order_status_dto.orderId} "
-                f"vtex_account={order_status_dto.vtexAccount}"
+                f"vtex_account={vtex_account} current_state={current_state} "
+                f"order_id={order_id}"
             )
             task_mark_broadcast_converted.apply_async(
-                args=[order_status_dto.orderId, str(project.uuid)],
+                args=[order_id, str(project.uuid)],
                 queue="vtex-io-orders-update-events",
             )
 
@@ -178,22 +187,24 @@ def task_order_status_update(order_update_data: dict):
             )
 
             logger.info(
-                f"Processing order status with integrated agent. "
-                f"VTEX Account: {order_status_dto.vtexAccount}, "
-                f"Integrated Agent: {integrated_agent.uuid}, DTO: {order_update_data}"
+                f"[ORDER_STATUS] processing_with_agent: "
+                f"vtex_account={vtex_account} current_state={current_state} "
+                f"order_id={order_id} agent_uuid={integrated_agent.uuid}"
             )
             use_case.execute(integrated_agent, order_status_dto)
         else:
             logger.info(
-                f"Processing order status with legacy use case. "
-                f"VTEX Account: {order_status_dto.vtexAccount}, DTO: {order_update_data}"
+                f"[ORDER_STATUS] processing_with_legacy: "
+                f"vtex_account={vtex_account} current_state={current_state} "
+                f"order_id={order_id}"
             )
             legacy_use_case = OrderStatusUseCase(order_status_dto)
             legacy_use_case.process_notification(project)
 
         logger.info(
-            f"Successfully processed order update for order ID: {order_update_data.get('orderId')} "
-            f"VTEX account: {order_status_dto.vtexAccount}"
+            f"[ORDER_STATUS] completed: "
+            f"vtex_account={vtex_account} current_state={current_state} "
+            f"order_id={order_id}"
         )
     except ValidationError as e:
         # Swallow ValidationError to preserve existing beat-driven retry
@@ -215,7 +226,8 @@ def task_order_status_update(order_update_data: dict):
                 error_data={"order_update_data": order_update_data},
             )
         logger.error(
-            f"Unexpected error processing order update: {str(e)}", exc_info=True
+            f"[ORDER_STATUS] unexpected_error: " f"data={order_update_data} error={e}",
+            exc_info=True,
         )
 
 

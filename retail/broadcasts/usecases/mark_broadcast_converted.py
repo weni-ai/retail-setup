@@ -4,9 +4,16 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Q
 
+from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.agents.shared.cache import (
+    AgentRole,
+    IntegratedAgentCacheHandler,
+    IntegratedAgentCacheHandlerRedis,
+)
 from retail.broadcasts.models import (
     BroadcastConversion,
     BroadcastMessage,
@@ -52,19 +59,25 @@ class MarkBroadcastConvertedUseCase:
     1. Pull the canonical ``order_form_id`` / ``value`` / ``currency``
        from VTEX so the conversion row is filled with authoritative
        data even if the originating broadcast only knew one identifier.
-    2. Pick the last-touch broadcast (most recent non-failed dispatch
-       that matches by ``order_id`` or ``order_form_id``) so the
-       conversion can be attributed to a specific ``integrated_agent``.
-       No broadcast match means an organic purchase and is a no-op —
-       the conversion table tracks broadcast-driven sales only.
+    2. Pick the last-touch broadcast from the **payment recovery agent**
+       (most recent non-failed dispatch that matches by ``order_id`` or
+       ``order_form_id``). Only payment recovery dispatches are eligible;
+       order-status agents have no conversion tracking and abandoned-cart
+       conversions are handled via UTM on the VTEX side. No match means
+       an organic purchase and is a no-op.
     3. Create a single ``BroadcastConversion`` row per (project,
        order_id). Idempotency is enforced by the unique constraint at
        the database level: a duplicate insert raises ``IntegrityError``
        and is logged as a warning, never propagated.
     """
 
-    def __init__(self, vtex_io_service: Optional[VtexIOService] = None):
+    def __init__(
+        self,
+        vtex_io_service: Optional[VtexIOService] = None,
+        cache_handler: Optional[IntegratedAgentCacheHandler] = None,
+    ):
         self.vtex_io_service = vtex_io_service or VtexIOService()
+        self.cache_handler = cache_handler or IntegratedAgentCacheHandlerRedis()
 
     def execute(self, order_id: str, project_uuid: str) -> None:
         if not order_id:
@@ -194,29 +207,81 @@ class MarkBroadcastConvertedUseCase:
         except (TypeError, ValueError, ArithmeticError):
             return None
 
-    @staticmethod
     def _select_last_touch_broadcast(
+        self,
         project: Project,
         order_id: str,
         order_form_id: Optional[str],
     ) -> Optional[BroadcastMessage]:
         """Pick the most recent eligible broadcast this conversion can be attributed to.
 
+        Only broadcasts dispatched by the payment recovery agent are
+        eligible. Order-status agents have no conversion tracking and
+        abandoned-cart conversions are handled via UTM on the VTEX side.
+
+        Resolves the payment recovery ``IntegratedAgent`` for the
+        project via the role cache (or DB fallback) and filters
+        ``BroadcastMessage`` by that ``IntegratedAgent`` directly,
+        avoiding the JOIN with ``Agent``.
+
         ``select_related("integrated_agent")`` avoids an extra query
         when the caller dereferences the agent for attribution.
         """
+        payment_recovery_agent = self._get_payment_recovery_integrated_agent(project)
+        if payment_recovery_agent is None:
+            return None
+
         match_filter = Q(order_id=order_id)
         if order_form_id:
             match_filter |= Q(order_form_id=order_form_id)
 
+        # Passing the object (instead of `integrated_agent_id=...uuid`)
+        # keeps this query PK-agnostic: when IntegratedAgent migrates
+        # from UUID PK to integer PK (see TODO on the model), the ORM
+        # transparently resolves the new PK from the same object.
         return (
             BroadcastMessage.objects.select_related("integrated_agent")
-            .filter(project=project)
+            .filter(
+                project=project,
+                integrated_agent=payment_recovery_agent,
+            )
             .filter(match_filter)
             .exclude(status__in=_BROADCAST_STATUSES_INELIGIBLE_FOR_CONVERSION)
             .order_by("-created_at")
             .first()
         )
+
+    def _get_payment_recovery_integrated_agent(
+        self, project: Project
+    ) -> Optional[IntegratedAgent]:
+        """Resolve the payment recovery ``IntegratedAgent`` for ``project``.
+
+        Hits the role cache first (6h TTL); on a miss, queries the DB
+        and caches the result. Returns ``None`` when
+        ``PAYMENT_RECOVERY_AGENT_UUID`` is empty or no active integrated
+        agent exists for the project.
+        """
+        payment_recovery_uuid = getattr(settings, "PAYMENT_RECOVERY_AGENT_UUID", "")
+        if not payment_recovery_uuid:
+            return None
+
+        cached = self.cache_handler.get_role_agent(
+            project.uuid, AgentRole.PAYMENT_RECOVERY
+        )
+        if cached is not None:
+            return cached
+
+        try:
+            integrated_agent = IntegratedAgent.objects.get(
+                agent__uuid=payment_recovery_uuid,
+                project=project,
+                is_active=True,
+            )
+        except IntegratedAgent.DoesNotExist:
+            return None
+
+        self.cache_handler.set_role_agent(integrated_agent, AgentRole.PAYMENT_RECOVERY)
+        return integrated_agent
 
     @staticmethod
     def _create_conversion(
@@ -240,6 +305,7 @@ class MarkBroadcastConvertedUseCase:
             order_id=order_id,
             defaults={
                 "integrated_agent": last_touch_broadcast.integrated_agent,
+                "broadcast": last_touch_broadcast,
                 "order_form_id": order_form_id,
                 "value": details.value,
                 "currency": details.currency,
@@ -263,5 +329,5 @@ class MarkBroadcastConvertedUseCase:
             f"order_id={conversion.order_id} "
             f"order_form_id={conversion.order_form_id} "
             f"value={conversion.value} currency={conversion.currency} "
-            f"last_touch_broadcast_uuid={last_touch_broadcast.uuid}"
+            f"broadcast_uuid={last_touch_broadcast.uuid}"
         )
