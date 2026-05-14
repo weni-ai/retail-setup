@@ -30,22 +30,23 @@ class AgentActiveView(JWTModuleAuthMixin, APIView):
     """
 
     def get(self, request: Request, vtex_account: str) -> Response:
-        serializer = AgentActiveQuerySerializer(data=request.query_params)
+        data = {"agent": request.query_params.getlist("agent")}
+        serializer = AgentActiveQuerySerializer(data=data)
         if not serializer.is_valid():
             return Response(INACTIVE_RESPONSE, status=status.HTTP_200_OK)
 
-        agent_type = serializer.validated_data["agent"]
+        agent_types = serializer.validated_data["agent"]
 
         try:
             use_case = CheckAgentActiveUseCase()
-            is_active = use_case.execute(
+            is_active = use_case.execute_any(
                 vtex_account=vtex_account,
-                agent_type=agent_type,
+                agent_types=agent_types,
             )
         except Exception:
             logger.exception(
                 f"Unexpected error checking agent active for "
-                f"vtex_account={vtex_account} agent={agent_type}"
+                f"vtex_account={vtex_account} agents={agent_types}"
             )
             return Response(INACTIVE_RESPONSE, status=status.HTTP_200_OK)
 
