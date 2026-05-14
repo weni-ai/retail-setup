@@ -33,7 +33,7 @@ class AgentActiveViewTest(TestCase):
     @_jwt_auth_bypass("teststore")
     @patch("retail.api.vtex_projects.views.CheckAgentActiveUseCase")
     def test_returns_is_active_true(self, mock_use_case_cls, _auth):
-        mock_use_case_cls.return_value.execute.return_value = True
+        mock_use_case_cls.return_value.execute_any.return_value = True
 
         request = self.factory.get(
             f"/api/vtex-projects/{self.vtex_account}/agent-active/",
@@ -47,7 +47,7 @@ class AgentActiveViewTest(TestCase):
     @_jwt_auth_bypass("teststore")
     @patch("retail.api.vtex_projects.views.CheckAgentActiveUseCase")
     def test_returns_is_active_false(self, mock_use_case_cls, _auth):
-        mock_use_case_cls.return_value.execute.return_value = False
+        mock_use_case_cls.return_value.execute_any.return_value = False
 
         request = self.factory.get(
             f"/api/vtex-projects/{self.vtex_account}/agent-active/",
@@ -82,7 +82,7 @@ class AgentActiveViewTest(TestCase):
     @_jwt_auth_bypass("teststore")
     @patch("retail.api.vtex_projects.views.CheckAgentActiveUseCase")
     def test_returns_false_on_use_case_exception(self, mock_use_case_cls, _auth):
-        mock_use_case_cls.return_value.execute.side_effect = Exception("db error")
+        mock_use_case_cls.return_value.execute_any.side_effect = Exception("db error")
 
         request = self.factory.get(
             f"/api/vtex-projects/{self.vtex_account}/agent-active/",
@@ -105,7 +105,7 @@ class AgentActiveViewTest(TestCase):
     @_jwt_auth_bypass("teststore")
     @patch("retail.api.vtex_projects.views.CheckAgentActiveUseCase")
     def test_passes_correct_params_to_use_case(self, mock_use_case_cls, _auth):
-        mock_use_case_cls.return_value.execute.return_value = True
+        mock_use_case_cls.return_value.execute_any.return_value = True
 
         request = self.factory.get(
             f"/api/vtex-projects/{self.vtex_account}/agent-active/",
@@ -113,10 +113,66 @@ class AgentActiveViewTest(TestCase):
         )
         self.view(request, vtex_account=self.vtex_account)
 
-        mock_use_case_cls.return_value.execute.assert_called_once_with(
+        mock_use_case_cls.return_value.execute_any.assert_called_once_with(
             vtex_account=self.vtex_account,
-            agent_type="order_status",
+            agent_types=["order_status"],
         )
+
+    @_jwt_auth_bypass("teststore")
+    @patch("retail.api.vtex_projects.views.CheckAgentActiveUseCase")
+    def test_accepts_payment_recovery_agent_type(self, mock_use_case_cls, _auth):
+        mock_use_case_cls.return_value.execute_any.return_value = True
+
+        request = self.factory.get(
+            f"/api/vtex-projects/{self.vtex_account}/agent-active/",
+            {"agent": "payment_recovery"},
+        )
+        response = self.view(request, vtex_account=self.vtex_account)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["is_active"])
+        mock_use_case_cls.return_value.execute_any.assert_called_once_with(
+            vtex_account=self.vtex_account,
+            agent_types=["payment_recovery"],
+        )
+
+    @_jwt_auth_bypass("teststore")
+    @patch("retail.api.vtex_projects.views.CheckAgentActiveUseCase")
+    def test_accepts_repeated_agent_param_with_or_semantics(
+        self, mock_use_case_cls, _auth
+    ):
+        """``?agent=order_status&agent=payment_recovery`` collapses into a
+        single OR check on the server, so the agentic-cx never pays the
+        cost of two HTTP round-trips."""
+        mock_use_case_cls.return_value.execute_any.return_value = True
+
+        request = self.factory.get(
+            f"/api/vtex-projects/{self.vtex_account}/agent-active/"
+            "?agent=order_status&agent=payment_recovery",
+        )
+        response = self.view(request, vtex_account=self.vtex_account)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["is_active"])
+        mock_use_case_cls.return_value.execute_any.assert_called_once_with(
+            vtex_account=self.vtex_account,
+            agent_types=["order_status", "payment_recovery"],
+        )
+
+    @_jwt_auth_bypass("teststore")
+    @patch("retail.api.vtex_projects.views.CheckAgentActiveUseCase")
+    def test_rejects_repeated_agent_when_any_value_is_invalid(
+        self, mock_use_case_cls, _auth
+    ):
+        request = self.factory.get(
+            f"/api/vtex-projects/{self.vtex_account}/agent-active/"
+            "?agent=order_status&agent=invalid_type",
+        )
+        response = self.view(request, vtex_account=self.vtex_account)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data["is_active"])
+        mock_use_case_cls.return_value.execute_any.assert_not_called()
 
 
 class OnboardingCompleteViewTest(TestCase):
