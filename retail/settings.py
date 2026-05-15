@@ -285,6 +285,15 @@ AGENT_EXECUTION_S3_PARALLEL_PUTS = env.int(
     "AGENT_EXECUTION_S3_PARALLEL_PUTS", default=10
 )
 
+# Dedicated Celery queue for agent-execution maintenance tasks
+# (cleanup + flush). Isolating these from the default ``celery``
+# queue prevents the high-frequency flush loop from blocking
+# unrelated jobs. Requires a worker started with
+# ``celery-worker <queue-name>`` consuming this queue.
+AGENT_EXECUTION_CELERY_QUEUE = env.str(
+    "AGENT_EXECUTION_CELERY_QUEUE", default="agent-executions"
+)
+
 CELERY_BEAT_SCHEDULE = {
     "task-cleanup-old-carts": {
         "task": "task_cleanup_old_carts",
@@ -298,6 +307,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "task_flush_execution_logs",
         "schedule": AGENT_EXECUTION_FLUSH_INTERVAL_SECONDS,
     },
+}
+
+CELERY_TASK_ROUTES = {
+    "task_cleanup_old_executions": {"queue": AGENT_EXECUTION_CELERY_QUEUE},
+    "task_flush_execution_logs": {"queue": AGENT_EXECUTION_CELERY_QUEUE},
 }
 
 
