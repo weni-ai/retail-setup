@@ -1,9 +1,11 @@
 import logging
-from typing import Type
 
 from retail.projects.models import ProjectOnboarding
 from retail.projects.usecases.configure_agent_builder import (
     ConfigureAgentBuilderUseCase,
+)
+from retail.projects.usecases.configure_one_click_payment import (
+    ConfigureOneClickPaymentUseCase,
 )
 from retail.projects.usecases.configure_wwc import ConfigureWWCUseCase
 from retail.projects.usecases.configure_wpp_cloud import ConfigureWPPCloudUseCase
@@ -17,6 +19,11 @@ CHANNEL_USECASES = {
     "wpp-cloud": ConfigureWPPCloudUseCase,
 }
 
+# Channels that require the One-Click Payment configuration step at
+# the end of the onboarding. Kept as a registry so future channels can
+# opt in (or out) without touching the orchestrator body.
+CHANNELS_WITH_ONE_CLICK_PAYMENT = {"wpp-cloud"}
+
 
 class OnboardingOrchestrator:
     """
@@ -24,6 +31,7 @@ class OnboardingOrchestrator:
       1. Channel creation (10-20%)       -- dispatches to the channel-specific use case
       2. Nexus manager + upload (20-75%) -- configures agent and uploads content
       3. Agent integration (75-100%)     -- integrates Nexus agents for the channel
+      4. One-Click Payment (wpp-cloud)   -- registers keys + Flow with Meta and payment-ms
 
     Each step is sequential. If any step fails, progress freezes
     at the last saved value and the error propagates.
@@ -33,12 +41,15 @@ class OnboardingOrchestrator:
         logger.info(f"Starting post-crawl config for vtex_account={vtex_account}")
 
         try:
-            channel_cls = self._resolve_channel_usecase(vtex_account)
-            channel_cls().execute(vtex_account)
+            channel_code = self._resolve_channel_code(vtex_account)
+            CHANNEL_USECASES[channel_code]().execute(vtex_account)
 
             ConfigureAgentBuilderUseCase().execute(vtex_account, contents)
 
             IntegrateAgentsUseCase().execute(vtex_account)
+
+            if channel_code in CHANNELS_WITH_ONE_CLICK_PAYMENT:
+                ConfigureOneClickPaymentUseCase().execute(vtex_account)
         except Exception as exc:
             mark_onboarding_failed(vtex_account, str(exc))
             raise
@@ -46,8 +57,8 @@ class OnboardingOrchestrator:
         logger.info(f"NEXUS_CONFIG completed for vtex_account={vtex_account}")
 
     @staticmethod
-    def _resolve_channel_usecase(vtex_account: str) -> Type:
-        """Resolves the channel use case class from the onboarding config."""
+    def _resolve_channel_code(vtex_account: str) -> str:
+        """Resolves the channel code from the onboarding config."""
         onboarding = ProjectOnboarding.objects.get(vtex_account=vtex_account)
         channels = (onboarding.config or {}).get("channels", {})
         channel = next(iter(channels), None)
@@ -58,10 +69,10 @@ class OnboardingOrchestrator:
                 f"for vtex_account={vtex_account}"
             )
 
-        usecase_cls = CHANNEL_USECASES.get(channel)
-        if usecase_cls is None:
+        if channel not in CHANNEL_USECASES:
             raise ValueError(
                 f"No channel use case registered for '{channel}'. "
                 f"Supported: {list(CHANNEL_USECASES.keys())}"
             )
-        return usecase_cls
+
+        return channel
