@@ -37,3 +37,47 @@ class TestMetaService(TestCase):
             self.template_name, self.language
         )
         self.assertEqual(result, expected_response)
+
+    def test_create_flow_delegates_to_client(self):
+        expected = {"id": "flow-1"}
+        self.mock_client.create_flow.return_value = expected
+        flow_json = {"version": "7.3"}
+
+        result = self.service.create_flow(
+            waba_id="waba-1",
+            name="flow_x",
+            categories=["SHOPPING"],
+            endpoint_uri="https://example.com/hook",
+            flow_json=flow_json,
+        )
+
+        self.mock_client.create_flow.assert_called_once_with(
+            waba_id="waba-1",
+            name="flow_x",
+            categories=["SHOPPING"],
+            endpoint_uri="https://example.com/hook",
+            flow_json=flow_json,
+        )
+        self.assertEqual(result, expected)
+
+    def test_register_public_key_delegates_to_client(self):
+        expected = {"success": True}
+        self.mock_client.register_public_key.return_value = expected
+
+        result = self.service.register_public_key(
+            phone_number_id="phone-1", public_key_pem="-----PUB-----"
+        )
+
+        self.mock_client.register_public_key.assert_called_once_with(
+            "phone-1", "-----PUB-----"
+        )
+        self.assertEqual(result, expected)
+
+    def test_publish_flow_delegates_to_client(self):
+        expected = {"success": True}
+        self.mock_client.publish_flow.return_value = expected
+
+        result = self.service.publish_flow("flow-123")
+
+        self.mock_client.publish_flow.assert_called_once_with("flow-123")
+        self.assertEqual(result, expected)
