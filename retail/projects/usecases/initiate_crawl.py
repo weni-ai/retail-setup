@@ -18,9 +18,8 @@ class InitiateCrawlUseCase:
       2. Starts the crawl via the Crawler MS (critical).
       3. Detects the storefront type (non-blocking).
 
-    Used by both StartSetupUseCase (immediate path) and
-    task_wait_and_start_crawl (deferred path) to avoid
-    duplicating the same orchestration.
+    Invoked by ``task_setup_channel_and_start_crawl`` after the pre-crawl
+    channel setup completes successfully.
     """
 
     def __init__(self, connect_service: Optional[ConnectService] = None):
@@ -28,9 +27,7 @@ class InitiateCrawlUseCase:
         self.start_crawl_usecase = StartCrawlUseCase()
         self.detect_storefront_usecase = DetectStorefrontTypeUseCase()
 
-    def execute(
-        self, project: Project, vtex_account: str, crawl_url: str
-    ) -> None:
+    def execute(self, project: Project, vtex_account: str, crawl_url: str) -> None:
         self._send_vtex_host_store(project, crawl_url)
         self.start_crawl_usecase.execute(vtex_account, crawl_url)
         self.detect_storefront_usecase.execute(project, crawl_url)

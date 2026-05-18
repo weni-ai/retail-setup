@@ -14,9 +14,13 @@ from retail.projects.models import Project, ProjectOnboarding
 from retail.projects.usecases.configure_agent_builder import (
     ConfigureAgentBuilderUseCase,
 )
-from retail.projects.usecases.configure_wwc import ConfigureWWCUseCase
+from retail.projects.usecases.configure_wwc import (
+    PROJECT_CONFIG_AFTER_PERSIST,
+    ConfigureWWCUseCase,
+)
 from retail.projects.usecases.integrate_agents import IntegrateAgentsUseCase
 from retail.projects.usecases.link_project_to_onboarding import (
+    PROJECT_LINKED_PROGRESS,
     LinkProjectToOnboardingUseCase,
 )
 from retail.projects.usecases.onboarding_dto import (
@@ -32,15 +36,16 @@ from retail.projects.usecases.update_onboarding_progress import (
 
 class TestFullOnboardingFlow(TestCase):
     """
-    Simulates the full onboarding flow end-to-end:
+    Simulates the full onboarding flow end-to-end (post pre-crawl refactor):
 
-    1. Front-end calls start-setup (project not linked yet)
-    2. EDA links the project -> PROJECT_CONFIG 100%
-    3. Crawler sends progress events
-    4. Crawler sends crawl.completed
-    5. Channel creation and configuration (10-20%)
-    6. Nexus agent config + content upload (20-75%)
-    7. Agent integration (75-100%)
+    1. Front-end calls start-setup (project not linked yet) -> PROJECT_CONFIG 0%
+    2. EDA links the project                                -> PROJECT_CONFIG 30%
+    3. Pre-crawl channel setup runs                         -> PROJECT_CONFIG 100%
+    4. Crawl starts                                         -> CRAWL 10%
+    5. Crawler sends progress events
+    6. Crawler sends crawl.completed                        -> CRAWL 100%
+    7. NEXUS_CONFIG: agent builder + content upload         -> 10% -> 75%
+    8. NEXUS_CONFIG: agent integration                      -> 100%
     """
 
     def setUp(self):
@@ -49,8 +54,8 @@ class TestFullOnboardingFlow(TestCase):
         self.crawl_url = "https://www.flowstore.com.br/"
         self.channel_app_uuid = str(uuid4())
 
-    @patch("retail.projects.usecases.start_setup.task_wait_and_start_crawl")
-    def test_full_flow(self, mock_wait_task):
+    @patch("retail.projects.usecases.start_setup.task_setup_channel_and_start_crawl")
+    def test_full_flow(self, mock_setup_task):
         # -- Step 1: Front-end starts setup, no project yet --
         dto = StartSetupDTO(
             vtex_account=self.vtex_account,
@@ -61,11 +66,12 @@ class TestFullOnboardingFlow(TestCase):
 
         onboarding = ProjectOnboarding.objects.get(vtex_account=self.vtex_account)
         self.assertIsNone(onboarding.project)
+        self.assertEqual(onboarding.current_step, "PROJECT_CONFIG")
         self.assertEqual(onboarding.progress, 0)
         self.assertIn("wwc", onboarding.config["channels"])
-        mock_wait_task.delay.assert_called_once_with(self.vtex_account, self.crawl_url)
+        mock_setup_task.delay.assert_called_once_with(self.vtex_account, self.crawl_url)
 
-        # -- Step 2: EDA links the project --
+        # -- Step 2: EDA links the project (partial PROJECT_CONFIG progress) --
         project = Project.objects.create(
             name="Flow Store",
             uuid=self.project_uuid,
@@ -76,9 +82,32 @@ class TestFullOnboardingFlow(TestCase):
         onboarding.refresh_from_db()
         self.assertEqual(onboarding.project, project)
         self.assertEqual(onboarding.current_step, "PROJECT_CONFIG")
-        self.assertEqual(onboarding.progress, 100)
+        self.assertEqual(onboarding.progress, PROJECT_LINKED_PROGRESS)
 
-        # -- Step 3: Simulate the wait task starting the crawl --
+        # -- Step 3: Pre-crawl channel setup completes PROJECT_CONFIG --
+        mock_integrations_service = MagicMock()
+        mock_integrations_service.create_channel_app.return_value = {
+            "uuid": self.channel_app_uuid,
+            "code": "wwc",
+        }
+        mock_integrations_service.configure_channel_app.return_value = {
+            "uuid": self.channel_app_uuid,
+            "script": "https://example.com/script.js",
+        }
+
+        wwc_usecase = ConfigureWWCUseCase(integrations_client=MagicMock())
+        wwc_usecase.integrations_service = mock_integrations_service
+        wwc_usecase.execute(self.vtex_account)
+
+        onboarding.refresh_from_db()
+        self.assertEqual(onboarding.current_step, "PROJECT_CONFIG")
+        self.assertEqual(onboarding.progress, PROJECT_CONFIG_AFTER_PERSIST)
+        self.assertEqual(
+            onboarding.config["channels"]["wwc"]["app_uuid"],
+            self.channel_app_uuid,
+        )
+
+        # -- Step 4: Pre-crawl task transitions into CRAWL --
         mock_crawler_service = MagicMock()
         mock_crawler_service.start_crawling.return_value = {"status": "started"}
 
@@ -90,7 +119,7 @@ class TestFullOnboardingFlow(TestCase):
         self.assertEqual(onboarding.current_step, "CRAWL")
         self.assertEqual(onboarding.progress, 10)
 
-        # -- Step 4: Crawler sends progress update --
+        # -- Step 5: Crawler sends progress update --
         progress_dto = CrawlerWebhookDTO(
             task_id="task-1",
             event="crawl.subpage.progress",
@@ -103,7 +132,7 @@ class TestFullOnboardingFlow(TestCase):
         )
         self.assertEqual(result.progress, 50)
 
-        # -- Step 5: Crawler sends crawl.completed --
+        # -- Step 6: Crawler sends crawl.completed --
         crawled_contents = [
             {
                 "link": "https://www.flowstore.com.br/",
@@ -141,30 +170,13 @@ class TestFullOnboardingFlow(TestCase):
             self.vtex_account, crawled_contents
         )
 
-        # -- Step 6: WWC channel creation and configuration (10-20%) --
-        mock_integrations_service = MagicMock()
-        mock_integrations_service.create_channel_app.return_value = {
-            "uuid": self.channel_app_uuid,
-            "code": "wwc",
-        }
-        mock_integrations_service.configure_channel_app.return_value = {
-            "uuid": self.channel_app_uuid,
-            "script": "https://example.com/script.js",
-        }
-
-        wwc_usecase = ConfigureWWCUseCase(integrations_client=MagicMock())
-        wwc_usecase.integrations_service = mock_integrations_service
-        wwc_usecase.execute(self.vtex_account)
-
+        # -- Step 7: Nexus agent config + content upload (10-75%) --
+        # The orchestrator marks NEXUS_CONFIG / 10 before agent builder runs.
         onboarding.refresh_from_db()
-        self.assertEqual(onboarding.current_step, "NEXUS_CONFIG")
-        self.assertEqual(onboarding.progress, 20)
-        self.assertEqual(
-            onboarding.config["channels"]["wwc"]["app_uuid"],
-            self.channel_app_uuid,
-        )
+        onboarding.current_step = "NEXUS_CONFIG"
+        onboarding.progress = 10
+        onboarding.save(update_fields=["current_step", "progress"])
 
-        # -- Step 7: Nexus agent config + content upload (20-75%) --
         mock_nexus_service = MagicMock()
         mock_nexus_service.check_agent_builder_exists.return_value = {
             "data": {"has_agent": False}
