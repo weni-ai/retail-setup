@@ -1,3 +1,6 @@
+# 5.22.0
+- feat: Support multi-agent OR check on agent-active endpoint
+
 # 5.21.0
 - fix: handle null buttons metadata when assigning library templates
 

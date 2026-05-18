@@ -5,6 +5,10 @@ from django.test import TestCase
 
 from retail.projects.models import Project, ProjectOnboarding
 from retail.projects.usecases.configure_wwc import (
+    PROJECT_CONFIG_AFTER_CONFIGURE,
+    PROJECT_CONFIG_AFTER_CREATE,
+    PROJECT_CONFIG_AFTER_PERSIST,
+    PROJECT_CONFIG_START,
     ConfigureWWCUseCase,
     WWCConfigError,
 )
@@ -40,8 +44,8 @@ class TestConfigureWWCUseCase(TestCase):
         self.usecase.execute("mystore")
 
         self.onboarding.refresh_from_db()
-        self.assertEqual(self.onboarding.current_step, "NEXUS_CONFIG")
-        self.assertEqual(self.onboarding.progress, 20)
+        self.assertEqual(self.onboarding.current_step, "PROJECT_CONFIG")
+        self.assertEqual(self.onboarding.progress, PROJECT_CONFIG_AFTER_PERSIST)
         self.assertEqual(
             self.onboarding.config["channels"]["wwc"]["app_uuid"], app_uuid
         )
@@ -56,14 +60,27 @@ class TestConfigureWWCUseCase(TestCase):
 
         self.assertIn("no project linked", str(ctx.exception))
 
-    def test_raises_error_when_wwc_already_configured(self):
-        self.onboarding.config = {"channels": {"wwc": {"app_uuid": str(uuid4())}}}
+    def test_skips_when_wwc_already_configured(self):
+        """
+        Already-configured onboardings are an idempotent no-op so that
+        Celery retries of the wrapping task do not fail mid-pipeline.
+        """
+        existing_app_uuid = str(uuid4())
+        self.onboarding.config = {"channels": {"wwc": {"app_uuid": existing_app_uuid}}}
+        self.onboarding.current_step = "CRAWL"
+        self.onboarding.progress = 50
         self.onboarding.save()
 
-        with self.assertRaises(WWCConfigError) as ctx:
-            self.usecase.execute("mystore")
+        self.usecase.execute("mystore")
 
-        self.assertIn("already configured", str(ctx.exception))
+        self.mock_integrations_service.create_channel_app.assert_not_called()
+        self.mock_integrations_service.configure_channel_app.assert_not_called()
+        self.onboarding.refresh_from_db()
+        self.assertEqual(self.onboarding.current_step, "CRAWL")
+        self.assertEqual(self.onboarding.progress, 50)
+        self.assertEqual(
+            self.onboarding.config["channels"]["wwc"]["app_uuid"], existing_app_uuid
+        )
 
     def test_raises_error_when_create_fails(self):
         self.mock_integrations_service.create_channel_app.return_value = None
@@ -123,3 +140,21 @@ class TestConfigureWWCUseCase(TestCase):
         configure_call = self.mock_integrations_service.configure_channel_app.call_args
         self.assertEqual(configure_call[0][0], "wwc")
         self.assertEqual(configure_call[0][1], app_uuid)
+
+    def test_progress_milestones_within_project_config(self):
+        """Progress walks the PROJECT_CONFIG start/create/configure/persist milestones."""
+        app_uuid = str(uuid4())
+        self.mock_integrations_service.create_channel_app.return_value = {
+            "uuid": app_uuid,
+        }
+        self.mock_integrations_service.configure_channel_app.return_value = {
+            "uuid": app_uuid,
+        }
+
+        self.usecase.execute("mystore")
+
+        self.onboarding.refresh_from_db()
+        self.assertEqual(self.onboarding.progress, PROJECT_CONFIG_AFTER_PERSIST)
+        self.assertLess(PROJECT_CONFIG_START, PROJECT_CONFIG_AFTER_CREATE)
+        self.assertLess(PROJECT_CONFIG_AFTER_CREATE, PROJECT_CONFIG_AFTER_CONFIGURE)
+        self.assertLess(PROJECT_CONFIG_AFTER_CONFIGURE, PROJECT_CONFIG_AFTER_PERSIST)

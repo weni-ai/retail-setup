@@ -62,6 +62,72 @@ class CheckAgentActiveUseCaseTest(TestCase):
     )
     @patch("retail.api.vtex_projects.usecases.check_agent_active.Project.objects")
     @patch("retail.api.vtex_projects.usecases.check_agent_active.settings")
+    def test_returns_true_when_payment_recovery_agent_active(
+        self, mock_settings, mock_project_qs, mock_ia_qs
+    ):
+        mock_settings.PAYMENT_RECOVERY_AGENT_UUID = "ghi-789"
+        mock_project_qs.get.return_value = self.project
+        mock_ia_qs.filter.return_value.exists.return_value = True
+
+        result = self.use_case.execute(self.vtex_account, "payment_recovery")
+
+        self.assertTrue(result)
+        mock_ia_qs.filter.assert_called_once_with(
+            agent__uuid="ghi-789",
+            project=self.project,
+            is_active=True,
+        )
+
+    @patch(
+        "retail.api.vtex_projects.usecases.check_agent_active.IntegratedFeature.objects"
+    )
+    @patch(
+        "retail.api.vtex_projects.usecases.check_agent_active.IntegratedAgent.objects"
+    )
+    @patch("retail.api.vtex_projects.usecases.check_agent_active.Project.objects")
+    @patch("retail.api.vtex_projects.usecases.check_agent_active.settings")
+    def test_returns_false_for_payment_recovery_no_agent_no_legacy(
+        self, mock_settings, mock_project_qs, mock_ia_qs, mock_if_qs
+    ):
+        mock_settings.PAYMENT_RECOVERY_AGENT_UUID = "ghi-789"
+        mock_project_qs.get.return_value = self.project
+        mock_ia_qs.filter.return_value.exists.return_value = False
+        mock_if_qs.filter.return_value.exists.return_value = False
+
+        result = self.use_case.execute(self.vtex_account, "payment_recovery")
+
+        self.assertFalse(result)
+
+    @patch(
+        "retail.api.vtex_projects.usecases.check_agent_active.IntegratedAgent.objects"
+    )
+    @patch("retail.api.vtex_projects.usecases.check_agent_active.Project.objects")
+    @patch("retail.api.vtex_projects.usecases.check_agent_active.settings")
+    def test_payment_recovery_does_not_check_parent_agent_fallback(
+        self, mock_settings, mock_project_qs, mock_ia_qs
+    ):
+        """``parent_agent_uuid`` fallback is exclusive to ``order_status``.
+
+        Payment recovery has no inheritance model, so the use case must
+        not query ``parent_agent_uuid__isnull=False`` for it.
+        """
+        mock_settings.PAYMENT_RECOVERY_AGENT_UUID = "ghi-789"
+        mock_project_qs.get.return_value = self.project
+        mock_ia_qs.filter.return_value.exists.return_value = False
+
+        self.use_case.execute(self.vtex_account, "payment_recovery")
+
+        mock_ia_qs.filter.assert_called_once_with(
+            agent__uuid="ghi-789",
+            project=self.project,
+            is_active=True,
+        )
+
+    @patch(
+        "retail.api.vtex_projects.usecases.check_agent_active.IntegratedAgent.objects"
+    )
+    @patch("retail.api.vtex_projects.usecases.check_agent_active.Project.objects")
+    @patch("retail.api.vtex_projects.usecases.check_agent_active.settings")
     def test_returns_true_for_custom_order_status_agent_with_parent(
         self, mock_settings, mock_project_qs, mock_ia_qs
     ):
@@ -269,3 +335,76 @@ class CheckAgentActiveUseCaseTest(TestCase):
         result = self.use_case.execute(self.vtex_account, "abandoned_cart")
 
         self.assertFalse(result)
+
+
+@override_settings(**TEST_SETTINGS_OVERRIDES)
+class CheckAgentActiveUseCaseExecuteAnyTest(TestCase):
+    """Covers the OR-semantics variant used by callers that need to ask
+    about multiple agent roles in a single round-trip."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.use_case = CheckAgentActiveUseCase()
+        self.vtex_account = "teststore"
+
+    def tearDown(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def test_returns_true_when_first_agent_is_active(self):
+        with patch.object(
+            self.use_case, "execute", side_effect=[True, False]
+        ) as mock_execute:
+            result = self.use_case.execute_any(
+                self.vtex_account, ["order_status", "payment_recovery"]
+            )
+
+        self.assertTrue(result)
+        mock_execute.assert_called_once_with(self.vtex_account, "order_status")
+
+    def test_returns_true_when_only_second_agent_is_active(self):
+        with patch.object(
+            self.use_case, "execute", side_effect=[False, True]
+        ) as mock_execute:
+            result = self.use_case.execute_any(
+                self.vtex_account, ["order_status", "payment_recovery"]
+            )
+
+        self.assertTrue(result)
+        self.assertEqual(mock_execute.call_count, 2)
+
+    def test_returns_false_when_no_agent_is_active(self):
+        with patch.object(
+            self.use_case, "execute", side_effect=[False, False]
+        ) as mock_execute:
+            result = self.use_case.execute_any(
+                self.vtex_account, ["order_status", "payment_recovery"]
+            )
+
+        self.assertFalse(result)
+        self.assertEqual(mock_execute.call_count, 2)
+
+    def test_returns_false_for_empty_list(self):
+        with patch.object(self.use_case, "execute") as mock_execute:
+            result = self.use_case.execute_any(self.vtex_account, [])
+
+        self.assertFalse(result)
+        mock_execute.assert_not_called()
+
+    def test_short_circuits_on_first_truthy_result(self):
+        """``execute_any`` must not query downstream agents once a match
+        is found — this keeps the cache footprint and DB load minimal
+        for the agentic-cx hot path."""
+        with patch.object(
+            self.use_case, "execute", side_effect=[True, Exception("must not run")]
+        ) as mock_execute:
+            result = self.use_case.execute_any(
+                self.vtex_account,
+                ["order_status", "payment_recovery"],
+            )
+
+        self.assertTrue(result)
+        mock_execute.assert_called_once_with(self.vtex_account, "order_status")

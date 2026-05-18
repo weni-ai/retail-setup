@@ -1,4 +1,5 @@
 import logging
+from typing import Iterable
 
 from django.conf import settings
 from django.core.cache import cache
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 AGENT_UUID_SETTINGS_MAP = {
     "abandoned_cart": "ABANDONED_CART_AGENT_UUID",
     "order_status": "ORDER_STATUS_AGENT_UUID",
+    "payment_recovery": "PAYMENT_RECOVERY_AGENT_UUID",
 }
 
 CACHE_TIMEOUT = 60
@@ -30,6 +32,19 @@ class CheckAgentActiveUseCase:
         is_active = self._check(vtex_account, agent_type)
         cache.set(cache_key, is_active, timeout=CACHE_TIMEOUT)
         return is_active
+
+    def execute_any(self, vtex_account: str, agent_types: Iterable[str]) -> bool:
+        """Return True if at least one of ``agent_types`` is active.
+
+        Each individual check goes through ``execute`` and therefore
+        reuses its per-role cache (key ``agent_active_<vtex>_<role>``,
+        60s TTL). Iteration short-circuits on the first match, so callers
+        should pass the most likely role first to keep the hot path cheap.
+        """
+        for agent_type in agent_types:
+            if self.execute(vtex_account, agent_type):
+                return True
+        return False
 
     def _check(self, vtex_account: str, agent_type: str) -> bool:
         project = self._get_project(vtex_account)
