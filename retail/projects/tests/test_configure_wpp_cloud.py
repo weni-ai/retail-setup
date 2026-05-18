@@ -5,6 +5,9 @@ from django.test import TestCase
 
 from retail.projects.models import Project, ProjectOnboarding
 from retail.projects.usecases.configure_wpp_cloud import (
+    PROJECT_CONFIG_AFTER_CREATE,
+    PROJECT_CONFIG_AFTER_PERSIST,
+    PROJECT_CONFIG_START,
     ConfigureWPPCloudUseCase,
     WPPCloudConfigError,
 )
@@ -42,8 +45,8 @@ class TestConfigureWPPCloudUseCase(TestCase):
         self.usecase.execute("mystore")
 
         self.onboarding.refresh_from_db()
-        self.assertEqual(self.onboarding.current_step, "NEXUS_CONFIG")
-        self.assertEqual(self.onboarding.progress, 20)
+        self.assertEqual(self.onboarding.current_step, "PROJECT_CONFIG")
+        self.assertEqual(self.onboarding.progress, PROJECT_CONFIG_AFTER_PERSIST)
         self.assertEqual(
             self.onboarding.config["channels"]["wpp-cloud"]["app_uuid"], app_uuid
         )
@@ -63,14 +66,35 @@ class TestConfigureWPPCloudUseCase(TestCase):
 
         self.assertIn("no project linked", str(ctx.exception))
 
-    def test_raises_error_when_already_configured(self):
-        self.onboarding.config = {"channels": {"wpp-cloud": {"app_uuid": str(uuid4())}}}
+    def test_skips_when_already_configured(self):
+        """
+        Already-configured onboardings are an idempotent no-op so that
+        Celery retries of the wrapping task do not fail mid-pipeline.
+        """
+        existing_app_uuid = str(uuid4())
+        self.onboarding.config = {
+            "channels": {
+                "wpp-cloud": {
+                    "channel_data": self.channel_data,
+                    "app_uuid": existing_app_uuid,
+                }
+            }
+        }
+        self.onboarding.current_step = "CRAWL"
+        self.onboarding.progress = 50
         self.onboarding.save()
 
-        with self.assertRaises(WPPCloudConfigError) as ctx:
-            self.usecase.execute("mystore")
+        self.usecase.execute("mystore")
 
-        self.assertIn("already configured", str(ctx.exception))
+        self.mock_integrations_service.create_wpp_cloud_channel.assert_not_called()
+        self.onboarding.refresh_from_db()
+        # State must not change when we skip
+        self.assertEqual(self.onboarding.current_step, "CRAWL")
+        self.assertEqual(self.onboarding.progress, 50)
+        self.assertEqual(
+            self.onboarding.config["channels"]["wpp-cloud"]["app_uuid"],
+            existing_app_uuid,
+        )
 
     def test_raises_error_when_no_channel_data(self):
         self.onboarding.config = {"channels": {"wpp-cloud": {}}}
@@ -129,10 +153,9 @@ class TestConfigureWPPCloudUseCase(TestCase):
         self.assertEqual(call_kwargs["waba_id"], "waba456")
         self.assertEqual(call_kwargs["phone_number_id"], "phone789")
 
-    def test_progress_at_13_after_channel_created(self):
-        """Progress should be 13% after channel creation, 20% after persist."""
+    def test_progress_milestones_within_project_config(self):
+        """Verifies progress walks the PROJECT_CONFIG start/create/persist milestones."""
         app_uuid = str(uuid4())
-
         self.mock_integrations_service.create_wpp_cloud_channel.return_value = {
             "app_uuid": app_uuid,
             "flow_object_uuid": str(uuid4()),
@@ -141,4 +164,8 @@ class TestConfigureWPPCloudUseCase(TestCase):
         self.usecase.execute("mystore")
 
         self.onboarding.refresh_from_db()
-        self.assertEqual(self.onboarding.progress, 20)
+        # Final progress lands at PROJECT_CONFIG_AFTER_PERSIST
+        self.assertEqual(self.onboarding.progress, PROJECT_CONFIG_AFTER_PERSIST)
+        # The milestones must be strictly increasing
+        self.assertLess(PROJECT_CONFIG_START, PROJECT_CONFIG_AFTER_CREATE)
+        self.assertLess(PROJECT_CONFIG_AFTER_CREATE, PROJECT_CONFIG_AFTER_PERSIST)

@@ -8,6 +8,15 @@ from retail.services.integrations.service import IntegrationsService
 logger = logging.getLogger(__name__)
 
 
+# Progress markers within the PROJECT_CONFIG step.
+# The pre-crawl pipeline sets PROJECT_CONFIG_START before invoking this
+# use case; we drive it the rest of the way to 100% as the Meta handshake
+# completes inside integrations-engine.
+PROJECT_CONFIG_START = 50
+PROJECT_CONFIG_AFTER_CREATE = 75
+PROJECT_CONFIG_AFTER_PERSIST = 100
+
+
 class WPPCloudConfigError(Exception):
     """Raised when the WPP Cloud channel creation fails."""
 
@@ -15,6 +24,10 @@ class WPPCloudConfigError(Exception):
 class ConfigureWPPCloudUseCase:
     """
     Creates a WhatsApp Cloud channel for a project via the integrations-engine.
+
+    Runs as part of the pre-crawl pipeline (PROJECT_CONFIG step) so the
+    short-lived Facebook ``auth_code`` is exchanged immediately, before
+    the long-running crawl can expire it.
 
     The channel_data (auth_code, waba_id, phone_number_id) is read from
     onboarding.config.channels['wpp-cloud'].channel_data, where it was
@@ -25,6 +38,11 @@ class ConfigureWPPCloudUseCase:
         2. POST to integrations-engine to create the wpp-cloud app
            (engine handles the full Meta API setup internally).
         3. Store app_uuid and flow_object_uuid in onboarding config.
+
+    The use case is idempotent at the "already-configured" level: if the
+    app_uuid is already persisted, the call is logged and returns
+    without raising. This lets the wrapping Celery task retry safely
+    when an upstream step fails after channel creation already succeeded.
     """
 
     def __init__(
@@ -36,18 +54,6 @@ class ConfigureWPPCloudUseCase:
         )
 
     def execute(self, vtex_account: str) -> None:
-        onboarding = self._load_onboarding(vtex_account)
-        project_uuid = str(onboarding.project.uuid)
-        channel_data = self._get_channel_data(onboarding)
-
-        onboarding.current_step = "NEXUS_CONFIG"
-        onboarding.progress = 10
-        onboarding.save(update_fields=["current_step", "progress"])
-
-        app_data = self._create_channel(onboarding, project_uuid, channel_data)
-        self._persist_app_data(onboarding, app_data)
-
-    def _load_onboarding(self, vtex_account: str) -> ProjectOnboarding:
         onboarding = ProjectOnboarding.objects.select_related("project").get(
             vtex_account=vtex_account
         )
@@ -59,12 +65,21 @@ class ConfigureWPPCloudUseCase:
 
         existing = (onboarding.config or {}).get("channels", {}).get("wpp-cloud", {})
         if existing.get("app_uuid"):
-            raise WPPCloudConfigError(
+            logger.info(
                 f"WPP Cloud channel already configured for onboarding={onboarding.uuid} "
-                f"(app_uuid={existing['app_uuid']}). Aborting to avoid duplicate."
+                f"(app_uuid={existing['app_uuid']}). Skipping."
             )
+            return
 
-        return onboarding
+        project_uuid = str(onboarding.project.uuid)
+        channel_data = self._get_channel_data(onboarding)
+
+        onboarding.current_step = "PROJECT_CONFIG"
+        onboarding.progress = PROJECT_CONFIG_START
+        onboarding.save(update_fields=["current_step", "progress"])
+
+        app_data = self._create_channel(onboarding, project_uuid, channel_data)
+        self._persist_app_data(onboarding, app_data)
 
     @staticmethod
     def _get_channel_data(onboarding: ProjectOnboarding) -> dict:
@@ -112,7 +127,7 @@ class ConfigureWPPCloudUseCase:
                 f"for project={project_uuid}"
             )
 
-        onboarding.progress = 13
+        onboarding.progress = PROJECT_CONFIG_AFTER_CREATE
         onboarding.save(update_fields=["progress"])
         logger.info(
             f"WPP Cloud channel created: app_uuid={app_uuid} project={project_uuid}"
@@ -132,7 +147,7 @@ class ConfigureWPPCloudUseCase:
         wpp_cloud["flow_object_uuid"] = flow_object_uuid
         channels["wpp-cloud"] = wpp_cloud
         onboarding.config = config
-        onboarding.progress = 20
+        onboarding.progress = PROJECT_CONFIG_AFTER_PERSIST
         onboarding.save(update_fields=["config", "progress"])
 
         logger.info(
