@@ -1,29 +1,28 @@
 import logging
-from typing import Type
 
 from retail.projects.models import ProjectOnboarding
 from retail.projects.usecases.configure_agent_builder import (
     ConfigureAgentBuilderUseCase,
 )
-from retail.projects.usecases.configure_wwc import ConfigureWWCUseCase
-from retail.projects.usecases.configure_wpp_cloud import ConfigureWPPCloudUseCase
 from retail.projects.usecases.integrate_agents import IntegrateAgentsUseCase
 from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 
 logger = logging.getLogger(__name__)
 
-CHANNEL_USECASES = {
-    "wwc": ConfigureWWCUseCase,
-    "wpp-cloud": ConfigureWPPCloudUseCase,
-}
+
+NEXUS_CONFIG_START_PROGRESS = 10
 
 
 class OnboardingOrchestrator:
     """
     Orchestrates post-crawl configuration:
-      1. Channel creation (10-20%)       -- dispatches to the channel-specific use case
-      2. Nexus manager + upload (20-75%) -- configures agent and uploads content
-      3. Agent integration (75-100%)     -- integrates Nexus agents for the channel
+      1. Nexus manager + upload (20-75%) -- configures agent and uploads content
+      2. Agent integration (75-100%)     -- integrates Nexus agents for the channel
+
+    Channel creation runs before the crawl (see ``PreCrawlChannelUseCase``)
+    so the short-lived Facebook ``auth_code`` is not exposed to the
+    crawl's runtime. Both channels' ``app_uuid`` / ``flow_object_uuid``
+    are already persisted by the time this orchestrator runs.
 
     Each step is sequential. If any step fails, progress freezes
     at the last saved value and the error propagates.
@@ -33,8 +32,7 @@ class OnboardingOrchestrator:
         logger.info(f"Starting post-crawl config for vtex_account={vtex_account}")
 
         try:
-            channel_cls = self._resolve_channel_usecase(vtex_account)
-            channel_cls().execute(vtex_account)
+            self._mark_nexus_config_started(vtex_account)
 
             ConfigureAgentBuilderUseCase().execute(vtex_account, contents)
 
@@ -46,22 +44,9 @@ class OnboardingOrchestrator:
         logger.info(f"NEXUS_CONFIG completed for vtex_account={vtex_account}")
 
     @staticmethod
-    def _resolve_channel_usecase(vtex_account: str) -> Type:
-        """Resolves the channel use case class from the onboarding config."""
+    def _mark_nexus_config_started(vtex_account: str) -> None:
+        """Transitions the onboarding into the NEXUS_CONFIG step."""
         onboarding = ProjectOnboarding.objects.get(vtex_account=vtex_account)
-        channels = (onboarding.config or {}).get("channels", {})
-        channel = next(iter(channels), None)
-
-        if channel is None:
-            raise ValueError(
-                f"No channel configured in onboarding "
-                f"for vtex_account={vtex_account}"
-            )
-
-        usecase_cls = CHANNEL_USECASES.get(channel)
-        if usecase_cls is None:
-            raise ValueError(
-                f"No channel use case registered for '{channel}'. "
-                f"Supported: {list(CHANNEL_USECASES.keys())}"
-            )
-        return usecase_cls
+        onboarding.current_step = "NEXUS_CONFIG"
+        onboarding.progress = NEXUS_CONFIG_START_PROGRESS
+        onboarding.save(update_fields=["current_step", "progress"])
