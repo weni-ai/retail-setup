@@ -291,3 +291,55 @@ class TestOnboardingPatchView(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+
+class TestOnboardingSupportContactView(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    @_auth_bypass(None)
+    @patch("retail.projects.views.RequestOnboardingSupportUseCase")
+    def test_returns_202_and_dispatches_use_case(self, mock_use_case_cls, _mock_auth):
+        mock_instance = MagicMock()
+        mock_use_case_cls.return_value = mock_instance
+
+        response = self.client.post(
+            "/api/onboard/mystore/support-contact/",
+            {"data": {"message": "stuck on channel setup", "screen": "wpp_setup"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"status": "received"})
+        mock_instance.execute.assert_called_once()
+        dto = mock_instance.execute.call_args.args[0]
+        self.assertEqual(dto.vtex_account, "mystore")
+        self.assertEqual(
+            dto.data, {"message": "stuck on channel setup", "screen": "wpp_setup"}
+        )
+
+    @_auth_bypass(None)
+    @patch("retail.projects.views.RequestOnboardingSupportUseCase")
+    def test_accepts_empty_body(self, mock_use_case_cls, _mock_auth):
+        mock_instance = MagicMock()
+        mock_use_case_cls.return_value = mock_instance
+
+        response = self.client.post(
+            "/api/onboard/mystore/support-contact/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        dto = mock_instance.execute.call_args.args[0]
+        self.assertEqual(dto.data, {})
+
+    @_auth_bypass(None)
+    def test_returns_400_when_data_is_not_an_object(self, _mock_auth):
+        response = self.client.post(
+            "/api/onboard/mystore/support-contact/",
+            {"data": "not-a-dict"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
