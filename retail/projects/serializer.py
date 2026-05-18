@@ -70,6 +70,12 @@ class InstallChannelAgentsSerializer(serializers.Serializer):
     channel_data = serializers.DictField(required=True)
 
 
+class RequestOnboardingSupportSerializer(serializers.Serializer):
+    """Generic support contact payload sent by the front-end."""
+
+    data = serializers.DictField(required=False, default=dict)
+
+
 class ProjectOnboardingSerializer(serializers.Serializer):
     """Serializer for the ProjectOnboarding status response."""
 
