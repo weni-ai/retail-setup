@@ -1,3 +1,7 @@
+# 5.23.0
+- feat: Add endpoint that sends onboarding support requests to Slack
+- feat: Refactor onboarding process with pre-crawl channel setup
+
 # 5.22.0
 - feat: Support multi-agent OR check on agent-active endpoint
 
