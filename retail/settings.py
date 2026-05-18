@@ -373,6 +373,11 @@ IGNORE_EMPTY_CARTS_FOR_PROJECTS = env.list(
     "IGNORE_EMPTY_CARTS_FOR_PROJECTS", default=[]
 )
 
+# Channel that receives onboarding support requests triggered by the
+# front-end (Contact support button) so the team can investigate the
+# underlying error with full onboarding context.
+SLACK_ONBOARDING_ERROR_CHANNEL = env.str("SLACK_ONBOARDING_ERROR_CHANNEL", default="")
+
 # APM
 
 USE_ELASTIC_APM = env.bool("USE_ELASTIC_APM", default=False)

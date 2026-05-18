@@ -30,3 +30,11 @@ class InstallChannelAgentsDTO:
     vtex_account: str
     channel: str
     channel_data: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RequestOnboardingSupportDTO:
+    """Data sent by the front-end when the user clicks 'Contact support'."""
+
+    vtex_account: str
+    data: dict = field(default_factory=dict)
