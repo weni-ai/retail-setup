@@ -67,8 +67,6 @@ class OnboardingSupportNotificationService:
         data: Optional[Mapping[str, Any]],
         onboarding: Optional[Mapping[str, Any]],
     ) -> list:
-        # TODO: replace the placeholder copy below once the final
-        # wording is provided by the team.
         blocks: list = [
             {
                 "type": "header",
