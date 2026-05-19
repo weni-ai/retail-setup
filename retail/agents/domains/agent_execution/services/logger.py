@@ -15,6 +15,10 @@ from decimal import Decimal
 from typing import Any, Callable, Dict, Optional
 from uuid import UUID
 
+from retail.agents.domains.agent_execution.constants import (
+    LEGACY_FLOW_AGENT_LABEL,
+    UNKNOWN_CONTACT_URN,
+)
 from retail.agents.domains.agent_execution.context import (
     get_current_execution_uuid,
     set_current_execution_uuid,
@@ -52,18 +56,22 @@ def _with_execution_uuid(method: Callable) -> Callable:
     return wrapper
 
 
-# No module-level singleton or get_execution_logger() factory by design.
-# Composition roots (Celery tasks, views) instantiate this class directly
-# and inject it into use cases/services via constructor. Per-execution
-# state lives in contextvars (see agent_execution/context.py); the boto3
-# S3 client is shared at the buffer level (see _shared_traces_storage in
-# buffer.py).
 class ExecutionLoggerService(ExecutionLoggerServiceInterface):
     """High-level service for logging agent executions.
 
     Provides a simple API for logging different stages of execution:
     webhook received, lambda request/response, broadcast sent, errors
     and skips.
+
+    Design notes
+    ------------
+    No module-level singleton or ``get_execution_logger()`` factory by
+    design. Composition roots (Celery tasks, views) instantiate this
+    class directly and inject it into use cases/services via
+    constructor. Per-execution state lives in contextvars (see
+    ``agent_execution/context.py``); the boto3 S3 client is shared at
+    the buffer level (see ``_shared_traces_storage`` in
+    ``buffer.py``).
     """
 
     def __init__(self, buffer_service: Optional[ExecutionBufferService] = None):
@@ -90,17 +98,18 @@ class ExecutionLoggerService(ExecutionLoggerServiceInterface):
 
         execution_uuid = self.buffer.start_execution(
             integrated_agent_uuid=integrated_agent_uuid,
-            contact_urn=contact_urn or "unknown",
+            contact_urn=contact_urn or UNKNOWN_CONTACT_URN,
             webhook_payload=payload,
             order_id=order_id,
             amount=amount,
             currency=currency,
         )
 
-        # Set in context for automatic access in downstream calls
         set_current_execution_uuid(execution_uuid)
 
-        agent_info = integrated_agent.uuid if integrated_agent else "legacy_flow"
+        agent_info = (
+            integrated_agent.uuid if integrated_agent else LEGACY_FLOW_AGENT_LABEL
+        )
         logger.info(
             f"[EXEC_LOG] Started execution {execution_uuid} for agent {agent_info}"
         )
@@ -109,10 +118,8 @@ class ExecutionLoggerService(ExecutionLoggerServiceInterface):
     def _get_execution_uuid(
         self, execution_uuid: Optional[UUID] = None
     ) -> Optional[UUID]:
-        """Get execution UUID from parameter or context."""
-        if execution_uuid:
-            return execution_uuid
-        return get_current_execution_uuid()
+        """Return the provided UUID or fall back to the context-bound one."""
+        return execution_uuid or get_current_execution_uuid()
 
     @_with_execution_uuid
     def log_lambda_request(
@@ -227,7 +234,19 @@ class ExecutionLoggerService(ExecutionLoggerServiceInterface):
         exec_uuid: UUID,
         error_data: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Log an execution error and mark the row as terminal."""
+        """Log an execution error and mark the row as terminal.
+
+        Emits the audit line at ``logger.WARNING``. This method is the
+        state-transition trail for the ``AgentExecution`` row, not the
+        primary error log. Callers (e.g.
+        ``task_helpers._log_terminal_error``,
+        ``services_cart_abandonment_unified._log_execution_error``,
+        ``webhook.execute``) are expected to log the underlying system
+        error themselves at ``logger.error`` / ``logger.exception`` so
+        Sentry captures the traceback. Keeping this method at
+        ``WARNING`` avoids duplicate Sentry events for the same
+        failure.
+        """
         trace_data: Dict[str, Any] = {"error_message": error_message}
         if error_data:
             trace_data["details"] = error_data

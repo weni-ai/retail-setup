@@ -36,6 +36,7 @@ from django.utils import timezone
 from django_redis import get_redis_connection
 from redis.exceptions import RedisError
 
+from retail.agents.domains.agent_execution.constants import UNKNOWN_CONTACT_URN
 from retail.agents.domains.agent_execution.models import (
     AgentExecution,
     AgentExecutionStatus,
@@ -260,7 +261,7 @@ class ExecutionBufferService(ExecutionBufferInterface):
         AgentExecution.objects.create(
             uuid=execution_uuid,
             integrated_agent_id=integrated_agent_uuid,
-            contact_urn=contact_urn or "unknown",
+            contact_urn=contact_urn or UNKNOWN_CONTACT_URN,
             status=AgentExecutionStatus.PROCESSING,
             order_id=order_id,
             amount=amount,

@@ -638,7 +638,7 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
         )
         self.mock_broadcast_handler.send_message.assert_not_called()
 
-    def test_execute_logs_skip_when_build_message_returns_none(self):
+    def test_execute_logs_error_when_build_message_returns_none(self):
         parsed = {"template": "missing_one", "contact_urn": "whatsapp:123"}
         self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
         self.mock_lambda_handler.parse_response.return_value = parsed
@@ -648,13 +648,13 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
 
         self.usecase.execute(self.mock_agent, self._build_request_data())
 
-        self.exec_logger.log_execution_skip.assert_called_once_with(
-            reason="Failed to build broadcast message",
-            skip_data={"template": "missing_one"},
+        self.exec_logger.log_execution_error.assert_called_once_with(
+            error_message="Failed to build broadcast message",
+            error_data={"payload_data": {"template": "missing_one", "contact_urn": "whatsapp:123"}},
         )
         self.mock_broadcast_handler.send_message.assert_not_called()
 
-    def test_execute_logs_skip_when_build_message_returns_empty_dict(self):
+    def test_execute_logs_error_when_build_message_returns_empty_dict(self):
         parsed = {"template": "order_update", "contact_urn": "whatsapp:123"}
         self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
         self.mock_lambda_handler.parse_response.return_value = parsed
@@ -664,9 +664,9 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
 
         self.usecase.execute(self.mock_agent, self._build_request_data())
 
-        self.exec_logger.log_execution_skip.assert_called_once_with(
-            reason="Failed to build broadcast message",
-            skip_data={"template": "order_update"},
+        self.exec_logger.log_execution_error.assert_called_once_with(
+            error_message="Failed to build broadcast message",
+            error_data={"payload_data": {"template": "order_update", "contact_urn": "whatsapp:123"}},
         )
         self.mock_broadcast_handler.send_message.assert_not_called()
 
