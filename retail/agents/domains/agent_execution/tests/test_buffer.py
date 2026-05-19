@@ -30,6 +30,7 @@ from unittest.mock import patch
 from uuid import UUID, uuid4
 
 from django.test import TestCase, override_settings
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from retail.agents.domains.agent_execution.models import (
     AgentExecution,
@@ -168,7 +169,9 @@ class ExecutionBufferStartExecutionTests(_BufferTestBase):
         The SQL stuck sweep would otherwise have nothing to recover.
         """
         with patch.object(
-            self.fake_redis, "pipeline", side_effect=RuntimeError("redis down")
+            self.fake_redis,
+            "pipeline",
+            side_effect=RedisConnectionError("redis down"),
         ):
             execution_uuid = self.buffer.start_execution(
                 integrated_agent_uuid=None,
@@ -296,7 +299,9 @@ class ExecutionBufferAddTraceTests(_BufferTestBase):
 
     def test_returns_false_when_redis_pipeline_raises(self):
         with patch.object(
-            self.fake_redis, "pipeline", side_effect=RuntimeError("redis down")
+            self.fake_redis,
+            "pipeline",
+            side_effect=RedisConnectionError("redis down"),
         ):
             ok = self.buffer.add_trace(
                 execution_uuid=uuid4(), trace_type="lambda_request", data={"x": 1}
@@ -352,7 +357,9 @@ class ExecutionBufferUpdateMetadataTests(_BufferTestBase):
 
     def test_returns_false_when_redis_pipeline_raises(self):
         with patch.object(
-            self.fake_redis, "pipeline", side_effect=RuntimeError("redis down")
+            self.fake_redis,
+            "pipeline",
+            side_effect=RedisConnectionError("redis down"),
         ):
             ok = self.buffer.update_metadata(
                 execution_uuid=uuid4(), contact_urn="whatsapp:+1"
@@ -373,9 +380,7 @@ class ExecutionBufferUpdateMetadataTests(_BufferTestBase):
             status=AgentExecutionStatus.SUCCESS,
             broadcast_id=42,
         )
-        after = self.fake_redis.zscore(
-            self.buffer.FLUSH_QUEUE_KEY, str(execution_uuid)
-        )
+        after = self.fake_redis.zscore(self.buffer.FLUSH_QUEUE_KEY, str(execution_uuid))
         self.assertIsNotNone(after)
         self.assertLess(
             after,
@@ -397,9 +402,7 @@ class ExecutionBufferUpdateMetadataTests(_BufferTestBase):
             execution_uuid=execution_uuid,
             contact_urn="whatsapp:+5511777777777",
         )
-        after = self.fake_redis.zscore(
-            self.buffer.FLUSH_QUEUE_KEY, str(execution_uuid)
-        )
+        after = self.fake_redis.zscore(self.buffer.FLUSH_QUEUE_KEY, str(execution_uuid))
         self.assertEqual(before, after)
 
     def test_processing_status_does_not_enqueue(self):
@@ -416,9 +419,7 @@ class ExecutionBufferUpdateMetadataTests(_BufferTestBase):
             execution_uuid=execution_uuid,
             status=AgentExecutionStatus.PROCESSING,
         )
-        after = self.fake_redis.zscore(
-            self.buffer.FLUSH_QUEUE_KEY, str(execution_uuid)
-        )
+        after = self.fake_redis.zscore(self.buffer.FLUSH_QUEUE_KEY, str(execution_uuid))
         self.assertEqual(before, after)
 
     def test_concurrent_updates_on_different_fields_both_survive(self):
@@ -501,7 +502,9 @@ class ExecutionBufferUpdateMetadataTests(_BufferTestBase):
 
     def test_get_execution_returns_none_on_redis_failure(self):
         with patch.object(
-            self.fake_redis, "hgetall", side_effect=RuntimeError("redis down")
+            self.fake_redis,
+            "hgetall",
+            side_effect=RedisConnectionError("redis down"),
         ):
             self.assertIsNone(self.buffer.get_execution(uuid4()))
 

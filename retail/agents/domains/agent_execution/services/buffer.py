@@ -34,6 +34,7 @@ from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 from django_redis import get_redis_connection
+from redis.exceptions import RedisError
 
 from retail.agents.domains.agent_execution.models import (
     AgentExecution,
@@ -229,9 +230,33 @@ class ExecutionBufferService(ExecutionBufferInterface):
         still lands in the DB; the SQL sweep finalises it later.
         """
         execution_uuid = uuid4()
-        now = timezone.now()
-        traces_s3_key = self.traces_storage.get_traces_key(execution_uuid)
+        self._create_execution_row(
+            execution_uuid=execution_uuid,
+            integrated_agent_uuid=integrated_agent_uuid,
+            contact_urn=contact_urn,
+            order_id=order_id,
+            amount=amount,
+            currency=currency,
+        )
+        self._seed_redis_trace_state(
+            execution_uuid=execution_uuid,
+            webhook_payload=webhook_payload,
+        )
+        logger.debug(f"Started execution {execution_uuid}")
+        return execution_uuid
 
+    def _create_execution_row(
+        self,
+        *,
+        execution_uuid: UUID,
+        integrated_agent_uuid: Optional[UUID],
+        contact_urn: str,
+        order_id: Optional[str],
+        amount: Optional[Decimal],
+        currency: Optional[str],
+    ) -> None:
+        """Insert the ``AgentExecution`` row at ``status='processing'``."""
+        traces_s3_key = self.traces_storage.get_traces_key(execution_uuid)
         AgentExecution.objects.create(
             uuid=execution_uuid,
             integrated_agent_id=integrated_agent_uuid,
@@ -243,12 +268,25 @@ class ExecutionBufferService(ExecutionBufferInterface):
             traces_s3_key=traces_s3_key,
         )
 
+    def _seed_redis_trace_state(
+        self,
+        *,
+        execution_uuid: UUID,
+        webhook_payload: Dict[str, Any],
+    ) -> None:
+        """Seed Redis with the initial trace, hash, and flush deadline.
+
+        Best-effort: if Redis is unreachable, the DB row created
+        upstream is reconciled later by the SQL stuck sweep, so losing
+        the Redis seed only drops the initial trace and the deadline
+        rather than the execution itself.
+        """
+        now = timezone.now()
         initial_trace = {
             "type": ExecutionTraceType.WEBHOOK_RECEIVED.value,
             "timestamp": now.isoformat(),
             "data": webhook_payload,
         }
-
         try:
             redis_client = get_redis_connection("default")
             traces_key = self.traces_key(execution_uuid)
@@ -263,18 +301,11 @@ class ExecutionBufferService(ExecutionBufferInterface):
                 {str(execution_uuid): now.timestamp() + self.max_wait_seconds},
             )
             pipe.execute()
-        except Exception:
-            # Row is in the DB; losing the Redis seed only drops the
-            # initial trace and the deadline. The SQL sweep will pick
-            # the row up after the stuck threshold.
+        except RedisError:
             logger.exception(
-                "[EXEC_LOG] Failed to seed Redis state for execution %s; "
-                "row exists in DB and will be reconciled by the stuck sweep",
-                execution_uuid,
+                f"[EXEC_LOG] Failed to seed Redis state for execution {execution_uuid}; "
+                f"row exists in DB and will be reconciled by the stuck sweep"
             )
-
-        logger.debug("Started execution %s", execution_uuid)
-        return execution_uuid
 
     def add_trace(
         self,
@@ -299,12 +330,10 @@ class ExecutionBufferService(ExecutionBufferInterface):
             pipe.hset(data_key, mapping={"updated_on": now.isoformat()})
             pipe.expire(data_key, self.REDIS_TTL_SECONDS)
             pipe.execute()
-        except Exception:
+        except RedisError:
             logger.exception(
-                "[EXEC_LOG] Failed to append trace for execution %s "
-                "(type=%s); trace dropped",
-                execution_uuid,
-                trace_type,
+                f"[EXEC_LOG] Failed to append trace for execution {execution_uuid} "
+                f"(type={trace_type}); trace dropped"
             )
             return False
         return True
@@ -342,10 +371,9 @@ class ExecutionBufferService(ExecutionBufferInterface):
                     {str(execution_uuid): now.timestamp()},
                 )
             pipe.execute()
-        except Exception:
+        except RedisError:
             logger.exception(
-                "[EXEC_LOG] Failed to update metadata for execution %s",
-                execution_uuid,
+                f"[EXEC_LOG] Failed to update metadata for execution {execution_uuid}"
             )
             return False
         return True
@@ -383,7 +411,7 @@ class ExecutionBufferService(ExecutionBufferInterface):
         try:
             redis_client = get_redis_connection("default")
             raw = redis_client.hgetall(self.data_key(execution_uuid))
-        except Exception:
+        except RedisError:
             return None
         decoded = self.deserialize_hash(raw)
         return decoded or None
