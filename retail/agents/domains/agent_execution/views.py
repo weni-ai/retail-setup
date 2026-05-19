@@ -8,9 +8,10 @@ and to a single project via the ``Project-Uuid`` header:
   CSV export request.
 
 The views stay thin — query/body validation, DTO assembly, and
-delegation to the corresponding use case. All the row mapping lives in
-``serializers`` + ``row_mapper``, and all the filter logic lives in
-the use cases.
+delegation to the corresponding use case. All row mapping lives in
+``serializers`` + ``row_mapper``, all filter logic lives in the use
+cases, and the presigned ``json_url`` is resolved inside the list use
+case (so the view never touches S3).
 """
 
 import logging
@@ -37,7 +38,6 @@ from retail.agents.shared.permissions import IsIntegratedAgentFromProject
 from retail.agents.tasks import task_export_agent_logs
 from retail.internal.permissions import HasProjectPermission
 from retail.internal.views import KeycloakAPIView
-from retail.services.aws_s3.service import S3Service
 
 
 logger = logging.getLogger(__name__)
@@ -94,9 +94,7 @@ class AgentLogsView(_AgentLogsBaseView):
         )
 
         rows, total = ListAgentLogsUseCase().execute(dto)
-
-        s3_service = self._build_s3_service()
-        row_serializer = AgentLogRowSerializer(rows, many=True, s3_service=s3_service)
+        row_serializer = AgentLogRowSerializer(rows, many=True)
 
         return Response(
             {
@@ -109,26 +107,6 @@ class AgentLogsView(_AgentLogsBaseView):
             },
             status=status.HTTP_200_OK,
         )
-
-    @staticmethod
-    def _build_s3_service() -> Optional[S3Service]:
-        """Build an S3 service bound to the traces bucket, or ``None`` if unavailable.
-
-        The serializer falls back to ``json_url=null`` when no S3
-        client can be built (typical in unit tests without AWS
-        credentials), so a missing service never fails the request.
-        """
-        from django.conf import settings
-
-        bucket_name = getattr(settings, "EXECUTION_TRACES_BUCKET", None) or getattr(
-            settings, "AWS_STORAGE_BUCKET_NAME", None
-        )
-        if not bucket_name:
-            return None
-        try:
-            return S3Service(bucket_name=bucket_name)
-        except Exception:
-            return None
 
 
 class AgentLogsExportView(_AgentLogsBaseView):

@@ -12,6 +12,9 @@ from datetime import timedelta
 from retail.agents.domains.agent_execution.services.logger import ExecutionLoggerService
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.features.models import IntegratedFeature
+from retail.interfaces.services.execution_logger import (
+    ExecutionLoggerServiceInterface,
+)
 
 from retail.vtex.models import Cart
 from retail.vtex.usecases.base import BaseVtexUseCase
@@ -74,10 +77,12 @@ class CartAbandonmentService(BaseVtexUseCase):
     but made flexible to work with both integration types.
     """
 
-    def __init__(self, exec_logger: Optional[ExecutionLoggerService] = None):
+    def __init__(self, exec_logger: Optional[ExecutionLoggerServiceInterface] = None):
         self.vtex_io_service = VtexIOService(VtexIOClient())
         self.notification_lock_service = PhoneNotificationLockService()
-        self.exec_logger = exec_logger or ExecutionLoggerService()
+        self.exec_logger: ExecutionLoggerServiceInterface = (
+            exec_logger or ExecutionLoggerService()
+        )
 
     def process_abandoned_cart(
         self,
@@ -411,13 +416,16 @@ class CartAbandonmentService(BaseVtexUseCase):
                 return
 
             # Propagate the cart value to the agent execution row so the
-            # public agent-logs API surfaces `amount`/`currency` for cart
-            # abandonment executions. `_calculate_total_value` returns
-            # BRL cents as a float; convert via str() to dodge IEEE-754
-            # rounding before quantising to the model's two-decimal cap.
+            # public agent-logs API surfaces `amount`/`currency`. VTEX stores
+            # values in cents; convert via Decimal(str(...)) to avoid the
+            # binary-float bridge that would otherwise drop precision.
+            currency = (
+                order_form.get("storePreferencesData", {}).get("currencyCode") or "BRL"
+            )
+            amount = (Decimal(str(cart_value)) / Decimal(100)).quantize(Decimal("0.01"))
             self.exec_logger.update_order_info(
-                amount=Decimal(str(cart_value / 100)).quantize(Decimal("0.01")),
-                currency="BRL",
+                amount=amount,
+                currency=currency,
             )
 
         # Skip when this order form already produced a successful notification

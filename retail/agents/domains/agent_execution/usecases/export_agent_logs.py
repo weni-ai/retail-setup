@@ -23,6 +23,7 @@ from typing import List, Optional, Sequence, Tuple
 from uuid import UUID
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Q
 from django.utils import timezone
 
@@ -62,6 +63,24 @@ CSV_HEADER = [
 PRESIGNED_URL_TTL_SECONDS = 60 * 60 * 24
 
 
+def _resolve_export_bucket() -> str:
+    """Return the configured export bucket or raise.
+
+    Falls back from ``AGENT_LOGS_EXPORT_BUCKET`` to ``AWS_STORAGE_BUCKET_NAME``;
+    a missing/empty value raises instead of silently routing exports to a
+    placeholder bucket.
+    """
+    bucket = getattr(settings, "AGENT_LOGS_EXPORT_BUCKET", None) or getattr(
+        settings, "AWS_STORAGE_BUCKET_NAME", None
+    )
+    if not bucket:
+        raise ImproperlyConfigured(
+            "AGENT_LOGS_EXPORT_BUCKET (or AWS_STORAGE_BUCKET_NAME) must be set "
+            "to export agent logs."
+        )
+    return bucket
+
+
 @dataclass(frozen=True)
 class ExportAgentLogsFilter:
     """Filter input for ``ExportAgentLogsUseCase``.
@@ -79,15 +98,44 @@ class ExportAgentLogsFilter:
     template_uuids: Sequence[UUID] = field(default_factory=tuple)
     statuses: Sequence[str] = field(default_factory=tuple)
 
+    @classmethod
+    def from_task_args(
+        cls,
+        agent_uuid: str,
+        project_uuid: str,
+        search: Optional[str] = None,
+        date_str: Optional[str] = None,
+        template_uuids: Optional[Sequence[str]] = None,
+        statuses: Optional[Sequence[str]] = None,
+    ) -> "ExportAgentLogsFilter":
+        """Build the filter from JSON-serializable Celery task arguments.
+
+        Centralises the string→typed conversion so the task can stay
+        glue: parses the ISO date, validates the UUID strings, and
+        normalises iterable defaults.
+        """
+        parsed_date: Optional[date] = None
+        if date_str:
+            parsed_date = date.fromisoformat(date_str)
+
+        return cls(
+            agent_uuid=UUID(agent_uuid),
+            project_uuid=UUID(project_uuid),
+            search=search,
+            date=parsed_date,
+            template_uuids=tuple(UUID(t) for t in (template_uuids or [])),
+            statuses=tuple(statuses or ()),
+        )
+
 
 class ExportAgentLogsUseCase:
     """Materialise filtered agent logs to a CSV file in S3."""
 
     def __init__(self, s3_service: Optional[S3ServiceInterface] = None):
-        bucket_name = getattr(settings, "AGENT_LOGS_EXPORT_BUCKET", None) or getattr(
-            settings, "AWS_STORAGE_BUCKET_NAME", "test-bucket"
-        )
-        self.s3_service = s3_service or S3Service(bucket_name=bucket_name)
+        if s3_service is not None:
+            self.s3_service = s3_service
+        else:
+            self.s3_service = S3Service(bucket_name=_resolve_export_bucket())
 
     def execute(self, dto: ExportAgentLogsFilter) -> Tuple[str, str]:
         """Build the CSV, upload it to S3, and return ``(key, presigned_url)``."""

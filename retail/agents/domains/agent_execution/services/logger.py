@@ -1,17 +1,18 @@
+"""Execution Logger Service.
+
+High-level API for logging agent executions. Provides simple methods
+for logging different stages of execution (webhook received, lambda
+invoked, broadcast sent, etc.).
+
+Uses contextvars to automatically track execution context without
+requiring explicit ``execution_uuid`` passing through method
+signatures.
 """
-Execution Logger Service.
 
-High-level API for logging agent executions. Provides simple methods for
-logging different stages of execution (webhook received, lambda invoked,
-broadcast sent, etc.).
-
-Uses contextvars to automatically track execution context without requiring
-explicit execution_uuid passing through method signatures.
-"""
-
+import functools
 import logging
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 from uuid import UUID
 
 from retail.agents.domains.agent_execution.context import (
@@ -22,9 +23,33 @@ from retail.agents.domains.agent_execution.models import AgentExecutionStatus
 from retail.agents.domains.agent_execution.services.buffer import ExecutionBufferService
 from retail.agents.domains.agent_execution.types import ExecutionTraceType
 from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.interfaces.services.execution_logger import (
+    ExecutionLoggerServiceInterface,
+)
 
 
 logger = logging.getLogger(__name__)
+
+
+def _with_execution_uuid(method: Callable) -> Callable:
+    """Resolve the active execution UUID before calling ``method``.
+
+    Methods that emit traces share the same three-line preamble:
+    pick up the ``execution_uuid`` kwarg, fall back to the contextvar,
+    bail when neither is set. This decorator collapses that into a
+    single ``exec_uuid`` keyword argument that the wrapped method
+    consumes alongside the rest of its kwargs.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        execution_uuid = kwargs.pop("execution_uuid", None)
+        exec_uuid = self._get_execution_uuid(execution_uuid)
+        if not exec_uuid:
+            return None
+        return method(self, *args, exec_uuid=exec_uuid, **kwargs)
+
+    return wrapper
 
 
 # No module-level singleton or get_execution_logger() factory by design.
@@ -33,15 +58,12 @@ logger = logging.getLogger(__name__)
 # state lives in contextvars (see agent_execution/context.py); the boto3
 # S3 client is shared at the buffer level (see _shared_traces_storage in
 # buffer.py).
-class ExecutionLoggerService:
-    """
-    High-level service for logging agent executions.
+class ExecutionLoggerService(ExecutionLoggerServiceInterface):
+    """High-level service for logging agent executions.
 
     Provides a simple API for logging different stages of execution:
-    - Webhook received (starts execution)
-    - Lambda request/response
-    - Broadcast sent
-    - Errors and skips
+    webhook received, lambda request/response, broadcast sent, errors
+    and skips.
     """
 
     def __init__(self, buffer_service: Optional[ExecutionBufferService] = None):
@@ -56,22 +78,10 @@ class ExecutionLoggerService:
         amount: Optional[Decimal] = None,
         currency: Optional[str] = None,
     ) -> UUID:
-        """
-        Log the start of an execution when a webhook is received.
+        """Log the start of an execution when a webhook is received.
 
-        Also sets the execution_uuid in context so subsequent logging calls
-        can access it without explicit parameter passing.
-
-        Args:
-            integrated_agent: The integrated agent processing the webhook (can be None for legacy flows)
-            payload: The webhook payload data
-            contact_urn: Contact URN (extracted from payload if not provided)
-            order_id: Optional order ID for official agents
-            amount: Optional order amount for official agents
-            currency: Optional ISO-4217 currency code (e.g., 'BRL', 'USD')
-
-        Returns:
-            UUID of the new execution for tracking subsequent events
+        Also sets the execution_uuid in context so subsequent logging
+        calls can access it without explicit parameter passing.
         """
         if not contact_urn:
             contact_urn = self._extract_contact_urn(payload)
@@ -104,22 +114,14 @@ class ExecutionLoggerService:
             return execution_uuid
         return get_current_execution_uuid()
 
+    @_with_execution_uuid
     def log_lambda_request(
         self,
         request_data: Dict[str, Any],
-        execution_uuid: Optional[UUID] = None,
+        *,
+        exec_uuid: UUID,
     ) -> None:
-        """
-        Log the lambda invocation request.
-
-        Args:
-            request_data: The data sent to the lambda function
-            execution_uuid: Optional UUID (uses context if not provided)
-        """
-        exec_uuid = self._get_execution_uuid(execution_uuid)
-        if not exec_uuid:
-            return
-
+        """Log the lambda invocation request."""
         self.buffer.add_trace(
             execution_uuid=exec_uuid,
             trace_type=ExecutionTraceType.LAMBDA_REQUEST.value,
@@ -127,27 +129,21 @@ class ExecutionLoggerService:
         )
         logger.debug(f"[EXEC_LOG] Logged lambda request for execution {exec_uuid}")
 
+    @_with_execution_uuid
     def log_lambda_response(
         self,
         response_data: Dict[str, Any],
-        execution_uuid: Optional[UUID] = None,
+        *,
+        exec_uuid: UUID,
         log_tail: Optional[str] = None,
     ) -> None:
-        """
-        Log the lambda invocation response.
+        """Log the lambda invocation response.
 
-        Args:
-            response_data: The response from the lambda function
-            execution_uuid: Optional UUID (uses context if not provided)
-            log_tail: Optional decoded tail (~4 KB) of Lambda stdout/stderr
-                returned via ``LogType="Tail"``. When provided, it is
-                attached to the trace under ``lambda_log_tail`` so prints
-                from the function surface alongside the response.
+        ``log_tail`` is the optional decoded tail (~4 KB) of Lambda
+        stdout/stderr returned via ``LogType="Tail"``. When provided,
+        it is attached to the trace under ``lambda_log_tail`` so prints
+        from the function surface alongside the response.
         """
-        exec_uuid = self._get_execution_uuid(execution_uuid)
-        if not exec_uuid:
-            return
-
         trace_data: Dict[str, Any] = dict(response_data) if response_data else {}
         if log_tail:
             trace_data["lambda_log_tail"] = log_tail
@@ -159,38 +155,24 @@ class ExecutionLoggerService:
         )
         logger.debug(f"[EXEC_LOG] Logged lambda response for execution {exec_uuid}")
 
+    @_with_execution_uuid
     def log_broadcast_sent(
         self,
         broadcast_response: Dict[str, Any],
+        *,
+        exec_uuid: UUID,
         template_uuid: Optional[UUID] = None,
         broadcast_id: Optional[int] = None,
         broadcast_message_uuid: Optional[UUID] = None,
-        execution_uuid: Optional[UUID] = None,
     ) -> None:
-        """
-        Log a successful broadcast and mark execution as success.
-
-        Args:
-            broadcast_response: Response from the broadcast service
-            template_uuid: UUID of the template used
-            broadcast_id: ID returned by the broadcast service
-            broadcast_message_uuid: UUID of the BroadcastMessage row created
-                by ``RecordBroadcastSentUseCase`` at dispatch time. Persisted
-                onto ``AgentExecution.broadcast_message`` so the agent-logs
-                API can reflect the courier-driven broadcast lifecycle.
-            execution_uuid: Optional UUID (uses context if not provided)
-        """
-        exec_uuid = self._get_execution_uuid(execution_uuid)
-        if not exec_uuid:
-            return
-
+        """Log a successful broadcast and mark execution as success."""
         self.buffer.add_trace(
             execution_uuid=exec_uuid,
             trace_type=ExecutionTraceType.BROADCAST_RESPONSE.value,
             data=broadcast_response,
         )
 
-        self.buffer.update_status(
+        self.buffer.update_metadata(
             execution_uuid=exec_uuid,
             status=AgentExecutionStatus.SUCCESS,
             template_uuid=template_uuid,
@@ -204,125 +186,115 @@ class ExecutionLoggerService:
             f"broadcast_message_uuid={broadcast_message_uuid})"
         )
 
+    def _log_terminal(
+        self,
+        *,
+        exec_uuid: UUID,
+        trace_type: str,
+        trace_data: Dict[str, Any],
+        status: str,
+        log_level: int,
+        log_summary: str,
+        error_message: Optional[str] = None,
+    ) -> None:
+        """Shared body for terminal log paths (``error`` / ``skip``).
+
+        Both terminal paths emit a trace, update the buffer with the
+        terminal status (plus ``error_message`` for the error path),
+        and log a single human-readable summary line. Keeping them
+        behind one helper guarantees they stay in sync if either path
+        grows new behaviour.
+        """
+        self.buffer.add_trace(
+            execution_uuid=exec_uuid,
+            trace_type=trace_type,
+            data=trace_data,
+        )
+        update_kwargs: Dict[str, Any] = {
+            "execution_uuid": exec_uuid,
+            "status": status,
+        }
+        if error_message is not None:
+            update_kwargs["error_message"] = error_message
+        self.buffer.update_metadata(**update_kwargs)
+        logger.log(log_level, log_summary)
+
+    @_with_execution_uuid
     def log_execution_error(
         self,
         error_message: str,
+        *,
+        exec_uuid: UUID,
         error_data: Optional[Dict[str, Any]] = None,
-        execution_uuid: Optional[UUID] = None,
     ) -> None:
-        """
-        Log an execution error.
-
-        Args:
-            error_message: Description of the error
-            error_data: Optional additional error details
-            execution_uuid: Optional UUID (uses context if not provided)
-        """
-        exec_uuid = self._get_execution_uuid(execution_uuid)
-        if not exec_uuid:
-            return
-
-        trace_data = {"error_message": error_message}
+        """Log an execution error and mark the row as terminal."""
+        trace_data: Dict[str, Any] = {"error_message": error_message}
         if error_data:
             trace_data["details"] = error_data
-
-        self.buffer.add_trace(
-            execution_uuid=exec_uuid,
+        self._log_terminal(
+            exec_uuid=exec_uuid,
             trace_type=ExecutionTraceType.ERROR.value,
-            data=trace_data,
-        )
-
-        self.buffer.update_status(
-            execution_uuid=exec_uuid,
+            trace_data=trace_data,
             status=AgentExecutionStatus.ERROR,
+            log_level=logging.WARNING,
+            log_summary=f"[EXEC_LOG] Execution {exec_uuid} failed: {error_message}",
             error_message=error_message,
         )
 
-        logger.warning(f"[EXEC_LOG] Execution {exec_uuid} failed: {error_message}")
-
+    @_with_execution_uuid
     def log_execution_skip(
         self,
         reason: str,
+        *,
+        exec_uuid: UUID,
         skip_data: Optional[Dict[str, Any]] = None,
-        execution_uuid: Optional[UUID] = None,
     ) -> None:
-        """
-        Log an execution skip (e.g., contact not allowed, rule not matched).
-
-        Args:
-            reason: Reason for skipping
-            skip_data: Optional additional skip details
-            execution_uuid: Optional UUID (uses context if not provided)
-        """
-        exec_uuid = self._get_execution_uuid(execution_uuid)
-        if not exec_uuid:
-            return
-
-        trace_data = {"reason": reason}
+        """Log an execution skip (e.g., contact not allowed, rule not matched)."""
+        trace_data: Dict[str, Any] = {"reason": reason}
         if skip_data:
             trace_data["details"] = skip_data
-
-        self.buffer.add_trace(
-            execution_uuid=exec_uuid,
+        self._log_terminal(
+            exec_uuid=exec_uuid,
             trace_type=ExecutionTraceType.SKIP.value,
-            data=trace_data,
-        )
-
-        self.buffer.update_status(
-            execution_uuid=exec_uuid,
+            trace_data=trace_data,
             status=AgentExecutionStatus.SKIP,
+            log_level=logging.DEBUG,
+            log_summary=f"[EXEC_LOG] Execution {exec_uuid} skipped: {reason}",
         )
 
-        logger.info(f"[EXEC_LOG] Execution {exec_uuid} skipped: {reason}")
-
+    @_with_execution_uuid
     def update_contact_urn(
         self,
         contact_urn: str,
-        execution_uuid: Optional[UUID] = None,
+        *,
+        exec_uuid: UUID,
     ) -> None:
+        """Update the contact URN for an execution.
+
+        Useful when contact_urn is not known at webhook time but
+        becomes available after lambda processing.
         """
-        Update the contact URN for an execution.
-
-        Useful when contact_urn is not known at webhook time
-        but becomes available after lambda processing.
-
-        Args:
-            contact_urn: The contact URN to set
-            execution_uuid: Optional UUID (uses context if not provided)
-        """
-        exec_uuid = self._get_execution_uuid(execution_uuid)
-        if not exec_uuid:
-            return
-
         self.buffer.update_metadata(
             execution_uuid=exec_uuid,
             contact_urn=contact_urn,
         )
 
+    @_with_execution_uuid
     def update_order_info(
         self,
+        *,
+        exec_uuid: UUID,
         amount: Optional[Decimal] = None,
         currency: Optional[str] = None,
-        execution_uuid: Optional[UUID] = None,
     ) -> None:
-        """
-        Update order amount/currency for an execution.
+        """Update order amount/currency for an execution.
 
         Useful when the order total/currency is computed after the
         webhook is logged (for example, the cart abandonment service
         calculates the total value during processing). Either field
         can be omitted; the buffer drops ``None`` values rather than
         overwriting existing entries.
-
-        Args:
-            amount: Order total as a Decimal
-            currency: ISO-4217 three-letter code (e.g., 'BRL', 'USD')
-            execution_uuid: Optional UUID (uses context if not provided)
         """
-        exec_uuid = self._get_execution_uuid(execution_uuid)
-        if not exec_uuid:
-            return
-
         self.buffer.update_metadata(
             execution_uuid=exec_uuid,
             amount=amount,
@@ -330,16 +302,7 @@ class ExecutionLoggerService:
         )
 
     def _extract_contact_urn(self, payload: Dict[str, Any]) -> Optional[str]:
-        """
-        Try to extract contact_urn from common payload locations.
-
-        Args:
-            payload: The webhook payload
-
-        Returns:
-            Extracted contact_urn or None
-        """
-        # Check common locations for contact URN
+        """Try to extract contact_urn from common payload locations."""
         if "contact_urn" in payload:
             return payload["contact_urn"]
 
@@ -349,6 +312,6 @@ class ExecutionLoggerService:
                 return f"whatsapp:{phone}"
             return phone
 
-        # For VTEX order status webhooks, contact is not in the initial payload
-        # It will be set later after lambda processing
+        # For VTEX order status webhooks, contact is not in the initial payload.
+        # It will be set later after lambda processing.
         return None
