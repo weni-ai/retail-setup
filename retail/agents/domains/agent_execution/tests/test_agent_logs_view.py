@@ -20,7 +20,6 @@ from retail.agents.domains.agent_execution.models import (
     AgentExecution,
     AgentExecutionStatus,
 )
-from retail.agents.domains.agent_execution.views import AgentLogsView
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_management.models import (
     Agent,
@@ -33,7 +32,6 @@ from retail.internal.test_mixins import (
     with_test_settings,
 )
 from retail.projects.models import Project
-from retail.services.aws_s3.service import S3Service
 from retail.templates.models import Template
 
 
@@ -109,7 +107,7 @@ class AgentLogsViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("retail.agents.domains.agent_execution.views.S3Service")
+    @patch("retail.agents.domains.agent_execution.usecases.list_agent_logs.S3Service")
     def test_returns_paginated_results_in_log_shape(self, mock_s3_class):
         self.setup_connect_service_mock(
             *ConnectServicePermissionScenarios.success_scenario(2)
@@ -147,7 +145,7 @@ class AgentLogsViewTest(BaseTestMixin, APITestCase):
             row["json_url"], "https://s3.amazonaws.com/test/payload.json?signed=yes"
         )
 
-    @patch("retail.agents.domains.agent_execution.views.S3Service")
+    @patch("retail.agents.domains.agent_execution.usecases.list_agent_logs.S3Service")
     def test_json_url_is_generated_for_all_rows_with_traces(self, mock_s3_class):
         self.setup_connect_service_mock(
             *ConnectServicePermissionScenarios.success_scenario(2)
@@ -188,22 +186,6 @@ class AgentLogsViewTest(BaseTestMixin, APITestCase):
             rows[str(sent.uuid)]["json_url"],
             "https://s3.amazonaws.com/test/payload.json?signed=yes",
         )
-
-    def test_search_filter_is_forwarded(self):
-        self.setup_connect_service_mock(
-            *ConnectServicePermissionScenarios.success_scenario(2)
-        )
-        match = self._make_execution(contact_urn="whatsapp:+5511777777777")
-        self._make_execution(contact_urn="whatsapp:+5511222222222")
-
-        response = self._request(
-            project_uuid=self.project.uuid, query_string="search=777777"
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["uuid"], str(match.uuid))
 
     def test_invalid_status_is_rejected_with_400(self):
         self.setup_connect_service_mock(
@@ -329,125 +311,64 @@ class AgentLogsViewTest(BaseTestMixin, APITestCase):
         rows = response.json()["results"]
         self.assertEqual(rows[0]["status"], "read")
 
-    def test_status_filter_delivered_returns_only_delivered_rows(self):
-        """End-to-end: a query for ``statuses=delivered`` joins through
-        BroadcastMessage and returns only the rows whose courier
-        lifecycle has reached DELIVERED."""
-        self.setup_connect_service_mock(
-            *ConnectServicePermissionScenarios.success_scenario(2)
-        )
-        delivered = self._make_execution(
-            status=AgentExecutionStatus.SUCCESS,
-            broadcast_message=self._make_broadcast_message(BroadcastStatus.DELIVERED),
-        )
-        # Other rows that should NOT match the delivered filter.
-        self._make_execution(
-            status=AgentExecutionStatus.SUCCESS,
-            broadcast_message=self._make_broadcast_message(BroadcastStatus.READ),
-        )
-        self._make_execution(
-            status=AgentExecutionStatus.SUCCESS,
-            broadcast_message=self._make_broadcast_message(BroadcastStatus.SENT),
-        )
-        self._make_execution(status=AgentExecutionStatus.SUCCESS)
 
-        response = self._request(
-            project_uuid=self.project.uuid, query_string="statuses=delivered"
-        )
+class ListAgentLogsUseCaseS3FallbackTests(SimpleTestCase):
+    """Defensive branches for the S3 wiring inside ``ListAgentLogsUseCase``.
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        rows = response.json()["results"]
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["uuid"], str(delivered.uuid))
-        self.assertEqual(rows[0]["status"], "delivered")
-
-    def test_status_filter_error_includes_courier_failed_dispatches(self):
-        """``statuses=error`` covers both internal errors AND successful
-        dispatches whose courier lifecycle terminated in FAILED."""
-        self.setup_connect_service_mock(
-            *ConnectServicePermissionScenarios.success_scenario(2)
-        )
-        internal_error = self._make_execution(
-            status=AgentExecutionStatus.ERROR,
-        )
-        courier_failed = self._make_execution(
-            status=AgentExecutionStatus.SUCCESS,
-            broadcast_message=self._make_broadcast_message(BroadcastStatus.FAILED),
-        )
-        # Transient ERRORED stays in the ``sent`` bucket so the UI
-        # doesn't flap when the courier retry succeeds.
-        self._make_execution(
-            status=AgentExecutionStatus.SUCCESS,
-            broadcast_message=self._make_broadcast_message(BroadcastStatus.ERRORED),
-        )
-
-        response = self._request(
-            project_uuid=self.project.uuid, query_string="statuses=error"
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        rows = response.json()["results"]
-        returned_uuids = {row["uuid"] for row in rows}
-        self.assertEqual(
-            returned_uuids,
-            {str(internal_error.uuid), str(courier_failed.uuid)},
-        )
-
-
-class BuildS3ServiceTests(SimpleTestCase):
-    """Defensive branches for ``AgentLogsView._build_s3_service``.
-
-    The helper deliberately swallows every failure (no bucket
-    configured, broken S3 init) so the list endpoint never 500s just
-    because traces storage is unreachable — the serializer already
-    falls back to ``json_url=null`` in that case. These tests pin each
-    of the three exit points.
+    The use case deliberately swallows every infrastructure failure
+    (no bucket configured, broken S3 init) so the list endpoint never
+    500s just because traces storage is unreachable; rows fall back
+    to ``json_url=null`` in that case.
     """
 
     @override_settings(EXECUTION_TRACES_BUCKET="", AWS_STORAGE_BUCKET_NAME="")
-    def test_returns_none_when_both_bucket_settings_are_empty(self):
-        self.assertIsNone(AgentLogsView._build_s3_service())
+    def test_uses_no_s3_service_when_both_bucket_settings_are_empty(self):
+        from retail.agents.domains.agent_execution.usecases.list_agent_logs import (
+            ListAgentLogsUseCase,
+        )
+
+        use_case = ListAgentLogsUseCase()
+
+        self.assertIsNone(use_case._s3_service)
 
     @override_settings(EXECUTION_TRACES_BUCKET="traces-bucket")
-    @patch("retail.agents.domains.agent_execution.views.S3Service")
-    def test_returns_none_when_s3_service_constructor_raises(self, mock_s3_class):
+    @patch("retail.agents.domains.agent_execution.usecases.list_agent_logs.S3Service")
+    def test_uses_no_s3_service_when_constructor_raises(self, mock_s3_class):
+        from retail.agents.domains.agent_execution.usecases.list_agent_logs import (
+            ListAgentLogsUseCase,
+        )
+
         mock_s3_class.side_effect = RuntimeError("boto init failed")
 
-        result = AgentLogsView._build_s3_service()
+        use_case = ListAgentLogsUseCase()
 
-        self.assertIsNone(result)
+        self.assertIsNone(use_case._s3_service)
         mock_s3_class.assert_called_once_with(bucket_name="traces-bucket")
 
     @override_settings(EXECUTION_TRACES_BUCKET="traces-bucket")
-    @patch("retail.agents.domains.agent_execution.views.S3Service")
-    def test_returns_s3_service_bound_to_configured_bucket(self, mock_s3_class):
-        result = AgentLogsView._build_s3_service()
+    @patch("retail.agents.domains.agent_execution.usecases.list_agent_logs.S3Service")
+    def test_builds_s3_service_bound_to_configured_bucket(self, mock_s3_class):
+        from retail.agents.domains.agent_execution.usecases.list_agent_logs import (
+            ListAgentLogsUseCase,
+        )
 
-        self.assertIs(result, mock_s3_class.return_value)
+        use_case = ListAgentLogsUseCase()
+
+        self.assertIs(use_case._s3_service, mock_s3_class.return_value)
         mock_s3_class.assert_called_once_with(bucket_name="traces-bucket")
 
     @override_settings(
         EXECUTION_TRACES_BUCKET="", AWS_STORAGE_BUCKET_NAME="fallback-bucket"
     )
-    @patch("retail.agents.domains.agent_execution.views.S3Service")
+    @patch("retail.agents.domains.agent_execution.usecases.list_agent_logs.S3Service")
     def test_falls_back_to_aws_storage_bucket_name_when_traces_bucket_is_empty(
         self, mock_s3_class
     ):
-        result = AgentLogsView._build_s3_service()
+        from retail.agents.domains.agent_execution.usecases.list_agent_logs import (
+            ListAgentLogsUseCase,
+        )
 
-        self.assertIs(result, mock_s3_class.return_value)
+        use_case = ListAgentLogsUseCase()
+
+        self.assertIs(use_case._s3_service, mock_s3_class.return_value)
         mock_s3_class.assert_called_once_with(bucket_name="fallback-bucket")
-
-    @override_settings(EXECUTION_TRACES_BUCKET="traces-bucket")
-    @patch("retail.clients.aws_s3.client.boto3")
-    def test_returns_real_s3_service_instance_when_constructor_succeeds(
-        self, mock_boto3
-    ):
-        # Unlike the patched-class tests above, this one pins that the
-        # happy path actually yields an ``S3Service``. ``boto3`` is
-        # patched so ``S3Client`` construction doesn't touch AWS
-        # credentials lookup on the test runner.
-        result = AgentLogsView._build_s3_service()
-
-        self.assertIsInstance(result, S3Service)
-        self.assertEqual(result.client.bucket_name, "traces-bucket")

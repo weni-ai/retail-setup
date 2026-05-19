@@ -24,36 +24,23 @@ class CeleryTaskBoundaryContextTests(TestCase):
         clear_execution_context()
         super().tearDown()
 
-    def test_task_prerun_handler_clears_context(self):
-        from retail.celery import clear_execution_context_before_task
+    def test_reset_execution_context_clears_context(self):
+        from retail.celery import _reset_execution_context
 
         set_current_execution_uuid(uuid4())
         self.assertIsNotNone(get_current_execution_uuid())
 
-        clear_execution_context_before_task()
+        _reset_execution_context()
 
         self.assertIsNone(get_current_execution_uuid())
 
-    def test_task_postrun_handler_clears_context(self):
-        from retail.celery import clear_execution_context_after_task
-
-        set_current_execution_uuid(uuid4())
-        self.assertIsNotNone(get_current_execution_uuid())
-
-        clear_execution_context_after_task()
-
-        self.assertIsNone(get_current_execution_uuid())
-
-    def test_handlers_are_connected_to_celery_signals(self):
+    def test_handler_is_connected_to_both_celery_signals(self):
         from celery.signals import task_postrun, task_prerun
 
-        from retail.celery import (
-            clear_execution_context_after_task,
-            clear_execution_context_before_task,
-        )
+        from retail.celery import _reset_execution_context
 
         prerun_receivers = [r() for _, r in task_prerun.receivers]
         postrun_receivers = [r() for _, r in task_postrun.receivers]
 
-        self.assertIn(clear_execution_context_before_task, prerun_receivers)
-        self.assertIn(clear_execution_context_after_task, postrun_receivers)
+        self.assertIn(_reset_execution_context, prerun_receivers)
+        self.assertIn(_reset_execution_context, postrun_receivers)

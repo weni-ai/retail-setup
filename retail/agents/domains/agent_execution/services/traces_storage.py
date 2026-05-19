@@ -17,13 +17,33 @@ import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from botocore.exceptions import BotoCoreError, ClientError
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 from retail.interfaces.services.aws_s3 import S3ServiceInterface
 from retail.services.aws_s3.service import S3Service
 
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_traces_bucket() -> str:
+    """Return the configured bucket for execution traces or raise.
+
+    Resolution order: ``EXECUTION_TRACES_BUCKET`` then
+    ``AWS_STORAGE_BUCKET_NAME``. A missing/empty value fails loudly
+    rather than routing writes to a placeholder bucket name.
+    """
+    bucket = getattr(settings, "EXECUTION_TRACES_BUCKET", None) or getattr(
+        settings, "AWS_STORAGE_BUCKET_NAME", None
+    )
+    if not bucket:
+        raise ImproperlyConfigured(
+            "EXECUTION_TRACES_BUCKET (or AWS_STORAGE_BUCKET_NAME) must be set "
+            "to persist agent execution traces."
+        )
+    return bucket
 
 
 class ExecutionTracesStorageService:
@@ -35,10 +55,10 @@ class ExecutionTracesStorageService:
     """
 
     def __init__(self, s3_service: Optional[S3ServiceInterface] = None):
-        bucket_name = getattr(settings, "EXECUTION_TRACES_BUCKET", None) or getattr(
-            settings, "AWS_STORAGE_BUCKET_NAME", "test-bucket"
-        )
-        self.s3_service = s3_service or S3Service(bucket_name=bucket_name)
+        if s3_service is not None:
+            self.s3_service = s3_service
+        else:
+            self.s3_service = S3Service(bucket_name=resolve_traces_bucket())
 
     def get_traces_key(self, execution_uuid: UUID) -> str:
         return f"executions/{execution_uuid}/traces.json"
@@ -80,6 +100,6 @@ class ExecutionTracesStorageService:
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing traces JSON for {execution_uuid}: {e}")
             return []
-        except Exception as e:
+        except (ClientError, BotoCoreError) as e:
             logger.error(f"Error retrieving traces for {execution_uuid}: {e}")
             return []

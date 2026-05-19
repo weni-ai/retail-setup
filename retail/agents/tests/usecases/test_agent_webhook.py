@@ -138,21 +138,22 @@ class AgentWebhookUseCaseTest(TestCase):
 
     def test_execute_successful(self):
         mock_response = {"Payload": MagicMock()}
-        self.mock_lambda_handler.invoke.return_value = mock_response
-        self.mock_lambda_handler.parse_response.return_value = {
+        parsed_payload = {
             "template": "order_update",
             "contact_urn": "whatsapp:123",
         }
+        self.mock_lambda_handler.invoke.return_value = mock_response
+        self.mock_lambda_handler.parse_response.return_value = parsed_payload
         self.mock_lambda_handler.validate_response.return_value = True
         self.mock_broadcast_handler.can_send_to_contact.return_value = True
         self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
 
         result = self.usecase.execute(self.mock_agent, MagicMock())
 
-        # On success, execute returns the Lambda response so callers (e.g. the
-        # cart abandonment service) can tell that the broadcast was dispatched.
-        self.assertIsNotNone(result)
-        self.assertIs(result, mock_response)
+        # On success, execute returns the parsed Lambda payload so callers
+        # (e.g. the cart abandonment service) can tell that the broadcast was
+        # dispatched and read the template/contact_urn directly.
+        self.assertEqual(result, parsed_payload)
         self.mock_broadcast_handler.send_message.assert_called_once()
 
     def test_execute_should_not_send_broadcast(self):
@@ -637,7 +638,7 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
         )
         self.mock_broadcast_handler.send_message.assert_not_called()
 
-    def test_execute_logs_skip_when_build_message_returns_none(self):
+    def test_execute_logs_error_when_build_message_returns_none(self):
         parsed = {"template": "missing_one", "contact_urn": "whatsapp:123"}
         self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
         self.mock_lambda_handler.parse_response.return_value = parsed
@@ -647,13 +648,13 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
 
         self.usecase.execute(self.mock_agent, self._build_request_data())
 
-        self.exec_logger.log_execution_skip.assert_called_once_with(
-            reason="Failed to build broadcast message",
-            skip_data={"template": "missing_one"},
+        self.exec_logger.log_execution_error.assert_called_once_with(
+            error_message="Failed to build broadcast message",
+            error_data={"payload_data": {"template": "missing_one", "contact_urn": "whatsapp:123"}},
         )
         self.mock_broadcast_handler.send_message.assert_not_called()
 
-    def test_execute_logs_skip_when_build_message_returns_empty_dict(self):
+    def test_execute_logs_error_when_build_message_returns_empty_dict(self):
         parsed = {"template": "order_update", "contact_urn": "whatsapp:123"}
         self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
         self.mock_lambda_handler.parse_response.return_value = parsed
@@ -663,9 +664,9 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
 
         self.usecase.execute(self.mock_agent, self._build_request_data())
 
-        self.exec_logger.log_execution_skip.assert_called_once_with(
-            reason="Failed to build broadcast message",
-            skip_data={"template": "order_update"},
+        self.exec_logger.log_execution_error.assert_called_once_with(
+            error_message="Failed to build broadcast message",
+            error_data={"payload_data": {"template": "order_update", "contact_urn": "whatsapp:123"}},
         )
         self.mock_broadcast_handler.send_message.assert_not_called()
 
@@ -894,3 +895,141 @@ class AgentWebhookExecutePropagatesContextTest(TestCase):
 
         _, call_kwargs = self.mock_broadcast_handler.send_message.call_args
         self.assertIsNone(call_kwargs["dispatch_context"])
+
+
+class AgentWebhookUseCaseExecuteFromTaskTests(TestCase):
+    """Orchestration tests for ``execute_from_task``.
+
+    The method centralises the resolve-agent / forward-UUID /
+    dispatch flow that used to live in ``task_agent_webhook``: the
+    contextvar wiring, the "open new row vs reuse forwarded UUID"
+    branch, and the credential assembly all live here.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from retail.agents.domains.agent_execution.context import (
+            clear_execution_context,
+        )
+
+        clear_execution_context()
+        self.addCleanup(clear_execution_context)
+
+        patcher = patch("weni_datalake_sdk.clients.client.send_commerce_webhook_data")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        self.mock_lambda_handler = MagicMock()
+        self.mock_broadcast_handler = MagicMock()
+        self.mock_cache_handler = IntegratedAgentCacheHandlerMock()
+        self.mock_exec_logger = MagicMock()
+
+        self.usecase = AgentWebhookUseCase(
+            active_agent=self.mock_lambda_handler,
+            broadcast=self.mock_broadcast_handler,
+            cache=self.mock_cache_handler,
+            exec_logger=self.mock_exec_logger,
+        )
+
+    def _patch_agent_lookup(self, agent_or_none):
+        return patch.object(
+            self.usecase, "_get_integrated_agent", return_value=agent_or_none
+        )
+
+    def test_missing_agent_without_forwarded_uuid_does_not_open_row(self):
+        with self._patch_agent_lookup(None):
+            result = self.usecase.execute_from_task(
+                integrated_agent_uuid=str(uuid4()),
+                payload={"a": 1},
+                params={},
+            )
+
+        self.assertIsNone(result)
+        self.mock_exec_logger.log_webhook_received.assert_not_called()
+        self.mock_exec_logger.log_execution_skip.assert_not_called()
+
+    def test_missing_agent_with_forwarded_uuid_logs_skip_on_forwarded_row(self):
+        forwarded_uuid = uuid4()
+        agent_uuid_str = str(uuid4())
+
+        with self._patch_agent_lookup(None):
+            self.usecase.execute_from_task(
+                integrated_agent_uuid=agent_uuid_str,
+                payload={"a": 1},
+                params={},
+                forwarded_execution_uuid=str(forwarded_uuid),
+            )
+
+        self.mock_exec_logger.log_webhook_received.assert_not_called()
+        self.mock_exec_logger.log_execution_skip.assert_called_once_with(
+            execution_uuid=forwarded_uuid,
+            reason="integrated_agent_missing_or_blocked",
+            skip_data={"integrated_agent_uuid": agent_uuid_str},
+        )
+
+    def _build_agent(self):
+        agent = MagicMock(uuid=uuid4(), ignore_templates=[])
+        # ``execute()`` reads ``contact_percentage`` against ``<= 0`` so
+        # MagicMock's default is a comparison error; pin it to 0 so the
+        # call returns early without exercising the full flow.
+        agent.contact_percentage = 0
+        agent.credentials.all.return_value = []
+        return agent
+
+    def test_no_forwarded_uuid_opens_a_new_execution_row(self):
+        agent = self._build_agent()
+
+        with self._patch_agent_lookup(agent):
+            self.usecase.execute_from_task(
+                integrated_agent_uuid=str(agent.uuid),
+                payload={"a": 1},
+                params={},
+            )
+
+        self.mock_exec_logger.log_webhook_received.assert_called_once()
+        call_kwargs = self.mock_exec_logger.log_webhook_received.call_args.kwargs
+        self.assertIs(call_kwargs["integrated_agent"], agent)
+        self.assertEqual(call_kwargs["payload"], {"a": 1})
+
+    def test_forwarded_uuid_skips_log_webhook_received(self):
+        from retail.agents.domains.agent_execution.context import (
+            get_current_execution_uuid,
+        )
+
+        agent = self._build_agent()
+        forwarded_uuid = uuid4()
+
+        with self._patch_agent_lookup(agent):
+            self.usecase.execute_from_task(
+                integrated_agent_uuid=str(agent.uuid),
+                payload={"a": 1},
+                params={},
+                forwarded_execution_uuid=str(forwarded_uuid),
+            )
+
+        self.mock_exec_logger.log_webhook_received.assert_not_called()
+        # The forwarded UUID must land in the contextvar so downstream
+        # logging picks it up automatically.
+        self.assertEqual(get_current_execution_uuid(), forwarded_uuid)
+
+    def test_string_forwarded_uuid_is_parsed_into_uuid_instance(self):
+        from retail.agents.domains.agent_execution.context import (
+            get_current_execution_uuid,
+        )
+
+        agent = self._build_agent()
+        forwarded_uuid = uuid4()
+
+        with self._patch_agent_lookup(agent):
+            self.usecase.execute_from_task(
+                integrated_agent_uuid=str(agent.uuid),
+                payload={"a": 1},
+                params={},
+                forwarded_execution_uuid=str(forwarded_uuid),
+            )
+
+        ctx = get_current_execution_uuid()
+        from uuid import UUID as _UUID
+
+        self.assertIsInstance(ctx, _UUID)
+        self.assertEqual(ctx, forwarded_uuid)

@@ -1,19 +1,13 @@
-"""End-to-end UUID propagation tests for the abandoned-cart flow.
+"""UUID propagation tests for the abandoned-cart flow.
 
 The flow spans four files and two Celery task entrypoints. Without
-explicit UUID propagation, the inner `task_agent_webhook` would
+explicit UUID propagation, the inner ``task_agent_webhook`` would
 create a second AgentExecution that orphans the one started by the
-parent task. These tests pin the propagation chain:
-
-    task_abandoned_cart_update
-        -> AgentAbandonedCartUseCase.execute(execution_uuid=...)
-        -> CartAbandonmentService.process_abandoned_cart(execution_uuid=...)
-        -> _execute_agent_flow(execution_uuid=...)
-        -> task_agent_webhook(execution_uuid=str(uuid))
-
-Each link is unit-tested here, plus an end-to-end test that runs
-the parent task with the chain mocked just enough to inspect what
-ultimately reaches `task_agent_webhook`.
+parent task. The end-to-end test in this module exercises the whole
+chain at once — ``task_abandoned_cart_update`` →
+``AgentAbandonedCartUseCase`` → ``CartAbandonmentService`` →
+``task_agent_webhook`` — so a regression in any single link surfaces
+without requiring per-link unit tests.
 """
 
 from unittest.mock import MagicMock, patch
@@ -22,70 +16,6 @@ from uuid import uuid4
 from django.test import TestCase
 
 from retail.vtex.models import Cart
-
-
-class TaskAbandonedCartPassesUuidDownTests(TestCase):
-    @patch("retail.vtex.tasks.Cart.objects.get")
-    @patch("retail.vtex.tasks.AgentAbandonedCartUseCase")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
-    def test_use_case_execute_receives_execution_uuid(
-        self, mock_logger_factory, mock_use_case_cls, mock_cart_get
-    ):
-        from retail.vtex.tasks import task_abandoned_cart_update
-
-        parent_uuid = uuid4()
-        mock_logger = MagicMock()
-        mock_logger.log_webhook_received.return_value = parent_uuid
-        mock_logger_factory.return_value = mock_logger
-
-        mock_cart = MagicMock()
-        mock_cart.project = MagicMock(vtex_account="acct", uuid=uuid4())
-        mock_cart.order_form_id = "of-1"
-        mock_cart.phone_number = "5511999"
-        mock_cart.integrated_feature = None
-        mock_cart_get.return_value = mock_cart
-
-        mock_use_case = MagicMock()
-        mock_agent = MagicMock(uuid=uuid4())
-        mock_use_case.get_integrated_agent.return_value = mock_agent
-        mock_use_case_cls.return_value = mock_use_case
-
-        task_abandoned_cart_update("any-cart-uuid")
-
-        mock_logger.log_webhook_received.assert_called_once()
-        mock_use_case.execute.assert_called_once()
-        call = mock_use_case.execute.call_args
-        passed_uuid = call.kwargs.get("execution_uuid")
-        if passed_uuid is None and len(call.args) >= 3:
-            passed_uuid = call.args[2]
-        self.assertEqual(
-            passed_uuid,
-            parent_uuid,
-            "task_abandoned_cart_update must thread its execution_uuid into the use case",
-        )
-
-
-class AgentAbandonedCartUseCasePassesUuidDownTests(TestCase):
-    def test_use_case_forwards_execution_uuid_to_service(self):
-        from retail.agents.domains.agent_webhook.usecases.abandoned_cart import (
-            AgentAbandonedCartUseCase,
-        )
-
-        use_case = AgentAbandonedCartUseCase()
-        use_case.cart_abandonment_service = MagicMock()
-        use_case.vtex_io_service = MagicMock()
-
-        cart = MagicMock(uuid=uuid4())
-        agent = MagicMock(uuid=uuid4())
-        parent_uuid = uuid4()
-
-        use_case.execute(cart, agent, execution_uuid=parent_uuid)
-
-        use_case.cart_abandonment_service.process_abandoned_cart.assert_called_once()
-        kwargs = (
-            use_case.cart_abandonment_service.process_abandoned_cart.call_args.kwargs
-        )
-        self.assertEqual(kwargs.get("execution_uuid"), parent_uuid)
 
 
 def _build_cart_data(cart, project):
@@ -106,37 +36,6 @@ def _build_cart_data(cart, project):
         cart_link="of-1/",
         additional_data={},
     )
-
-
-class CartAbandonmentServicePassesUuidToTaskTests(TestCase):
-    @patch("retail.vtex.tasks.task_agent_webhook")
-    def test_execute_agent_flow_passes_execution_uuid(self, mock_task):
-        from retail.webhooks.vtex.services_cart_abandonment_unified import (
-            CartAbandonmentService,
-        )
-
-        service = CartAbandonmentService()
-        service._get_abandoned_cart_config = MagicMock(return_value={})
-        service._build_image_config = MagicMock(return_value={})
-        service._update_cart_status = MagicMock()
-
-        agent = MagicMock(uuid=uuid4())
-        cart = MagicMock(uuid=uuid4(), project=MagicMock(uuid=uuid4()))
-        parent_uuid = uuid4()
-
-        cart_data = _build_cart_data(cart, cart.project)
-
-        ok = service._execute_agent_flow(
-            cart=cart,
-            integrated_agent=agent,
-            cart_data=cart_data,
-            execution_uuid=parent_uuid,
-        )
-
-        self.assertTrue(ok)
-        mock_task.assert_called_once()
-        kwargs = mock_task.call_args.kwargs
-        self.assertEqual(kwargs.get("execution_uuid"), str(parent_uuid))
 
 
 class CartAbandonmentEndToEndUuidTests(TestCase):
@@ -161,7 +60,7 @@ class CartAbandonmentEndToEndUuidTests(TestCase):
         return_value={},
     )
     @patch("retail.vtex.tasks.Cart.objects.get")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_single_uuid_reaches_task_agent_webhook(
         self,
         mock_logger_factory,
@@ -255,7 +154,7 @@ class TaskAbandonedCartUpdateBranchTests(TestCase):
     """
 
     @patch("retail.vtex.tasks.Cart.objects.get")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_cart_does_not_exist_returns_silently(
         self, mock_logger_factory, mock_cart_get
     ):
@@ -273,7 +172,7 @@ class TaskAbandonedCartUpdateBranchTests(TestCase):
 
     @patch("retail.vtex.tasks.AgentAbandonedCartUseCase")
     @patch("retail.vtex.tasks.Cart.objects.get")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_cart_without_project_returns_before_logging_execution(
         self, mock_logger_factory, mock_cart_get, mock_use_case_cls
     ):
@@ -303,7 +202,7 @@ class TaskAbandonedCartUpdateBranchTests(TestCase):
 
     @patch("retail.vtex.tasks.AgentAbandonedCartUseCase")
     @patch("retail.vtex.tasks.Cart.objects.get")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_no_agent_no_feature_only_warns(
         self, mock_logger_factory, mock_cart_get, mock_use_case_cls
     ):
@@ -334,7 +233,7 @@ class TaskAbandonedCartUpdateBranchTests(TestCase):
     @patch("retail.vtex.tasks.CartAbandonmentUseCase")
     @patch("retail.vtex.tasks.AgentAbandonedCartUseCase")
     @patch("retail.vtex.tasks.Cart.objects.get")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_legacy_feature_path_runs_legacy_use_case(
         self,
         mock_logger_factory,
@@ -373,15 +272,21 @@ class TaskAbandonedCartUpdateBranchTests(TestCase):
 
     @patch("retail.vtex.tasks.AgentAbandonedCartUseCase")
     @patch("retail.vtex.tasks.Cart.objects.get")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_unexpected_error_after_uuid_minted_logs_execution_error(
         self, mock_logger_factory, mock_cart_get, mock_use_case_cls
     ):
         from retail.vtex.tasks import task_abandoned_cart_update
 
+        from retail.agents.domains.agent_execution.context import (
+            set_current_execution_uuid,
+        )
+
         execution_uuid = uuid4()
         mock_logger = MagicMock()
-        mock_logger.log_webhook_received.return_value = execution_uuid
+        mock_logger.log_webhook_received.side_effect = (
+            lambda *a, **kw: (set_current_execution_uuid(execution_uuid), execution_uuid)[1]
+        )
         mock_logger_factory.return_value = mock_logger
 
         cart = MagicMock()
@@ -409,7 +314,7 @@ class TaskAbandonedCartUpdateBranchTests(TestCase):
 
     @patch("retail.vtex.tasks.AgentAbandonedCartUseCase")
     @patch("retail.vtex.tasks.Cart.objects.get")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_unexpected_error_before_uuid_minted_does_not_log(
         self, mock_logger_factory, mock_cart_get, mock_use_case_cls
     ):

@@ -214,7 +214,7 @@ class LoggerBroadcastTests(TestCase):
             trace_type=ExecutionTraceType.BROADCAST_RESPONSE.value,
             data={"id": 99},
         )
-        self.buffer.update_status.assert_called_once_with(
+        self.buffer.update_metadata.assert_called_once_with(
             execution_uuid=execution_uuid,
             status=AgentExecutionStatus.SUCCESS,
             template_uuid=template_uuid,
@@ -234,7 +234,7 @@ class LoggerBroadcastTests(TestCase):
             execution_uuid=execution_uuid,
         )
 
-        kwargs = self.buffer.update_status.call_args.kwargs
+        kwargs = self.buffer.update_metadata.call_args.kwargs
         self.assertIsNone(kwargs["broadcast_message_uuid"])
 
     def test_log_broadcast_sent_uses_context_when_uuid_not_passed(self):
@@ -259,7 +259,7 @@ class LoggerBroadcastTests(TestCase):
             broadcast_id=None,
         )
         self.buffer.add_trace.assert_not_called()
-        self.buffer.update_status.assert_not_called()
+        self.buffer.update_metadata.assert_not_called()
 
 
 class LoggerErrorAndSkipTests(TestCase):
@@ -284,7 +284,7 @@ class LoggerErrorAndSkipTests(TestCase):
             trace_type=ExecutionTraceType.ERROR.value,
             data={"error_message": "boom", "details": {"trace_id": "x"}},
         )
-        self.buffer.update_status.assert_called_once_with(
+        self.buffer.update_metadata.assert_called_once_with(
             execution_uuid=execution_uuid,
             status=AgentExecutionStatus.ERROR,
             error_message="boom",
@@ -318,7 +318,7 @@ class LoggerErrorAndSkipTests(TestCase):
             trace_type=ExecutionTraceType.SKIP.value,
             data={"reason": "not allowed", "details": {"why": "policy"}},
         )
-        self.buffer.update_status.assert_called_once_with(
+        self.buffer.update_metadata.assert_called_once_with(
             execution_uuid=execution_uuid,
             status=AgentExecutionStatus.SKIP,
         )
@@ -327,4 +327,4 @@ class LoggerErrorAndSkipTests(TestCase):
         self.logger.log_execution_error(error_message="boom")
         self.logger.log_execution_skip(reason="nope")
         self.buffer.add_trace.assert_not_called()
-        self.buffer.update_status.assert_not_called()
+        self.buffer.update_metadata.assert_not_called()

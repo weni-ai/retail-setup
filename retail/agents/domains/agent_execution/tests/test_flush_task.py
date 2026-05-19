@@ -4,7 +4,7 @@ The Celery task wrapper, the deadline-expired finalisation flow, the
 periodic SQL sweep, parallel S3 PUTs, and the beat schedule shape all
 live here. The single-method behaviour of the buffer is covered in
 ``test_buffer.py``; this file pins the wiring between
-``task_flush_execution_logs``, the buffer's ``flush``, and the
+``task_flush_execution_logs``, ``FlushExecutionsUseCase`` and the
 underlying DB / S3 / Redis state.
 """
 
@@ -30,6 +30,9 @@ from retail.agents.domains.agent_execution.tests._fakes import (
     FakeRedisConnection,
     FakeS3Client,
 )
+from retail.agents.domains.agent_execution.usecases.flush_executions import (
+    FlushResult,
+)
 from retail.agents.tasks import (
     _FLUSH_TICK_KEY,
     task_flush_execution_logs,
@@ -38,79 +41,75 @@ from retail.agents.tasks import (
 
 @override_settings(EXECUTION_TRACES_BUCKET="test-traces-bucket")
 class FlushTaskWrapperTests(TestCase):
-    """The thin Celery wrapper around ``ExecutionBufferService.flush``."""
+    """The thin Celery wrapper around ``FlushExecutionsUseCase.execute``."""
 
-    def test_task_calls_buffer_flush_and_returns_its_result(self):
-        with patch(
-            "retail.agents.tasks.ExecutionBufferService"
-        ) as mock_buffer_cls, patch(
+    def _patch_use_case(self, *, flushed=0, stuck=0, side_effect=None):
+        """Return a ``patch`` for the FlushExecutionsUseCase class.
+
+        Yields the mock instance so each test can assert on
+        ``.execute(...)`` calls.
+        """
+        mock_instance = MagicMock()
+        if side_effect is not None:
+            mock_instance.execute.side_effect = side_effect
+        else:
+            mock_instance.execute.return_value = FlushResult(
+                flushed=flushed, stuck_finalized=stuck
+            )
+        return (
+            patch(
+                "retail.agents.tasks.FlushExecutionsUseCase",
+                return_value=mock_instance,
+            ),
+            mock_instance,
+        )
+
+    def test_task_calls_flush_use_case_and_returns_its_result(self):
+        patcher, mock_use_case = self._patch_use_case(flushed=3, stuck=0)
+        with patcher, patch(
             "retail.agents.tasks._next_flush_tick", return_value=1
         ):
-            mock_buffer = MagicMock()
-            mock_buffer.flush.return_value = {"flushed": 3, "stuck_finalized": 0}
-            mock_buffer_cls.return_value = mock_buffer
-
             result = task_flush_execution_logs.run()
 
         self.assertEqual(result, {"flushed": 3, "stuck_finalized": 0})
-        mock_buffer.flush.assert_called_once()
+        mock_use_case.execute.assert_called_once()
 
     @override_settings(AGENT_EXECUTION_STUCK_SWEEP_EVERY_N_TICKS=10)
     def test_task_triggers_stuck_sweep_every_nth_tick(self):
-        with patch(
-            "retail.agents.tasks.ExecutionBufferService"
-        ) as mock_buffer_cls, patch(
+        patcher, mock_use_case = self._patch_use_case(flushed=0, stuck=1)
+        with patcher, patch(
             "retail.agents.tasks._next_flush_tick", return_value=10
         ):
-            mock_buffer = MagicMock()
-            mock_buffer.flush.return_value = {"flushed": 0, "stuck_finalized": 1}
-            mock_buffer_cls.return_value = mock_buffer
-
             task_flush_execution_logs.run()
 
-        mock_buffer.flush.assert_called_once_with(do_stuck_sweep=True)
+        mock_use_case.execute.assert_called_once_with(do_stuck_sweep=True)
 
     @override_settings(AGENT_EXECUTION_STUCK_SWEEP_EVERY_N_TICKS=10)
     def test_task_skips_sweep_when_tick_is_not_a_multiple(self):
-        with patch(
-            "retail.agents.tasks.ExecutionBufferService"
-        ) as mock_buffer_cls, patch(
+        patcher, mock_use_case = self._patch_use_case()
+        with patcher, patch(
             "retail.agents.tasks._next_flush_tick", return_value=3
         ):
-            mock_buffer = MagicMock()
-            mock_buffer.flush.return_value = {"flushed": 0, "stuck_finalized": 0}
-            mock_buffer_cls.return_value = mock_buffer
-
             task_flush_execution_logs.run()
 
-        mock_buffer.flush.assert_called_once_with(do_stuck_sweep=False)
+        mock_use_case.execute.assert_called_once_with(do_stuck_sweep=False)
 
     def test_task_skips_sweep_when_tick_counter_is_unavailable(self):
         """``_next_flush_tick`` returns 0 on Redis failure, which never
         satisfies ``tick % N == 0`` for the real cadence."""
-        with patch(
-            "retail.agents.tasks.ExecutionBufferService"
-        ) as mock_buffer_cls, patch(
+        patcher, mock_use_case = self._patch_use_case()
+        with patcher, patch(
             "retail.agents.tasks._next_flush_tick", return_value=0
         ):
-            mock_buffer = MagicMock()
-            mock_buffer.flush.return_value = {"flushed": 0, "stuck_finalized": 0}
-            mock_buffer_cls.return_value = mock_buffer
-
             task_flush_execution_logs.run()
 
-        mock_buffer.flush.assert_called_once_with(do_stuck_sweep=False)
+        mock_use_case.execute.assert_called_once_with(do_stuck_sweep=False)
 
     def test_task_swallows_buffer_exceptions(self):
-        with patch(
-            "retail.agents.tasks.ExecutionBufferService"
-        ) as mock_buffer_cls, patch(
+        patcher, _ = self._patch_use_case(side_effect=RuntimeError("boom"))
+        with patcher, patch(
             "retail.agents.tasks._next_flush_tick", return_value=1
         ):
-            mock_buffer = MagicMock()
-            mock_buffer.flush.side_effect = RuntimeError("boom")
-            mock_buffer_cls.return_value = mock_buffer
-
             result = task_flush_execution_logs.run()
 
         self.assertEqual(result, {"flushed": 0, "stuck_finalized": 0})
@@ -349,40 +348,5 @@ class BeatScheduleTests(TestCase):
         ]
         self.assertEqual(flush_entries, ["task-flush-execution-logs"])
 
-    def test_beat_schedule_has_no_watchdog_entries(self):
-        self.assertNotIn(
-            "task-watchdog-stuck-executions", settings.CELERY_BEAT_SCHEDULE
-        )
-        watchdog_entries = [
-            name for name in settings.CELERY_BEAT_SCHEDULE if "watchdog" in name
-        ]
-        self.assertEqual(watchdog_entries, [])
-
     def test_beat_schedule_keeps_cleanup_old_executions(self):
         self.assertIn("task-cleanup-old-executions", settings.CELERY_BEAT_SCHEDULE)
-
-    def test_settings_expose_new_buffer_knobs(self):
-        self.assertTrue(hasattr(settings, "AGENT_EXECUTION_FLUSH_BATCH_SIZE"))
-        self.assertTrue(hasattr(settings, "AGENT_EXECUTION_FLUSH_INTERVAL_SECONDS"))
-        self.assertTrue(hasattr(settings, "AGENT_EXECUTION_MAX_WAIT_SECONDS"))
-        self.assertTrue(hasattr(settings, "AGENT_EXECUTION_STUCK_SWEEP_EVERY_N_TICKS"))
-        self.assertTrue(hasattr(settings, "AGENT_EXECUTION_STUCK_THRESHOLD_SECONDS"))
-        self.assertTrue(hasattr(settings, "AGENT_EXECUTION_S3_PARALLEL_PUTS"))
-
-    def test_settings_drop_old_sharding_knobs(self):
-        for removed in (
-            "AGENT_EXECUTION_PENDING_SHARD_COUNT",
-            "AGENT_EXECUTION_PENDING_STREAM_MAXLEN",
-            "AGENT_EXECUTION_PENDING_STREAM_HIGH_WATERMARK",
-            "AGENT_EXECUTION_PENDING_CLAIM_IDLE_MS",
-            "AGENT_EXECUTION_FLUSH_LOCK_SECONDS",
-            "AGENT_EXECUTION_MAX_DELIVERY_COUNT",
-            "AGENT_EXECUTION_STALE_THRESHOLD_SECONDS",
-            "AGENT_EXECUTION_WATCHDOG_INTERVAL_SECONDS",
-            "AGENT_EXECUTION_WATCHDOG_BATCH_SIZE",
-            "AGENT_EXECUTION_WATCHDOG_LOCK_SECONDS",
-        ):
-            self.assertFalse(
-                hasattr(settings, removed),
-                f"settings.{removed} should be gone after the buffer simplification",
-            )

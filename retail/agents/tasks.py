@@ -1,20 +1,20 @@
 import logging
-from datetime import date as date_type
 from typing import Any, Dict, List, Optional
-from uuid import UUID
 
 from celery import shared_task
 from django.conf import settings
 from django_redis import get_redis_connection
 
-from retail.agents.domains.agent_execution.services.buffer import ExecutionBufferService
-from retail.agents.domains.agent_execution.services.logger import ExecutionLoggerService
+from retail.agents.domains.agent_execution.task_helpers import execution_log_scope
 from retail.agents.domains.agent_execution.usecases.cleanup_old_executions import (
     CleanupOldExecutionsUseCase,
 )
 from retail.agents.domains.agent_execution.usecases.export_agent_logs import (
-    ExportAgentLogsFilter,
+    ExportAgentLogsDTO,
     ExportAgentLogsUseCase,
+)
+from retail.agents.domains.agent_execution.usecases.flush_executions import (
+    FlushExecutionsUseCase,
 )
 from retail.agents.domains.agent_integration.usecases.delivered_order_tracking import (
     DeliveredOrderTrackingWebhookUseCase,
@@ -71,7 +71,7 @@ def task_flush_execution_logs() -> Dict[str, int]:
         )
         tick = _next_flush_tick()
         do_sweep = tick > 0 and (tick % sweep_every) == 0
-        return ExecutionBufferService().flush(do_stuck_sweep=do_sweep)
+        return FlushExecutionsUseCase().execute(do_stuck_sweep=do_sweep).as_dict()
     except Exception:
         logger.exception("[EXEC_LOG] Error flushing agent execution logs")
         return {"flushed": 0, "stuck_finalized": 0}
@@ -161,17 +161,13 @@ def task_export_agent_logs(
         worker.
     """
     try:
-        parsed_date: Optional[date_type] = None
-        if date:
-            parsed_date = date_type.fromisoformat(date)
-
-        dto = ExportAgentLogsFilter(
-            agent_uuid=UUID(agent_uuid),
-            project_uuid=UUID(project_uuid),
+        dto = ExportAgentLogsDTO.from_task_args(
+            agent_uuid=agent_uuid,
+            project_uuid=project_uuid,
             search=search,
-            date=parsed_date,
-            template_uuids=tuple(UUID(t) for t in (template_uuids or [])),
-            statuses=tuple(statuses or ()),
+            date_str=date,
+            template_uuids=template_uuids,
+            statuses=statuses,
         )
         _, presigned_url = ExportAgentLogsUseCase().execute(dto)
 
@@ -195,17 +191,14 @@ def task_export_agent_logs(
 def task_payment_recovery_webhook(
     integrated_agent_uuid: str, webhook_data: Dict[str, Any]
 ) -> None:
-    """
-    Process payment recovery webhook notification asynchronously.
-
-    Args:
-        integrated_agent_uuid: UUID of the integrated agent
-        webhook_data: Data received from VTEX webhook
-    """
-    execution_uuid: Optional[UUID] = None
-    exec_logger = ExecutionLoggerService()
-
-    try:
+    """Process payment recovery webhook notification asynchronously."""
+    with execution_log_scope(
+        error_data={
+            "integrated_agent_uuid": integrated_agent_uuid,
+            "webhook_data": webhook_data,
+        },
+        log_prefix="[PAYMENT_RECOVERY]",
+    ) as exec_logger:
         logger.info(
             f"[PAYMENT_RECOVERY] task_started: "
             f"agent_uuid={integrated_agent_uuid} data={webhook_data}"
@@ -214,10 +207,10 @@ def task_payment_recovery_webhook(
         use_case = PaymentRecoveryWebhookUseCase()
         # Resolve the agent BEFORE opening any execution log so a missing
         # agent raises NotFound and is caught below without leaving an
-        # agentless row behind
+        # agentless row behind.
         integrated_agent = use_case.get_integrated_agent(integrated_agent_uuid)
 
-        execution_uuid = exec_logger.log_webhook_received(
+        exec_logger.log_webhook_received(
             integrated_agent=integrated_agent,
             payload=webhook_data,
             order_id=webhook_data.get("OrderId"),
@@ -230,17 +223,4 @@ def task_payment_recovery_webhook(
             f"[PAYMENT_RECOVERY] task_completed: "
             f"vtex_account={vtex_account} agent_uuid={integrated_agent_uuid} "
             f"result={result} data={webhook_data}"
-        )
-
-    except Exception as e:
-        if execution_uuid:
-            exec_logger.log_execution_error(
-                execution_uuid=execution_uuid,
-                error_message=str(e),
-                error_data={"webhook_data": webhook_data},
-            )
-        logger.exception(
-            f"[PAYMENT_RECOVERY] task_failed: "
-            f"agent_uuid={integrated_agent_uuid} "
-            f"data={webhook_data} error={e}"
         )

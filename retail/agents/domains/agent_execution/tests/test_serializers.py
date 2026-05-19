@@ -6,10 +6,9 @@ infrastructure:
 
 - ``_CommaSeparatedUUIDsField`` rejects non-string / non-list input
   and list entries that aren't valid UUIDs.
-- ``AgentLogRowSerializer.get_json_url`` returns ``None`` across every
-  branch that can suppress the presigned URL (no S3 service, missing
-  trace key, presign raises) and emits the URL for any status with a
-  stored ``traces_s3_key``.
+- ``AgentLogRowSerializer.get_json_url`` reads the pre-resolved
+  attribute set by ``ListAgentLogsUseCase`` and falls back to ``null``
+  when the attribute is missing.
 - ``AgentLogRowSerializer.get_sent_at`` handles the ``created_on=None``
   legacy row shape without crashing.
 """
@@ -17,14 +16,12 @@ infrastructure:
 from datetime import datetime, timezone as dt_timezone
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 from uuid import UUID, uuid4
 
 from django.test import SimpleTestCase
 
 from retail.agents.domains.agent_execution.models import AgentExecutionStatus
 from retail.agents.domains.agent_execution.serializers import (
-    JSON_URL_TTL_SECONDS,
     AgentLogRowSerializer,
     ExportAgentLogsBodySerializer,
     ListAgentLogsQuerySerializer,
@@ -177,113 +174,46 @@ class AgentLogRowSerializerSentAtTests(SimpleTestCase):
 
 
 class AgentLogRowSerializerJsonUrlTests(SimpleTestCase):
-    """Every branch of ``get_json_url``, without hitting real S3.
+    """``get_json_url`` reads the pre-resolved attribute set on the row.
 
-    The serializer must never bubble an S3 error out to the caller:
-    the CSV export and the list response both treat ``json_url`` as an
-    optional field, so a broken S3 client falls back to ``null``
-    rather than failing the request.
+    ``ListAgentLogsUseCase`` injects ``json_url`` onto each row before
+    handing it to the serializer (presigned URL or ``None``); the
+    serializer just renders whatever is there. Rows that bypass the
+    use case (e.g. unit tests on the bare model) render ``null``.
     """
 
-    def test_returns_presigned_url_for_success_when_key_present(self):
-        # Locks in the new behaviour for terminal-success rows: with a
-        # ``traces_s3_key`` set the URL is presigned regardless of the
-        # log status the row resolves to.
+    def test_renders_url_set_on_row_attribute(self):
         execution = _stub_execution(
             status=AgentExecutionStatus.SUCCESS.value,
             traces_s3_key="executions/sent/traces.json",
         )
-        s3_service = MagicMock()
-        s3_service.generate_presigned_url.return_value = (
-            "https://s3.amazonaws.com/test/sent-signed"
-        )
+        execution.json_url = "https://s3.amazonaws.com/test/sent-signed"
 
-        serializer = AgentLogRowSerializer(execution, s3_service=s3_service)
+        serializer = AgentLogRowSerializer(execution)
 
         self.assertEqual(
             serializer.data["json_url"], "https://s3.amazonaws.com/test/sent-signed"
         )
-        s3_service.generate_presigned_url.assert_called_once_with(
-            "executions/sent/traces.json", expiration=JSON_URL_TTL_SECONDS
-        )
 
-    def test_returns_presigned_url_for_processing_when_key_present(self):
-        # The most divergent branch from the previous gated behaviour:
-        # ``processing`` rows now also surface the URL. The S3 file may
-        # not exist yet (the buffer hasn't flushed), so a GET against
-        # the URL can 404 transiently — that's a documented trade-off,
-        # not a serializer concern.
-        execution = _stub_execution(
-            status=AgentExecutionStatus.PROCESSING.value,
-            traces_s3_key="executions/processing/traces.json",
-        )
-        s3_service = MagicMock()
-        s3_service.generate_presigned_url.return_value = (
-            "https://s3.amazonaws.com/test/processing-signed"
-        )
-
-        serializer = AgentLogRowSerializer(execution, s3_service=s3_service)
-
-        self.assertEqual(
-            serializer.data["json_url"],
-            "https://s3.amazonaws.com/test/processing-signed",
-        )
-        s3_service.generate_presigned_url.assert_called_once_with(
-            "executions/processing/traces.json", expiration=JSON_URL_TTL_SECONDS
-        )
-
-    def test_returns_none_when_traces_s3_key_is_missing(self):
+    def test_returns_none_when_attribute_missing(self):
         execution = _stub_execution(
             status=AgentExecutionStatus.ERROR.value, traces_s3_key=None
         )
-        s3_service = MagicMock()
 
-        serializer = AgentLogRowSerializer(execution, s3_service=s3_service)
+        serializer = AgentLogRowSerializer(execution)
 
         self.assertIsNone(serializer.data["json_url"])
-        s3_service.generate_presigned_url.assert_not_called()
 
-    def test_returns_none_when_s3_service_is_none(self):
+    def test_returns_none_when_use_case_resolved_no_url(self):
         execution = _stub_execution(
             status=AgentExecutionStatus.SKIP.value,
             traces_s3_key="executions/skipped/traces.json",
         )
+        execution.json_url = None
 
-        serializer = AgentLogRowSerializer(execution, s3_service=None)
-
-        self.assertIsNone(serializer.data["json_url"])
-
-    def test_returns_presigned_url_when_s3_service_succeeds(self):
-        execution = _stub_execution(
-            status=AgentExecutionStatus.SKIP.value,
-            traces_s3_key="executions/skipped/traces.json",
-        )
-        s3_service = MagicMock()
-        s3_service.generate_presigned_url.return_value = (
-            "https://s3.amazonaws.com/test/signed"
-        )
-
-        serializer = AgentLogRowSerializer(execution, s3_service=s3_service)
-
-        self.assertEqual(
-            serializer.data["json_url"], "https://s3.amazonaws.com/test/signed"
-        )
-        s3_service.generate_presigned_url.assert_called_once_with(
-            "executions/skipped/traces.json", expiration=JSON_URL_TTL_SECONDS
-        )
-
-    def test_returns_none_when_presign_raises(self):
-        execution = _stub_execution(
-            status=AgentExecutionStatus.ERROR.value,
-            traces_s3_key="executions/error/traces.json",
-        )
-        s3_service = MagicMock()
-        s3_service.generate_presigned_url.side_effect = RuntimeError("S3 is down")
-
-        serializer = AgentLogRowSerializer(execution, s3_service=s3_service)
+        serializer = AgentLogRowSerializer(execution)
 
         self.assertIsNone(serializer.data["json_url"])
-        s3_service.generate_presigned_url.assert_called_once()
 
 
 class AgentLogRowSerializerAmountTests(SimpleTestCase):

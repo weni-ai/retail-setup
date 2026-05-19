@@ -2,10 +2,12 @@ import logging
 
 import random
 
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, Union
 
 from uuid import UUID
 
+from retail.agents.domains.agent_execution.context import set_current_execution_uuid
+from retail.agents.domains.agent_execution.services.logger import ExecutionLoggerService
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_webhook.services.broadcast import (
     Broadcast,
@@ -13,7 +15,6 @@ from retail.agents.domains.agent_webhook.services.broadcast import (
 from retail.agents.domains.agent_webhook.services.active_agent import (
     ActiveAgent,
 )
-from retail.agents.domains.agent_execution.services.logger import ExecutionLoggerService
 
 from retail.agents.shared.cache import (
     IntegratedAgentCacheHandler,
@@ -23,6 +24,9 @@ from retail.broadcasts.usecases.record_broadcast_sent import (
     BroadcastDispatchContext,
 )
 from retail.interfaces.clients.aws_lambda.client import RequestData
+from retail.interfaces.services.execution_logger import (
+    ExecutionLoggerServiceInterface,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +37,14 @@ class AgentWebhookUseCase:
         active_agent: Optional[ActiveAgent] = None,
         broadcast: Optional[Broadcast] = None,
         cache: Optional[IntegratedAgentCacheHandler] = None,
-        exec_logger: Optional[ExecutionLoggerService] = None,
+        exec_logger: Optional[ExecutionLoggerServiceInterface] = None,
     ):
         self.active_agent = active_agent or ActiveAgent()
         self.broadcast_handler = broadcast or Broadcast()
         self.cache_handler = cache or IntegratedAgentCacheHandlerRedis()
-        self.exec_logger = exec_logger or ExecutionLoggerService()
+        self.exec_logger: ExecutionLoggerServiceInterface = (
+            exec_logger or ExecutionLoggerService()
+        )
         self.IGNORE_INTEGRATED_AGENT_UUID = "d30bcce8-ce67-4677-8a33-c12b62a51d4f"
 
     def _get_integrated_agent(self, uuid: UUID):
@@ -192,6 +198,58 @@ class AgentWebhookUseCase:
                 error_message=f"Error building/sending broadcast: {str(e)}",
             )
             return None
+
+    def execute_from_task(
+        self,
+        integrated_agent_uuid: Union[str, UUID],
+        payload: Dict[str, Any],
+        params: Optional[Dict[str, Any]] = None,
+        forwarded_execution_uuid: Optional[Union[str, UUID]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Run the full task flow: resolve agent, open/forward an execution row, dispatch.
+
+        Centralises the orchestration that used to live in
+        ``task_agent_webhook``: contextvar wiring, agent lookup, the
+        "forward upstream UUID vs open a fresh one" branch, credential
+        assembly, and the final ``execute`` call. Keeps the task as
+        glue per the project's hexagonal-architecture guidance.
+        """
+        request_data = RequestData(params=params or {}, payload=payload)
+
+        forwarded_uuid: Optional[UUID] = None
+        if forwarded_execution_uuid is not None:
+            forwarded_uuid = (
+                forwarded_execution_uuid
+                if isinstance(forwarded_execution_uuid, UUID)
+                else UUID(str(forwarded_execution_uuid))
+            )
+            # Set the contextvar before the agent lookup so a missing
+            # agent can be closed as an explicit skip on the forwarded
+            # row instead of timing out at the ZSET deadline.
+            set_current_execution_uuid(forwarded_uuid)
+
+        integrated_agent = self._get_integrated_agent(integrated_agent_uuid)
+        if not integrated_agent:
+            logger.info(f"Integrated agent not found for UUID {integrated_agent_uuid}.")
+            if forwarded_uuid is not None:
+                self.exec_logger.log_execution_skip(
+                    execution_uuid=forwarded_uuid,
+                    reason="integrated_agent_missing_or_blocked",
+                    skip_data={"integrated_agent_uuid": str(integrated_agent_uuid)},
+                )
+            return None
+
+        if forwarded_uuid is None:
+            self.exec_logger.log_webhook_received(
+                integrated_agent=integrated_agent,
+                payload=payload,
+            )
+
+        credentials = self._addapt_credentials(integrated_agent)
+        request_data.set_credentials(credentials)
+        request_data.set_ignored_official_rules(integrated_agent.ignore_templates)
+
+        return self.execute(integrated_agent, request_data)
 
     def execute(
         self, integrated_agent: IntegratedAgent, data: "RequestData"

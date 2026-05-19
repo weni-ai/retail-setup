@@ -140,4 +140,16 @@ class Migration(migrations.Migration):
                 name="agent_exec_contact_agent_idx",
             ),
         ),
+        # Single-column index used by the daily retention sweep
+        # (``CleanupOldExecutionsUseCase``). The three compound
+        # indexes above all have ``created_on`` as a non-leading
+        # column, so a ``WHERE created_on < cutoff`` scan cannot
+        # use them efficiently.
+        migrations.AddIndex(
+            model_name="agentexecution",
+            index=models.Index(
+                fields=["created_on"],
+                name="agent_exec_created_on_idx",
+            ),
+        ),
     ]

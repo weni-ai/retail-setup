@@ -98,6 +98,15 @@ class AgentExecution(models.Model):
                 fields=["contact_urn", "integrated_agent", "created_on"],
                 name="agent_exec_contact_agent_idx",
             ),
+            # Single-column index used by the daily retention sweep
+            # (``CleanupOldExecutionsUseCase``). The compound indexes
+            # above all have ``created_on`` as a non-leading column,
+            # so a ``WHERE created_on < cutoff`` scan cannot use them
+            # efficiently.
+            models.Index(
+                fields=["created_on"],
+                name="agent_exec_created_on_idx",
+            ),
         ]
         ordering = ["-created_on"]
 

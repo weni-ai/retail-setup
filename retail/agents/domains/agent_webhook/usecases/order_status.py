@@ -17,6 +17,9 @@ from retail.agents.shared.cache import (
     IntegratedAgentCacheHandlerRedis,
 )
 from retail.interfaces.clients.aws_lambda.client import RequestData
+from retail.interfaces.services.execution_logger import (
+    ExecutionLoggerServiceInterface,
+)
 from retail.projects.models import Project
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
@@ -52,10 +55,12 @@ class AgentOrderStatusUpdateUsecase:
     def __init__(
         self,
         cache_handler: Optional[IntegratedAgentCacheHandler] = None,
-        exec_logger: Optional[ExecutionLoggerService] = None,
+        exec_logger: Optional[ExecutionLoggerServiceInterface] = None,
     ) -> None:
         self.cache_handler = cache_handler or IntegratedAgentCacheHandlerRedis()
-        self.exec_logger = exec_logger or ExecutionLoggerService()
+        self.exec_logger: ExecutionLoggerServiceInterface = (
+            exec_logger or ExecutionLoggerService()
+        )
 
     def get_integrated_agent_if_exists(
         self, project: Project

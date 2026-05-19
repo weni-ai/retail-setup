@@ -8,11 +8,12 @@ a tenant + agent-scoped key.
 
 import csv
 import io
-from datetime import date, datetime, timezone as dt_timezone
+from datetime import datetime, timezone as dt_timezone
 from decimal import Decimal
 from unittest.mock import patch
 from uuid import uuid4
 
+from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 
 from retail.agents.domains.agent_execution.models import (
@@ -21,13 +22,12 @@ from retail.agents.domains.agent_execution.models import (
 )
 from retail.agents.domains.agent_execution.usecases.export_agent_logs import (
     CSV_HEADER,
-    ExportAgentLogsFilter,
+    ExportAgentLogsDTO,
     ExportAgentLogsUseCase,
 )
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_management.models import Agent
 from retail.projects.models import Project
-from retail.templates.models import Template
 
 
 class _FakeS3Service:
@@ -81,13 +81,13 @@ class ExportAgentLogsUseCaseTests(TestCase):
             uuid=uuid4(), agent=self.agent, project=self.project
         )
 
-    def _filter(self, **overrides) -> ExportAgentLogsFilter:
+    def _filter(self, **overrides) -> ExportAgentLogsDTO:
         defaults = dict(
             agent_uuid=self.integrated_agent.uuid,
             project_uuid=self.project.uuid,
         )
         defaults.update(overrides)
-        return ExportAgentLogsFilter(**defaults)
+        return ExportAgentLogsDTO(**defaults)
 
     def _csv_rows(self, content_bytes: bytes):
         reader = csv.reader(io.StringIO(content_bytes.decode("utf-8")))
@@ -144,7 +144,12 @@ class ExportAgentLogsUseCaseTests(TestCase):
         self.assertEqual(self.fake_s3.presign_calls, [(key, 60 * 60 * 24)])
         self.assertIn("signature=fake", presigned_url)
 
-    def test_filters_apply_same_as_list(self):
+    def test_filter_smoke_check_search_pipes_through(self):
+        """One smoke-check that ``ExportAgentLogsDTO`` is forwarded to
+        the underlying queryset; full filter-semantics coverage lives in
+        ``test_list_agent_logs_usecase.py`` to avoid duplicating the
+        date / template / multi-status / courier-join matrix.
+        """
         _make_execution(self.integrated_agent, contact_urn="whatsapp:+5511777777777")
         _make_execution(self.integrated_agent, contact_urn="whatsapp:+5511222222222")
 
@@ -153,101 +158,17 @@ class ExportAgentLogsUseCaseTests(TestCase):
         _, content, _ = self.fake_s3.put_calls[0]
         rows = self._csv_rows(content)
         self.assertEqual(len(rows), 2, "header + one matching execution")
-        self.assertIn("+55 11 77777-7777", rows[1][CSV_HEADER.index("contact")])
-
-    def test_courier_status_filter_with_no_linked_rows_yields_empty_export(self):
-        # ``delivered`` and ``read`` filter through ``broadcast_message``;
-        # an execution with no link can never satisfy them, so the
-        # CSV should contain only the header.
-        _make_execution(self.integrated_agent)
-
-        self.use_case.execute(self._filter(statuses=("delivered", "read")))
-
-        _, content, _ = self.fake_s3.put_calls[0]
-        rows = self._csv_rows(content)
-        self.assertEqual(rows, [CSV_HEADER])
-
-    def test_date_filter_uses_utc_day(self):
-        target_day = date(2026, 5, 1)
-        in_window = _make_execution(self.integrated_agent)
-        AgentExecution.objects.filter(uuid=in_window.uuid).update(
-            created_on=datetime(2026, 5, 1, 12, 0, tzinfo=dt_timezone.utc)
-        )
-        out_of_window = _make_execution(self.integrated_agent)
-        AgentExecution.objects.filter(uuid=out_of_window.uuid).update(
-            created_on=datetime(2026, 4, 30, 23, 59, 59, tzinfo=dt_timezone.utc)
-        )
-
-        self.use_case.execute(self._filter(date=target_day))
-
-        _, content, _ = self.fake_s3.put_calls[0]
-        rows = self._csv_rows(content)
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[1][CSV_HEADER.index("uuid")], str(in_window.uuid))
-
-    def test_template_uuids_filter_mirrors_list_use_case(self):
-        """The export shares ``template_uuids`` semantics with the list
-        endpoint: rows whose template is in the filter are included;
-        rows pointing at a different template are dropped. The screen
-        the user exported must match what they were looking at.
-        """
-        template_a = Template.objects.create(
-            uuid=uuid4(),
-            name="a",
-            integrated_agent=self.integrated_agent,
-        )
-        template_b = Template.objects.create(
-            uuid=uuid4(),
-            name="b",
-            integrated_agent=self.integrated_agent,
-        )
-        template_c = Template.objects.create(
-            uuid=uuid4(),
-            name="c",
-            integrated_agent=self.integrated_agent,
-        )
-        match_a = _make_execution(self.integrated_agent, template=template_a)
-        match_b = _make_execution(self.integrated_agent, template=template_b)
-        _make_execution(self.integrated_agent, template=template_c)
-
-        self.use_case.execute(
-            self._filter(template_uuids=(template_a.uuid, template_b.uuid))
-        )
-
-        _, content, _ = self.fake_s3.put_calls[0]
-        rows = self._csv_rows(content)
-        uuid_col = CSV_HEADER.index("uuid")
-        exported_uuids = {row[uuid_col] for row in rows[1:]}
-        self.assertEqual(exported_uuids, {str(match_a.uuid), str(match_b.uuid)})
-
-    def test_empty_search_does_not_constrain_results(self):
-        """Whitespace-only ``search`` should be treated as no filter;
-        the strip-and-check guard exists so an empty query string does
-        not ILIKE-match every row twice for no reason.
-        """
-        kept = _make_execution(self.integrated_agent)
-
-        self.use_case.execute(self._filter(search="   "))
-
-        _, content, _ = self.fake_s3.put_calls[0]
-        rows = self._csv_rows(content)
-        self.assertEqual(len(rows), 2, "header + the single unfiltered row")
-        self.assertEqual(rows[1][CSV_HEADER.index("uuid")], str(kept.uuid))
 
 
-class ExportAgentLogsBucketFallbackTests(TestCase):
-    """The constructor resolves the bucket in two steps:
-    ``AGENT_LOGS_EXPORT_BUCKET`` first, falling back to
-    ``AWS_STORAGE_BUCKET_NAME``, and finally to ``"test-bucket"`` when
-    neither is set. These tests pin the fallback order so a fresh env
-    without explicit export-bucket config still boots the use case.
+class ExportAgentLogsBucketResolutionTests(TestCase):
+    """The constructor resolves the bucket from ``AGENT_LOGS_EXPORT_BUCKET``
+    or ``AWS_STORAGE_BUCKET_NAME`` and raises ``ImproperlyConfigured`` when
+    neither is set, so misconfigured deploys fail loudly instead of
+    routing exports to a placeholder bucket.
     """
 
     @override_settings(AWS_STORAGE_BUCKET_NAME="fallback-bucket")
     def test_falls_back_to_aws_storage_bucket_name(self):
-        # ``AGENT_LOGS_EXPORT_BUCKET`` is not defined at import time
-        # (``getattr(..., None)`` in the use case handles that), so the
-        # constructor must pick up ``AWS_STORAGE_BUCKET_NAME`` next.
         with patch(
             "retail.agents.domains.agent_execution.usecases."
             "export_agent_logs.S3Service"
@@ -265,6 +186,11 @@ class ExportAgentLogsBucketFallbackTests(TestCase):
             ExportAgentLogsUseCase()
 
         mock_s3_cls.assert_called_once_with(bucket_name="explicit-bucket")
+
+    @override_settings(AGENT_LOGS_EXPORT_BUCKET="", AWS_STORAGE_BUCKET_NAME="")
+    def test_raises_when_no_bucket_is_configured(self):
+        with self.assertRaises(ImproperlyConfigured):
+            ExportAgentLogsUseCase()
 
 
 class ExportAgentLogsKeyTests(TestCase):
@@ -293,7 +219,7 @@ class ExportAgentLogsKeyTests(TestCase):
             return_value=fixed_now,
         ):
             key, _ = use_case.execute(
-                ExportAgentLogsFilter(
+                ExportAgentLogsDTO(
                     agent_uuid=integrated_agent.uuid,
                     project_uuid=project.uuid,
                 )

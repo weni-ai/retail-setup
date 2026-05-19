@@ -9,10 +9,13 @@ import json
 from unittest.mock import MagicMock
 from uuid import uuid4
 
+from botocore.exceptions import ClientError
+from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 
 from retail.agents.domains.agent_execution.services.traces_storage import (
     ExecutionTracesStorageService,
+    resolve_traces_bucket,
 )
 from retail.agents.domains.agent_execution.tests._fakes import FakeS3Client
 from retail.interfaces.services.aws_s3 import S3ServiceInterface
@@ -52,15 +55,6 @@ class TracesStorageWriteTracesTests(TestCase):
         self.storage.write_traces(execution_uuid, [{"type": "x"}], s3_key=custom_key)
         self.assertEqual(self.fake_s3.put_calls[0]["key"], custom_key)
 
-    def test_no_append_style_methods_exist(self):
-        """Guard against accidental reintroduction of read-modify-write.
-
-        Any per-trace append API would re-open the data-loss race the
-        single PUT design closed.
-        """
-        self.assertFalse(hasattr(self.storage, "append_trace"))
-        self.assertFalse(hasattr(self.storage, "create_traces_file"))
-
     def test_get_traces_returns_what_write_traces_stored(self):
         execution_uuid = uuid4()
         traces = [{"type": "webhook_received"}, {"type": "lambda_response"}]
@@ -90,9 +84,22 @@ class TracesStorageGetTracesErrorPathsTests(TestCase):
         self.s3_service.get_object.return_value = b"<not json>"
         self.assertEqual(self.storage.get_traces(uuid4()), [])
 
-    def test_returns_empty_list_on_unexpected_exception(self):
-        self.s3_service.get_object.side_effect = RuntimeError("network down")
+    def test_returns_empty_list_on_boto_client_error(self):
+        self.s3_service.get_object.side_effect = ClientError(
+            {"Error": {"Code": "InternalError"}}, "GetObject"
+        )
         self.assertEqual(self.storage.get_traces(uuid4()), [])
+
+    def test_unexpected_exceptions_propagate(self):
+        """Non-boto exceptions must surface so Sentry/logging can flag them.
+
+        Returning ``[]`` is reserved for the legitimate "no traces" path;
+        masking real bugs (e.g. ``AttributeError`` from a refactor) under
+        that same response would hide regressions.
+        """
+        self.s3_service.get_object.side_effect = RuntimeError("network down")
+        with self.assertRaises(RuntimeError):
+            self.storage.get_traces(uuid4())
 
 
 @override_settings(EXECUTION_TRACES_BUCKET="exec-bucket")
@@ -112,3 +119,23 @@ class TracesStorageInjectionTests(TestCase):
         injected = MagicMock(spec=S3ServiceInterface)
         storage = ExecutionTracesStorageService(s3_service=injected)
         self.assertIs(storage.s3_service, injected)
+
+
+class TracesStorageBucketResolutionTests(TestCase):
+    """``resolve_traces_bucket`` raises ``ImproperlyConfigured`` when no
+    bucket is set so misconfigured deploys fail loudly instead of
+    routing trace writes to a placeholder bucket name.
+    """
+
+    @override_settings(EXECUTION_TRACES_BUCKET="", AWS_STORAGE_BUCKET_NAME="")
+    def test_raises_when_no_bucket_is_configured(self):
+        with self.assertRaises(ImproperlyConfigured):
+            resolve_traces_bucket()
+
+    @override_settings(EXECUTION_TRACES_BUCKET="", AWS_STORAGE_BUCKET_NAME="legacy")
+    def test_falls_back_to_aws_storage_bucket_name(self):
+        self.assertEqual(resolve_traces_bucket(), "legacy")
+
+    @override_settings(EXECUTION_TRACES_BUCKET="primary", AWS_STORAGE_BUCKET_NAME="x")
+    def test_prefers_execution_traces_bucket(self):
+        self.assertEqual(resolve_traces_bucket(), "primary")

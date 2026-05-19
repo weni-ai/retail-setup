@@ -22,7 +22,26 @@ from uuid import uuid4
 from django.test import TestCase
 from rest_framework.exceptions import ValidationError
 
-from retail.agents.domains.agent_execution.context import clear_execution_context
+from retail.agents.domains.agent_execution.context import (
+    clear_execution_context,
+    set_current_execution_uuid,
+)
+
+
+def _mock_log_webhook_received(execution_uuid):
+    """Build a ``log_webhook_received`` side effect that mirrors prod.
+
+    The real service sets the execution UUID into the contextvar so
+    downstream calls can pick it up without explicit threading; mocks
+    need to do the same for the task-error path to find the active
+    execution.
+    """
+
+    def _set_and_return(*args, **kwargs):
+        set_current_execution_uuid(execution_uuid)
+        return execution_uuid
+
+    return _set_and_return
 
 
 def _build_order_update_data(state: str = "invoiced") -> dict:
@@ -46,8 +65,20 @@ class TaskOrderStatusUpdateTests(TestCase):
         clear_execution_context()
         self.addCleanup(clear_execution_context)
 
+        # Conversion tracking is dispatched whenever the order state is in
+        # ``_PURCHASE_CONFIRMED_STATES`` (e.g. ``invoiced``). Without a
+        # broker — which is the case in CI — ``apply_async`` raises a
+        # connection error that ``execution_log_scope`` swallows, short-
+        # circuiting the rest of the task and breaking unrelated mocks.
+        # Patch the task at class scope so every test gets a no-op
+        # ``apply_async`` regardless of state. Tests that need to assert
+        # the dispatch can read ``self.mock_conversion_task`` directly.
+        conversion_patcher = patch("retail.vtex.tasks.task_mark_broadcast_converted")
+        self.mock_conversion_task = conversion_patcher.start()
+        self.addCleanup(conversion_patcher.stop)
+
     @patch("retail.vtex.tasks.AgentOrderStatusUpdateUsecase")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_returns_early_when_project_not_found(
         self, mock_logger_factory, mock_use_case_cls
     ):
@@ -69,7 +100,7 @@ class TaskOrderStatusUpdateTests(TestCase):
 
     @patch("retail.vtex.tasks.handle_purchase_event_task")
     @patch("retail.vtex.tasks.AgentOrderStatusUpdateUsecase")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_payment_approved_dispatches_handle_purchase_event(
         self, mock_logger_factory, mock_use_case_cls, mock_handle_task
     ):
@@ -96,7 +127,7 @@ class TaskOrderStatusUpdateTests(TestCase):
 
     @patch("retail.vtex.tasks.handle_purchase_event_task")
     @patch("retail.vtex.tasks.AgentOrderStatusUpdateUsecase")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_non_payment_approved_does_not_dispatch_handle_purchase_event(
         self, mock_logger_factory, mock_use_case_cls, mock_handle_task
     ):
@@ -118,7 +149,7 @@ class TaskOrderStatusUpdateTests(TestCase):
         mock_handle_task.apply_async.assert_not_called()
 
     @patch("retail.vtex.tasks.AgentOrderStatusUpdateUsecase")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_runs_agent_path_when_integrated_agent_exists(
         self, mock_logger_factory, mock_use_case_cls
     ):
@@ -126,7 +157,7 @@ class TaskOrderStatusUpdateTests(TestCase):
 
         execution_uuid = uuid4()
         mock_logger = MagicMock()
-        mock_logger.log_webhook_received.return_value = execution_uuid
+        mock_logger.log_webhook_received.side_effect = _mock_log_webhook_received(execution_uuid)
         mock_logger_factory.return_value = mock_logger
 
         project = MagicMock(uuid=uuid4())
@@ -151,7 +182,7 @@ class TaskOrderStatusUpdateTests(TestCase):
 
     @patch("retail.vtex.tasks.OrderStatusUseCase")
     @patch("retail.vtex.tasks.AgentOrderStatusUpdateUsecase")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_falls_back_to_legacy_use_case_when_no_integrated_agent(
         self, mock_logger_factory, mock_use_case_cls, mock_legacy_cls
     ):
@@ -177,7 +208,7 @@ class TaskOrderStatusUpdateTests(TestCase):
         mock_use_case.execute.assert_not_called()
 
     @patch("retail.vtex.tasks.AgentOrderStatusUpdateUsecase")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_validation_error_is_swallowed(
         self, mock_logger_factory, mock_use_case_cls
     ):
@@ -196,7 +227,7 @@ class TaskOrderStatusUpdateTests(TestCase):
         mock_logger.log_execution_error.assert_not_called()
 
     @patch("retail.vtex.tasks.AgentOrderStatusUpdateUsecase")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_validation_error_is_logged_when_execution_uuid_exists(
         self, mock_logger_factory, mock_use_case_cls
     ):
@@ -208,7 +239,7 @@ class TaskOrderStatusUpdateTests(TestCase):
 
         execution_uuid = uuid4()
         mock_logger = MagicMock()
-        mock_logger.log_webhook_received.return_value = execution_uuid
+        mock_logger.log_webhook_received.side_effect = _mock_log_webhook_received(execution_uuid)
         mock_logger_factory.return_value = mock_logger
 
         project = MagicMock(uuid=uuid4())
@@ -226,11 +257,11 @@ class TaskOrderStatusUpdateTests(TestCase):
         mock_logger.log_execution_error.assert_called_once()
         kwargs = mock_logger.log_execution_error.call_args.kwargs
         self.assertEqual(kwargs.get("execution_uuid"), execution_uuid)
-        self.assertIn("Validation error", kwargs.get("error_message", ""))
+        self.assertIn("downstream invalid", kwargs.get("error_message", ""))
         self.assertEqual(kwargs.get("error_data"), {"order_update_data": order_data})
 
     @patch("retail.vtex.tasks.AgentOrderStatusUpdateUsecase")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_unexpected_error_after_execution_uuid_logs_error(
         self, mock_logger_factory, mock_use_case_cls
     ):
@@ -238,7 +269,7 @@ class TaskOrderStatusUpdateTests(TestCase):
 
         execution_uuid = uuid4()
         mock_logger = MagicMock()
-        mock_logger.log_webhook_received.return_value = execution_uuid
+        mock_logger.log_webhook_received.side_effect = _mock_log_webhook_received(execution_uuid)
         mock_logger_factory.return_value = mock_logger
 
         project = MagicMock(uuid=uuid4())
@@ -259,7 +290,7 @@ class TaskOrderStatusUpdateTests(TestCase):
         self.assertEqual(kwargs.get("error_data"), {"order_update_data": order_data})
 
     @patch("retail.vtex.tasks.AgentOrderStatusUpdateUsecase")
-    @patch("retail.vtex.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_unexpected_error_without_execution_uuid_does_not_log(
         self, mock_logger_factory, mock_use_case_cls
     ):
