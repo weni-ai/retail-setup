@@ -2,10 +2,12 @@ import logging
 
 import random
 
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, Union
 
 from uuid import UUID
 
+from retail.agents.domains.agent_execution.context import set_current_execution_uuid
+from retail.agents.domains.agent_execution.services.logger import ExecutionLoggerService
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_webhook.services.broadcast import (
     Broadcast,
@@ -22,6 +24,9 @@ from retail.broadcasts.usecases.record_broadcast_sent import (
     BroadcastDispatchContext,
 )
 from retail.interfaces.clients.aws_lambda.client import RequestData
+from retail.interfaces.services.execution_logger import (
+    ExecutionLoggerServiceInterface,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +37,14 @@ class AgentWebhookUseCase:
         active_agent: Optional[ActiveAgent] = None,
         broadcast: Optional[Broadcast] = None,
         cache: Optional[IntegratedAgentCacheHandler] = None,
+        exec_logger: Optional[ExecutionLoggerServiceInterface] = None,
     ):
         self.active_agent = active_agent or ActiveAgent()
         self.broadcast_handler = broadcast or Broadcast()
         self.cache_handler = cache or IntegratedAgentCacheHandlerRedis()
+        self.exec_logger: ExecutionLoggerServiceInterface = (
+            exec_logger or ExecutionLoggerService()
+        )
         self.IGNORE_INTEGRATED_AGENT_UUID = "d30bcce8-ce67-4677-8a33-c12b62a51d4f"
 
     def _get_integrated_agent(self, uuid: UUID):
@@ -109,23 +118,40 @@ class AgentWebhookUseCase:
     def _process_lambda_response(
         self,
         integrated_agent: IntegratedAgent,
-        response: Dict[str, Any],
+        parsed_data: Dict[str, Any],
         dispatch_context: Optional[BroadcastDispatchContext] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Process lambda response and build broadcast message."""
-        data = self.active_agent.parse_response(response)
+        """Process parsed lambda response and build broadcast message.
 
-        if not data:
-            logger.info("Error in parsing lambda response.")
-            return None
+        Args:
+            integrated_agent: The integrated agent
+            parsed_data: Already parsed lambda response data (parse only once
+                         since AWS Lambda StreamingBody can only be read once)
+            dispatch_context: Optional commercial origin (order_form_id /
+                order_id) captured pre-Lambda so the persisted
+                BroadcastMessage row can later be matched against an
+                ``invoiced`` event for conversion attribution.
+        """
+        exec_logger = self.exec_logger
+        data = parsed_data
 
-        response["payload"] = data
+        # Update contact_urn if we now have it from lambda response
+        if data.get("contact_urn"):
+            exec_logger.update_contact_urn(contact_urn=data["contact_urn"])
 
         if not self.active_agent.validate_response(data, integrated_agent):
+            exec_logger.log_execution_skip(
+                reason="Lambda response validation failed",
+                skip_data={"status": data.get("status"), "error": data.get("error")},
+            )
             return None
 
         if not self.broadcast_handler.can_send_to_contact(integrated_agent, data):
             logger.info("Contact is not allowed to receive the broadcast.")
+            exec_logger.log_execution_skip(
+                reason="Contact not allowed to receive broadcast",
+                skip_data={"contact_urn": data.get("contact_urn")},
+            )
             return None
 
         try:
@@ -134,19 +160,96 @@ class AgentWebhookUseCase:
                 logger.info(
                     f"Failed to build broadcast message from payload data: {data}"
                 )
+                exec_logger.log_execution_error(
+                    error_message="Failed to build broadcast message",
+                    error_data={"payload_data": data},
+                )
                 return None
 
-            self.broadcast_handler.send_message(
+            dispatch_result = self.broadcast_handler.send_message(
                 message,
                 integrated_agent,
                 data,
                 dispatch_context=dispatch_context,
             )
-            return response
+            broadcast_response = dispatch_result.response
+            broadcast_message_uuid = dispatch_result.broadcast_message_uuid
+
+            template = self.broadcast_handler.get_current_template(
+                integrated_agent, data
+            )
+            template_uuid = (
+                template.uuid if template and template is not False else None
+            )
+            broadcast_id = broadcast_response.get("id") if broadcast_response else None
+
+            exec_logger.log_broadcast_sent(
+                broadcast_response=broadcast_response or {},
+                template_uuid=template_uuid,
+                broadcast_id=broadcast_id,
+                broadcast_message_uuid=broadcast_message_uuid,
+            )
+
+            return data
 
         except Exception as e:
             logger.exception(f"Unexpected error while building broadcast message: {e}")
+            exec_logger.log_execution_error(
+                error_message=f"Error building/sending broadcast: {str(e)}",
+            )
             return None
+
+    def execute_from_task(
+        self,
+        integrated_agent_uuid: Union[str, UUID],
+        payload: Dict[str, Any],
+        params: Optional[Dict[str, Any]] = None,
+        forwarded_execution_uuid: Optional[Union[str, UUID]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Run the full task flow: resolve agent, open/forward an execution row, dispatch.
+
+        Centralises the orchestration that used to live in
+        ``task_agent_webhook``: contextvar wiring, agent lookup, the
+        "forward upstream UUID vs open a fresh one" branch, credential
+        assembly, and the final ``execute`` call. Keeps the task as
+        glue per the project's hexagonal-architecture guidance.
+        """
+        request_data = RequestData(params=params or {}, payload=payload)
+
+        forwarded_uuid: Optional[UUID] = None
+        if forwarded_execution_uuid is not None:
+            forwarded_uuid = (
+                forwarded_execution_uuid
+                if isinstance(forwarded_execution_uuid, UUID)
+                else UUID(str(forwarded_execution_uuid))
+            )
+            # Set the contextvar before the agent lookup so a missing
+            # agent can be closed as an explicit skip on the forwarded
+            # row instead of timing out at the ZSET deadline.
+            set_current_execution_uuid(forwarded_uuid)
+
+        integrated_agent = self._get_integrated_agent(integrated_agent_uuid)
+        if not integrated_agent:
+            logger.info(f"Integrated agent not found for UUID {integrated_agent_uuid}.")
+            if forwarded_uuid is not None:
+                self.exec_logger.log_execution_skip(
+                    execution_uuid=forwarded_uuid,
+                    reason="integrated_agent_missing_or_blocked",
+                    skip_data={"integrated_agent_uuid": str(integrated_agent_uuid)},
+                )
+            return None
+
+        if forwarded_uuid is None:
+            self.exec_logger.log_webhook_received(
+                integrated_agent=integrated_agent,
+                payload=payload,
+            )
+
+        credentials = self._addapt_credentials(integrated_agent)
+        request_data.set_credentials(credentials)
+        request_data.set_ignored_official_rules(integrated_agent.ignore_templates)
+
+        return self.execute(integrated_agent, request_data)
 
     def execute(
         self, integrated_agent: IntegratedAgent, data: "RequestData"
@@ -158,30 +261,74 @@ class AgentWebhookUseCase:
         (sampling, restrictions, Lambda failures, etc.).
         """
         logger.info(f"Executing broadcast for agent: {integrated_agent.uuid}")
+        exec_logger = self.exec_logger
 
-        if not self._should_send_broadcast(integrated_agent):
-            logger.info("Broadcast not allowed for this agent.")
-            return None
+        # Wrapping here guarantees the trace lands
+        # regardless of who invokes the use case. The exception is
+        # re-raised so outer handlers (e.g. `task_agent_webhook`'s
+        # `except`) keep their current behaviour.
+        try:
+            if not self._should_send_broadcast(integrated_agent):
+                logger.info("Broadcast not allowed for this agent.")
+                exec_logger.log_execution_skip(
+                    reason="Broadcast not allowed (contact percentage check)",
+                    skip_data={
+                        "contact_percentage": integrated_agent.contact_percentage
+                    },
+                )
+                return None
 
-        self._set_project_rules(integrated_agent, data)
+            self._set_project_rules(integrated_agent, data)
 
-        # Captured pre-Lambda so attribution survives Lambdas that drop
-        # the order identifiers from their response.
-        dispatch_context = self._extract_dispatch_context(data.payload)
-
-        response = self.active_agent.invoke(
-            integrated_agent=integrated_agent, data=data
-        )
-        result = self._process_lambda_response(
-            integrated_agent, response, dispatch_context=dispatch_context
-        )
-
-        if result:
-            logger.info(
-                f"Successfully executed broadcast for agent: {integrated_agent.uuid}"
+            exec_logger.log_lambda_request(
+                request_data={
+                    "params": dict(data.params) if data.params else {},
+                    "payload": dict(data.payload) if data.payload else {},
+                    "project_rules": data.project_rules,
+                },
             )
 
-        return result
+            # Captured pre-Lambda so attribution survives Lambdas that drop
+            # the order identifiers from their response.
+            dispatch_context = self._extract_dispatch_context(data.payload)
+
+            response = self.active_agent.invoke(
+                integrated_agent=integrated_agent, data=data
+            )
+
+            parsed_response = self.active_agent.parse_response(response)
+            log_tail = self.active_agent.parse_log_tail(response)
+
+            exec_logger.log_lambda_response(
+                response_data=parsed_response or {"error": "Failed to parse response"},
+                log_tail=log_tail,
+            )
+
+            if not parsed_response:
+                logger.info("Error in parsing lambda response.")
+                exec_logger.log_execution_error(
+                    error_message="Error parsing lambda response",
+                )
+                return None
+
+            result = self._process_lambda_response(
+                integrated_agent,
+                parsed_response,
+                dispatch_context=dispatch_context,
+            )
+
+            if result:
+                logger.info(
+                    f"Successfully executed broadcast for agent: {integrated_agent.uuid}"
+                )
+
+            return result
+        except Exception as e:
+            exec_logger.log_execution_error(
+                error_message=str(e),
+                error_data={"phase": "agent_webhook_execute"},
+            )
+            raise
 
     @staticmethod
     def _extract_dispatch_context(

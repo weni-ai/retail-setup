@@ -6,6 +6,7 @@ from django.core.cache import cache
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
 
+from retail.agents.domains.agent_execution.services.logger import ExecutionLoggerService
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_webhook.usecases.webhook import (
     AgentWebhookUseCase,
@@ -16,6 +17,9 @@ from retail.agents.shared.cache import (
     IntegratedAgentCacheHandlerRedis,
 )
 from retail.interfaces.clients.aws_lambda.client import RequestData
+from retail.interfaces.services.execution_logger import (
+    ExecutionLoggerServiceInterface,
+)
 from retail.projects.models import Project
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
@@ -51,8 +55,12 @@ class AgentOrderStatusUpdateUsecase:
     def __init__(
         self,
         cache_handler: Optional[IntegratedAgentCacheHandler] = None,
+        exec_logger: Optional[ExecutionLoggerServiceInterface] = None,
     ) -> None:
         self.cache_handler = cache_handler or IntegratedAgentCacheHandlerRedis()
+        self.exec_logger: ExecutionLoggerServiceInterface = (
+            exec_logger or ExecutionLoggerService()
+        )
 
     def get_integrated_agent_if_exists(
         self, project: Project
@@ -211,7 +219,9 @@ class AgentOrderStatusUpdateUsecase:
         return not event_registered_now
 
     def execute(
-        self, integrated_agent: IntegratedAgent, order_status_dto: OrderStatusDTO
+        self,
+        integrated_agent: IntegratedAgent,
+        order_status_dto: OrderStatusDTO,
     ) -> None:
         vtex_account = order_status_dto.vtexAccount
         current_state = order_status_dto.currentState
@@ -223,6 +233,17 @@ class AgentOrderStatusUpdateUsecase:
                 f"[ORDER_STATUS] duplicate_skipped: "
                 f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
                 f"current_state={current_state} order_id={order_id}"
+            )
+            # Close the execution row opened by the upstream task; without
+            # this skip the row would linger at `processing` until the
+            # ZSET deadline force-finalises it as `Execution timed out`.
+            self.exec_logger.log_execution_skip(
+                reason="duplicate_order_status_event_within_window",
+                skip_data={
+                    "order_id": order_status_dto.orderId,
+                    "current_state": order_status_dto.currentState,
+                    "vtex_account": order_status_dto.vtexAccount,
+                },
             )
             return
 
@@ -241,7 +262,7 @@ class AgentOrderStatusUpdateUsecase:
             payload=webhook_payload,
         )
 
-        agent_webhook_use_case = AgentWebhookUseCase()
+        agent_webhook_use_case = AgentWebhookUseCase(exec_logger=self.exec_logger)
         credentials = agent_webhook_use_case._addapt_credentials(integrated_agent)
 
         request_data.set_credentials(credentials)

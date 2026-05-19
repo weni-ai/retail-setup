@@ -1,3 +1,5 @@
+import base64
+
 from django.test import TestCase
 
 from unittest.mock import MagicMock, patch
@@ -122,6 +124,34 @@ class ActiveAgentTest(TestCase):
         result = self.handler.parse_response(response)
 
         self.assertIsNone(result)
+
+    def test_parse_log_tail_decodes_base64_log_result(self):
+        log_text = "START RequestId: abc\nhello from print\nEND RequestId: abc\n"
+        response = {
+            "LogResult": base64.b64encode(log_text.encode("utf-8")).decode("ascii"),
+        }
+
+        result = self.handler.parse_log_tail(response)
+
+        self.assertEqual(result, log_text)
+
+    def test_parse_log_tail_returns_none_when_log_result_missing(self):
+        # Older boto3 / async invokes don't include LogResult; the parser
+        # must degrade gracefully rather than blowing up the exec_logger.
+        result = self.handler.parse_log_tail({"Payload": MagicMock()})
+
+        self.assertIsNone(result)
+
+    def test_parse_log_tail_returns_none_for_invalid_base64(self):
+        response = {"LogResult": "!!!not-base64!!!"}
+
+        with patch(
+            "retail.agents.domains.agent_webhook.services.active_agent.logger"
+        ) as mock_logger:
+            result = self.handler.parse_log_tail(response)
+
+        self.assertIsNone(result)
+        mock_logger.warning.assert_called_once()
 
     def test_validate_response_rule_matched(self):
         data = {"status": ActiveAgentResponseStatus.RULE_MATCHED}

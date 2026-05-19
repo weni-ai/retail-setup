@@ -1,0 +1,383 @@
+"""Flush the agent-execution buffer to Postgres and S3.
+
+Drains the Redis ZSET in ``ExecutionBufferService.FLUSH_QUEUE_KEY``,
+writes traces to S3 in parallel, applies per-row UPDATEs for terminal
+entries and a single batched UPDATE for timed-out entries, then
+unlinks the Redis state. Optionally runs the SQL stuck sweep on the
+same tick — that lives in ``SweepStuckExecutionsUseCase``.
+"""
+
+import json
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from uuid import UUID
+
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+
+from retail.agents.domains.agent_execution.models import (
+    AgentExecution,
+    AgentExecutionStatus,
+)
+from retail.agents.domains.agent_execution.services import buffer as _buffer_module
+from retail.agents.domains.agent_execution.services.buffer import (
+    ExecutionBufferService,
+    _decode,
+    _get_shared_traces_storage,
+)
+from retail.agents.domains.agent_execution.services.traces_storage import (
+    ExecutionTracesStorageService,
+)
+from retail.agents.domains.agent_execution.usecases.sweep_stuck_executions import (
+    SweepStuckExecutionsUseCase,
+)
+
+
+logger = logging.getLogger(__name__)
+
+
+TIMEOUT_ERROR_MESSAGE = "Execution timed out"
+
+
+# Redis hash field -> AgentExecution column. Only fields that map
+# 1:1 onto the model land here. The flush extracts these from the
+# deserialized hash and feeds them straight into ``update(...)``.
+_ORM_DIRECT_FIELDS: Tuple[str, ...] = (
+    "status",
+    "error_message",
+    "contact_urn",
+    "broadcast_id",
+    "order_id",
+    "amount",
+    "currency",
+    "traces_s3_key",
+)
+
+# FK shortcuts. The buffer stores a UUID under the ``*_uuid`` field
+# name; the flush translates it to the model's ``*_id`` column so
+# Django persists it without a related-object lookup.
+_ORM_FK_TRANSLATIONS = {
+    "integrated_agent_uuid": "integrated_agent_id",
+    "template_uuid": "template_id",
+    "broadcast_message_uuid": "broadcast_message_id",
+}
+
+
+def _coerce_uuid(value: Any) -> Optional[UUID]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_orm_fields(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Pick the kwargs from a Redis hash that map onto ``AgentExecution``.
+
+    ``None`` and empty-string values are dropped so the UPDATE never
+    clobbers an existing column with an absent value. FK shortcuts use
+    the model's ``*_id`` form so Django stores the UUID directly
+    without a related-object lookup.
+    """
+    out: Dict[str, Any] = {}
+    for key in _ORM_DIRECT_FIELDS:
+        value = data.get(key)
+        if value is None or value == "":
+            continue
+        out[key] = value
+    for src, dst in _ORM_FK_TRANSLATIONS.items():
+        value = _coerce_uuid(data.get(src))
+        if value is not None:
+            out[dst] = value
+    return out
+
+
+def _parse_traces(raw_traces: Iterable[Any], uuid_str: str) -> List[Dict[str, Any]]:
+    traces: List[Dict[str, Any]] = []
+    for raw_trace in raw_traces or []:
+        if isinstance(raw_trace, bytes):
+            raw_trace = raw_trace.decode("utf-8")
+        try:
+            traces.append(json.loads(raw_trace))
+        except json.JSONDecodeError as parse_err:
+            logger.warning(
+                "[EXEC_LOG] Skipping malformed trace for %s: %s",
+                uuid_str,
+                parse_err,
+            )
+    return traces
+
+
+def mark_processing_as_timed_out(uuids: Iterable[UUID]) -> None:
+    """Mark in-flight rows as ``error='Execution timed out'``.
+
+    The ``status='processing'`` filter makes the call idempotent: a
+    late terminal arriving after the caller picked the UUIDs up but
+    before this UPDATE hits won't be overwritten.
+    """
+    uuid_list = list(uuids)
+    if not uuid_list:
+        return
+    AgentExecution.objects.filter(
+        uuid__in=uuid_list,
+        status=AgentExecutionStatus.PROCESSING,
+    ).update(
+        status=AgentExecutionStatus.ERROR,
+        error_message=TIMEOUT_ERROR_MESSAGE,
+        updated_on=timezone.now(),
+    )
+
+
+def write_traces_parallel(
+    traces_storage: ExecutionTracesStorageService,
+    writes: List[Tuple[UUID, str, List[Dict[str, Any]]]],
+    max_workers: int,
+) -> Set[str]:
+    """Write a batch of traces files to S3 in parallel.
+
+    Returns the set of UUID strings whose PUT failed so the caller can
+    leave them in the flush queue for retry.
+    """
+    if not writes:
+        return set()
+
+    failures: Set[str] = set()
+
+    def _put(execution_uuid: UUID, s3_key: str, traces: List[Dict[str, Any]]) -> Optional[str]:
+        try:
+            traces_storage.write_traces(
+                execution_uuid=execution_uuid,
+                traces=traces,
+                s3_key=s3_key,
+            )
+            return None
+        except Exception:
+            logger.exception(
+                "[EXEC_LOG] S3 PUT failed for execution %s; will retry",
+                execution_uuid,
+            )
+            return str(execution_uuid)
+
+    workers = max(1, min(max_workers, len(writes)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_uuid = {
+            executor.submit(_put, execution_uuid, s3_key, traces): str(execution_uuid)
+            for execution_uuid, s3_key, traces in writes
+        }
+        for future, uuid_str in future_to_uuid.items():
+            try:
+                failed = future.result()
+            except Exception:
+                logger.exception(
+                    "[EXEC_LOG] Unexpected S3 PUT failure for %s", uuid_str
+                )
+                failed = uuid_str
+            if failed:
+                failures.add(failed)
+    return failures
+
+
+@dataclass(frozen=True)
+class FlushResult:
+    """Outcome of a single flush tick."""
+
+    flushed: int = 0
+    stuck_finalized: int = 0
+
+    def as_dict(self) -> Dict[str, int]:
+        """Backwards-compatible dict view for callers expecting the old shape."""
+        return {"flushed": self.flushed, "stuck_finalized": self.stuck_finalized}
+
+
+class FlushExecutionsUseCase:
+    """Drain the execution buffer to DB + S3."""
+
+    def __init__(
+        self,
+        buffer: Optional[ExecutionBufferService] = None,
+        traces_storage: Optional[ExecutionTracesStorageService] = None,
+        sweep_use_case: Optional[SweepStuckExecutionsUseCase] = None,
+    ):
+        self.buffer = buffer or ExecutionBufferService(traces_storage=traces_storage)
+        self._traces_storage = traces_storage
+        self.sweep_use_case = sweep_use_case
+        self.flush_batch_size = getattr(
+            settings,
+            "AGENT_EXECUTION_FLUSH_BATCH_SIZE",
+            ExecutionBufferService.DEFAULT_FLUSH_BATCH_SIZE,
+        )
+        self.s3_parallel_puts = getattr(
+            settings,
+            "AGENT_EXECUTION_S3_PARALLEL_PUTS",
+            ExecutionBufferService.DEFAULT_S3_PARALLEL_PUTS,
+        )
+
+    @property
+    def traces_storage(self) -> ExecutionTracesStorageService:
+        if self._traces_storage is None:
+            self._traces_storage = _get_shared_traces_storage()
+        return self._traces_storage
+
+    def execute(self, do_stuck_sweep: bool = False) -> FlushResult:
+        """Drain the flush queue and optionally run the stuck sweep."""
+        try:
+            # Route through the buffer module so a single
+            # ``patch("...buffer.get_redis_connection", ...)`` in tests
+            # covers both the buffer adapter and this use case.
+            redis_client = _buffer_module.get_redis_connection("default")
+        except Exception:
+            logger.exception(
+                "[EXEC_LOG] Could not connect to Redis; skipping flush tick"
+            )
+            return FlushResult()
+
+        now_ts = timezone.now().timestamp()
+        try:
+            ready_raw = (
+                redis_client.zrangebyscore(
+                    ExecutionBufferService.FLUSH_QUEUE_KEY,
+                    min=0,
+                    max=now_ts,
+                    start=0,
+                    num=self.flush_batch_size,
+                )
+                or []
+            )
+        except Exception:
+            logger.exception(
+                "[EXEC_LOG] ZRANGEBYSCORE failed on flush queue; skipping tick"
+            )
+            ready_raw = []
+
+        flushed = 0
+        if ready_raw:
+            ready = [_decode(u) for u in ready_raw]
+            flushed = self._process_flush_batch(ready, redis_client)
+
+        stuck_finalized = 0
+        if do_stuck_sweep:
+            sweep = self.sweep_use_case or SweepStuckExecutionsUseCase(
+                traces_storage=self.traces_storage,
+                batch_size=self.flush_batch_size,
+                s3_parallel_puts=self.s3_parallel_puts,
+            )
+            stuck_finalized = sweep.execute(redis_client)
+
+        if flushed or stuck_finalized:
+            logger.info(
+                "[EXEC_LOG] Flushed %d execution(s); finalized %d stuck",
+                flushed,
+                stuck_finalized,
+            )
+        return FlushResult(flushed=flushed, stuck_finalized=stuck_finalized)
+
+    def _process_flush_batch(self, uuids: List[str], redis_client) -> int:
+        if not uuids:
+            return 0
+
+        try:
+            read_pipe = redis_client.pipeline(transaction=False)
+            for u in uuids:
+                read_pipe.hgetall(self.buffer.data_key(u))
+                read_pipe.lrange(self.buffer.traces_key(u), 0, -1)
+            read_results = read_pipe.execute()
+        except Exception:
+            logger.exception(
+                "[EXEC_LOG] Pipelined read failed; leaving batch for next tick"
+            )
+            return 0
+
+        terminal_entries: List[Tuple[str, Dict[str, Any]]] = []
+        timeout_entries: List[str] = []
+        s3_writes: List[Tuple[UUID, str, List[Dict[str, Any]]]] = []
+
+        for i, uuid_str in enumerate(uuids):
+            raw_hash = read_results[i * 2]
+            raw_traces = read_results[i * 2 + 1]
+            data = self.buffer.deserialize_hash(raw_hash)
+            traces = _parse_traces(raw_traces, uuid_str)
+
+            execution_uuid = UUID(uuid_str)
+            traces_s3_key = data.get(
+                "traces_s3_key"
+            ) or self.traces_storage.get_traces_key(execution_uuid)
+
+            if traces:
+                s3_writes.append((execution_uuid, traces_s3_key, traces))
+
+            if self.buffer.is_terminal_status(data.get("status")):
+                terminal_entries.append((uuid_str, data))
+            else:
+                timeout_entries.append(uuid_str)
+
+        s3_failures = write_traces_parallel(
+            self.traces_storage, s3_writes, self.s3_parallel_puts
+        )
+
+        # Anything whose S3 PUT failed stays in the queue so the next
+        # tick retries. The DB UPDATE is correlated to the S3 write
+        # because the row carries the traces_s3_key, and we don't want
+        # to mark a row as terminal while its trace file is still
+        # pending.
+        if s3_failures:
+            terminal_entries = [
+                (u, d) for u, d in terminal_entries if u not in s3_failures
+            ]
+            timeout_entries = [u for u in timeout_entries if u not in s3_failures]
+
+        try:
+            with transaction.atomic():
+                self._update_terminal_rows(terminal_entries)
+                mark_processing_as_timed_out(UUID(u) for u in timeout_entries)
+        except Exception:
+            logger.exception("[EXEC_LOG] DB update failed; leaving batch for next tick")
+            return 0
+
+        successful = [u for u, _ in terminal_entries] + timeout_entries
+        if successful:
+            try:
+                cleanup_pipe = redis_client.pipeline(transaction=False)
+                for u in successful:
+                    cleanup_pipe.unlink(self.buffer.data_key(u), self.buffer.traces_key(u))
+                cleanup_pipe.zrem(ExecutionBufferService.FLUSH_QUEUE_KEY, *successful)
+                cleanup_pipe.execute()
+            except Exception:
+                logger.exception(
+                    "[EXEC_LOG] Cleanup pipeline failed; some Redis state may linger"
+                )
+
+        return len(successful)
+
+    @staticmethod
+    def _update_terminal_rows(
+        terminal_entries: List[Tuple[str, Dict[str, Any]]],
+    ) -> None:
+        """Per-row UPDATE for terminal-status executions.
+
+        Each row gets its own ``filter(uuid=...).update(...)`` so we
+        only touch the columns whose buffered hash carried a value.
+        ``bulk_update`` would clobber missing fields with ``None`` —
+        not safe when the buffer's hash is intentionally sparse.
+        """
+        now = timezone.now()
+        for uuid_str, data in terminal_entries:
+            update_fields = _extract_orm_fields(data)
+            if not update_fields:
+                continue
+            update_fields["updated_on"] = now
+            updated = AgentExecution.objects.filter(uuid=UUID(uuid_str)).update(
+                **update_fields
+            )
+            if not updated:
+                logger.warning(
+                    "[EXEC_LOG] Terminal flush found no DB row for execution %s; "
+                    "fields=%s",
+                    uuid_str,
+                    sorted(update_fields.keys()),
+                )

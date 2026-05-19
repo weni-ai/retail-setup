@@ -4,7 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from uuid import uuid4
 
-from retail.agents.domains.agent_webhook.services.broadcast import Broadcast
+from retail.agents.domains.agent_webhook.services.broadcast import (
+    Broadcast,
+    BroadcastDispatchResult,
+)
 
 
 class BroadcastHandlerTest(TestCase):
@@ -154,6 +157,60 @@ class BroadcastHandlerTest(TestCase):
         self.handler.send_message(message, mock_agent, lambda_data)
 
         self.mock_flows_service.send_whatsapp_broadcast.assert_called_once_with(message)
+
+    def test_send_message_returns_dispatch_result_with_response_and_uuid(self):
+        """``send_message`` returns a ``BroadcastDispatchResult`` so callers
+        get both the Flows response (for ``broadcast_id`` / template logs)
+        and the persisted ``BroadcastMessage.uuid`` to thread into
+        ``log_broadcast_sent`` (linking the agent execution to the
+        broadcast tracking row).
+        """
+        message = {"msg": {"template": {"name": "test"}}}
+        mock_agent = MagicMock()
+        mock_agent.project.uuid = uuid4()
+        mock_agent.project.vtex_account = "store"
+        mock_agent.agent.uuid = uuid4()
+        flows_response = {"id": 12345, "status": "queued"}
+        self.mock_flows_service.send_whatsapp_broadcast.return_value = flows_response
+
+        broadcast_message_uuid = uuid4()
+        broadcast_message = MagicMock(uuid=broadcast_message_uuid)
+
+        with patch.object(
+            self.handler,
+            "_record_broadcast_message",
+            return_value=broadcast_message,
+        ):
+            result = self.handler.send_message(
+                message, mock_agent, {"template": "test"}
+            )
+
+        self.assertIsInstance(result, BroadcastDispatchResult)
+        self.assertEqual(result.response, flows_response)
+        self.assertEqual(result.broadcast_message_uuid, broadcast_message_uuid)
+
+    def test_send_message_propagates_none_uuid_when_persistence_failed(self):
+        """``_record_broadcast_message`` is defensive — a persistence
+        failure returns ``None``. ``send_message`` must still return the
+        Flows response (the dispatch itself succeeded) but with a
+        ``None`` UUID so the agent execution stays unlinked rather than
+        getting attached to a non-existent broadcast row."""
+        message = {"msg": {"template": {"name": "test"}}}
+        mock_agent = MagicMock()
+        mock_agent.project.uuid = uuid4()
+        mock_agent.project.vtex_account = "store"
+        mock_agent.agent.uuid = uuid4()
+        flows_response = {"id": 12345, "status": "queued"}
+        self.mock_flows_service.send_whatsapp_broadcast.return_value = flows_response
+
+        with patch.object(self.handler, "_record_broadcast_message", return_value=None):
+            result = self.handler.send_message(
+                message, mock_agent, {"template": "test"}
+            )
+
+        self.assertIsInstance(result, BroadcastDispatchResult)
+        self.assertEqual(result.response, flows_response)
+        self.assertIsNone(result.broadcast_message_uuid)
 
     def test_build_message_success(self):
         data = {"template": "order_update", "contact_urn": "whatsapp:123"}
@@ -633,8 +690,10 @@ class BroadcastRecordingTest(TestCase):
             "status": "queued",
             "metadata": {"template": {"uuid": "tpl-uuid"}},
         }
+        broadcast_message = MagicMock(uuid=uuid4())
+        mock_use_case_cls.return_value.execute.return_value = broadcast_message
 
-        self.handler._record_broadcast_message(
+        result = self.handler._record_broadcast_message(
             message=message,
             response=response,
             integrated_agent=self.integrated_agent,
@@ -646,6 +705,9 @@ class BroadcastRecordingTest(TestCase):
         self.assertEqual(dto.broadcast_id, 12345)
         self.assertEqual(dto.contact_urn, "whatsapp:5511999999999")
         self.assertEqual(dto.flows_template_uuid, "tpl-uuid")
+        # The persisted row bubbles back so ``send_message`` can attach
+        # its UUID to the AgentExecution audit row.
+        self.assertIs(result, broadcast_message)
 
     @patch(
         "retail.agents.domains.agent_webhook.services.broadcast.RecordBroadcastSentUseCase"
@@ -683,13 +745,16 @@ class BroadcastRecordingTest(TestCase):
 
         # Must not raise even when the use case blows up — the dispatch
         # itself already happened and shouldn't be punished by a
-        # tracking persistence failure.
-        self.handler._record_broadcast_message(
+        # tracking persistence failure. The defensive return value is
+        # ``None`` so the caller knows there's no row to link.
+        result = self.handler._record_broadcast_message(
             message={"urns": ["whatsapp:5511"]},
             response={"id": 1},
             integrated_agent=self.integrated_agent,
             template=None,
         )
+
+        self.assertIsNone(result)
 
     @patch(
         "retail.agents.domains.agent_webhook.services.broadcast.RecordBroadcastSentUseCase"
