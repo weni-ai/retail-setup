@@ -38,8 +38,8 @@ JSON_URL_TTL_SECONDS = 60 * 15
 
 
 @dataclass(frozen=True)
-class ListAgentLogsFilter:
-    """Filter and pagination input for ``ListAgentLogsUseCase``.
+class ListAgentLogsDTO:
+    """Input DTO for ``ListAgentLogsUseCase``.
 
     ``agent_uuid`` is the ``IntegratedAgent.uuid`` (same convention as
     the rest of ``/api/v3/agents/assigneds/{pk}/...``). ``project_uuid``
@@ -98,7 +98,7 @@ class ListAgentLogsUseCase:
             )
             return None
 
-    def execute(self, dto: ListAgentLogsFilter) -> Tuple[List[AgentExecution], int]:
+    def execute(self, dto: ListAgentLogsDTO) -> Tuple[List[AgentExecution], int]:
         """Run the query and return ``(rows, total)``.
 
         Total is computed before slicing so the client can compute

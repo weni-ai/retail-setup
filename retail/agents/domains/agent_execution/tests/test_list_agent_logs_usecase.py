@@ -21,7 +21,7 @@ from retail.agents.domains.agent_execution.models import (
     AgentExecutionStatus,
 )
 from retail.agents.domains.agent_execution.usecases.list_agent_logs import (
-    ListAgentLogsFilter,
+    ListAgentLogsDTO,
     ListAgentLogsUseCase,
 )
 from retail.agents.domains.agent_integration.models import IntegratedAgent
@@ -92,13 +92,13 @@ class ListAgentLogsUseCaseTests(TestCase):
             uuid=uuid4(), agent=self.agent, project=self.other_project
         )
 
-    def _filter(self, **overrides) -> ListAgentLogsFilter:
+    def _filter(self, **overrides) -> ListAgentLogsDTO:
         defaults = dict(
             agent_uuid=self.integrated_agent.uuid,
             project_uuid=self.project.uuid,
         )
         defaults.update(overrides)
-        return ListAgentLogsFilter(**defaults)
+        return ListAgentLogsDTO(**defaults)
 
     def test_scopes_to_agent_and_project(self):
         mine = _make_execution(self.integrated_agent)
@@ -277,13 +277,13 @@ class ListAgentLogsBroadcastFilterTests(TestCase):
             uuid=uuid4(), agent=self.agent, project=self.project
         )
 
-    def _filter(self, **overrides) -> ListAgentLogsFilter:
+    def _filter(self, **overrides) -> ListAgentLogsDTO:
         defaults = dict(
             agent_uuid=self.integrated_agent.uuid,
             project_uuid=self.project.uuid,
         )
         defaults.update(overrides)
-        return ListAgentLogsFilter(**defaults)
+        return ListAgentLogsDTO(**defaults)
 
     def _success_with_broadcast(self, broadcast_status: str) -> AgentExecution:
         broadcast_message = _make_broadcast_message(

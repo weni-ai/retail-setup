@@ -22,7 +22,7 @@ from retail.agents.domains.agent_execution.models import (
 )
 from retail.agents.domains.agent_execution.usecases.export_agent_logs import (
     CSV_HEADER,
-    ExportAgentLogsFilter,
+    ExportAgentLogsDTO,
     ExportAgentLogsUseCase,
 )
 from retail.agents.domains.agent_integration.models import IntegratedAgent
@@ -81,13 +81,13 @@ class ExportAgentLogsUseCaseTests(TestCase):
             uuid=uuid4(), agent=self.agent, project=self.project
         )
 
-    def _filter(self, **overrides) -> ExportAgentLogsFilter:
+    def _filter(self, **overrides) -> ExportAgentLogsDTO:
         defaults = dict(
             agent_uuid=self.integrated_agent.uuid,
             project_uuid=self.project.uuid,
         )
         defaults.update(overrides)
-        return ExportAgentLogsFilter(**defaults)
+        return ExportAgentLogsDTO(**defaults)
 
     def _csv_rows(self, content_bytes: bytes):
         reader = csv.reader(io.StringIO(content_bytes.decode("utf-8")))
@@ -145,7 +145,7 @@ class ExportAgentLogsUseCaseTests(TestCase):
         self.assertIn("signature=fake", presigned_url)
 
     def test_filter_smoke_check_search_pipes_through(self):
-        """One smoke-check that ``ExportAgentLogsFilter`` is forwarded to
+        """One smoke-check that ``ExportAgentLogsDTO`` is forwarded to
         the underlying queryset; full filter-semantics coverage lives in
         ``test_list_agent_logs_usecase.py`` to avoid duplicating the
         date / template / multi-status / courier-join matrix.
@@ -219,7 +219,7 @@ class ExportAgentLogsKeyTests(TestCase):
             return_value=fixed_now,
         ):
             key, _ = use_case.execute(
-                ExportAgentLogsFilter(
+                ExportAgentLogsDTO(
                     agent_uuid=integrated_agent.uuid,
                     project_uuid=project.uuid,
                 )

@@ -10,7 +10,7 @@ from retail.agents.domains.agent_execution.usecases.cleanup_old_executions impor
     CleanupOldExecutionsUseCase,
 )
 from retail.agents.domains.agent_execution.usecases.export_agent_logs import (
-    ExportAgentLogsFilter,
+    ExportAgentLogsDTO,
     ExportAgentLogsUseCase,
 )
 from retail.agents.domains.agent_execution.usecases.flush_executions import (
@@ -161,7 +161,7 @@ def task_export_agent_logs(
         worker.
     """
     try:
-        dto = ExportAgentLogsFilter.from_task_args(
+        dto = ExportAgentLogsDTO.from_task_args(
             agent_uuid=agent_uuid,
             project_uuid=project_uuid,
             search=search,

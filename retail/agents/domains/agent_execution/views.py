@@ -30,7 +30,7 @@ from retail.agents.domains.agent_execution.serializers import (
     ListAgentLogsQuerySerializer,
 )
 from retail.agents.domains.agent_execution.usecases.list_agent_logs import (
-    ListAgentLogsFilter,
+    ListAgentLogsDTO,
     ListAgentLogsUseCase,
 )
 from retail.agents.domains.agent_integration.models import IntegratedAgent
@@ -82,7 +82,7 @@ class AgentLogsView(_AgentLogsBaseView):
         query_serializer.is_valid(raise_exception=True)
         validated = query_serializer.validated_data
 
-        dto = ListAgentLogsFilter(
+        dto = ListAgentLogsDTO(
             agent_uuid=integrated_agent.uuid,
             project_uuid=integrated_agent.project.uuid,
             search=validated.get("search") or None,

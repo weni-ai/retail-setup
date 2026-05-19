@@ -82,8 +82,8 @@ def _resolve_export_bucket() -> str:
 
 
 @dataclass(frozen=True)
-class ExportAgentLogsFilter:
-    """Filter input for ``ExportAgentLogsUseCase``.
+class ExportAgentLogsDTO:
+    """Input DTO for ``ExportAgentLogsUseCase``.
 
     Same fields as the list filter, all optional from the API's
     perspective. The view passes ``agent_uuid`` / ``project_uuid`` from
@@ -107,7 +107,7 @@ class ExportAgentLogsFilter:
         date_str: Optional[str] = None,
         template_uuids: Optional[Sequence[str]] = None,
         statuses: Optional[Sequence[str]] = None,
-    ) -> "ExportAgentLogsFilter":
+    ) -> "ExportAgentLogsDTO":
         """Build the filter from JSON-serializable Celery task arguments.
 
         Centralises the string→typed conversion so the task can stay
@@ -137,7 +137,7 @@ class ExportAgentLogsUseCase:
         else:
             self.s3_service = S3Service(bucket_name=_resolve_export_bucket())
 
-    def execute(self, dto: ExportAgentLogsFilter) -> Tuple[str, str]:
+    def execute(self, dto: ExportAgentLogsDTO) -> Tuple[str, str]:
         """Build the CSV, upload it to S3, and return ``(key, presigned_url)``."""
         queryset = self._build_queryset(dto)
 
@@ -167,7 +167,7 @@ class ExportAgentLogsUseCase:
         )
         return key, presigned_url
 
-    def _build_queryset(self, dto: ExportAgentLogsFilter):
+    def _build_queryset(self, dto: ExportAgentLogsDTO):
         queryset = AgentExecution.objects.select_related(
             "template",
             "template__parent",
@@ -217,6 +217,6 @@ class ExportAgentLogsUseCase:
         ]
 
     @staticmethod
-    def _build_key(dto: ExportAgentLogsFilter) -> str:
+    def _build_key(dto: ExportAgentLogsDTO) -> str:
         ts = timezone.now().strftime("%Y%m%dT%H%M%SZ")
         return f"exports/agent_logs/{dto.project_uuid}/{dto.agent_uuid}/{ts}.csv"
