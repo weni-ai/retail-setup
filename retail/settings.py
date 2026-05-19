@@ -246,6 +246,15 @@ AGENT_EXECUTION_FLUSH_BATCH_SIZE = env.int(
     "AGENT_EXECUTION_FLUSH_BATCH_SIZE", default=500
 )
 
+# Maximum number of AgentExecution rows the retention sweep deletes
+# per iteration. Bounds the per-statement runtime so the daily
+# cleanup task does not hit Postgres ``statement_timeout`` or the
+# Celery soft/hard timeout on tables with millions of rows. The use
+# case loops until no rows older than the retention horizon remain.
+AGENT_EXECUTION_CLEANUP_BATCH_SIZE = env.int(
+    "AGENT_EXECUTION_CLEANUP_BATCH_SIZE", default=5000
+)
+
 # Beat cadence for ``task_flush_execution_logs``. Each tick drains
 # ready entries from the queue and (every Nth tick) runs the SQL
 # stuck sweep. Empty ticks are no-ops.

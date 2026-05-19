@@ -125,6 +125,49 @@ class CleanupOldExecutionsUseCaseTests(TestCase):
 
         self.assertEqual(deleted, 0)
 
+    @override_settings(AGENT_EXECUTION_CLEANUP_BATCH_SIZE=5)
+    def test_batched_delete_handles_more_rows_than_batch_size(self):
+        """The sweep loops until no expired rows remain. Each batch
+        is bounded by ``AGENT_EXECUTION_CLEANUP_BATCH_SIZE`` so a
+        single ``DELETE`` never holds row locks across the full
+        retention horizon; the return value is the total across
+        batches and the INFO log fires once with that total.
+        """
+        for _ in range(12):
+            _make_execution(days_old=45)
+        kept = _make_execution(days_old=5)
+
+        logger_name = (
+            "retail.agents.domains.agent_execution.usecases.cleanup_old_executions"
+        )
+        with self.assertLogs(logger_name, level="INFO") as captured:
+            deleted = CleanupOldExecutionsUseCase().execute()
+
+        self.assertEqual(deleted, 12)
+        self.assertEqual(AgentExecution.objects.count(), 1)
+        self.assertTrue(AgentExecution.objects.filter(uuid=kept.uuid).exists())
+        self.assertEqual(len(captured.records), 1)
+        self.assertIn(
+            "Cleaned up 12 agent executions", captured.records[0].getMessage()
+        )
+
+    @override_settings(AGENT_EXECUTION_CLEANUP_BATCH_SIZE=5)
+    def test_batch_loop_terminates_on_empty_set(self):
+        """An empty initial batch breaks the loop without ever
+        issuing a DELETE — preserves the silent zero-deleted contract
+        even when batching is enabled.
+        """
+        _make_execution(days_old=2)
+
+        logger_name = (
+            "retail.agents.domains.agent_execution.usecases.cleanup_old_executions"
+        )
+        with self.assertNoLogs(logger_name, level="INFO"):
+            deleted = CleanupOldExecutionsUseCase().execute()
+
+        self.assertEqual(deleted, 0)
+        self.assertEqual(AgentExecution.objects.count(), 1)
+
 
 class TaskCleanupOldExecutionsTests(TestCase):
     """The Celery task is just glue: delegate to the use case and
