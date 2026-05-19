@@ -65,6 +65,18 @@ class TaskOrderStatusUpdateTests(TestCase):
         clear_execution_context()
         self.addCleanup(clear_execution_context)
 
+        # Conversion tracking is dispatched whenever the order state is in
+        # ``_PURCHASE_CONFIRMED_STATES`` (e.g. ``invoiced``). Without a
+        # broker — which is the case in CI — ``apply_async`` raises a
+        # connection error that ``execution_log_scope`` swallows, short-
+        # circuiting the rest of the task and breaking unrelated mocks.
+        # Patch the task at class scope so every test gets a no-op
+        # ``apply_async`` regardless of state. Tests that need to assert
+        # the dispatch can read ``self.mock_conversion_task`` directly.
+        conversion_patcher = patch("retail.vtex.tasks.task_mark_broadcast_converted")
+        self.mock_conversion_task = conversion_patcher.start()
+        self.addCleanup(conversion_patcher.stop)
+
     @patch("retail.vtex.tasks.AgentOrderStatusUpdateUsecase")
     @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_returns_early_when_project_not_found(
