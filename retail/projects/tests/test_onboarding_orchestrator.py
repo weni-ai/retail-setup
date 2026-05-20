@@ -24,7 +24,7 @@ class TestOnboardingOrchestratorPaymentRouting(TestCase):
 
         self._patch_target("CHANNEL_USECASES", new=self.fake_channel_usecases)
         self._patch_target("ConfigureAgentBuilderUseCase")
-        self._patch_target("IntegrateAgentsUseCase")
+        self.mock_integrate_cls = self._patch_target("IntegrateAgentsUseCase")
         self.mock_payment_cls = self._patch_target("ConfigureOneClickPaymentUseCase")
 
     def _patch_target(self, attr: str, new=None):
@@ -62,6 +62,22 @@ class TestOnboardingOrchestratorPaymentRouting(TestCase):
         OnboardingOrchestrator().execute("mystore", contents=[])
 
         self.mock_payment_cls.assert_not_called()
+
+    def test_one_click_payment_runs_before_integrate_agents_for_wpp_cloud(self):
+        """OCP must execute before agent integration so the One-Click
+        Payment agent can read the published flow_id as a credential."""
+        self._make_onboarding("wpp-cloud")
+        call_order = []
+        self.mock_payment_cls.return_value.execute.side_effect = (
+            lambda *_: call_order.append("ocp")
+        )
+        self.mock_integrate_cls.return_value.execute.side_effect = (
+            lambda *_: call_order.append("integrate")
+        )
+
+        OnboardingOrchestrator().execute("mystore", contents=[])
+
+        self.assertEqual(call_order, ["ocp", "integrate"])
 
     def test_propagates_failure_and_marks_onboarding_failed(self):
         self._make_onboarding("wpp-cloud")

@@ -30,8 +30,11 @@ class OnboardingOrchestrator:
     Orchestrates post-crawl configuration:
       1. Channel creation (10-20%)       -- dispatches to the channel-specific use case
       2. Nexus manager + upload (20-75%) -- configures agent and uploads content
-      3. Agent integration (75-100%)     -- integrates Nexus agents for the channel
-      4. One-Click Payment (wpp-cloud)   -- registers keys + Flow with Meta and payment-ms
+      3. One-Click Payment (wpp-cloud)   -- registers keys + creates+publishes Meta Flow
+                                            (runs BEFORE agent integration so the
+                                            One-Click Payment agent can consume the
+                                            published flow_id as a credential)
+      4. Agent integration (75-100%)     -- integrates Nexus agents for the channel
 
     Each step is sequential. If any step fails, progress freezes
     at the last saved value and the error propagates.
@@ -46,10 +49,10 @@ class OnboardingOrchestrator:
 
             ConfigureAgentBuilderUseCase().execute(vtex_account, contents)
 
-            IntegrateAgentsUseCase().execute(vtex_account)
-
             if channel_code in CHANNELS_WITH_ONE_CLICK_PAYMENT:
                 ConfigureOneClickPaymentUseCase().execute(vtex_account)
+
+            IntegrateAgentsUseCase().execute(vtex_account)
         except Exception as exc:
             mark_onboarding_failed(vtex_account, str(exc))
             raise
