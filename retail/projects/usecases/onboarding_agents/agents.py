@@ -22,6 +22,10 @@ from retail.services.nexus.service import NexusService
 logger = logging.getLogger(__name__)
 
 
+WPP_FLOW_CREDENTIAL_NAME = "wpp_flow_uuid"
+WPP_FLOW_CREDENTIAL_LABEL = "WhatsApp Flow UUID"
+
+
 class AbandonedCartAgent(ActiveAgent):
     """
     Active agent for abandoned cart notifications via WhatsApp Cloud.
@@ -76,3 +80,73 @@ class AbandonedCartAgent(ActiveAgent):
         )
 
         return {"integrated_agent_uuid": str(integrated_agent.uuid)}
+
+
+class OneClickPaymentAgent(ActiveAgent):
+    """
+    Active agent for the One-Click Payment flow on WhatsApp Cloud.
+
+    Integration steps:
+
+    1. Standard Nexus app-assign (same call PassiveAgent makes).
+    2. Bind the ``wpp_flow_uuid`` credential on the agent — the value
+       is the Meta Flow id created earlier by
+       ``ConfigureOneClickPaymentUseCase`` and passed through the
+       AgentContext.
+
+    Instantiated by ``get_channel_agents`` when the env JSON for the
+    channel contains the code registered in ``PASSIVE_AGENT_OVERRIDES``
+    (so the UUID still comes from ``PASSIVE_AGENTS_WPP_CLOUD`` like
+    every other agent).
+    """
+
+    name = "One Click Payment"
+
+    def __init__(self, uuid: str = "", name: str = ""):
+        if uuid:
+            self.uuid = uuid
+        if name:
+            self.name = name
+
+    def integrate(self, context: AgentContext, nexus_service: NexusService) -> dict:
+        self._validate_uuid()
+        self._validate_flow_id(context)
+
+        assign_response = nexus_service.integrate_agent(context.project_uuid, self.uuid)
+        if assign_response is None:
+            return None
+
+        credentials_response = nexus_service.create_agent_credentials(
+            project_uuid=context.project_uuid,
+            agent_uuid=self.uuid,
+            credentials=[self._build_wpp_flow_credential(context.flow_id)],
+        )
+        if credentials_response is None:
+            return None
+
+        logger.info(
+            f"One-Click Payment agent {self.uuid} integrated with "
+            f"wpp_flow_uuid credential for project={context.project_uuid}"
+        )
+
+        return {
+            "agent_assignment": assign_response,
+            "credentials": credentials_response,
+        }
+
+    @staticmethod
+    def _build_wpp_flow_credential(flow_id: str) -> dict:
+        return {
+            "name": WPP_FLOW_CREDENTIAL_NAME,
+            "label": WPP_FLOW_CREDENTIAL_LABEL,
+            "is_confidential": True,
+            "value": flow_id,
+        }
+
+    def _validate_flow_id(self, context: AgentContext) -> None:
+        if not context.flow_id:
+            raise ValueError(
+                f"One-Click Payment agent '{self.name}' requires "
+                f"context.flow_id. Ensure ConfigureOneClickPaymentUseCase "
+                f"ran before agent integration for the wpp-cloud channel."
+            )
