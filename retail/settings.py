@@ -347,7 +347,7 @@ if USE_META:
 
 # One-Click Payment microservice (WhatsApp Cloud onboarding final step).
 PAYMENT_REST_ENDPOINT = env.str("PAYMENT_REST_ENDPOINT", default="")
-PAYMENT_FLOW_NAME = env.str("PAYMENT_FLOW_NAME", default="flow_confirmacao_pagamento")
+PAYMENT_FLOW_NAME = env.str("PAYMENT_FLOW_NAME", default="payment_confirmation_flow")
 
 ORDER_STATUS_AGENT_UUID = env.str("ORDER_STATUS_AGENT_UUID", default="")
 ABANDONED_CART_AGENT_UUID = env.str("ABANDONED_CART_AGENT_UUID", default="")

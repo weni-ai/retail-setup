@@ -4,8 +4,8 @@ from uuid import uuid4
 from django.test import TestCase
 
 from retail.projects.usecases.onboarding_agents.agents import (
-    WPP_FLOW_CREDENTIAL_LABEL,
-    WPP_FLOW_CREDENTIAL_NAME,
+    WHATSAPP_CVV_FLOW_CREDENTIAL_LABEL,
+    WHATSAPP_CVV_FLOW_CREDENTIAL_NAME,
     OneClickPaymentAgent,
 )
 from retail.projects.usecases.onboarding_agents.base import AgentContext
@@ -26,7 +26,7 @@ class TestOneClickPaymentAgent(TestCase):
         self.mock_nexus_service = MagicMock()
         self.mock_nexus_service.integrate_agent.return_value = {"ok": True}
         self.mock_nexus_service.create_agent_credentials.return_value = {
-            "created_credentials": [WPP_FLOW_CREDENTIAL_NAME]
+            "created_credentials": [WHATSAPP_CVV_FLOW_CREDENTIAL_NAME]
         }
 
     def _make_agent(self) -> OneClickPaymentAgent:
@@ -45,8 +45,8 @@ class TestOneClickPaymentAgent(TestCase):
             agent_uuid=self.agent_uuid,
             credentials=[
                 {
-                    "name": WPP_FLOW_CREDENTIAL_NAME,
-                    "label": WPP_FLOW_CREDENTIAL_LABEL,
+                    "name": WHATSAPP_CVV_FLOW_CREDENTIAL_NAME,
+                    "label": WHATSAPP_CVV_FLOW_CREDENTIAL_LABEL,
                     "is_confidential": True,
                     "value": self.flow_id,
                 }
@@ -54,7 +54,8 @@ class TestOneClickPaymentAgent(TestCase):
         )
         self.assertEqual(result["agent_assignment"], {"ok": True})
         self.assertEqual(
-            result["credentials"], {"created_credentials": [WPP_FLOW_CREDENTIAL_NAME]}
+            result["credentials"],
+            {"created_credentials": [WHATSAPP_CVV_FLOW_CREDENTIAL_NAME]},
         )
 
     def test_raises_when_no_uuid_configured(self):

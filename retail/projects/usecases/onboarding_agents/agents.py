@@ -22,8 +22,8 @@ from retail.services.nexus.service import NexusService
 logger = logging.getLogger(__name__)
 
 
-WPP_FLOW_CREDENTIAL_NAME = "wpp_flow_uuid"
-WPP_FLOW_CREDENTIAL_LABEL = "WhatsApp Flow UUID"
+WHATSAPP_CVV_FLOW_CREDENTIAL_NAME = "WHATSAPP_CVV_FLOW_ID"
+WHATSAPP_CVV_FLOW_CREDENTIAL_LABEL = "WhatsApp CVV Flow ID"
 
 
 class AbandonedCartAgent(ActiveAgent):
@@ -119,14 +119,15 @@ class OneClickPaymentAgent(ActiveAgent):
         credentials_response = nexus_service.create_agent_credentials(
             project_uuid=context.project_uuid,
             agent_uuid=self.uuid,
-            credentials=[self._build_wpp_flow_credential(context.flow_id)],
+            credentials=[self._build_cvv_flow_credential(context.flow_id)],
         )
         if credentials_response is None:
             return None
 
         logger.info(
             f"One-Click Payment agent {self.uuid} integrated with "
-            f"wpp_flow_uuid credential for project={context.project_uuid}"
+            f"{WHATSAPP_CVV_FLOW_CREDENTIAL_NAME} credential for "
+            f"project={context.project_uuid}"
         )
 
         return {
@@ -135,10 +136,10 @@ class OneClickPaymentAgent(ActiveAgent):
         }
 
     @staticmethod
-    def _build_wpp_flow_credential(flow_id: str) -> dict:
+    def _build_cvv_flow_credential(flow_id: str) -> dict:
         return {
-            "name": WPP_FLOW_CREDENTIAL_NAME,
-            "label": WPP_FLOW_CREDENTIAL_LABEL,
+            "name": WHATSAPP_CVV_FLOW_CREDENTIAL_NAME,
+            "label": WHATSAPP_CVV_FLOW_CREDENTIAL_LABEL,
             "is_confidential": True,
             "value": flow_id,
         }
