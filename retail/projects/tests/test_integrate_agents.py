@@ -153,3 +153,43 @@ class TestIntegrateAgentsUseCase(TestCase):
         self.usecase.execute("mystore")
 
         self.assertEqual(self.mock_nexus_service.integrate_agent.call_count, 2)
+
+    def test_propagates_flow_id_from_payment_config_to_agent_context(self):
+        """When the wpp-cloud config has a published payment flow_id,
+        IntegrateAgentsUseCase must hand it to each agent via
+        AgentContext.flow_id (needed by OneClickPaymentAgent)."""
+        wpp_onboarding = ProjectOnboarding.objects.create(
+            vtex_account="wppstore",
+            project=Project.objects.create(
+                name="WPP Store", uuid=uuid4(), vtex_account="wppstore"
+            ),
+            config={
+                "channels": {
+                    "wpp-cloud": {
+                        "app_uuid": "app-1",
+                        "flow_object_uuid": "channel-1",
+                        "payment": {"flow_id": "flow-meta-123"},
+                    }
+                }
+            },
+        )
+
+        captured_contexts = []
+
+        class CapturingAgent(StubPassiveAgent):
+            def integrate(self, context, nexus_service):
+                captured_contexts.append(context)
+                return {"ok": True}
+
+        with patch(
+            "retail.projects.usecases.integrate_agents.get_channel_agents",
+            return_value=[CapturingAgent("uuid-x", "X")],
+        ):
+            self.usecase.execute("wppstore")
+
+        self.assertEqual(captured_contexts[0].flow_id, "flow-meta-123")
+        self.assertEqual(captured_contexts[0].app_uuid, "app-1")
+        self.assertEqual(captured_contexts[0].channel_uuid, "channel-1")
+
+        wpp_onboarding.refresh_from_db()
+        self.assertEqual(wpp_onboarding.progress, AGENT_PROGRESS_END)
