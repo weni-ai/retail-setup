@@ -15,6 +15,8 @@ class UpdateTemplateData(TypedDict):
         "DELETED",
         "DISABLED",
         "LOCKED",
+        "PAUSED",
+        "FLAGGED",
     ]
     version_uuid: str
 

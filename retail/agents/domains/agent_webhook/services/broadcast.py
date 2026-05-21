@@ -3,11 +3,24 @@ import logging
 import mimetypes
 from urllib.parse import urlparse
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from datetime import datetime
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.agents.domains.agent_webhook.services.direct_send_constants import (
+    MAX_BODY_LENGTH,
+    MAX_BUTTON_LABEL_LENGTH,
+    MAX_FOOTER_LENGTH,
+    MAX_HEADER_TEXT_LENGTH,
+)
+from retail.agents.domains.agent_webhook.services.direct_send_payload_builder import (
+    build_direct_send_buttons,
+    build_direct_send_footer,
+    build_direct_send_header,
+    is_valid_direct_send_template_name,
+    substitute_template_variables,
+)
 from retail.broadcasts.usecases.record_broadcast_sent import (
     BroadcastDispatchContext,
     RecordBroadcastSentDTO,
@@ -643,10 +656,188 @@ class Broadcast:
 
         return template
 
+    def build_direct_send_message(
+        self,
+        data: Dict[str, Any],
+        channel_uuid: str,
+        project_uuid: str,
+        template: Template,
+        integrated_agent: IntegratedAgent,
+    ) -> Optional[Dict[str, Any]]:
+        """Build the Direct Send broadcast payload.
+
+        Wire shape: ``contracts/messaging-gateway-payload.md`` §3 —
+        Retail substitutes every ``{{N}}`` placeholder server-side and
+        emits ``msg.direct_send=true`` + ``msg.category="utility"``.
+
+        Refuses to emit (returns ``None`` + WARNING audit-log entry with
+        the ``[BroadcastDispatch] skipped_due_to_direct_send_validation``
+        shape pinned by FR-039) when (a) the template name fails
+        ``is_valid_direct_send_template_name`` (FR-017 / Decision 7),
+        (b) ``template.metadata.body`` is missing or empty (Direct Send
+        Beta requires a body component), or (c) any post-substitution
+        component exceeds Meta's documented length limits — body ≤ 1024,
+        header.text ≤ 60, footer ≤ 60, button ``display_text`` / ``title``
+        ≤ 20 (constants in ``direct_send_constants``). Button ``url`` is
+        NOT length-checked here per contract §3.3 (URLs can be much
+        longer than the 20-char ``display_text`` ceiling).
+        """
+        template_variables = dict(data.get("template_variables") or {})
+        contact_urn = data.get("contact_urn")
+        template_name = template.current_version.template_name
+        metadata = template.metadata or {}
+        language = self._resolve_language(data, template)
+
+        image_url = template_variables.pop("image_url", None)
+        template_variables.pop("button", None)
+        template_variables.pop("order_details", None)
+        template_variables.pop("payment_buttons", None)
+
+        if not contact_urn:
+            logger.error(
+                f"Incomplete Direct Send message data. "
+                f"Template: {template_name}, URN: {contact_urn}"
+            )
+            return None
+
+        if not is_valid_direct_send_template_name(template_name):
+            self._log_direct_send_refusal(
+                integrated_agent=integrated_agent,
+                template_name=template_name,
+                reason="naming_rule",
+                data=data,
+            )
+            return None
+
+        body = metadata.get("body")
+        if not body:
+            self._log_direct_send_refusal(
+                integrated_agent=integrated_agent,
+                template_name=template_name,
+                reason="empty_body",
+                data=data,
+            )
+            return None
+
+        substituted_body = substitute_template_variables(
+            body, template_variables, template_name=template_name
+        )
+        header = build_direct_send_header(
+            metadata,
+            template_variables,
+            template_name=template_name,
+            image_url=image_url,
+        )
+        footer = build_direct_send_footer(
+            metadata, template_variables, template_name=template_name
+        )
+        buttons = build_direct_send_buttons(
+            metadata, template_variables, template_name=template_name
+        )
+
+        if self._exceeds_direct_send_length_limits(
+            body=substituted_body, header=header, footer=footer, buttons=buttons
+        ):
+            self._log_direct_send_refusal(
+                integrated_agent=integrated_agent,
+                template_name=template_name,
+                reason="component_length_limit",
+                data=data,
+            )
+            return None
+
+        msg: Dict[str, Any] = {
+            "direct_send": True,
+            "category": "utility",
+            "template": {"name": template_name},
+            "body": substituted_body,
+        }
+        if language:
+            msg["template"]["locale"] = language
+        if header is not None:
+            msg["header"] = header
+        if footer is not None:
+            msg["footer"] = footer
+        if buttons:
+            msg["buttons"] = buttons
+        if header is not None and header.get("type") == "image":
+            msg["attachments"] = [f"image/jpeg:{header['image_url']}"]
+
+        return {
+            "project": project_uuid,
+            "urns": [contact_urn],
+            "channel": channel_uuid,
+            "msg": msg,
+        }
+
+    @staticmethod
+    def _exceeds_direct_send_length_limits(
+        *,
+        body: str,
+        header: Optional[Dict[str, Any]],
+        footer: Optional[str],
+        buttons: Optional[List[Dict[str, Any]]],
+    ) -> bool:
+        if len(body) > MAX_BODY_LENGTH:
+            return True
+        if (
+            header is not None
+            and header.get("type") == "text"
+            and len(header.get("text", "")) > MAX_HEADER_TEXT_LENGTH
+        ):
+            return True
+        if footer is not None and len(footer) > MAX_FOOTER_LENGTH:
+            return True
+        for button in buttons or []:
+            sub_type = button.get("sub_type")
+            if (
+                sub_type == "cta_url"
+                and len(button.get("display_text", "")) > MAX_BUTTON_LABEL_LENGTH
+            ):
+                return True
+            if (
+                sub_type == "reply"
+                and len(button.get("title", "")) > MAX_BUTTON_LABEL_LENGTH
+            ):
+                return True
+        return False
+
+    @staticmethod
+    def _log_direct_send_refusal(
+        *,
+        integrated_agent: IntegratedAgent,
+        template_name: str,
+        reason: str,
+        data: Dict[str, Any],
+    ) -> None:
+        """Emit the FR-039 Direct Send validation skip audit log line.
+
+        ``project_uuid`` is a top-level structured field (FR-044) so
+        operators can filter by tenant. The ``reason`` discriminator
+        pins the refusal class (``naming_rule`` / ``empty_body`` /
+        ``component_length_limit``) so log consumers can route on each
+        class independently (research Decision 7).
+        """
+        logger.warning(
+            f"[BroadcastDispatch] skipped_due_to_direct_send_validation: "
+            f"project_uuid={integrated_agent.project.uuid} "
+            f"agent={integrated_agent.uuid} "
+            f"template={template_name} "
+            f"reason={reason} event={data}"
+        )
+
     def build_message(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """Build broadcast message from lambda response data."""
+        """Build broadcast message from lambda response data.
+
+        Routes between the legacy ``build_broadcast_template_message``
+        and the new ``build_direct_send_message`` based on the
+        ``IntegratedAgent.config["direct_send"]`` snapshot taken at
+        assignment time (data-model.md §1; research Decision 11). The
+        flag lives inside the existing ``config`` JSONField; absence
+        is the canonical legacy marker per FR-001 / FR-005 / FR-025.
+        """
         project_uuid = str(integrated_agent.project.uuid)
         vtex_account = integrated_agent.project.vtex_account
         template_name = data.get("template", "unknown")
@@ -671,12 +862,23 @@ class Broadcast:
             f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
             f"Template: {template_name}, Data: {data}"
         )
-        message = self.build_broadcast_template_message(
-            data=data,
-            channel_uuid=str(integrated_agent.channel_uuid),
-            project_uuid=project_uuid,
-            template=template,
-        )
+
+        if integrated_agent.config.get("direct_send", False):
+            message = self.build_direct_send_message(
+                data=data,
+                channel_uuid=str(integrated_agent.channel_uuid),
+                project_uuid=project_uuid,
+                template=template,
+                integrated_agent=integrated_agent,
+            )
+        else:
+            message = self.build_broadcast_template_message(
+                data=data,
+                channel_uuid=str(integrated_agent.channel_uuid),
+                project_uuid=project_uuid,
+                template=template,
+            )
+
         logger.info(
             f"Broadcast template message built. "
             f"Project: {project_uuid}, VTEX Account: {vtex_account}, "

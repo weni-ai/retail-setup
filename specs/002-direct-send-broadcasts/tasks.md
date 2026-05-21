@@ -161,7 +161,7 @@ the original US1 task history stays intact.
 > is robust to either ordering, but a partial commit between T101 and
 > T103 would leave a broken working tree.
 
-- [ ] T100 Migration handling: the original US1 migration file does
+- [X] T100 Migration handling: the original US1 migration file does
       NOT exist (verified above) and no commit references it. **No
       migration action is required** — proceed directly to T101 to
       drop the field from the model. If a subsequent regeneration
@@ -171,7 +171,7 @@ the original US1 task history stays intact.
       Postgres), DELETE that file in-place — it would be a no-op
       migration whose `state_operations` would diverge from the live
       schema.
-- [ ] T101 Remove `direct_send = models.BooleanField(default=False)`
+- [X] T101 Remove `direct_send = models.BooleanField(default=False)`
       from `IntegratedAgent` in
       `retail/agents/domains/agent_integration/models.py`. Run
       `poetry run python manage.py makemigrations agents --dry-run`
@@ -192,14 +192,14 @@ the original US1 task history stays intact.
       nothing to "remove" because there was never anything to "add".
       Surfaced explicitly here so a fresh implementer is not
       surprised by the empty `--dry-run` output.
-- [ ] T102 Replace `direct_send` field READS with
+- [X] T102 Replace `direct_send` field READS with
       `obj.config.get("direct_send", False)` across use cases,
       serializers, and helpers (notably `_resolve_direct_send_flag`,
       `Broadcast.build_message` path selection, and
       `ReadIntegratedAgentSerializer`). Grep
       `rg 'integrated_agent\.direct_send|ia\.direct_send|\.direct_send\s*='`
       to find every call site.
-- [ ] T103 Replace `direct_send` field WRITES with the **conditional
+- [X] T103 Replace `direct_send` field WRITES with the **conditional
       JSON-key write** pinned by T026:
       - When the resolved flag is `True`: write
         `agent.config["direct_send"] = True;
@@ -223,7 +223,7 @@ the original US1 task history stays intact.
       site is found (via the grep from T102) the same conditional
       rule applies there. Mirror the one-line code comment from
       T026 at every write site for discoverability.
-- [ ] T104 Update US1 tests: fixtures must build IntegratedAgents
+- [X] T104 Update US1 tests: fixtures must build IntegratedAgents
       with `config={"direct_send": True, ...}` instead of
       `direct_send=True` kwargs; assertions must read from `config`.
       Tests FAIL first (red), then T101–T103 make them green.
@@ -257,10 +257,10 @@ the original US1 task history stays intact.
       the implementer applies the substitution at code time. T026
       and T027's "plumb the resolved flag" and "Direct Send branch"
       descriptions explicitly call out the JSON-key write pattern.
-- [ ] T105 Re-run snapshot test T033. The legacy Flows broadcast
+- [X] T105 Re-run snapshot test T033. The legacy Flows broadcast
       payload MUST remain byte-identical — the whole point of this
       correction.
-- [ ] T106 Documentation patch — propagate the spec correction to
+- [X] T106 Documentation patch — propagate the spec correction to
       operator-facing artefacts so `/speckit-analyze` stops reporting
       `direct_send`-column inconsistencies. Verify (via `rg
       'integratedagent_direct_send|ia\.direct_send|direct_send

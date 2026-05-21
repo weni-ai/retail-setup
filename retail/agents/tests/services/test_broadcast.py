@@ -20,7 +20,7 @@ class BroadcastHandlerTest(TestCase):
         self.mock_agent.uuid = uuid4()
         self.mock_agent.channel_uuid = uuid4()
         self.mock_agent.project.uuid = uuid4()
-        self.mock_agent.config = None
+        self.mock_agent.config = {}
 
     def test_can_send_to_contact_no_config(self):
         self.mock_agent.config = None
