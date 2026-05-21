@@ -18,7 +18,7 @@ from retail.services.key_generator.service import RSAKeyPair
 
 @override_settings(
     PAYMENT_REST_ENDPOINT="https://payment.test",
-    PAYMENT_FLOW_NAME="flow_confirmacao_pagamento",
+    PAYMENT_FLOW_NAME="payment_confirmation_flow",
 )
 class TestConfigureOneClickPaymentUseCase(TestCase):
     def setUp(self):
@@ -102,7 +102,7 @@ class TestConfigureOneClickPaymentUseCase(TestCase):
         )
         self.mock_meta_service.create_flow.assert_called_once_with(
             waba_id="waba-1",
-            name="flow_confirmacao_pagamento",
+            name="payment_confirmation_flow",
             categories=PAYMENT_FLOW_CATEGORIES,
             endpoint_uri=(
                 f"https://payment.test/v1/channels/{self.flow_object_uuid}"
