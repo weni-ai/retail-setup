@@ -1,6 +1,6 @@
 import logging
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from retail.interfaces.clients.nexus.client import NexusClientInterface
 from retail.clients.exceptions import CustomAPIException
@@ -47,6 +47,30 @@ class NexusService:
             logger.error(
                 f"Error {e.status_code} when removing agent {agent_uuid} "
                 f"from project {project_uuid}."
+            )
+            return None
+
+    def create_agent_credentials(
+        self,
+        project_uuid: str,
+        agent_uuid: str,
+        credentials: List[Dict],
+    ) -> Optional[Dict]:
+        """
+        Creates credentials on a Nexus agent for a project.
+        """
+        try:
+            return self.nexus_client.create_agent_credentials(
+                project_uuid=project_uuid,
+                agent_uuid=agent_uuid,
+                credentials=credentials,
+            )
+        except CustomAPIException as e:
+            # Body omitted to avoid leaking credential values if
+            # Nexus echoes the request payload in error responses.
+            logger.error(
+                f"Error {e.status_code} when creating credentials on "
+                f"agent {agent_uuid} for project {project_uuid}."
             )
             return None
 

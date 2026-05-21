@@ -1,4 +1,4 @@
-from typing import Dict, Protocol, Tuple
+from typing import Dict, List, Protocol, Tuple
 
 
 class NexusClientInterface(Protocol):
@@ -41,6 +41,28 @@ class NexusClientInterface(Protocol):
 
         Returns:
             Dict: Removal response data.
+        """
+        ...
+
+    def create_agent_credentials(
+        self,
+        project_uuid: str,
+        agent_uuid: str,
+        credentials: List[Dict],
+    ) -> Dict:
+        """
+        Creates one or more credentials on a Nexus agent for a project.
+
+        Args:
+            project_uuid: The project's unique identifier.
+            agent_uuid: The agent that will receive the credentials.
+            credentials: List of credential dicts. Each dict accepts
+                ``name``, ``label``, ``placeholder``, ``is_confidential``
+                and ``value`` keys.
+
+        Returns:
+            Dict with the Nexus response (typically including the list
+            of created credential names).
         """
         ...
 
