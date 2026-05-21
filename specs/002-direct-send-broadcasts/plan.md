@@ -25,10 +25,16 @@ bit-for-bit when the channel does not have Direct Send enabled
 
 The technical approach (resolved in `./research.md`) is:
 
-1. Add `IntegratedAgent.direct_send` (boolean, default `False`) and
-   set it at agent-assignment time from
-   `IntegrationsService.get_channel_app("wpp-cloud", app_uuid)`'s
-   `config.direct_send` boolean. Default to `False` on lookup failure.
+1. Set the Direct Send flag inside the existing `IntegratedAgent.config`
+   JSONField at agent-assignment time
+   (`agent.config["direct_send"] = ...; agent.save(update_fields=["config"])`)
+   from `IntegrationsService.get_channel_app("wpp-cloud", app_uuid)`'s
+   `config.direct_send` boolean. Reads use
+   `agent.config.get("direct_send", False)` so absence of the key
+   defaults to `False` — matching FR-005 ("channel reports Direct
+   Send disabled or the lookup fails → legacy path"). No new column
+   is added to `IntegratedAgent` and no migration ships against the
+   agents app for this feature (data-model.md §1 Decision).
 2. Branch `AssignAgentUseCase._create_library_templates` on
    `IntegratedAgent.direct_send`: when `True`, fetch each template
    from Meta's library catalog via a new
@@ -67,9 +73,11 @@ The technical approach (resolved in `./research.md`) is:
 Celery 5, weni-eda 0.1.1, requests (via `RequestClient`), babel,
 phonenumbers, weni-datalake-sdk 0.5.0, Sentry SDK 2, Elastic APM 6.
 
-**Storage**: PostgreSQL via `psycopg2`. New columns / new enum
-values land on existing tables (`agents_integratedagent`,
-`templates_version`); see `./data-model.md`. No new tables.
+**Storage**: PostgreSQL via `psycopg2`. The only schema change is a
+new enum value pair (`PAUSED`, `FLAGGED`) on `templates_version`; no
+column is added to `agents_integratedagent` (the Direct Send flag
+lives inside its existing `config` JSONField — see
+`./data-model.md §1`). No new tables.
 
 **Testing**: `django.test.TestCase` + `unittest.mock`
 (`MagicMock(spec=...)` for service interfaces, `patch` at the HTTP
@@ -136,17 +144,24 @@ gateway + internal HTTP API consumed by Flows / Integrations).
     `display_name`, `variables`, `config`), and on `Version`
     (`template`, `template_name`, `integrations_app_uuid`, `project`,
     `status`, `created_at`, `uuid`) are preserved as-is.
-  - The only model-level changes are: (a) `IntegratedAgent.direct_send`
-    (additive boolean column, `default=False`); (b) two additive
-    values appended to `Version.STATUS_CHOICES` (`PAUSED`, `FLAGGED`);
-    (c) an additive optional sub-object `direct_send` inside
+  - The only model-level changes are: (a) two additive values
+    appended to `Version.STATUS_CHOICES` (`PAUSED`, `FLAGGED`);
+    (b) an additive optional sub-object `direct_send` inside
     `Template.metadata`, present only on Direct-Send-path templates.
+    The Direct Send flag itself adds NO new column to
+    `IntegratedAgent` — it is stored as an optional key
+    (`direct_send: bool`) inside the existing `IntegratedAgent.config`
+    JSON, with absence interpreted as `False` (data-model.md §1
+    Decision).
   - Existing keys inside `IntegratedAgent.config`
     (`initial_template_language`, `country_phone_code`,
     `abandoned_cart`, `payment_recovery`, `integration_settings`,
-    `delivered_order_tracking_config`) are not modified by this
-    feature. The upstream `Agent` and `PreApprovedTemplate` models
-    are also untouched.
+    `delivered_order_tracking_config`) are preserved as-is. The
+    feature adds one new optional key `direct_send: bool` to
+    `IntegratedAgent.config` (absence interpreted as `False`) —
+    purely additive within the JSON; no existing key is renamed or
+    removed (data-model.md §1). The upstream `Agent` and
+    `PreApprovedTemplate` models are also untouched.
   - Existing fields on `ReadIntegratedAgentSerializer` (`uuid`,
     `channel_uuid`, `templates`, `webhook_url`, `description`,
     `contact_percentage`, `global_rule_prompt`,
@@ -154,7 +169,12 @@ gateway + internal HTTP API consumed by Flows / Integrations).
     `has_delivered_order_templates`, `abandoned_cart_config`) are
     preserved as-is. Adding the read-only `direct_send` field
     (`tasks.md` T028) is purely additive per the spec assumption that
-    downstream consumers ignore unknown JSON fields.
+    downstream consumers ignore unknown JSON fields; the field is
+    computed at serialization time from
+    `obj.config.get("direct_send", False)` so the wire shape is
+    unchanged from US1's first implementation while the underlying
+    storage moved from a column to the existing `config` JSON
+    (data-model.md §1 Decision).
   - No URL path, HTTP method, required header, or required query
     parameter is renamed or removed. No new required field is added
     to any inbound payload (order-status webhook, agent-assignment,
@@ -182,26 +202,31 @@ gateway + internal HTTP API consumed by Flows / Integrations).
   settings change is safe.
 
 - **Migration & rollback safety (FR-025, FR-026)**:
-  - `0XXX_integratedagent_direct_send` adds the boolean column with
-    `default=False`; every existing row is unchanged, no backfill
-    required. The migration's `dependencies = [...]` chains to the
-    latest existing `agents` migration so applying it against any
-    baseline is order-safe.
-  - `0XXX_alter_version_status_paused_flagged` appends `PAUSED` and
-    `FLAGGED` to `Version.STATUS_CHOICES` at the end of the existing
-    tuple; every existing row's status (one of the eight pre-existing
-    values) remains valid, no backfill required. The migration's
-    `dependencies = [...]` chains to the latest existing `templates`
-    migration.
-  - Both migrations are forward-only `AddField` / `AlterField`
-    operations and are reversible by Django's default
-    `migrate <app> <prev>` rollback (the `RemoveField` /
-    `AlterField` reverse operations are auto-generated). Reverting
-    only the feature code while leaving the migrations applied is
-    also safe — the new column stays at `False` everywhere and the
-    new enum values stay unused once the dispatch gate code is
-    removed (`quickstart.md` §9 covers the operator-facing rollback
-    procedure end-to-end).
+  - The feature ships ONE migration only —
+    `0XXX_alter_version_status_paused_flagged` — which appends
+    `PAUSED` and `FLAGGED` to `Version.STATUS_CHOICES` at the end of
+    the existing tuple; every existing row's status (one of the
+    eight pre-existing values) remains valid, no backfill required.
+    The migration's `dependencies = [...]` chains to the latest
+    existing `templates` migration.
+  - The Direct Send flag itself ships NO migration: it is stored as
+    an optional key inside the existing `IntegratedAgent.config`
+    JSON (data-model.md §1 Decision); absence of the key is
+    interpreted as `False`, so legacy rows need no backfill. This is
+    the spec correction recorded in `data-model.md §1` (the original
+    US1-first-implementation drafted a new `IntegratedAgent.direct_send`
+    column; it was relocated to `config["direct_send"]` to collapse
+    the rollout footprint to zero schema change on `IntegratedAgent`).
+  - The migration is a forward-only `AlterField` operation and is
+    reversible by Django's default `migrate <app> <prev>` rollback
+    (the `AlterField` reverse operation is auto-generated). Reverting
+    only the feature code while leaving the migration applied is
+    also safe — the new enum values stay unused once the dispatch
+    gate code is removed, and the `config["direct_send"]` key (if
+    populated by an in-flight assignment) is read as `False` by the
+    reverted code, falling back onto the legacy path
+    (`quickstart.md` §9 covers the operator-facing rollback procedure
+    end-to-end).
 
 - **Template-status webhook (FR-023)**: The existing template-status
   webhook handler is not touched by this feature. The future feature
@@ -585,8 +610,14 @@ The plan ships under one PR with a `feat:` prefix:
   `002-direct-send-broadcasts`; will be reused as-is).
 - PR title (≤72 chars): `feat: add WhatsApp Direct Send dispatch path for OrderStatus`.
 - PR description follows the `## What` / `## Why` template.
-- The new column on `IntegratedAgent` keeps the model's existing
-  legacy UUID PK; no PK migration is implied.
+- No new column is added to `IntegratedAgent` — the Direct Send
+  flag is stored as an optional key inside the existing
+  `IntegratedAgent.config` JSON (data-model.md §1 Decision). The
+  model's existing legacy UUID PK is unaffected, no PK migration
+  is implied, and Principle V's "no schema churn beyond what's
+  necessary" rule is satisfied. The single migration that ships
+  with the feature is the additive `Version.STATUS_CHOICES`
+  extension (templates app), which does not change any model PK.
 
 ### Constitution Check verdict
 
@@ -626,12 +657,12 @@ retail/
 │   ├── domains/
 │   │   ├── agent_integration/
 │   │   │   ├── exceptions.py                               # MOD — add DirectSendTemplateUnavailableError + DirectSendUnsupportedComponentError (T007)
-│   │   │   ├── models.py                                   # MOD — add IntegratedAgent.direct_send
-│   │   │   ├── serializers.py                              # MOD — expose direct_send (read-only)
+│   │   │   ├── serializers.py                              # MOD — expose direct_send (read-only, computed from config["direct_send"])
 │   │   │   └── usecases/
 │   │   │       └── assign.py                               # MOD — branch on Direct Send: read channel flag,
-│   │   │                                                   #       fetch from Meta library catalog, persist
-│   │   │                                                   #       Template+Version with status=APPROVED, raise
+│   │   │                                                   #       write agent.config["direct_send"], fetch from
+│   │   │                                                   #       Meta library catalog, persist Template+Version
+│   │   │                                                   #       with status=APPROVED, raise
 │   │   │                                                   #       DirectSendTemplateUnavailableError on FR-003d
 │   │   ├── agent_management/
 │   │   │   └── usecases/
@@ -646,8 +677,7 @@ retail/
 │   │       └── usecases/
 │   │           └── webhook.py                              # MOD (minimal, only if route selection moves out of
 │   │                                                       #       Broadcast.build_message)
-│   └── migrations/
-│       └── 00XX_integratedagent_direct_send.py             # NEW — AddField boolean default=False
+│   └── (no new migration — the Direct Send flag lives inside the existing IntegratedAgent.config JSON; data-model.md §1 Decision)
 ├── clients/
 │   └── meta/
 │       └── client.py                                       # MOD — add fetch_library_template_by_name_and_language
@@ -714,18 +744,22 @@ logic in `agents/domains/agent_integration/usecases/assign.py`).
 
 > **Fill ONLY if Constitution Check has violations that must be justified**
 
-No constitution violations. The four items below are recorded for
+No constitution violations. The six items below are recorded for
 auditability: a deliberate test-coverage gap (FR-022 / FR-023 /
 FR-024 untestable by design), a workflow-driven branch-name
 deviation from Constitution Principle V, the four-checklist
-resolution-map gate, and the FR-043 explicit-cross-validation
-deferral. None of these is a hard MUST violation; they are recorded
-here so reviewers see the full set of justified-and-documented
-trade-offs in one read.
+resolution-map gate, the FR-043 explicit-cross-validation
+deferral, the FR-041 unchanged-existing-behavior coverage
+acceptance, and the FR-038 Celery one-shot "satisfied by absence"
+coverage acceptance. None of these is a hard MUST violation; they
+are recorded here so reviewers see the full set of
+justified-and-documented trade-offs in one read.
 
 | Issue | Why it is acceptable | Simpler alternative rejected because |
 |-------|----------------------|--------------------------------------|
 | FR-022 (no new required field on inbound payloads), FR-023 (template-status webhook untouched), FR-024 (no new env var) are not exercised by an automated test. | All three are "thou shalt not" requirements: their compliance is structural — there is no positive code path to exercise; the requirement is satisfied by the *absence* of changes. The reviewer + the backward-compatibility checklist (`checklists/backward-compatibility.md` CHK013–CHK022, CHK027–CHK029) are the agreed-upon enforcement gate. | A meta-test that diffs every serializer's `required` set, the template-status webhook handler signature, and `settings.py` keys against a pinned baseline would have a high false-positive rate during normal feature evolution and would force every unrelated PR through this analysis. The cost outweighs the benefit. |
+| FR-038 (Celery one-shot — `task.retry(...)` NOT used, `acks_late=False` early-ack, no DLX in v1; re-delivery absorbed by FR-035 / FR-036 / FR-028) is not exercised by an automated test. | Same "thou shalt not" class as the FR-022 / FR-023 / FR-024 row above: compliance is structural — the requirement is satisfied by the *absence* of changes to `retail/celery.py` (no `task_acks_late=True` override, no `task_default_retry_delay` change, no broker DLX configuration added) and by the *absence* of `self.retry(...)` / `bind=True, retry_kwargs={...}` decorators on the three OrderStatus-pipeline tasks (`task_order_status_update`, `task_mark_broadcast_converted`, `handle_purchase_event_task`). The reviewer + the idempotency checklist (`checklists/idempotency.md` CHK014) + the PR-body backward-compatibility gate (`tasks.md` T039) are the agreed-upon enforcement gate. The PR diff for `retail/celery.py` MUST be empty for retry-related keys, and the PR diff for the three task functions MUST NOT introduce `bind=True` or `retry`-related kwargs. | A snapshot test that captures `celery_app.conf.task_acks_late`, `celery_app.conf.task_default_retry_delay`, and every Celery task decorator's `retry_kwargs` against a pinned baseline would have the same high false-positive rate as the FR-022 meta-test (every unrelated Celery configuration tweak would have to pass through this gate). The cost outweighs the benefit; structural absence + the existing idempotency contracts (FR-035 / FR-036 / FR-028 absorb every legitimate re-delivery source) make the runtime guarantee observable without a dedicated test. |
 | Branch name is `002-direct-send-broadcasts` (spec-kit numeric-prefix convention) rather than the Constitution Principle V form `feature/<kebab-description>`. | The numeric-prefix form is created automatically by the spec-kit `before_specify` git hook (`.specify/extensions.yml`) and is the convention documented in `docs/SPEC_KIT.md` for every spec-driven feature in this repo. Reusing the auto-generated branch keeps the spec-kit artifacts, the git history, and the PR metadata co-located under a single identifier (`002-…`). | Renaming the branch to `feature/direct-send-broadcasts` mid-feature would break the spec-kit tooling's branch ↔ `specs/<id>/` association and force a manual rename of every cross-reference in `spec.md` / `plan.md` / `tasks.md`. A constitution amendment to formally codify the spec-kit exemption is a separate, repo-wide change that does not belong in this feature's PR. |
 | All four checklists (`checklists/requirements.md`, `checklists/backward-compatibility.md`, `checklists/idempotency.md`, `checklists/tenant-isolation.md`) are now resolved against the spec / plan / research / data-model / contracts (resolution maps appended to each checklist). | The merge gate for this feature spans the union of those resolution surfaces; each checklist carries a Resolution Map at the bottom that traces every CHK item to the FR / Decision / Constraint / Contract clause that resolved it. | Leaving any of the checklists with open items would invite reviewer ambiguity at merge time. The Resolution Maps make the gate evaluable in a single read. |
 | FR-043 (assignment surface MUST cross-validate the `app_uuid` query param against the `Project-Uuid` header and DENY with HTTP 403 on mismatch) is satisfied **transitively** at v1 — through DRF's `HasProjectPermission` on `AssignAgentView`, Integrations Engine's authorization on `GET /api/v1/apptypes/wpp-cloud/apps/{app_uuid}/`, and `IntegrationsService.get_channel_app(...)`'s fail-closed `None` return on any HTTP error — rather than by an explicit Retail-side equality check (`app["config"]["project_uuid"] == request.headers["Project-Uuid"]`). The explicit cross-validation is **deferred** to a separate `feat/tenant-isolation-cross-validation` PR. | The transitive guarantee already closes the cross-tenant attack surface described in `spec.md` Edge Cases ("Operator with permission on project A passes project B's `app_uuid` …") for v1: an operator authorized for project A who supplies project B's `app_uuid` is rejected at one of the three layers before any persistence happens. The explicit Retail-side check is a defense-in-depth follow-up that protects against a regression in any of the three upstream layers, not a v1 attack-surface gap. The trust boundary on Integrations Engine is documented as an Assumption in `spec.md`, in `contracts/integrations-channel-app.md` §9, and as a known dependency in `checklists/tenant-isolation.md` CHK044 (the explicit "Integrations Engine enforces channel-app-to-project ownership" precondition); the checklist's CHK022 / CHK023 / CHK024 / CHK025 capture the cross-validation requirement items that this row defers. | Implementing the explicit cross-validation in this PR would require an additional `IntegrationsService.get_channel_app(...)` call inside `AssignAgentView.post` (or a new `TenantBindingPermission` class), plus a new audit-log shape (`[DirectSend] channel_project_mismatch: ...`), plus the corresponding test fixture combinations (matching project, mismatched project, channel-app lookup failure). The work is well-scoped on its own and benefits from being reviewed independently of the Direct Send dispatch path; bundling it would expand this PR's surface without changing the v1 attack surface. |
+| FR-041 (Inbound EDA event consumers MUST resolve the target tenant deterministically via `Project.uuid` payload reference, `BroadcastMessage.broadcast_id` lookup, `BroadcastMessage.external_message_id` lookup, or `Project.vtex_account` lookup with the `MultipleObjectsReturned → None` SECURITY BOUNDARY) is **not exercised by a NEW automated test introduced by this feature**. | The feature does not modify the inbound EDA consumers (`BroadcastSendConsumer` on `retail.template-send`, `BroadcastStatusConsumer` on `retail.template-status`, the order-status webhook entry point at `retail/agents/domains/agent_webhook/usecases/order_status.py:213`); their tenant-resolution mechanisms are existing behaviors **restated as requirements** by FR-041, not new code paths added by this PR. The pre-existing tests on these consumers (notably the order-status webhook tests in `retail/agents/tests/usecases/test_order_status_update.py` and the broadcast consumer tests in `retail/broadcasts/tests/`) already cover the four resolution mechanisms. The Direct Send cohort is additionally covered transitively by T035c (cross-project regression: `BroadcastMessage.project_id == BroadcastMessage.integrated_agent.project_id`), which exercises the `broadcast_id`-keyed resolution path end-to-end against two-project fixtures. | A meta-test that diffs every inbound consumer's tenant-resolution mechanism against a pinned baseline would have a high false-positive rate during normal feature evolution and would force every unrelated PR through the diff (same cost calculus as the FR-022/FR-023/FR-024 row above). Adding a duplicate behavioral test for the Direct Send cohort would re-cover the FR-040 / SC-010 surface that T035c already pins, doubling test runtime without raising the merge gate. The pre-existing tests + T035c are the agreed enforcement gate. |

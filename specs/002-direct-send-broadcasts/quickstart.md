@@ -31,14 +31,16 @@ scenarios from `spec.md`.
 poetry run python manage.py migrate
 ```
 
-Two migrations are applied:
+**One** migration is applied:
 
-- `agents.00XX_integratedagent_direct_send` — adds the
-  `IntegratedAgent.direct_send` column with `default=False`.
-- `templates.00XX_alter_version_status_paused_flagged` — extends the
+- `templates.0017_alter_version_status_paused_flagged` — extends the
   `Version.status` enum with `PAUSED` and `FLAGGED`.
 
-Both are additive and require no data backfill.
+The Direct Send flag itself ships **no migration**: it is stored as
+an optional key (`direct_send: bool`) inside the existing
+`IntegratedAgent.config` JSONField, so legacy rows need no backfill
+(absence of the key is interpreted as `False`). See `data-model.md §1`
+for the canonical storage decision.
 
 ---
 
@@ -83,12 +85,16 @@ curl -X POST "$BASE_URL/api/v3/agents/{order_status_agent_uuid}/assign/?app_uuid
 poetry run python manage.py shell -c "
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 ia = IntegratedAgent.objects.get(uuid='<from response>')
-print('direct_send:', ia.direct_send)
+print('direct_send:', ia.config.get('direct_send', False))
 for t in ia.templates.all():
     print(t.name, t.current_version.status, t.metadata.get('language'),
           t.metadata.get('direct_send'))
 "
 ```
+
+The flag is read from the `config` JSONField — direct attribute reads
+(`ia.direct_send`) are forbidden because the field does not exist on
+the model (`data-model.md §1`).
 
 Expected:
 
@@ -153,6 +159,13 @@ Retail substitutes `{{1}}` → `"Maria"` and `{{2}}` → `"12345"` server-side a
   }
 }
 ```
+
+**Locale-format note**: the local `Template.metadata.language` stores
+the Meta-format underscore value (`pt_BR`), while `msg.template.locale`
+on the wire is the ISO-style hyphen form (`pt-BR`) — `_` is rewritten
+to `-` at builder time. See
+`contracts/messaging-gateway-payload.md §3.1` for the canonical wire
+contract.
 
 Verify by inspecting Flows' inbound logs (or by mocking the Flows
 service in a local run; see §6).
@@ -234,6 +247,47 @@ Same as 5.1 with `v.status = "FLAGGED"`.
 Set `v.status = "APPROVED"` again. Fire the webhook. Verify the
 broadcast is dispatched normally (Story 3 scenario 3, SC-006).
 
+### 5.4 Set PAUSED / FLAGGED via the `update_template` endpoint (FR-026)
+
+The shell hacks in §5.1 / §5.2 bypass the production write path. To
+exercise the canonical FR-026 contract end-to-end — the
+`update_template` endpoint accepts `PAUSED` and `FLAGGED` as valid
+`status` values and persists them as-is **without** triggering the
+`current_version` promotion logic that runs only on `APPROVED` — POST
+the new status through the endpoint:
+
+```bash
+curl -X PATCH "$BASE_URL/api/v2/templates/<TEMPLATE_UUID>/" \
+  -H "Authorization: Bearer $OIDC_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-raw '{
+    "version_uuid": "<VERSION_UUID>",
+    "status":       "PAUSED"
+  }'
+```
+
+Expected:
+
+- HTTP 200.
+- `Version.status == "PAUSED"` (read back from the DB).
+- `Template.current_version` is **unchanged** (the APPROVED-only
+  promotion branch did NOT fire). Verify with:
+
+  ```bash
+  poetry run python manage.py shell -c "
+  from retail.templates.models import Template, Version
+  t = Template.objects.get(uuid='<TEMPLATE_UUID>')
+  v = Version.objects.get(uuid='<VERSION_UUID>')
+  print('version_status:', v.status)
+  print('current_version_uuid:', t.current_version.uuid if t.current_version else None)
+  "
+  ```
+
+- The next order-status webhook for the same template is skipped by
+  the PAUSED/FLAGGED dispatch gate (FR-012) — same observable as §5.1.
+
+Repeat with `"status": "FLAGGED"` to exercise the symmetric path.
+
 ---
 
 ## 6. Legacy path regression test (Story 4)
@@ -243,7 +297,8 @@ broadcast is dispatched normally (Story 3 scenario 3, SC-006).
 Repeat §2 against a project whose `App.config.direct_send` is
 `false` (or absent). Expected:
 
-- `IntegratedAgent.direct_send == False`.
+- `ia.config.get("direct_send", False) == False` (the key is absent
+  from `config` on the persisted IntegratedAgent — legacy behaviour).
 - The existing `_create_library_templates` flow runs:
   `CreateLibraryTemplateUseCase.execute` then `notify_integrations`
   (the integrations-engine submission), exactly as today.
@@ -254,7 +309,9 @@ Repeat §2 against a project whose `App.config.direct_send` is
 Repeat §2 against a project whose `App.config.direct_send` cannot
 be retrieved (e.g. Integrations returns 5xx). Expected:
 
-- `IntegratedAgent.direct_send == False`.
+- `ia.config.get("direct_send", False) == False` (the key is absent
+  from `config` because `_resolve_direct_send_flag` returns `False`
+  on lookup failure and the assignment never writes the key).
 - A WARNING log: `[DirectSend] channel_lookup_failed: agent=... app_uuid=...`.
 - Behavior matches §6.1 — full legacy path.
 
@@ -307,15 +364,25 @@ If a regression is detected after release:
 1. Disable Direct Send on the affected project's WhatsApp channel
    in Integrations (set `config.direct_send=false`).
 2. Re-assign the OrderStatus agent on the affected project. The
-   re-assignment will snapshot `direct_send=False` and restore the
-   legacy path on the next broadcast. The persisted Direct Send
-   templates remain in the database (harmless) and can be cleaned
-   up by the existing template-deletion flows.
+   re-assignment writes `agent.config["direct_send"] = False` and
+   restores the legacy path on the next broadcast. The persisted
+   Direct Send templates remain in the database (harmless) and can
+   be cleaned up by the existing template-deletion flows.
 
-The `direct_send` column is additive; reverting the migration is
-safe but not required (rolling back code without rolling back the
-column is fine — `default=False` on existing rows means the legacy
-path runs everywhere).
+**Migration rollback**: the only migration this feature ships is
+`templates.0017_alter_version_status_paused_flagged` (additive enum
+extension). Reverting it with
+`poetry run python manage.py migrate templates <previous>` is safe
+but not required — once the dispatch-gate code is removed, the new
+enum values stay unused. Reverting only the feature code while
+leaving the migration applied is also safe.
+
+The Direct Send flag itself adds **no schema** to `IntegratedAgent`
+(it lives inside the existing `config` JSON, per `data-model.md §1`),
+so there is no agents-side migration to revert. Once the feature
+code is removed, the orphaned `config["direct_send"]` key on any
+in-flight assignment is silently ignored — `obj.config.get(...)` in
+reverted code that no longer reads it has no effect.
 
 ---
 

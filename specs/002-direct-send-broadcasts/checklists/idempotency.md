@@ -124,7 +124,7 @@ FR / Decision / Contract clause.
 - **FR-035** (inbound consumer retry-safety via `select_for_update` + lifecycle-rank guard) — CHK011, CHK032.
 - **FR-036** (`MarkBroadcastConvertedUseCase` idempotency via `get_or_create`) — CHK012.
 - **FR-037** (`RecordBroadcastSentUseCase` called-at-most-once contract) — CHK013.
-- **FR-038** (Celery `max_retries=3`, `acks_late=True`, DLX) — CHK014.
+- **FR-038** (Celery one-shot — `task.retry(...)` NOT used, `acks_late=False` early-ack, no DLX in v1; re-delivery absorbed by FR-035 inbound consumer idempotency + FR-028 trigger-side dedup + FR-036 `get_or_create`) — CHK014.
 - **FR-039** (audit log shape catalogue — five refusal classes + one admission class, all disjoint) — CHK023, CHK025.
 - **SC-002** amendment (measurability under status-flip races) — CHK043.
 - **SC-005** amendment (measurability under retry/replay; 1:1 broadcast_id relation) — CHK042.

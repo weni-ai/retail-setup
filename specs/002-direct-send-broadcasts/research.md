@@ -13,10 +13,25 @@ without reopening this file.
 
 ## Decision 1 — Where the per-IntegratedAgent Direct Send flag lives
 
-**Decision**: Add a dedicated boolean column `direct_send` on
+> **⚠️ SUPERSEDED by `data-model.md §1` (spec correction).** The
+> Direct Send flag is stored as an optional key (`direct_send: bool`)
+> inside the existing `IntegratedAgent.config` JSONField, **not** as a
+> new boolean column on `IntegratedAgent`. Absence of the key is
+> interpreted as `False`. Reads MUST use
+> `obj.config.get("direct_send", False)`; writes use
+> `agent.config["direct_send"] = ...; agent.save(update_fields=["config"])`.
+> See `data-model.md §1` for the canonical rationale (zero schema
+> change on `IntegratedAgent`; trivially provable byte-identical
+> legacy-path guarantee; smallest possible additive change). The text
+> below records the original column-approach reasoning for historical
+> auditability only — do not implement against it. Decision 13 below
+> is also superseded by the same data-model.md §1 entry (no migration
+> ships against the agents app).
+
+**Original decision (HISTORICAL)**: Add a dedicated boolean column `direct_send` on
 `IntegratedAgent` (default `False`).
 
-**Rationale**:
+**Original rationale (HISTORICAL)**:
 
 - The flag is read on the broadcast hot path (every order-status event
   dispatches one DB hit on `IntegratedAgent` to get the templates and
@@ -34,13 +49,16 @@ without reopening this file.
   payment-recovery sub-config, …) — it is not the right home for a
   feature-routing flag.
 
-**Alternatives considered**:
+**Alternatives considered (HISTORICAL)**:
 
-- *Stash the flag in `IntegratedAgent.config["direct_send"]`*: cheaper
-  to roll out (no migration), but every read on the hot path would
-  have to defensively `config.get("direct_send", False)`, every
-  serializer would need a Python fallback, and the hard-to-detect
-  typo class re-emerges.
+- *Stash the flag in `IntegratedAgent.config["direct_send"]`*: this
+  is the alternative that was **ultimately adopted** by the spec
+  correction documented in `data-model.md §1`. The original objections
+  (extra `config.get` per read, serializer fallback, typo class) are
+  outweighed by the zero-schema-change benefit and the trivially
+  provable byte-identical legacy-path guarantee — the cost calculus
+  reversed once Story 4's snapshot tests made the legacy-cohort
+  preservation gate explicit.
 - *Move the flag to `Project`*: rejected because the spec is explicit
   that the flag is a snapshot taken at agent-assignment time and must
   not auto-resync if the WhatsApp channel later changes; tying it to
@@ -541,7 +559,7 @@ def build_message(self, integrated_agent, data):
     template = self.get_current_template(integrated_agent, data)
     if template is None:
         return None
-    if integrated_agent.direct_send:
+    if integrated_agent.config.get("direct_send", False):  # data-model.md §1
         return self.build_direct_send_message(...)
     return self.build_broadcast_template_message(...)
 ```
@@ -556,9 +574,12 @@ def build_message(self, integrated_agent, data):
   testable without exercising the legacy logic, and vice versa
   — Story 4's "no regression on the legacy path" is much easier
   to enforce when the two methods are textually disjoint.
-- A simple `if integrated_agent.direct_send` at the routing point
-  makes the path selection explicit; this is what the spec asks
-  for ("the dispatch path is chosen by the IntegratedAgent's flag").
+- A simple `if integrated_agent.config.get("direct_send", False)`
+  at the routing point makes the path selection explicit; this is
+  what the spec asks for ("the dispatch path is chosen by the
+  IntegratedAgent's flag"). The `config.get(...)` form is mandated
+  by `data-model.md §1` — direct attribute reads (`obj.direct_send`)
+  are forbidden because the field does not exist on the model.
 
 **Alternatives considered**:
 
@@ -608,11 +629,20 @@ order_details, flow message), the assignment fails atomically with
 
 ## Decision 13 — Default for `IntegratedAgent.direct_send` on existing rows
 
-**Decision**: The migration that adds the `direct_send` column
+> **⚠️ SUPERSEDED by `data-model.md §1` (spec correction).** No
+> column is added to `IntegratedAgent`, so the question of its
+> "default value at backfill time" is moot. The flag lives inside the
+> existing `IntegratedAgent.config` JSONField; legacy rows have no
+> `direct_send` key and `obj.config.get("direct_send", False)`
+> collapses absence to `False` — which is exactly the legacy behaviour
+> (FR-005). No `IntegratedAgent` migration ships with this feature.
+> The text below is preserved for historical auditability only.
+
+**Original decision (HISTORICAL)**: The migration that adds the `direct_send` column
 populates every existing row with `False`. The default on the model
 is `False`. No data backfill from the channel is performed.
 
-**Rationale**:
+**Original rationale (HISTORICAL)**:
 
 - Story 4 requires the legacy path to behave identically to today,
   so existing IntegratedAgents must default to "not Direct Send".
@@ -623,7 +653,7 @@ is `False`. No data backfill from the channel is performed.
 - A simple `default=False` migration is the cleanest possible
   rollout.
 
-**Alternatives considered**:
+**Alternatives considered (HISTORICAL)**:
 
 - *Backfill from each project's channel via a data migration*:
   rejected for the snapshot-correctness reason above.
@@ -967,7 +997,7 @@ This research document resolves the remaining plan-time decisions
 listed below; **after this document, no `NEEDS CLARIFICATION` remains
 in the plan**:
 
-- ✅ Decision 1 — `direct_send` storage location.
+- ✅ Decision 1 — `direct_send` storage location (**superseded by `data-model.md §1`**: stored as a key inside `IntegratedAgent.config` JSON, not as a new column).
 - ✅ Decision 2 — OrderStatus agent identification.
 - ✅ Decision 3 — Channel Direct Send flag lookup.
 - ✅ Decision 4 — Meta library-catalog fetch helper.
@@ -980,7 +1010,7 @@ in the plan**:
 - ✅ Decision 10 — Broadcast-disabling check for `PAUSED`/`FLAGGED`.
 - ✅ Decision 11 — Direct Send broadcast builder placement.
 - ✅ Decision 12 — Unsupported-component handling.
-- ✅ Decision 13 — Default flag for existing IntegratedAgents.
+- ✅ Decision 13 — Default flag for existing IntegratedAgents (**superseded by `data-model.md §1`**: no column ships, so legacy rows have no key and `config.get("direct_send", False)` is the canonical read).
 - ✅ Decision 14 — Test isolation strategy.
 - ✅ Decision 15 — Idempotency & retry-safety model (canonical
   tuple, retry budget, cache failure mode, retry-as-new-assignment

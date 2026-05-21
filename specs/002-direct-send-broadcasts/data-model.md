@@ -12,35 +12,141 @@ Pure in-memory DTOs are listed at the end for completeness.
 
 ---
 
-## 1. `IntegratedAgent` — add `direct_send` flag
+## 1. `IntegratedAgent` — `direct_send` flag stored inside `config` JSON
 
-**File**: `retail/agents/domains/agent_integration/models.py`
+**File**: `retail/agents/domains/agent_integration/models.py` (read-only context — no schema change ships against this model).
 
-### New field
+### Schema change
 
-| Name          | Type            | Default | Null  | Notes                                                          |
-| ------------- | --------------- | ------- | ----- | -------------------------------------------------------------- |
-| `direct_send` | `BooleanField`  | `False` | False | Snapshot of the WhatsApp channel's Direct Send flag at the time the agent is assigned. Determines which dispatch path applies for every broadcast originated by this IntegratedAgent (FR-001). |
+**None.** The Direct Send flag is stored as an optional key inside
+the existing `IntegratedAgent.config` JSONField rather than as a
+new column on the model. The column list of `IntegratedAgent`
+(`uuid`, `channel_uuid`, `agent`, `project`, `is_active`,
+`ignore_templates`, `contact_percentage`, `config`,
+`global_rule_code`, `global_rule_prompt`, `parent_agent_uuid`,
+`created_on`, `broadcasts_delivered`) is therefore IDENTICAL to
+the pre-feature shape — no field added, no field removed, no
+field renamed.
+
+### `IntegratedAgent.config` keys
+
+The existing `config` JSON gains one optional key (purely additive
+within the JSON; no existing key is renamed or removed):
+
+| Key            | Type   | Required | Default when absent | Notes                                                                                                                                                        |
+| -------------- | ------ | -------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `direct_send`  | `bool` | no       | `False`             | Snapshot of the WhatsApp channel's Direct Send flag captured at agent-assignment time. Absence of the key is interpreted as `False`. Determines which dispatch path applies for every broadcast originated by this IntegratedAgent (FR-001). |
+
+The pre-existing `config` keys (`initial_template_language`,
+`country_phone_code`, `abandoned_cart`, `payment_recovery`,
+`integration_settings`, `delivered_order_tracking_config`) are
+preserved as-is. Legacy rows have no `direct_send` key in their
+`config`; the `obj.config.get("direct_send", False)` read collapses
+that absence to `False`, which is exactly the legacy behaviour
+(FR-005).
 
 ### Validation rules
 
-- Set exclusively by `AssignAgentUseCase` at assignment time (FR-002).
+- Set exclusively by `AssignAgentUseCase` at assignment time (FR-002),
+  inside the same `@transaction.atomic` block that persists the rest
+  of the assignment. The **write semantic is conditional** — the key
+  is "optional" per FR-001 and absence is canonically interpreted as
+  `False` per FR-005 / FR-025, so writing `False` unconditionally
+  on the legacy cohort would expand the persisted `config` shape and
+  break US4's byte-identical preservation rule (SC-004 / SC-007):
+  - **Direct Send-path new assignment** (resolved flag = `True`):
+    write `agent.config["direct_send"] = True;
+    agent.save(update_fields=["config"])` (or include in the
+    row-creation `defaults` dict).
+  - **Legacy-path new assignment** (resolved flag = `False` AND no
+    prior `direct_send` key in `config`): do NOT write. Absence is
+    the canonical legacy marker; the persisted `config` shape stays
+    byte-identical to the pre-feature shape.
+  - **Re-assignment rollback from `True` to `False`** (operator
+    flips a previously Direct Send-enabled IntegratedAgent back to
+    legacy, per `quickstart.md §9`): write
+    `agent.config["direct_send"] = False;
+    agent.save(update_fields=["config"])` to overwrite the prior
+    `True`. Leaving `True` would silently route subsequent
+    dispatches through the Direct Send path against a legacy
+    channel.
 - Once set, the flag is immutable for the lifetime of the IntegratedAgent
   (FR-002 Assumption: "snapshot at assignment time"). Re-assignment
   is the only path that changes it.
+- READS use `obj.config.get("direct_send", False)` so absence of the
+  key is treated as the conservative default (FR-005). The same
+  helper (`_resolve_direct_send_flag` for use cases / serializers /
+  payload builders) is the single source of truth — direct
+  attribute reads (`obj.direct_send`) are forbidden because the
+  field does not exist on the model.
 
 ### Migration
 
-A single Django migration:
+**None.** The flag lives inside the existing `config` JSONField; no
+schema change is required. Legacy rows need no backfill — the
+`obj.config.get("direct_send", False)` read collapses absence to
+`False`, which matches the legacy behaviour (FR-005, FR-025).
 
-- `AddField IntegratedAgent.direct_send (BooleanField, default=False)`.
-- Default `False` is enough for both new rows and the backfill of
-  existing rows (Decision 13). No `RunPython` step required.
+### Decision — JSON-key storage (supersedes column-approach rationale)
+
+**Decision**: The Direct Send flag is stored as an optional key
+(`direct_send: bool`) inside the existing `IntegratedAgent.config`
+JSON, NOT as a new boolean column on `IntegratedAgent`. Absence of
+the key is interpreted as `False`. This Decision supersedes the
+prior column-approach rationale that originally pointed at research
+Decision 13 ("default for `IntegratedAgent.direct_send` on existing
+rows") — the column itself is no longer added, so the question of
+its default value at backfill time is moot.
+
+**Rationale**:
+
+- **Zero schema change on `IntegratedAgent`**: no migration ships
+  against the agents app for this feature; the only migration that
+  remains is the additive `Version.STATUS_CHOICES` extension on the
+  templates app. This collapses the rollout footprint and the
+  rollback story to a single migration scope.
+- **US4 byte-identical guarantee is trivially provable**: the
+  `IntegratedAgent` column list is byte-identical to the pre-feature
+  shape, so any persisted-row diff against a pre-feature baseline
+  is structurally empty for the legacy cohort regardless of which
+  serializer or audit query inspects it. The original column
+  approach required a snapshot test to assert the new column was
+  always `False` on the legacy cohort; that assertion is now
+  redundant.
+- **`ReadIntegratedAgentSerializer` wire shape unchanged from US1's
+  first implementation (Option α)**: the serializer keeps
+  `direct_send` as a top-level read-only field, computed at
+  serialization time from `obj.config.get("direct_send", False)`
+  instead of read from a dedicated column. Downstream consumers see
+  the exact same JSON shape they saw in US1's first implementation.
+- **Reduced public-surface footprint**: the existing `config` JSON
+  is already a documented public surface (`plan.md` Constraints —
+  Public-surface preservation enumerates every existing `config`
+  key); adding one more optional key inside it is the smallest
+  possible change consistent with the spec's "purely additive" rule
+  and avoids introducing a new column-level write path that the
+  legacy cohort would have to absorb at deploy time.
+
+**Alternatives considered**:
+
+- *New `IntegratedAgent.direct_send` boolean column (the original
+  US1-first-implementation approach)*: rejected because it forced a
+  new migration with a `default=False` backfill on every existing
+  row, an extra column to write at assignment time, and a snapshot
+  test to prove the legacy cohort's column value never drifted from
+  `False`. None of those costs buys the feature anything that the
+  config-key approach doesn't already provide.
+- *A new top-level `IntegratedAgent.feature_flags` JSONField*:
+  rejected because the existing `config` JSON already houses
+  per-IntegratedAgent feature configuration (`abandoned_cart`,
+  `payment_recovery`, `delivered_order_tracking_config`, etc.), and
+  introducing a parallel JSONField would split feature flags across
+  two columns for no benefit.
 
 ### Reverse-relations affected
 
-None. The new field is a scalar boolean and does not introduce a
-relation.
+None. The flag is a scalar boolean inside the existing `config`
+JSONField and does not introduce a relation.
 
 ---
 
@@ -447,22 +553,33 @@ so no cross-tenant attribution is possible.
 
 None required. All changes are additive:
 
-- `direct_send` defaults to `False` on existing rows (Decision 13).
-- `PAUSED`/`FLAGGED` are unreachable on existing rows because no
-  transition mechanism exists yet (FR-009).
+- `direct_send` is stored as an optional key in the existing
+  `IntegratedAgent.config` JSON; legacy rows have no `direct_send`
+  key in their `config` and the `obj.config.get("direct_send", False)`
+  read collapses absence to `False`, which matches the legacy
+  behaviour (FR-005, §1 Decision). No `IntegratedAgent` migration
+  ships with this feature.
+- `PAUSED`/`FLAGGED` are unreachable on existing `Version` rows
+  because no transition mechanism exists yet (FR-009); the
+  `Version.STATUS_CHOICES` extension is therefore safe with no
+  backfill.
 
 ---
 
 ## 9. Summary of file-level changes implied by this data model
 
-| File                                                           | Change                                                                                                  |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `retail/agents/domains/agent_integration/models.py`            | Add `direct_send = BooleanField(default=False)` on `IntegratedAgent`.                                    |
-| `retail/agents/migrations/00XX_integratedagent_direct_send.py` | Auto-generated `AddField` migration.                                                                    |
-| `retail/templates/models.py`                                   | Extend `Version.STATUS_CHOICES` with `("PAUSED", "Paused")` and `("FLAGGED", "Flagged")`.                |
-| `retail/templates/migrations/00XX_alter_version_status_paused_flagged.py` | Auto-generated `AlterField` migration.                                                                  |
-| `retail/templates/usecases/update_template.py`                 | Extend `UpdateTemplateData.status` `Literal` with `"PAUSED"` and `"FLAGGED"`.                            |
-| `retail/agents/domains/agent_integration/serializers.py`       | Expose `direct_send` (read-only) on `ReadIntegratedAgentSerializer`.                                     |
+| File                                                           | Change                                                                                                                                                            |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `retail/templates/models.py`                                   | Extend `Version.STATUS_CHOICES` with `("PAUSED", "Paused")` and `("FLAGGED", "Flagged")`.                                                                          |
+| `retail/templates/migrations/00XX_alter_version_status_paused_flagged.py` | Auto-generated `AlterField` migration. **Only migration that ships with this feature.**                                                                            |
+| `retail/templates/usecases/update_template.py`                 | Extend `UpdateTemplateData.status` `Literal` with `"PAUSED"` and `"FLAGGED"`.                                                                                      |
+| `retail/agents/domains/agent_integration/serializers.py`       | Expose `direct_send` (read-only) on `ReadIntegratedAgentSerializer`, computed from `obj.config.get("direct_send", False)` (§1 Decision; wire shape unchanged from US1's first implementation). |
+| `retail/agents/domains/agent_integration/usecases/assign.py`   | At assignment time, write `agent.config["direct_send"] = ...` and persist via `agent.save(update_fields=["config"])`. No model-column write; no new migration.    |
+
+`retail/agents/domains/agent_integration/models.py` is intentionally
+NOT in this table — the Direct Send flag is stored inside the
+existing `config` JSONField, so no schema change ships against the
+agents app (§1 Decision).
 
 All other implementation surface (use cases, services, payload
 builders, audit logging) is non-persisted code and is captured in

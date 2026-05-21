@@ -112,9 +112,12 @@ def _resolve_direct_send_flag(self, agent: Agent, app_uuid: UUID) -> bool:
 ## 5. Idempotency and caching
 
 GET — naturally idempotent. The contract is read once per assignment
-attempt and the result is persisted on `IntegratedAgent.direct_send`.
-No Retail-side cache is added; subsequent broadcasts read the
-persisted flag, never the channel.
+attempt and the result is persisted as
+`IntegratedAgent.config["direct_send"]` (an optional key inside the
+existing `config` JSONField; absence is interpreted as `False` —
+data-model.md §1 Decision). No Retail-side cache is added;
+subsequent broadcasts read the persisted flag from `config`, never
+the channel.
 
 ### 5.1 Snapshot lifetime (consistency with spec assignment-time snapshot)
 
@@ -123,9 +126,11 @@ implementation of the spec's "snapshot at assignment time" guarantee
 (spec FR-002 Assumption, research Decision 1):
 
 - A successful `AssignAgentUseCase.execute` reads the channel-app
-  flag exactly once and writes `IntegratedAgent.direct_send` inside
-  the same atomic transaction. No subsequent broadcast or background
-  task re-reads the channel-app endpoint to refresh the flag.
+  flag exactly once and writes
+  `IntegratedAgent.config["direct_send"]` (via
+  `agent.save(update_fields=["config"])`) inside the same atomic
+  transaction. No subsequent broadcast or background task re-reads
+  the channel-app endpoint to refresh the flag.
 - An operator-initiated re-assignment (e.g. after an FR-003d
   failure, or after the operator wants to flip the path on a
   channel whose Direct Send status changed) is a NEW assignment
