@@ -1,15 +1,22 @@
 """FR-028 / FR-029 / FR-030 / FR-039 dedup regression on the Direct
-Send cohort (T014a).
+Send cohort (T014a + T014c).
 
 Pins the canonical idempotency tuple
 ``(project, integrated_agent.uuid, order_id, current_state)`` on the
 Direct Send path:
 
 - Two invocations with the same tuple collapse into ONE outbound
-  Flows POST and ONE ``BroadcastMessage`` row.
+  Flows POST and ONE ``BroadcastMessage`` row (T014a).
 - The second invocation emits the documented ``duplicate_skipped``
-  INFO log shape (FR-039).
-- The cache key matches the five-segment shape pinned by FR-029.
+  INFO log shape (FR-039, T014a).
+- The cache key matches the five-segment shape pinned by FR-029
+  (T014a).
+- Two invocations sharing ``(project, agent, order_id)`` but differing
+  in ``current_state`` MUST dispatch as TWO distinct logical broadcasts
+  (FR-030, T014c). Direct counter-evidence that the dedup gate keys on
+  ``current_state`` — a refactor dropping that component from the key
+  would silently merge two distinct logical broadcasts into one and
+  fail this test.
 
 The legacy cohort is already covered by the pre-feature dedup tests
 in ``test_order_status_update.py``; this file is the Direct
@@ -204,3 +211,84 @@ class OrderStatusDedupOnDirectSendTest(TestCase):
         self.assertEqual(segments[2], str(self.integrated_agent.uuid))
         self.assertEqual(segments[3], "fresh-order-9999")
         self.assertEqual(segments[4], "shipped")
+
+    def test_different_current_state_dispatches_as_distinct_logical_broadcasts(self):
+        """FR-030 (T014c): two events differing ONLY in ``current_state``
+        MUST both dispatch as separate logical broadcasts.
+
+        Same ``(project, integrated_agent.uuid, order_id)`` triple,
+        different ``current_state`` values → distinct dedup cache keys
+        → both pass the dedup gate → two outbound Flows POSTs → two
+        ``BroadcastMessage`` rows. ``BroadcastMessage`` does not store
+        ``current_state`` directly (the column is absent on the model,
+        see ``retail/broadcasts/models.py``); the two rows are matched
+        to their originating invocations via the distinct ``broadcast_id``
+        values returned by the Flows mock. The shared ``order_id``
+        confirms both rows belong to the same physical order.
+        """
+        self.flows_service.send_whatsapp_broadcast.side_effect = [
+            {
+                "id": 9001,
+                "status": "queued",
+                "metadata": {"template": {"uuid": str(uuid4())}},
+            },
+            {
+                "id": 9002,
+                "status": "queued",
+                "metadata": {"template": {"uuid": str(uuid4())}},
+            },
+        ]
+
+        second_dto = MagicMock(spec=OrderStatusDTO)
+        second_dto.orderId = self.order_status_dto.orderId
+        second_dto.currentState = "shipped"
+        second_dto.lastState = "invoiced"
+        second_dto.domain = "Marketplace"
+        second_dto.vtexAccount = self.project.vtex_account
+
+        captured_keys: List[str] = []
+        original_cache_add = cache.add
+
+        def _wrapped_add(key, *args, **kwargs):
+            captured_keys.append(key)
+            return original_cache_add(key, *args, **kwargs)
+
+        webhook_factory = self._build_webhook_factory()
+        with patch(
+            "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase",
+            side_effect=lambda *_a, **_kw: webhook_factory(),
+        ), patch(
+            "retail.agents.domains.agent_webhook.usecases.order_status.cache.add",
+            side_effect=_wrapped_add,
+        ):
+            self.usecase.execute(self.integrated_agent, self.order_status_dto)
+            self.usecase.execute(self.integrated_agent, second_dto)
+
+        self.assertEqual(
+            self.flows_service.send_whatsapp_broadcast.call_count,
+            2,
+            "expected two outbound Flows POSTs — one per distinct current_state",
+        )
+
+        persisted_rows = BroadcastMessage.objects.filter(
+            integrated_agent=self.integrated_agent
+        )
+        self.assertEqual(persisted_rows.count(), 2)
+        persisted_broadcast_ids = sorted(
+            persisted_rows.values_list("broadcast_id", flat=True)
+        )
+        self.assertEqual(persisted_broadcast_ids, [9001, 9002])
+        persisted_order_ids = set(
+            persisted_rows.values_list("order_id", flat=True)
+        )
+        self.assertEqual(persisted_order_ids, {self.order_status_dto.orderId})
+
+        self.assertEqual(len(captured_keys), 2, captured_keys)
+        self.assertNotEqual(captured_keys[0], captured_keys[1])
+        first_segments = captured_keys[0].split(":")
+        second_segments = captured_keys[1].split(":")
+        self.assertEqual(len(first_segments), 5)
+        self.assertEqual(len(second_segments), 5)
+        self.assertEqual(first_segments[:4], second_segments[:4])
+        self.assertEqual(first_segments[4], "invoiced")
+        self.assertEqual(second_segments[4], "shipped")
