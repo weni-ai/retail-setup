@@ -320,6 +320,40 @@ class BuildDirectSendMessageNamingRuleRefusalTest(TestCase):
         self._assert_refusal("a" * 513)
 
 
+class BuildDirectSendMessageMissingContactUrnTest(TestCase):
+    """Defensive guard — caller did not provide ``contact_urn``.
+
+    The rule engine MUST hand the recipient URN to dispatch; when it
+    doesn't, ``build_direct_send_message`` logs an ERROR and returns
+    ``None`` so no payload is emitted to Flows.
+    """
+
+    def setUp(self):
+        self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
+        self.integrated_agent = _make_integrated_agent()
+
+    def test_missing_contact_urn_logs_error_and_returns_none(self):
+        template = _make_template(body="Olá {{1}}.")
+        data = {"template_variables": {"1": "Maria"}}
+        with self.assertLogs(_BUILDER_LOGGER, level=logging.ERROR) as captured:
+            result = self.handler.build_direct_send_message(
+                data=data,
+                channel_uuid=str(self.integrated_agent.channel_uuid),
+                project_uuid=str(self.integrated_agent.project.uuid),
+                template=template,
+                integrated_agent=self.integrated_agent,
+            )
+        self.assertIsNone(result)
+        self.assertTrue(
+            any(
+                "Incomplete Direct Send message data" in line
+                and "weni_order_shipped" in line
+                for line in captured.output
+            ),
+            captured.output,
+        )
+
+
 class BuildDirectSendMessageLengthAndEmptyBodyRefusalTest(TestCase):
     """Contract §4 rule-2 / rule-3 refusal paths (T011c)."""
 

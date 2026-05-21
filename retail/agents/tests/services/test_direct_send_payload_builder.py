@@ -12,6 +12,7 @@ import logging
 from django.test import TestCase
 
 from retail.agents.domains.agent_webhook.services.direct_send_payload_builder import (
+    build_direct_send_header,
     is_valid_direct_send_template_name,
     substitute_template_variables,
 )
@@ -117,3 +118,31 @@ class IsValidDirectSendTemplateNameTest(TestCase):
 
     def test_name_over_512_chars_fails(self):
         self.assertFalse(is_valid_direct_send_template_name("a" * 513))
+
+
+class BuildDirectSendHeaderEdgeCasesTest(TestCase):
+    """Defensive branches of ``build_direct_send_header``.
+
+    The dispatcher tolerates malformed metadata gracefully so the
+    broadcast can be skipped without raising. Both branches are
+    contract-side guarantees per ``contracts/messaging-gateway-payload.md``
+    §3.2 (only IMAGE and TEXT headers are emitted; everything else is
+    a no-op).
+    """
+
+    def test_image_header_without_image_url_returns_none(self):
+        result = build_direct_send_header(
+            {"header": {"header_type": "IMAGE", "text": "placeholder"}},
+            template_variables={},
+            template_name="weni_order_shipped",
+            image_url=None,
+        )
+        self.assertIsNone(result)
+
+    def test_unknown_header_type_returns_none(self):
+        result = build_direct_send_header(
+            {"header": {"header_type": "VIDEO", "text": "ignored"}},
+            template_variables={},
+            template_name="weni_order_shipped",
+        )
+        self.assertIsNone(result)
