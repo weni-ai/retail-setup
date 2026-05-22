@@ -20,17 +20,17 @@
 
 ## Public Field Invariance — Model Schema (Completeness)
 
-- [ ] CHK004 Are all existing fields on `IntegratedAgent` (`uuid`, `channel_uuid`, `agent`, `project`, `is_active`, `ignore_templates`, `contact_percentage`, `config`, `global_rule_code`, `global_rule_prompt`, `parent_agent_uuid`, `created_on`, `broadcasts_delivered`) preserved-as-is, with no field added — the Direct Send flag is stored inside the existing `config` JSON (data-model.md §1 Decision)?
+- [x] CHK004 Are all existing fields on `IntegratedAgent` (`uuid`, `channel_uuid`, `agent`, `project`, `is_active`, `ignore_templates`, `contact_percentage`, `config`, `global_rule_code`, `global_rule_prompt`, `parent_agent_uuid`, `created_on`, `broadcasts_delivered`) preserved-as-is, with no field added — the Direct Send flag is stored inside the existing `config` JSON (data-model.md §1 Decision)?
 - [x] CHK005 Are the existing fields on `Template` (`uuid`, `name`, `parent`, `current_version`, `rule_code`, `integrated_agent`, `metadata`, `needs_button_edit`, `deleted_at`, `is_active`, `start_condition`, `display_name`, `variables`, `config`) listed as preserved-as-is?
 - [x] CHK006 Are the existing fields on `Version` (`template`, `template_name`, `integrations_app_uuid`, `project`, `status`, `created_at`, `uuid`) listed as preserved-as-is, with only `STATUS_CHOICES` being EXTENDED (not rewritten or re-ordered)?
-- [ ] CHK007 Are the existing keys inside `IntegratedAgent.config` (`initial_template_language`, `country_phone_code`, `abandoned_cart`, `payment_recovery`, `integration_settings`, `delivered_order_tracking_config`) preserved; one new optional key `direct_send: bool` (absence = False) added — purely additive within the JSON, no key removed or renamed (data-model.md §1)?
+- [x] CHK007 Are the existing keys inside `IntegratedAgent.config` (`initial_template_language`, `country_phone_code`, `abandoned_cart`, `payment_recovery`, `integration_settings`, `delivered_order_tracking_config`) preserved; one new optional key `direct_send: bool` (absence = False) added — purely additive within the JSON, no key removed or renamed (data-model.md §1)?
 - [x] CHK008 Is the `Template.metadata` shape backward-compatibility statement explicit — adding the `direct_send` sub-object is purely additive AND only present on Direct-Send-path templates (legacy templates never see the key)?
 - [x] CHK009 Are the upstream `Agent` and `PreApprovedTemplate` models stated as not-modified-by-this-feature?
 
 ## Public Field Invariance — DRF Serializers (Completeness)
 
-- [ ] CHK010 Are the existing fields on `ReadIntegratedAgentSerializer` (`uuid`, `channel_uuid`, `templates`, `webhook_url`, `description`, `contact_percentage`, `global_rule_prompt`, `initial_template_language`, `delivered_order_tracking_config`, `has_delivered_order_templates`, `abandoned_cart_config`) listed as preserved-as-is, with `direct_send` ADDED only (now computed from `obj.config.get("direct_send", False)`, not stored as a column)?
-- [ ] CHK011 Is the addition of `direct_send` (read-only) to `ReadIntegratedAgentSerializer` documented as a non-breaking additive change for existing API consumers? Now computed from `obj.config.get('direct_send', False)`; wire shape unchanged from US1's first implementation.
+- [x] CHK010 Are the existing fields on `ReadIntegratedAgentSerializer` (`uuid`, `channel_uuid`, `templates`, `webhook_url`, `description`, `contact_percentage`, `global_rule_prompt`, `initial_template_language`, `delivered_order_tracking_config`, `has_delivered_order_templates`, `abandoned_cart_config`) listed as preserved-as-is, with `direct_send` ADDED only (now computed from `obj.config.get("direct_send", False)`, not stored as a column)?
+- [x] CHK011 Is the addition of `direct_send` (read-only) to `ReadIntegratedAgentSerializer` documented as a non-breaking additive change for existing API consumers? Now computed from `obj.config.get('direct_send', False)`; wire shape unchanged from US1's first implementation.
 - [x] CHK012 Is the no-endpoint-renamed-or-removed requirement stated (no URL paths, HTTP methods, query params, or required headers altered)?
 
 ## Inbound Payload Compatibility — Required Fields (Completeness, Coverage)
@@ -97,7 +97,7 @@
 ## Ambiguities & Conflicts
 
 - [x] CHK047 Is "byte-identical" defined unambiguously — literal byte equivalence in the serialized JSON, semantic equivalence (key order may differ but values match), or JSON-Schema-equivalent? Without a precise definition, the snapshot test can't be unambiguously specified.
-- [ ] CHK048 [Conflict-Resolved] Resolved in favor of Option α — `direct_send` is exposed as a top-level read-only field on `ReadIntegratedAgentSerializer`, computed from `obj.config.get("direct_send", False)`. The wire shape is unchanged from US1's first implementation; the storage relocation (column → `config` JSON key) is invisible to downstream consumers and is purely additive within the existing public surface. Resolution recorded in the new Decision entry in `data-model.md §1`.
+- [x] CHK048 [Conflict-Resolved] Resolved in favor of the JSON-key storage Decision (`data-model.md §1`) — `direct_send` is exposed as a top-level read-only field on `ReadIntegratedAgentSerializer`, computed from `obj.config.get("direct_send", False)`. The wire shape is unchanged from US1's first implementation; the storage relocation (column → `config` JSON key) is invisible to downstream consumers and is purely additive within the existing public surface. Resolution recorded in the new Decision entry in `data-model.md §1`.
 - [x] CHK049 Is the spec's stance on rollback unambiguous — `quickstart.md §9` says reverting code is safe even with the column / enum still in place, but does the spec also require the migration to be REVERSIBLE (Django's `RunPython` / `RemoveField`) for ops?
 - [ ] CHK050 Is the storage relocation of `direct_send` (column →
       config JSON key) stated as a deliberate spec correction with

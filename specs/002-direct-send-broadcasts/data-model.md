@@ -114,7 +114,8 @@ its default value at backfill time is moot.
   always `False` on the legacy cohort; that assertion is now
   redundant.
 - **`ReadIntegratedAgentSerializer` wire shape unchanged from US1's
-  first implementation (Option α)**: the serializer keeps
+  first implementation (JSON-key storage Decision, this section)**:
+  the serializer keeps
   `direct_send` as a top-level read-only field, computed at
   serialization time from `obj.config.get("direct_send", False)`
   instead of read from a dedicated column. Downstream consumers see
