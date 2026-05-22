@@ -38,7 +38,7 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
                         {
                             "name": "valid_template",
                             "body": "new content",
-                            "header": {"type": "TEXT", "text": "Header"},
+                            "header": "Header",
                             "body_params": ["param1", "param2"],
                             "footer": "Footer text",
                             "buttons": [{"type": "QUICK_REPLY", "text": "Button"}],

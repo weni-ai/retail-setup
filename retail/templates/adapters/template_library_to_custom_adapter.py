@@ -6,6 +6,12 @@ import binascii
 
 from typing import Dict, Optional, List, Protocol, Union
 
+from retail.templates.adapters.url_normalization import (
+    append_placeholder_if_needed,
+    ensure_protocol,
+    normalize_url_if_needed,
+)
+
 
 class ComponentTransformer(Protocol):
     """Protocol for component transformers."""
@@ -95,40 +101,8 @@ class FooterTransformer(ComponentTransformer):
 class ButtonTransformer(ComponentTransformer):
     """Transforms buttons component from library to translation format."""
 
-    PLACEHOLDER_PATTERN = "{{1}}"
-
     def _is_button_format_already_translated(self, button: Dict) -> bool:
         return button.get("type") == "URL" and isinstance(button.get("url"), str)
-
-    def _looks_like_url(self, value: str) -> bool:
-        """Check if value looks like a URL (contains domain pattern)."""
-        if not value:
-            return False
-        # Already has protocol
-        if value.startswith(("http://", "https://")):
-            return True
-        # Contains domain pattern (has a dot and slash indicating path)
-        return "." in value and "/" in value
-
-    def _ensure_protocol(self, url: str) -> str:
-        """Add https:// protocol prefix if not already present."""
-        if not url:
-            return url
-        if not url.startswith(("http://", "https://")):
-            return f"https://{url}"
-        return url
-
-    def _normalize_url_if_needed(self, value: str) -> str:
-        """Normalize URL only if it looks like a complete URL."""
-        if self._looks_like_url(value):
-            return self._ensure_protocol(value)
-        return value
-
-    def _append_placeholder_if_needed(self, url: str) -> str:
-        """Append placeholder {{1}} only if not already present in URL."""
-        if self.PLACEHOLDER_PATTERN in url:
-            return url
-        return url + self.PLACEHOLDER_PATTERN
 
     def transform(self, template_data: Dict) -> Optional[List[Dict]]:
         buttons = template_data.get("buttons")
@@ -145,12 +119,12 @@ class ButtonTransformer(ComponentTransformer):
             button = {"type": btn["type"], "text": btn["text"]}
 
             if btn["type"] == "URL":
-                base_url = self._ensure_protocol(btn["url"]["base_url"])
+                base_url = ensure_protocol(btn["url"]["base_url"])
                 if "url_suffix_example" in btn["url"]:
                     button["example"] = [
-                        self._normalize_url_if_needed(btn["url"]["url_suffix_example"])
+                        normalize_url_if_needed(btn["url"]["url_suffix_example"])
                     ]
-                    button["url"] = self._append_placeholder_if_needed(base_url)
+                    button["url"] = append_placeholder_if_needed(base_url)
                 else:
                     button["url"] = base_url
 

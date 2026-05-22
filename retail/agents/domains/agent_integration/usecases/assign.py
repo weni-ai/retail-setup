@@ -13,6 +13,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 
 from retail.agents.domains.agent_integration.exceptions import (
     DirectSendTemplateUnavailableError,
+    DirectSendUnsupportedComponentError,
 )
 from retail.agents.domains.agent_integration.models import IntegratedAgent, Credential
 from retail.agents.domains.agent_integration.usecases.fetch_country_phone_code import (
@@ -457,10 +458,14 @@ class AssignAgentUseCase:
 
         Returns ``(content, actual_language)`` on success. Raises
         :class:`DirectSendTemplateUnavailableError` when neither the
-        project locale nor ``pt_BR`` returns content (FR-003d).
+        project locale nor ``pt_BR`` returns content (FR-003d). The
+        first-locale fetch swallows adapter rejections so the ``pt_BR``
+        retry can fire per FR-003c (c); the retry itself propagates
+        adapter rejections so the surrounding ``@transaction.atomic``
+        rolls back.
         """
-        content = fetch_meta_library_template_metadata(
-            self.meta_service, pre_approved.name, project_language
+        content = self._safely_fetch_direct_send_metadata(
+            pre_approved.name, project_language
         )
         actual_language = project_language
 
@@ -474,7 +479,8 @@ class AssignAgentUseCase:
                     f"[DirectSend] template_language_fallback: "
                     f"project_uuid={project.uuid} agent={integrated_agent.uuid} "
                     f"template={pre_approved.name} "
-                    f"requested_language={project_language} fallback_language=pt_BR"
+                    f"requested_language={project_language} "
+                    f"fallback_language={_DIRECT_SEND_FALLBACK_LANGUAGE}"
                 )
 
         if content is None:
@@ -494,6 +500,29 @@ class AssignAgentUseCase:
             )
 
         return content, actual_language
+
+    def _safely_fetch_direct_send_metadata(
+        self, template_name: str, language: str
+    ) -> Optional[Dict[str, Any]]:
+        """First-locale fetch with FR-003c routing for adapter rejections.
+
+        Translates ``DirectSendUnsupportedComponentError`` into "no
+        usable content" (returns ``None``) so the caller's ``pt_BR``
+        retry can fire per FR-003c (c) — but ONLY when a retry is
+        actually available (``language`` is non-``pt_BR``). When the
+        first-locale fetch IS already ``pt_BR``, no retry is possible,
+        so the exception propagates and the operator sees the specific
+        ``direct_send_unsupported_component`` code instead of the more
+        generic ``direct_send_template_unavailable`` (FR-003d).
+        """
+        try:
+            return fetch_meta_library_template_metadata(
+                self.meta_service, template_name, language
+            )
+        except DirectSendUnsupportedComponentError:
+            if language == _DIRECT_SEND_FALLBACK_LANGUAGE:
+                raise
+            return None
 
     def _adopt_customer_templates(
         self,
