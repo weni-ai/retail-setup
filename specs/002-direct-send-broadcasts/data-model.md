@@ -218,7 +218,7 @@ verbatim, with one extra key:
 
 ```jsonc
 {
-  "header": { ... },
+  "header": { "header_type": "TEXT", "text": "Pedido enviado" },   // canonical Retail-internal shape (FR-003e)
   "body": "Olá {{1}}, seu pedido {{2}} foi enviado.",
   "body_params": [ ... ],
   "footer": "Equipe Loja XYZ",
@@ -235,6 +235,31 @@ verbatim, with one extra key:
 }
 ```
 
+### `header` canonical shape (FR-003e — Session 2026-05-22)
+
+The persisted `metadata.header` ALWAYS uses the key `header_type`
+(NOT `type`) — that's the canonical Retail-internal shape consumed by
+BOTH `Broadcast.build_broadcast_template_message` (legacy) at
+`broadcast.py:100` (`header["header_type"]`) and
+`Broadcast.build_direct_send_message` (new). The shape is one of:
+
+- `{header_type: "TEXT", text: "<string>"}` — produced by the
+  Direct Send fetch path's adapter, which normalizes Meta's
+  plain-string `header` into this dict at persist time.
+- `{header_type: "IMAGE", ...}` — only when an operator attaches
+  media post-assignment via the `update_template` endpoint
+  (FR-026). The Direct Send fetch path itself NEVER persists
+  `IMAGE` headers because Meta's library catalog only ever supplies
+  `header` as a plain text string (FR-003e); media attachments are
+  exclusively a post-assignment edit.
+- `null` / key absent — the template has no header.
+
+Any other shape on a Direct Send-path Template is a regression
+(notably the pre-FR-003e dict `{type, text}` shape, which is a
+latent bug pinned by the test-deviation note on `tasks.md` T024 —
+the test originally asserted the wrong key (`type`) and is now
+aligned with this canonical shape).
+
 ### Rationale
 
 - A small, additive sub-object inside `metadata` records the
@@ -250,7 +275,9 @@ verbatim, with one extra key:
   in `AssignAgentUseCase`. The legacy path leaves `metadata`
   untouched.
 - No Django-level validation on the JSON. The schema is enforced by
-  the use case that writes it.
+  the use case that writes it (see §5 for the adapter's fetch-time
+  validation contract — FR-003e / FR-003f / 2026-05-22 Q3
+  drop-rule).
 
 ---
 
@@ -332,6 +359,56 @@ class TemplateInfo(TypedDict):
 - The library-catalog response's `language` is already carried inside
   `TemplateInfo.metadata["language"]`; no separate top-level
   `language` field is needed on either helper's return type.
+
+#### Adapter normative behaviour (FR-003e / FR-003f / Session 2026-05-22 Q3)
+
+`adapt_meta_library_template_response` MUST:
+
+1. **Normalize `header`** (FR-003e): accept `header` ONLY when absent
+   or a plain text string; reject any other shape (including the
+   pre-FR-003e dict `{type, text}` shape) by raising
+   `DirectSendUnsupportedComponentError(component_type="header")` so
+   the use case routes through FR-003c → FR-003d. When accepted as a
+   string, length-validate against `MAX_HEADER_TEXT_LENGTH` and
+   normalize to `{header_type: "TEXT", text: <string>}` on the
+   persisted `metadata.header` (the canonical Retail-internal shape
+   from §3).
+2. **Reject non-dispatchable `buttons[*].type`** (FR-003f): any
+   `buttons[*].type` outside `{URL, QUICK_REPLY}` — including
+   `PHONE_NUMBER`, `PAYMENT_REQUEST`, `ORDER_DETAILS`, `COPY_CODE`,
+   `FLOW`, or any future Meta-curated value — raises
+   `DirectSendUnsupportedComponentError(component_type="<type>")`.
+3. **Normalize URL-button shape** (FR-003f): accept URL-button entries
+   with either a flat `url` string OR the legacy nested
+   `{base_url, url_suffix_example}` shape; normalize both to a flat
+   `url` string on `metadata.buttons[*].url` via the same
+   `_ensure_protocol` + `_append_placeholder_if_needed` heuristic the
+   push-path `ButtonTransformer` already applies, so `metadata.buttons`
+   stores a single canonical shape regardless of upstream variance.
+4. **Drop auxiliary curation fields** (Session 2026-05-22 Q3): Meta's
+   response may carry `body_param_types`, `attributes`, `topic`,
+   `usecase`, `industry`, `id`. The adapter MUST drop all of them —
+   only the dispatch-relevant subset
+   `{header, body, body_params, footer, buttons, category, language}`
+   is propagated to `TemplateInfo.metadata`. The `direct_send` audit
+   sub-object documented in §3 is added by the use case at write
+   time, not by the adapter.
+5. **Enforce length and count limits**: body ≤ `MAX_BODY_LENGTH`,
+   header.text ≤ `MAX_HEADER_TEXT_LENGTH`, footer ≤
+   `MAX_FOOTER_LENGTH`, button `display_text` (cta_url) and
+   button `title` (reply) ≤ `MAX_BUTTON_LABEL_LENGTH`, ≤1 `URL`
+   button, ≤3 `QUICK_REPLY` buttons. The `url` itself is NOT
+   length-checked here (URLs can be up to 2000 chars per
+   `contracts/messaging-gateway-payload.md` §3.3). Any violation
+   raises `DirectSendUnsupportedComponentError` with a `component_type`
+   identifying the violation.
+
+The four rejection branches (header shape, button type, length /
+count overflow, malformed JSON) all surface as
+`DirectSendUnsupportedComponentError` so the operator-facing outcome
+is uniform — the use case translates the exception into FR-003c's
+`pt_BR` retry, then FR-003d's atomic rollback if the retry also
+raises.
 
 ### Direct Send `actual_language` — derived in the assignment use case
 
