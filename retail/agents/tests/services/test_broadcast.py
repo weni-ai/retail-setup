@@ -1054,3 +1054,117 @@ class BroadcastRecordingTest(TestCase):
             lambda_data=None,
             exc=CustomAPIException(detail="boom", status_code=500),
         )
+
+
+class LegacyBuildMessageSkippedOnNonApprovedStateTest(TestCase):
+    """T035 (US4 / Story 4 AS2 — FR-008 / FR-027 / FR-039 / FR-046).
+
+    For a Direct Send-DISABLED ``IntegratedAgent``, when the named
+    template's ``current_version.status`` is one of the pre-existing
+    non-``APPROVED`` states (PENDING, REJECTED, IN_APPEAL, LOCKED,
+    DISABLED, DELETED, PENDING_DELETION), ``Broadcast.build_message``
+    MUST:
+
+    - return ``None`` (no payload built, no Flows call follows),
+    - emit the **unified** ``[BroadcastDispatch] skipped_due_to_status:``
+      audit log via ``get_current_template`` (FR-027 Exception clause +
+      FR-039 "Dispatch-gate skip (unified shape)"),
+    - emit the legacy downstream ``"Template not found or has no
+      approved current version"`` warning UNCHANGED (FR-027 + FR-039
+      "Legacy downstream miss"),
+    - NOT invoke either ``build_broadcast_template_message`` or
+      ``build_direct_send_message``.
+
+    The dispatch gate is path-independent — same shape, same behavior on
+    the Direct Send and legacy cohorts. This test pins the assertion for
+    the legacy cohort specifically; the Direct Send cohort is covered by
+    the unified-shape regression in
+    ``test_get_current_template_non_approved_other_states_emit_unified_audit_shape``.
+    """
+
+    _LEGACY_NON_APPROVED_STATES = [
+        "PENDING",
+        "REJECTED",
+        "IN_APPEAL",
+        "LOCKED",
+        "DISABLED",
+        "DELETED",
+        "PENDING_DELETION",
+    ]
+
+    def setUp(self):
+        self.mock_flows_service = MagicMock()
+        self.mock_audit = MagicMock()
+        self.handler = Broadcast(
+            flows_service=self.mock_flows_service, audit_func=self.mock_audit
+        )
+        self.integrated_agent = MagicMock()
+        self.integrated_agent.uuid = uuid4()
+        self.integrated_agent.channel_uuid = uuid4()
+        self.integrated_agent.project.uuid = uuid4()
+        self.integrated_agent.project.vtex_account = "legacy-store"
+        # Direct Send DISABLED — key absent from config (FR-001 / FR-005:
+        # absence is the canonical legacy marker).
+        self.integrated_agent.config = {}
+
+    def _stub_template_lookup(self, template):
+        mock_filter = MagicMock()
+        mock_filter.select_related.return_value.first.return_value = template
+        self.integrated_agent.templates.filter = MagicMock(return_value=mock_filter)
+        return mock_filter
+
+    def test_legacy_path_skips_dispatch_on_each_non_approved_state(self):
+        logger_name = "retail.agents.domains.agent_webhook.services.broadcast"
+
+        for state in self._LEGACY_NON_APPROVED_STATES:
+            with self.subTest(version_status=state):
+                template = MagicMock()
+                template.name = "order_update"
+                template.current_version.status = state
+                self._stub_template_lookup(template)
+
+                data = {
+                    "template": "order_update",
+                    "contact_urn": "whatsapp:5511",
+                    "template_variables": {"1": "Maria"},
+                }
+
+                with patch.object(
+                    self.handler, "build_broadcast_template_message"
+                ) as mock_legacy_builder, patch.object(
+                    self.handler, "build_direct_send_message"
+                ) as mock_direct_send_builder, self.assertLogs(
+                    logger_name, level="WARNING"
+                ) as captured:
+                    result = self.handler.build_message(self.integrated_agent, data)
+
+                self.assertIsNone(result)
+                mock_legacy_builder.assert_not_called()
+                mock_direct_send_builder.assert_not_called()
+                self.mock_flows_service.send_whatsapp_broadcast.assert_not_called()
+
+                unified_audit_lines = [
+                    msg
+                    for msg in captured.output
+                    if "skipped_due_to_status" in msg
+                    and f"version_status={state}" in msg
+                ]
+                self.assertEqual(
+                    len(unified_audit_lines),
+                    1,
+                    f"state={state} must emit the unified FR-039 audit line; "
+                    f"got: {captured.output}",
+                )
+
+                downstream_miss_lines = [
+                    msg
+                    for msg in captured.output
+                    if "Template not found or has no approved current version" in msg
+                ]
+                self.assertEqual(
+                    len(downstream_miss_lines),
+                    1,
+                    f"state={state} must keep the legacy downstream miss line "
+                    f"per FR-027 + FR-039 'Legacy downstream miss'; "
+                    f"got: {captured.output}",
+                )
