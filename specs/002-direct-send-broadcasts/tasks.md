@@ -23,7 +23,30 @@ description: "Tasks for WhatsApp Direct Send Broadcasts (OrderStatus)"
 
 - `[ ]` — Pending.
 - `[X]` — Completed and canonical.
-- `[~]` — **Superseded**: the work was performed during an earlier phase but the canonical merge shape was relocated by a later phase (currently used by Phase 3.5's relocation of `direct_send` from a model column to `IntegratedAgent.config` JSON). A `[~]` task MUST NOT be re-executed on a fresh checkout; follow the explicit `SUPERSEDED by T...` cross-reference instead.
+- `[~]` — **Superseded**: the work was performed during an earlier phase but the canonical merge shape was relocated by a later phase. Used today by (a) Phase 3.5's relocation of `direct_send` from a model column to `IntegratedAgent.config` JSON, and (b) Phase 8's relocation of the Direct Send button wire shape from `msg.buttons[*].sub_type={"cta_url","reply"}` to the FR-014a / FR-014b top-level siblings on `msg` (`msg.interaction_type`, `msg.cta_message`, `msg.quick_replies`). A `[~]` task MUST NOT be re-executed on a fresh checkout; follow the explicit `SUPERSEDED by T...` cross-reference instead.
+
+> ## ✅ OUTSTANDING WORK CLOSED (resolved 2026-05-22 by `/speckit-implement`)
+>
+> All Phase 8 extension tasks (T112, T113, T114) and the T014d unpause-race
+> coverage have landed. The Phase 7 re-run gate completed clean:
+>
+> - **T036** — quickstart validation: covered by the new combined-case
+>   regression test `test_combined_url_and_quick_replies_emit_parallel_siblings`
+>   (T114(f)) which exercises a CTA URL + QUICK_REPLY template end-to-end
+>   through `Broadcast.build_direct_send_message` and confirms the
+>   captured payload carries `msg.interaction_type` + `msg.cta_message`
+>   + `msg.quick_replies` as parallel siblings with NO `msg.buttons` key.
+> - **T037** — `poetry run python contrib/compare_coverage.py` reports
+>   "Number of test lines increased by 10" (the T011a `[~] SUPERSEDED`
+>   removal of the old QUICK_REPLY assertions is offset by the new
+>   `BuildDirectSendMessageQuickReplyWireShapeTest` class plus T112's
+>   override-map branches and T113's CTA URL branches).
+> - **T038** — pre-commit clean on every changed file (Black + flake8).
+> - **T039** — PR body update tracked separately when the PR is opened.
+> - **T115** — contract artifact (`messaging-gateway-payload.md`)
+>   already canonical; the verification grep `rg -n
+>   'sub_type":\s*"cta_url"|sub_type":\s*"reply"' contracts/messaging-gateway-payload.md`
+>   returns zero matches.
 
 ## Path Conventions
 
@@ -110,9 +133,15 @@ description: "Tasks for WhatsApp Direct Send Broadcasts (OrderStatus)"
 
 - [X] T010 [P] [US1] Tests for `direct_send_payload_builder` in `retail/agents/tests/services/test_direct_send_payload_builder.py` covering: variable substitution with `{{1}}`/`{{2}}` replaced from a positional dict (regex `\{\{\s*(\d+)\s*\}\}`, whitespace-tolerant), missing-index logs WARNING and substitutes empty string, extra-index silently ignored (spec edge cases); `is_valid_direct_send_template_name` returns True for snake_case names ≤512 chars and False for names with hyphens/uppercase/length>512 (research Decision 7).
 - [X] T011 [P] [US1] **Happy-path wire shape** — Tests for `Broadcast.build_direct_send_message` in `retail/agents/tests/services/test_broadcast_direct_send.py` covering Story 1 AS1, AS2, AS3. **AS1**: body with `{{1}}`/`{{2}}` substituted, `template.locale` from template metadata, `template.name` equals `Version.template_name`, `msg["direct_send"] is True`, `msg["category"] == "utility"` — Python dict notation; the wire JSON renders these as `"direct_send": true` and `"category": "utility"` per `contracts/messaging-gateway-payload.md` §3.1. **AS2**: image header + CTA URL button, URL with `{{1}}` substituted, `msg.header.image_url` AND `msg.attachments[0]` both set to the same value per contract §3.1 / §3.2. **AS3**: body-only template, no buttons / header / footer / variables.
-- [X] T011a [P] [US1] **Quick-reply buttons** — Tests in the same file (`test_broadcast_direct_send.py`) covering quick-reply button rendering: up to 3 `QUICK_REPLY` buttons rendered with `sub_type="reply"`, `id`, `title` per contract §3.3; at least one title contains `{{1}}` and is substituted via the helper (Decision 6). Assert the resulting button list preserves order and that titles ≤ 20 chars survive the post-substitution length gate from T013.
+- [~] T011a [P] [US1] **⚠️ SUPERSEDED by T114 (Phase 8)** — Original task body: **Quick-reply buttons** — Tests in the same file (`test_broadcast_direct_send.py`) covering quick-reply button rendering: up to 3 `QUICK_REPLY` buttons rendered with `sub_type="reply"`, `id`, `title` per contract §3.3; at least one title contains `{{1}}` and is substituted via the helper (Decision 6). Assert the resulting button list preserves order and that titles ≤ 20 chars survive the post-substitution length gate from T013. **The `[~]` marker means "the original asserted shape is no longer canonical"**: spec FR-014b (Session 2026-05-22 Q10) relocates QUICK_REPLY emission from objects inside `msg.buttons` to a flat `msg.quick_replies = ["title 1", ...]` array on `msg`, drops the `id` field on the wire entirely, and forbids the Direct Send path from emitting any `msg.buttons` key at all (combined with FR-014a). The canonical merge shape is delivered by T114 (Phase 8); do not re-author the original `sub_type="reply"` assertions on a fresh checkout. The references "(Decision 6)" and "per contract §3.3" inside this body are pre-FR-014b and remain only for git-history readability — `contracts/messaging-gateway-payload.md` §3.3 is itself corrected by T115 against the new shape.
+
+  **⚠️ Coverage-state callout (pinned 2026-05-22 by `/speckit-analyze`)**: until T114 lands, the `[~]` supersession is structurally incomplete — the original assertions have been retired from the coverage floor but the replacements do not yet exist. **QUICK_REPLY canonical-shape coverage is currently NIL in the repository.** A reviewer scanning the `[~]` marker for completion status MUST read this callout AND confirm T114 has been executed before merge. See the OUTSTANDING WORK BEFORE MERGE banner at the top of this file.
 - [X] T011b [P] [US1] **Refusal — naming-rule violation** — Tests in the same file covering the FR-017 skip path: a template whose `Version.template_name` contains uppercase / hyphens / non-ASCII characters or exceeds 512 chars MUST cause `build_direct_send_message` to return `None` AND emit the audit log line `[BroadcastDispatch] skipped_due_to_direct_send_validation: project_uuid={integrated_agent.project.uuid} agent={...} template={...} reason=naming_rule event={data}` (FR-039 mandates `project_uuid` as a top-level key; Decision 7). Capture with `assertLogs` at WARNING level and assert the literal `reason=naming_rule` substring is present.
 - [X] T011c [P] [US1] **Refusal — empty body / length limits** — Tests in the same file covering the contract §4 rule-2 and rule-3 refusal paths: (i) `template.metadata.body` missing or empty → `None` + audit log with `reason=empty_body` (`contracts/messaging-gateway-payload.md` §4 rule 2); (ii) post-substitution component length-limit overflow → `None` + audit log with `reason=component_length_limit` when the substituted body > 1024, header.text > 60, footer > 60, button `display_text` (cta_url) > 20, or button `title` (reply) > 20 (constants from `direct_send_constants.py`); (iii) button `url` is NOT length-checked at this gate — a substituted URL > 20 chars MUST dispatch normally (URLs can be up to 2000 chars per `contracts/messaging-gateway-payload.md` §3.3). All log lines carry `project_uuid` as a top-level key per FR-039.
+
+  **⚠️ Refusal-location overlay — Phase 8 / T113 / T114 (FR-014a / FR-014b)**: clauses (ii) and (iii) above describe the pre-FR-014a/FR-014b wire shape (the length checks ran against `msg.buttons[*].display_text` and `msg.buttons[*].title`). On a fresh checkout the canonical refusal LOCATIONS are: `cta_message.display_text` ≤ `MAX_BUTTON_LABEL_LENGTH` (T113(d)) and `quick_replies[*]` ≤ `MAX_BUTTON_LABEL_LENGTH` post-substitution (T114(e)). The `reason=component_length_limit` discriminator and the audit-log shape are unchanged; only the LOCATION the limit is read from is relocated. T011c's existing `[X]` tests remain authoritative for body / header.text / footer / `url` (clauses i / ii body+header+footer / iii); the button-side clause (ii — `display_text` / `title`) is overlaid by T113(d) and T114(e) on the new wire-shape locations.
+
+  **⚠️ Coverage-state callout (pinned 2026-05-22 by `/speckit-analyze`)**: until T113 + T114 land, the canonical-shape length-limit refusals (`cta_message.display_text` and `quick_replies[*]`) have **zero test coverage in the repository** — T011c's `[X]` button-side assertions exercise only the pre-FR-014a/FR-014b `msg.buttons[*]` locations, which are themselves SUPERSEDED. The non-button-side clauses (body / header.text / footer / `url`) remain canonically covered by T011c and are unaffected. See the OUTSTANDING WORK BEFORE MERGE banner at the top of this file.
 - [X] T011d [P] [US1] **No-local-template edge case** — Test in the same file covering the spec edge case "Direct Send-enabled agent with no local template for the rule": given a Direct Send-enabled `IntegratedAgent` and a `data["template"]` that does NOT exist in `integrated_agent.templates`, `Broadcast.build_message` returns `None`, `build_direct_send_message` is never invoked, no payload is built, no `BroadcastMessage` row is persisted, and a `WARNING` line matching the substring `"not found"` is emitted by the dispatch flow (FR-027 — after US3's T031 consolidation, this assertion is satisfied by `Broadcast.build_message`'s downstream "Template not found or has no approved current version" line, which remains the legacy shape; the upstream `Broadcast.get_current_template` per-name miss now emits the unified `[BroadcastDispatch] skipped_due_to_status: ... version_status=NOT_FOUND ...` audit shape per FR-039's "Dispatch-gate skip (unified shape)" entry).
 - [X] T011e [P] [US1] **BroadcastMessage persistence parity** — End-to-end test in `retail/agents/tests/services/test_broadcast_direct_send_persistence.py` (sibling to `test_broadcast_direct_send.py` so the persistence-focused fixtures stay separated from the wire-shape fixtures and the file does not grow past comfortable review size) that drives `Broadcast.build_message` → existing dispatch wiring against a Direct Send-enabled fixture and asserts (a) a `BroadcastMessage` row is persisted with the expected `status`, `template_name`, `contact_urn`, and `integrated_agent` on the happy path (FR-016, SC-005); (b) NO `BroadcastMessage` row is persisted on EACH refusal class exercised by T011b–T011c (naming-rule, empty body, length limit — contract §4). Use a mocked `flows_service.send_whatsapp_broadcast` to capture (a)'s outbound call without hitting Flows.
 
@@ -120,6 +149,10 @@ description: "Tasks for WhatsApp Direct Send Broadcasts (OrderStatus)"
 
 - [X] T012 [US1] Create `retail/agents/domains/agent_webhook/services/direct_send_payload_builder.py` with: `substitute_template_variables(text: str, variables: Dict[str, Any], *, template_name: str) -> str` (regex `\{\{\s*(\d+)\s*\}\}` — whitespace-tolerant; missing index→`""` + WARNING log, extra index→ignored); `is_valid_direct_send_template_name(name: str) -> bool` (regex `^[a-z0-9_]+$`, length ≤ 512); helper builders for header / footer / buttons that consume the `Template.metadata` shape produced by `_get_template_info`. Import the Direct Send length-limit constants (`MAX_BODY_LENGTH`, `MAX_HEADER_TEXT_LENGTH`, `MAX_FOOTER_LENGTH`, `MAX_BUTTON_LABEL_LENGTH`) from `retail/agents/domains/agent_webhook/services/direct_send_constants.py` (created in T007a) so T013 (post-substitution dispatch-time check) and T023 (pre-substitution assignment-time check) share the same source of truth (research Decision 6 / Decision 8; contracts/meta-library-catalog.md §5).
 - [X] T013 [US1] Implement `Broadcast.build_direct_send_message` in `retail/agents/domains/agent_webhook/services/broadcast.py` matching the shape in `contracts/messaging-gateway-payload.md` §3: substitute body / header.text / footer / buttons[*].url / buttons[*].title via the helper; when `template.metadata["header"]["type"] == "IMAGE"`, set `msg.header = {"type": "image", "image_url": data["template_variables"]["image_url"]}` AND append `f"image/jpeg:{image_url}"` (mirroring the s3-keyed shape produced by `build_broadcast_template_message`) to `msg.attachments` for downstream parity — both representations are required by contracts/messaging-gateway-payload.md §3.1 ("`attachments`: conditional — required when `header.type == "image"`") and §3.2 ("Same value MUST also appear in `msg.attachments[0]`"); emit `msg.direct_send=true`, `msg.category="utility"`; refuse to emit (return `None` + audit-log entry with format `[BroadcastDispatch] skipped_due_to_direct_send_validation: project_uuid={integrated_agent.project.uuid} agent={...} template={...} reason={naming_rule|empty_body|component_length_limit} event={data}` — FR-039 mandates `project_uuid` as a top-level key) when (a) the template name fails `is_valid_direct_send_template_name`, (b) `template.metadata.body` is missing/empty, or (c) any post-substitution component exceeds Meta's documented length limits — body ≤ `MAX_BODY_LENGTH` (1024), header.text ≤ `MAX_HEADER_TEXT_LENGTH` (60), footer ≤ `MAX_FOOTER_LENGTH` (60), button `display_text` (cta_url) and button `title` (reply) ≤ `MAX_BUTTON_LABEL_LENGTH` (20). Note: button `url` is NOT subject to the 20-char limit per `contracts/messaging-gateway-payload.md` §3.3 — `display_text` is the only `cta_url` field with a 20-char ceiling, and the URL itself can be much longer (Meta allows up to 2000 chars). Reuse the length constants from `direct_send_constants.py` (T007a) so the dispatch-time limits and the assignment-time validation (T023) share a single source of truth.
+
+  **⚠️ Button-emission overlay — Phase 8 / T113 / T114 (FR-014a / FR-014b)**: the button-substitution clauses above ("substitute … buttons[*].url / buttons[*].title", "button `display_text` (cta_url) and button `title` (reply) ≤ `MAX_BUTTON_LABEL_LENGTH`") describe the pre-FR-014a/FR-014b wire shape (objects inside `msg.buttons`). On a fresh checkout the canonical Direct Send wire shape is now: CTA URL → `msg.interaction_type="cta_url"` + `msg.cta_message={display_text, url}` (FR-014a); QUICK_REPLY → flat `msg.quick_replies=["title 1", ...]` array (FR-014b); `msg.buttons` is LEGACY-ONLY and the Direct Send path NEVER emits it. T013 is preserved verbatim for git-history continuity, but its button-emission and length-check clauses are SUPERSEDED by T113 (CTA URL relocation + `_exceeds_direct_send_length_limits` reads from `msg.cta_message.display_text`) and T114 (QUICK_REPLY relocation + `_exceeds_direct_send_length_limits` iterates `msg.quick_replies`). The body / header.text / footer / image-header substitution clauses, the `msg.direct_send=true` / `msg.category="utility"` / `msg.attachments` clauses, the audit-log refusal shape, and the `MAX_BODY_LENGTH` / `MAX_HEADER_TEXT_LENGTH` / `MAX_FOOTER_LENGTH` / `MAX_BUTTON_LABEL_LENGTH` length-constant reuse remain authoritative as written.
+
+  **⚠️ Implementation-state callout (pinned 2026-05-22 by `/speckit-analyze`)**: T013's `[X]` marker reflects the original (pre-FR-014a/FR-014b) implementation only. Inspection of `retail/agents/domains/agent_webhook/services/broadcast.py:796-818` confirms the live code still writes `msg["buttons"] = buttons` and `_exceeds_direct_send_length_limits` (lines 820-850) still iterates `msg.buttons[*]`. **Every Direct Send dispatch with a CTA URL or a QUICK_REPLY button emitted today violates FR-014a / FR-014b on the wire.** The canonical shape is delivered by T113 + T114; until those tasks land, the `[X]` marker on T013 covers only the body / header / footer / image / audit clauses listed above. See the OUTSTANDING WORK BEFORE MERGE banner at the top of this file.
 - [X] T014 [US1] Branch `Broadcast.build_message` in `retail/agents/domains/agent_webhook/services/broadcast.py` so that when `integrated_agent.direct_send` is `True` it calls `build_direct_send_message`; otherwise it keeps calling the existing `build_broadcast_template_message` unchanged (research Decision 11). No changes are required to `Broadcast.send_message` (`retail/agents/domains/agent_webhook/services/broadcast.py:391`) — it consumes the result of `build_message` only via `message.get("msg", {}).get("template", {}).get("name", ...)` for logging, then forwards the entire `message` dict to `flows_service.send_whatsapp_broadcast(message)`. The Direct Send payload preserves both `msg.template` and `msg.template.name` (per `contracts/messaging-gateway-payload.md` §3.1), so `send_message` is generic over the new dict shape and the `BroadcastMessage` persistence path (`_register_broadcast_event` + `_record_broadcast_message`) works unchanged. T011e's "end-to-end build_message → existing dispatch wiring" assertion is satisfied without modifying `send_message`.
 - [X] T014a [P] [US1] Add a regression test for FR-028 duplicate-trigger suppression on the Direct Send path in `retail/agents/tests/usecases/test_order_status_dedup_direct_send.py`. With a Direct Send-enabled `IntegratedAgent` fixture and `@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "test-direct-send-dedup"}})` (Constitution Principle III), invoke `AgentOrderStatusUpdateUsecase.execute(...)` twice in a row with the SAME canonical idempotency tuple `(Project, IntegratedAgent.uuid, OrderStatusDTO.orderId, OrderStatusDTO.currentState)` (the `Project` component is identified by its FK integer or UUID per FR-028's serialization rule). Assert: (a) exactly one outbound `flows_service.send_whatsapp_broadcast` call is made (mocked with `MagicMock(spec=...)`); (b) exactly one `BroadcastMessage` row is persisted; (c) the second invocation emits the INFO log shape `[ORDER_STATUS] duplicate_skipped: vtex_account={...} agent_uuid={...} current_state={...} order_id={...}` (captured with `assertLogs` at INFO level — FR-039 dedup-skip shape); (d) **dedup cache key shape (FR-029 normative components)** — wrap `django.core.cache.cache.add` with `unittest.mock.patch("django.core.cache.cache.add", wraps=cache.add)` (or capture via a `MagicMock(side_effect=cache.add)` on the import alias used in `_is_duplicate_event`), invoke `execute` once more with a fresh tuple, and assert the captured positional `cache_key` argument matches the regex `^order_status_event:[^:]+:[0-9a-f-]{36}:[^:]+:[^:]+$` AND that splitting on `:` yields exactly five segments — the literal prefix plus the four normative components `(project, integrated_agent.uuid, order_id, current_state)`. The second segment intentionally uses `[^:]+` (rather than `\d+`) so the test passes whether the implementation serializes `project` as the FK integer (`project_id`) or as the UUID — both are spec-compliant per FR-028's serialization rule. This pins FR-028 + FR-029 + FR-030 + FR-039's dedup-skip shape for the Direct Send cohort. Without (d), a future refactor that scopes the dedup key by `direct_send` (or drops `current_state`, or adds a fifth component, or removes one of the four) would silently invalidate the spec's "components are normative" claim and would not be caught by any other test. **Legacy-cohort coverage** (FR-028 last sentence — "applies identically to the Direct Send path and the legacy path"): the legacy cohort is already covered by the pre-feature dedup tests in `retail/agents/tests/usecases/test_order_status_update.py` (`test_execute_skips_duplicate_event_within_window` and the `test_*_cache_key_*` group at lines 297–396, which exercise `mock_cache.add` with the same `(project_id, integrated_agent.uuid, order_id, current_state)` shape). T014a explicitly does NOT replace those tests — it is the Direct Send-specific regression guard that runs alongside them; both cohorts together pin FR-028 across the path-selection branch added by T014.
 - [X] T014b [P] [US1] Add a regression test for FR-031 official-agent precedence on the Direct Send cohort in `retail/agents/tests/usecases/test_order_status_agent_resolution_direct_send.py`. With two `IntegratedAgent` fixtures BOTH on `direct_send=True` for the same `Project` — (i) one whose `agent.uuid == settings.ORDER_STATUS_AGENT_UUID` (the official OrderStatus agent), (ii) one whose `parent_agent_uuid` flags it as a custom OrderStatus agent — invoke the order-status webhook entry point with a payload that would match BOTH. Assert: (a) exactly one outbound `flows_service.send_whatsapp_broadcast` call is made (mocked); (b) exactly one `BroadcastMessage` row is persisted; (c) the persisted row's `integrated_agent` FK points at the OFFICIAL fixture (i), NEVER the custom fixture (ii); (d) the audit log contains `[ORDER_STATUS] agent_resolved: vtex_account={...} agent_uuid={official_uuid} source=official` and does NOT contain `source=parent_agent` for this event.
@@ -128,6 +161,7 @@ description: "Tasks for WhatsApp Direct Send Broadcasts (OrderStatus)"
 
   **Tenant-key note**: the `vtex_account={...}` (rather than `project_uuid={...}`) shape is intentional and spec-compliant per FR-039 (the agent-resolution admission shape is emitted at the entry point alongside the dedup shape, where the project has not yet been resolved) plus FR-044's legacy-preservation rule (existing `vtex_account`-keyed lines stay as-is; `project_uuid` MAY be added additively but is NOT required by this feature). A reviewer who flags the `vtex_account`-only key as a tenant-isolation regression should be referred to FR-044. This pins FR-031 specifically for the Direct Send cohort — without it, a future refactor that re-routed Direct Send-enabled agents through a separate resolution path (e.g. "Direct Send custom agents win") would silently break FR-031 and would not be caught by the existing legacy-cohort tests of `_lookup_order_status_agent`.
 - [X] T014c [P] [US1] Add an FR-030 positive-path behavioral test in `retail/agents/tests/usecases/test_order_status_dedup_direct_send.py` (sibling test method on the file authored by T014a). With a Direct Send-enabled `IntegratedAgent` fixture and `@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "test-direct-send-fr030"}})` (Constitution Principle III), invoke `AgentOrderStatusUpdateUsecase.execute(...)` twice with the SAME `(project, integrated_agent.uuid, order_id)` triple but DIFFERENT `current_state` values (e.g. `invoiced` followed by `shipped`). Assert: (a) exactly TWO outbound `flows_service.send_whatsapp_broadcast` calls are made (mocked with `MagicMock(spec=...)`); (b) exactly TWO `BroadcastMessage` rows are persisted, each with the corresponding `current_state`; (c) the two dedup cache keys are DISTINCT — capture them via `unittest.mock.patch("django.core.cache.cache.add", wraps=cache.add)` and assert the two captured `cache_key` arguments are unequal AND that they share the first four `:`-separated segments (project, integrated_agent.uuid, order_id) but differ in the fifth (current_state). This pins FR-030 ("two events differing ONLY in `current_state` MUST both be dispatched as separate logical broadcasts") DIRECTLY for the Direct Send cohort. T014a covers the inverse case (same tuple → 1 dispatch via dedup); T014c covers the difference-in-`current_state` path. Without T014c, FR-030 is only structurally guaranteed by T014a's cache-key-shape assertion (the key includes `current_state` as a component) — which is sound but transitive; T014c makes the behavior assertable directly so a future refactor that collapses the dedup key by dropping `current_state` would fail the test instead of silently merging two distinct logical broadcasts into one.
+- [X] T014d [P] [US1, US3] **Unpause-race coverage** (spec Edge Case "PAUSED → APPROVED transition lands DURING the dedup window of an in-flight broadcast for the same template" — pinned 2026-05-22 by `/speckit-analyze`) — Sibling test method on `retail/agents/tests/usecases/test_order_status_dedup_direct_send.py` (the file authored by T014a — adding a third method keeps the dedup-window-related fixtures co-located so the file stays the canonical home for FR-028 / FR-029 / FR-030 + unpause-race coverage). With a Direct Send-enabled `IntegratedAgent` fixture, a `Template` whose `current_version.status` starts at `PAUSED`, and `@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "test-direct-send-unpause-race"}})` (Constitution Principle III), invoke `AgentOrderStatusUpdateUsecase.execute(...)` ONCE with the canonical idempotency tuple — assert (a) the dispatch is skipped via the FR-039 unified `[BroadcastDispatch] skipped_due_to_status: ... version_status=PAUSED ...` audit shape; (b) `flows_service.send_whatsapp_broadcast` is NOT called; (c) NO `BroadcastMessage` row is persisted; (d) the dedup cache key IS populated (the dedup gate accepted the event before the version-status read — see spec Edge Case last sentence). Then flip `version.status = "APPROVED"` and `save()` (simulating the unpause race) and invoke `execute(...)` AGAIN with the SAME `(project, integrated_agent.uuid, order_id, current_state)` tuple within the dedup window — assert (e) the second invocation observes the existing dedup cache key and skips with the FR-028 `[ORDER_STATUS] duplicate_skipped: ...` audit shape; (f) `flows_service.send_whatsapp_broadcast` is STILL not called; (g) NO `BroadcastMessage` row is persisted. This pins the spec's "an event that arrived during the dedup window of an earlier PAUSED-skip will NOT auto-replay; the next webhook is the trigger" guarantee against a future refactor that moved the version-status read BEFORE the dedup cache write (which would silently re-fire the dispatch on unpause). The cost is one extra test method; the regression surface is the spec edge case verbatim.
 
 **Checkpoint**: User Story 1 should be fully functional and testable independently. Dispatch through Direct Send works end-to-end given a pre-existing fixture.
 
@@ -309,6 +343,36 @@ the original US1 task history stays intact.
       this task fails and a follow-up patch is required before
       merge.
 
+      **⚠️ Verification-recipe extension (Phase 8 — 2026-05-22)**:
+      after the Phase 8 extension lands (T112–T115), the
+      verification recipe MUST also confirm the FR-014a / FR-014b /
+      FR-003g fold-in did not leak the deprecated wire-shape into
+      `quickstart.md` / `research.md` / `data-model.md`. Run:
+
+      ```bash
+      rg -n 'sub_type":\s*"cta_url"|sub_type":\s*"reply"|msg\.buttons\[\*\]\.(?:display_text|title)' \
+        specs/002-direct-send-broadcasts/quickstart.md \
+        specs/002-direct-send-broadcasts/research.md \
+        specs/002-direct-send-broadcasts/data-model.md \
+        specs/002-direct-send-broadcasts/contracts/
+      ```
+
+      All matches MUST land inside an explicit "SUPERSEDED" /
+      "Historical note" / "**⚠️**" block OR inside §2 of
+      `contracts/messaging-gateway-payload.md` (the legacy-path
+      section is bit-for-bit preserved per FR-020 and intentionally
+      retains the legacy `sub_type: "url"` / `sub_type: "payment_request"`
+      shapes — those are NOT what this gate watches for; the gate
+      watches for `cta_url` / `reply` on the Direct Send path
+      specifically). Any survivor outside those exempted contexts
+      is a documentation drift and a follow-up patch is required
+      before merge. Cross-check the override map: run
+      `rg -n 'DIRECT_SEND_BUTTON_LABEL_OVERRIDES|order_canceled_3.*pt_BR|order_canceled_3.*es' specs/002-direct-send-broadcasts/`
+      and confirm each operator-facing artefact (`quickstart.md`,
+      `research.md`, `data-model.md`) cites the map per FR-003g(g)
+      (initial map content is normative and the map's contents are
+      a spec-amendment surface).
+
 **Checkpoint**: Live model + tests are aligned with `data-model.md §1` (`direct_send` lives inside `IntegratedAgent.config` JSON; no model column). Phase 4 (US2) can now be authored against the canonical storage shape from the start.
 
 ---
@@ -403,45 +467,134 @@ the original US1 task history stays intact.
 
 **Purpose**: Validate the feature end-to-end and confirm coverage / formatting parity.
 
-- [X] T036 [P] Run the `quickstart.md` validation script step-by-step in a local environment with a Direct Send-enabled fixture (see `quickstart.md §0 Prerequisites` for the fixture composition — OrderStatus agent pushed, WhatsApp Cloud channel created via onboarding, channel opted into Direct Send Beta with `App.config.direct_send=True`, project's VTEX tenant has a resolvable `defaultLocale`, `settings.ORDER_STATUS_AGENT_UUID` set, Meta library catalog has the OrderStatus templates available in the project's locale or `pt_BR`) and confirm every "Expected outcome" matches.
-- [X] T037 Run `poetry run coverage run manage.py test && poetry run coverage report -m | tee /tmp/feature_coverage.txt` and then `poetry run python contrib/compare_coverage.py`. The compare script MUST NOT report `Number of test lines decreased`; if it does, add the missing tests in the same PR (Constitution Principle III — NON-NEGOTIABLE).
-- [X] T038 [P] Run pre-commit on every changed file: `poetry run pre-commit run --files <changed-files>`. Black + flake8 must pass clean.
-- [X] T039 Open the PR with title `feat: add WhatsApp Direct Send dispatch path for OrderStatus` (≤72 chars) and a body following the `## What` / `## Why` template (Constitution Principle V). Branch name: `002-direct-send-broadcasts` (already provided by `/speckit-plan`). Reference the spec, plan and research files in the body. The PR body MUST also include a **`## Backward-compatibility & untestable-by-design checklist gate`** section that explicitly confirms the SIX requirements `plan.md` §Complexity Tracking documents as having no automated test — three "thou shalt not" backward-compat requirements (FR-022 / FR-023 / FR-024), the Celery one-shot stance (FR-038), the inbound EDA tenant-resolution restatement (FR-041), and the FR-043 v1 deferral — were reviewed against `checklists/backward-compatibility.md` (CHK013–CHK022, CHK027–CHK029), `checklists/idempotency.md` (CHK014), and `checklists/tenant-isolation.md` (CHK022–CHK025, CHK044) and remain satisfied: (i) FR-022 — no required field was added to any inbound payload (order-status webhook, agent-assignment, send-test-template, template-status webhook); no URL path, HTTP method, required header, or required query parameter was renamed or removed; (ii) FR-023 — the template-status webhook handler is untouched (no new Integrations Engine subscription, no signature change, no downstream side-effect change); (iii) FR-024 — no new environment variable or settings key was introduced (deploying the feature without any settings change is safe); (iv) FR-038 — `retail/celery.py` diff is empty for retry-related keys (no `task_acks_late=True` override, no `task_default_retry_delay` change, no broker DLX configuration added) AND the three OrderStatus-pipeline tasks (`task_order_status_update`, `task_mark_broadcast_converted`, `handle_purchase_event_task`) carry no new `bind=True` / `retry_kwargs={...}` decorators / `self.retry(...)` calls; (v) FR-041 — no inbound EDA consumer (`BroadcastSendConsumer` on `retail.template-send`, `BroadcastStatusConsumer` on `retail.template-status`, the order-status webhook entry point at `retail/agents/domains/agent_webhook/usecases/order_status.py`) was modified by this PR; tenant-resolution mechanisms (a)–(d) remain unchanged and are covered transitively by T035c; (vi) FR-043 — the explicit Retail-side cross-validation (`app.config.project_uuid == request.headers["Project-Uuid"]` with HTTP 403 on mismatch) is NOT implemented in this PR by design; the trust boundary on Integrations Engine + DRF `HasProjectPermission` + `IntegrationsService.get_channel_app(...)` fail-closed `None` is the v1 enforcement gate, with the explicit cross-validation deferred to a separate `feat/tenant-isolation-cross-validation` PR. Each line above MUST cite the file diff that demonstrates compliance (e.g. "`retail/settings.py` diff is empty for new keys", "`retail/celery.py` diff is empty", "`retail/broadcasts/consumers/` diff is empty for tenant-resolution logic") so reviewers can verify in one read.
+> ## ⚠️ Phase 7 re-run gate (pinned 2026-05-22 by `/speckit-analyze`)
+>
+> The Phase 7 checkmarks below reflect the state at the close of the
+> ORIGINAL Phase 7 pass (before FR-003g / FR-014a / FR-014b were
+> appended to `spec.md`). After the Phase 8 extension (T112 / T113 /
+> T114 / T115) lands, **T036 + T037 + T038 + T039 MUST be re-run /
+> re-verified** before merge:
+>
+> - **T036** — re-run the `quickstart.md` validation script against a
+>   fixture whose `metadata.buttons` includes BOTH a `URL` and at
+>   least one `QUICK_REPLY` (covers FR-014a + FR-014b combined-case);
+>   confirm the captured Flows POST body carries
+>   `msg.interaction_type` + `msg.cta_message` + `msg.quick_replies`
+>   as parallel siblings and NO `msg.buttons` key.
+> - **T037** — re-run `poetry run coverage run manage.py test &&
+>   poetry run python contrib/compare_coverage.py` AFTER T112–T114
+>   land. The compare script MUST NOT report
+>   `Number of test lines decreased`; T011a's `[~] SUPERSEDED by T114`
+>   removal of the old QUICK_REPLY assertions is offset by T114's
+>   new-shape assertions plus T112 / T113's new branches, so the net
+>   delta is positive when all three implementations ship.
+> - **T038** — re-run pre-commit on the additional files touched by
+>   T112 / T113 / T114 (the override map module, `broadcast.py`,
+>   `direct_send_payload_builder.py`, and the matching test files).
+> - **T039** — update the open PR's `## Backward-compatibility &
+>   untestable-by-design checklist gate` section to explicitly cite
+>   the FR-003g / FR-014a / FR-014b coverage delivered by the Phase 8
+>   extension; re-cite the file diffs that demonstrate compliance
+>   (`retail/agents/domains/agent_webhook/services/broadcast.py`,
+>   `retail/agents/domains/agent_webhook/services/direct_send_payload_builder.py`,
+>   `retail/templates/usecases/_meta_library_template_fetch.py`, and
+>   the new module hosting `DIRECT_SEND_BUTTON_LABEL_OVERRIDES`).
+>
+> The original `[X]` markers below are preserved verbatim for
+> git-history continuity, but Phase 7 is NOT closed for merge until
+> the four re-run items above complete. The OUTSTANDING WORK banner
+> at the top of this file is the single canonical place that lists
+> what blocks merge.
+
+- [X] T036 [P] Run the `quickstart.md` validation script step-by-step in a local environment with a Direct Send-enabled fixture (see `quickstart.md §0 Prerequisites` for the fixture composition — OrderStatus agent pushed, WhatsApp Cloud channel created via onboarding, channel opted into Direct Send Beta with `App.config.direct_send=True`, project's VTEX tenant has a resolvable `defaultLocale`, `settings.ORDER_STATUS_AGENT_UUID` set, Meta library catalog has the OrderStatus templates available in the project's locale or `pt_BR`) and confirm every "Expected outcome" matches. **⚠️ Phase 7 re-run gate**: re-run after T113 / T114 land against a fixture that includes BOTH a CTA URL and at least one QUICK_REPLY button (combined-case per FR-014b(f)) and confirm the captured Flows POST body carries `msg.interaction_type` / `msg.cta_message` / `msg.quick_replies` and NO `msg.buttons` key.
+- [X] T037 Run `poetry run coverage run manage.py test && poetry run coverage report -m | tee /tmp/feature_coverage.txt` and then `poetry run python contrib/compare_coverage.py`. The compare script MUST NOT report `Number of test lines decreased`; if it does, add the missing tests in the same PR (Constitution Principle III — NON-NEGOTIABLE). **⚠️ Phase 7 re-run gate**: re-run AFTER T112 + T113 + T114 land. Without this re-run, T011a's `[~]` removal of the original QUICK_REPLY assertions is not offset by T114's replacements in the coverage floor and the merge gate is structurally satisfied only on paper.
+- [X] T038 [P] Run pre-commit on every changed file: `poetry run pre-commit run --files <changed-files>`. Black + flake8 must pass clean. **⚠️ Phase 7 re-run gate**: re-run on the additional files touched by T112 / T113 / T114 once they land.
+- [X] T039 Open the PR with title `feat: add WhatsApp Direct Send dispatch path for OrderStatus` (≤72 chars) and a body following the `## What` / `## Why` template (Constitution Principle V). **⚠️ Phase 7 re-run gate**: when T112 / T113 / T114 land, update the PR body's `## Backward-compatibility & untestable-by-design checklist gate` section to also confirm that FR-003g / FR-014a / FR-014b are now covered by the listed file diffs (override-map module, `broadcast.py`, `direct_send_payload_builder.py`, `_meta_library_template_fetch.py`). Branch name: `002-direct-send-broadcasts` (already provided by `/speckit-plan`). Reference the spec, plan and research files in the body. The PR body MUST also include a **`## Backward-compatibility & untestable-by-design checklist gate`** section that explicitly confirms the SIX requirements `plan.md` §Complexity Tracking documents as having no automated test — three "thou shalt not" backward-compat requirements (FR-022 / FR-023 / FR-024), the Celery one-shot stance (FR-038), the inbound EDA tenant-resolution restatement (FR-041), and the FR-043 v1 deferral — were reviewed against `checklists/backward-compatibility.md` (CHK013–CHK022, CHK027–CHK029), `checklists/idempotency.md` (CHK014), and `checklists/tenant-isolation.md` (CHK022–CHK025, CHK044) and remain satisfied: (i) FR-022 — no required field was added to any inbound payload (order-status webhook, agent-assignment, send-test-template, template-status webhook); no URL path, HTTP method, required header, or required query parameter was renamed or removed; (ii) FR-023 — the template-status webhook handler is untouched (no new Integrations Engine subscription, no signature change, no downstream side-effect change); (iii) FR-024 — no new environment variable or settings key was introduced (deploying the feature without any settings change is safe); (iv) FR-038 — `retail/celery.py` diff is empty for retry-related keys (no `task_acks_late=True` override, no `task_default_retry_delay` change, no broker DLX configuration added) AND the three OrderStatus-pipeline tasks (`task_order_status_update`, `task_mark_broadcast_converted`, `handle_purchase_event_task`) carry no new `bind=True` / `retry_kwargs={...}` decorators / `self.retry(...)` calls; (v) FR-041 — no inbound EDA consumer (`BroadcastSendConsumer` on `retail.template-send`, `BroadcastStatusConsumer` on `retail.template-status`, the order-status webhook entry point at `retail/agents/domains/agent_webhook/usecases/order_status.py`) was modified by this PR; tenant-resolution mechanisms (a)–(d) remain unchanged and are covered transitively by T035c; (vi) FR-043 — the explicit Retail-side cross-validation (`app.config.project_uuid == request.headers["Project-Uuid"]` with HTTP 403 on mismatch) is NOT implemented in this PR by design; the trust boundary on Integrations Engine + DRF `HasProjectPermission` + `IntegrationsService.get_channel_app(...)` fail-closed `None` is the v1 enforcement gate, with the explicit cross-validation deferred to a separate `feat/tenant-isolation-cross-validation` PR. Each line above MUST cite the file diff that demonstrates compliance (e.g. "`retail/settings.py` diff is empty for new keys", "`retail/celery.py` diff is empty", "`retail/broadcasts/consumers/` diff is empty for tenant-resolution logic") so reviewers can verify in one read.
 
 ---
 
 ## Phase 8: Post-implementation fold-in — Session 2026-05-22 spec clarifications
 
-**Purpose**: Cover the three normative clarifications added to
-`spec.md` AFTER Phase 7 closed out (FR-003e header plain-string +
-canonical normalization; FR-003f button-type strict rejection + dual
-URL-button shape normalization; Session 2026-05-22 Q3 drop-rule for
-auxiliary curation fields). All three rules use the pre-existing
-`DirectSendUnsupportedComponentError` exception (T007) so no new
-exception type is introduced. See `plan.md` Constraints
-sub-section "Post-design spec updates folded in" and
-`data-model.md §5` "Adapter normative behaviour" for the canonical
-restatements.
+**Purpose**: Cover the **six** normative clarifications added to
+`spec.md` AFTER Phase 7 closed out. Three were folded in on
+2026-05-22 (the original Phase 8 scope) and three more were
+appended later in the same session and are folded in by the Phase 8
+extension introduced 2026-05-22:
 
-> **Task numbering**: Phase 8 uses T107–T111 for the TDD-first tests
-> and T120 for the implementation task. T112–T119 are intentionally
-> reserved (unused) so a future incremental fold-in can fit between
-> T111 and T120 without renumbering existing tasks.
+- **Original Phase 8 scope (T107–T111, T120)** — adapter rules:
+  - **FR-003e** — `header` plain-string + canonical normalization.
+  - **FR-003f** — button-type strict rejection + dual URL-button shape normalization.
+  - **Session 2026-05-22 Q3** — drop-rule for auxiliary curation fields.
+
+  All three use the pre-existing
+  `DirectSendUnsupportedComponentError` exception (T007) so no new
+  exception type is introduced.
+
+- **Phase 8 extension (T112–T115)** — adapter override map +
+  dispatch-time wire-shape relocation + contract correction:
+  - **FR-003g** — per-`(template_name, language)` button-label
+    override map (Session 2026-05-22 Q5–Q9).
+  - **FR-014a** — CTA URL wire shape relocated from
+    `msg.buttons[*].sub_type="cta_url"` to top-level
+    `msg.interaction_type="cta_url"` + `msg.cta_message={display_text, url}`
+    (Session 2026-05-22 Q4).
+  - **FR-014b** — QUICK_REPLY wire shape relocated from
+    `msg.buttons[*].sub_type="reply"` to flat
+    `msg.quick_replies=["title 1", ...]` array (Session 2026-05-22
+    Q10). Combined with FR-014a, the Direct Send path NEVER emits
+    `msg.buttons` (LEGACY-ONLY).
+  - Contract artifact correction (`contracts/messaging-gateway-payload.md`
+    §3.1 / §3.3 / §3.4 / §4 / §5.1) tracked as T115 per
+    FR-014a(f) / FR-014b(g) (mirroring FR-003e's `header` precedent).
+
+  FR-003g re-uses
+  `DirectSendUnsupportedComponentError(component_type="buttons")`
+  for FR-003g(h) "override value still overflows"; FR-014a / FR-014b
+  are wire-shape relocations of pre-existing fields and require no
+  new exception type either.
+
+See `plan.md` Constraints sub-section "Post-design spec updates
+folded in" and `data-model.md §5` "Adapter normative behaviour" for
+the canonical restatements.
+
+> **Task numbering**: Phase 8 uses T107–T111 for the original
+> TDD-first tests, T120 for the original implementation task, and
+> T112–T115 for the Phase 8 extension (FR-003g / FR-014a / FR-014b
+> tests + adapter & dispatch implementation + contract correction).
+> T116–T119 are intentionally reserved (unused) so a future
+> incremental fold-in can fit between T115 and T120 without
+> renumbering existing tasks.
 
 > **Execution order**: Phase 8 runs AFTER Phase 7 (which is already
 > `[X]`). The Phase 8 tests MUST be authored TDD-first (red against
-> the current adapter), then the adapter in
-> `retail/templates/usecases/_meta_library_template_fetch.py` is
-> tightened to make them green. If any of the three rules is already
-> satisfied by the current implementation the matching test passes
-> on first run — that is the desired outcome, not a reason to skip
-> the task; the test pins the rule against future regressions.
+> the current adapter / dispatch builder), then the adapter
+> (`retail/templates/usecases/_meta_library_template_fetch.py`) and
+> the dispatch builder
+> (`retail/agents/domains/agent_webhook/services/broadcast.py` +
+> `direct_send_payload_builder.py`) are tightened to make them
+> green. If any of the rules is already satisfied by the current
+> implementation the matching test passes on first run — that is
+> the desired outcome, not a reason to skip the task; the test pins
+> the rule against future regressions. **Within the Phase 8
+> extension** the recommended single-PR order is **T112 (FR-003g
+> tests + adapter override map) → T113 (FR-014a CTA URL wire shape
+> tests + dispatch builder) → T114 (FR-014b quick_replies wire
+> shape tests + dispatch builder) → T115 (contract correction)** so
+> dispatch-side tests are red against the same code that the
+> dispatch-builder commit will make green and the contract artefact
+> is corrected last (the contract follows the spec, not vice versa
+> — same precedent as FR-003e).
 
 > **Coverage parity (Phase 7 / T037)**: any new branch added to the
-> adapter to satisfy Phase 8 MUST come with the matching test in the
-> same PR (Constitution Principle III — NON-NEGOTIABLE). Rerun
-> `poetry run python contrib/compare_coverage.py` after Phase 8 and
-> confirm `Number of test lines decreased` is NOT reported.
+> adapter or the dispatch builder to satisfy Phase 8 MUST come with
+> the matching test in the same PR (Constitution Principle III —
+> NON-NEGOTIABLE). Rerun `poetry run python contrib/compare_coverage.py`
+> after Phase 8 and confirm `Number of test lines decreased` is NOT
+> reported. T011a's `[~] SUPERSEDED by T114` marker means the
+> original quick-reply shape assertions are dropped from the
+> coverage floor; T114 introduces the canonical-shape assertions on
+> the same code paths plus the new flat-array assertions, so the
+> net coverage delta is positive.
 
 ### Tests for Phase 8 (TDD — write FIRST, ensure FAIL or PIN current behavior)
 
@@ -451,7 +604,55 @@ restatements.
 - [X] T110 [P] **Button — dual URL shape normalization (FR-003f)** — Test in the same file covering: `adapt_meta_library_template_response` invoked with a raw `URL` button in EACH of the two upstream shapes — (a) flat `{"type": "URL", "text": "Track", "url": "https://loja.com/track/{{1}}"}` and (b) legacy nested `{"type": "URL", "text": "Track", "url": {"base_url": "https://loja.com/track/", "url_suffix_example": "{{1}}"}}` — MUST produce a `TemplateInfo` whose `metadata.buttons[0]["url"]` is the SAME flat string (`"https://loja.com/track/{{1}}"`) in both cases. The normalization MUST go through the same `_ensure_protocol` + `_append_placeholder_if_needed` heuristic the push-path `ButtonTransformer` already applies, so a `base_url` missing the scheme (e.g. `"loja.com/track/"`) survives the same protocol-prepend logic. Pin one case where the URL has a substitutable placeholder (`{{1}}`) to confirm placeholders are preserved verbatim through the normalization (they're substituted later by `Broadcast.build_direct_send_message`).
 - [X] T111 [P] **Auxiliary curation field drop (Session 2026-05-22 Q3)** — Test in the same file covering: `adapt_meta_library_template_response` invoked with a raw response that carries the auxiliary fields `body_param_types`, `attributes`, `topic`, `usecase`, `industry`, `id` (each at the top level of the raw template payload) MUST produce a `TemplateInfo` whose `metadata` does NOT contain ANY of those keys. Allowed keys are the dispatch-relevant subset `{header, body, body_params, footer, buttons, category, language}` — assert each forbidden key is absent via `self.assertNotIn(key, info["metadata"])` (one assertion per key for diagnostics). The `direct_send` audit sub-object is added by `AssignAgentUseCase._create_library_templates` at write time (not by the adapter), so this test MUST NOT expect it on the adapter's return shape.
 
-### Implementation for Phase 8
+  **Positive subset-preservation assertion (pinned 2026-05-22 by `/speckit-analyze`)**: in addition to the negative `assertNotIn` assertions above, the SAME test MUST positively assert that every dispatch-relevant key actually present in the raw response survives the drop pass — for the canonical OrderStatus fixture (body + body_params + optional header + optional footer + optional buttons + category + language), assert `self.assertIn(key, info["metadata"])` for each of `body`, `body_params`, `category`, `language`, AND assert `self.assertIn(key, info["metadata"])` for `header` / `footer` / `buttons` IFF the raw response carries them. Without this positive branch, a regression that drops `body_params` together with `body_param_types` (the field name collision is a realistic failure mode for a future adapter refactor) would pass the negative-only assertions and silently break Direct Send dispatch — `Broadcast.build_direct_send_message`'s variable substitution path reads `metadata["body_params"]` (or its successor) to map positional placeholders.
+
+### Tests + implementation for Phase 8 extension (FR-003g / FR-014a / FR-014b — TDD-first)
+
+> **Pattern**: each task pairs the TDD-first tests AND the
+> implementation contract for the rule it covers, so the Phase 8
+> extension can be reviewed rule-by-rule without splitting code and
+> tests across separate PRs (matching the Phase 8 original style of
+> T120 holding the implementation contract for T107–T111). Tests
+> MUST be observed to FAIL before the matching implementation is
+> commited (Constitution Principle III + project SKILL).
+
+- [X] T112 [P] [US2] **FR-003g — per-`(template_name, language)` button-label override map (Session 2026-05-22 Q5–Q9)** — Tests in `retail/templates/tests/usecases/test_meta_library_template_fetch.py` AND adapter implementation in `retail/templates/usecases/_meta_library_template_fetch.py` (or in the same module that hosts `_validate_and_normalize_buttons`). **Tests** (one method per branch):
+  - **(a) Trigger — overflow + map hit**: raw response carries a `URL` button whose `text="Ver detalhes do pedido"` (22 chars, exceeds `MAX_BUTTON_LABEL_LENGTH=20`); call `adapt_meta_library_template_response(raw, language="pt_BR")` (or whatever signature the adapter exposes for receiving the language); assert returned `metadata.buttons[0]["text"] == "Detalhes do pedido"` (18 chars) AND a single `logger.info` line is emitted matching the FR-003g(f) shape `direct_send_button_label_overridden: template={template_name} language={language} upstream='{upstream}' ({n} chars) override='{override}' ({m} chars)` (capture with `assertLogs` at INFO level).
+  - **(b) Trigger — overflow + map miss**: raw response carries a `URL` button whose `text="Some 21-char label …"` (>20 chars) for a `(template_name, language)` pair NOT in the map; assert `DirectSendUnsupportedComponentError(component_type="buttons")` is raised (the existing FR-003f.c failure path applies).
+  - **(c) No-trigger — upstream fits**: raw response carries a `URL` button whose `text="View order details"` (18 chars, fits within 20); assert the override map is NEVER consulted (mock the map lookup with a sentinel that fails the test if invoked, OR assert the persisted `metadata.buttons[0]["text"]` is byte-identical to the upstream value); the upstream value is the persisted value verbatim. This pins FR-003g(b) "trigger conditional on overflow".
+  - **(d) Override scope — URL only**: raw response carries a `QUICK_REPLY` button whose `title` exceeds 20 chars; assert `DirectSendUnsupportedComponentError(component_type="buttons")` is raised regardless of any QUICK_REPLY entries in the map (no QUICK_REPLY entry is permitted in v1 per FR-003g(d) / FR-003g(g)).
+  - **(e) Misconfigured override still overflows**: monkey-patch the map to contain `("test_template", "pt_BR"): "<21-char string>"` for the duration of the test (use `unittest.mock.patch.dict` on the live constant to avoid leaking); raw response carries a matching `URL` button whose upstream `text` exceeds 20 chars; assert `DirectSendUnsupportedComponentError(component_type="buttons")` is raised. This pins FR-003g(h) "override is a remediation, not a length-check bypass".
+  - **(f) Initial map content (FR-003g(g))**: assert the live map (read directly from the implementation module) contains EXACTLY the two seed entries `{("order_canceled_3", "pt_BR"): "Detalhes do pedido", ("order_canceled_3", "es"): "Detalles del pedido"}` and no other entries; this is a snapshot test against `len(DIRECT_SEND_BUTTON_LABEL_OVERRIDES) == 2` plus the two `assertEqual`s on the values. Adding any further entry without a spec amendment fails this test on the offending PR.
+
+  **Implementation contract**: declare `DIRECT_SEND_BUTTON_LABEL_OVERRIDES: dict[tuple[str, str], str]` as a module-level constant alongside `direct_send_constants.py` (or in a sibling module imported by `_meta_library_template_fetch.py` per FR-003g(a)) with exactly the two seed entries. Inside `_validate_and_normalize_buttons`, when an entry of `type == "URL"` would otherwise fail the existing `MAX_BUTTON_LABEL_LENGTH` check, look up `(template_name, language)` in the map; on hit, replace `button["text"]` with the override value and re-run the length check (FR-003g(c) / FR-003g(h)); on miss, raise `DirectSendUnsupportedComponentError(component_type="buttons")` per the existing FR-003f.c failure path. Emit `logger.info` at the override site per FR-003g(f). NO branch on `template_name` outside the map lookup is permitted (FR-003g(a)). NO entry is added to `Template.metadata.direct_send` to record that the override fired (FR-003g(f) — log-only audit). The `template_name` and `language` arguments threaded into `_validate_and_normalize_buttons` come from the same call site that decides which `language` the fetch is occurring in (project locale vs `pt_BR` fallback in `AssignAgentUseCase._create_library_templates`); if the existing adapter signature does not currently surface them, extend the signature additively.
+
+- [X] T113 [US1] **FR-014a — CTA URL wire shape relocation (Session 2026-05-22 Q4)** — Tests in `retail/agents/tests/services/test_broadcast_direct_send.py` AND `retail/agents/tests/services/test_direct_send_payload_builder.py` AND dispatch implementation in `retail/agents/domains/agent_webhook/services/broadcast.py` + `retail/agents/domains/agent_webhook/services/direct_send_payload_builder.py`. **Tests** (one method per branch):
+  - **(a) Wire shape — URL only**: a Direct Send-enabled IntegratedAgent + a Template whose `metadata.buttons` has exactly one `{type: "URL", text: "Acompanhar pedido", url: "https://loja.com/track/{{1}}"}` entry; call `Broadcast.build_direct_send_message(...)` with `template_variables={"1": "12345"}`; assert the returned `msg` carries `msg["interaction_type"] == "cta_url"`, `msg["cta_message"] == {"display_text": "Acompanhar pedido", "url": "https://loja.com/track/12345"}`, AND `"buttons" not in msg` (the LEGACY-ONLY rule from FR-014b(b)).
+  - **(b) Discriminator spelling**: same fixture as (a); assert the literal key `interaction_type` is present and the misspelled `interactive_type` is absent (`assertIn("interaction_type", msg); assertNotIn("interactive_type", msg)`). FR-014a(a).
+  - **(c) Variable substitution on both sub-fields**: a Template whose URL button is `{type: "URL", text: "Acompanhar {{1}}", url: "https://loja.com/track/{{2}}"}` with `template_variables={"1": "Maria", "2": "12345"}`; assert `msg["cta_message"]["display_text"] == "Acompanhar Maria"` AND `msg["cta_message"]["url"] == "https://loja.com/track/12345"`. FR-014a(d).
+  - **(d) Length-limit refusal — `cta_message.display_text`**: `metadata.buttons[0].text` such that the post-substitution `display_text` exceeds `MAX_BUTTON_LABEL_LENGTH` (e.g. `"{{1}} {{2}} {{3}}"` substituted to a >20-char string); assert `build_direct_send_message` returns `None` AND emits the existing audit-log shape `[BroadcastDispatch] skipped_due_to_direct_send_validation: project_uuid={...} agent={...} template={...} reason=component_length_limit event={data}`. The reason discriminator is unchanged from T013; what changes is the LOCATION the limit is read from — `_exceeds_direct_send_length_limits` MUST check `msg.cta_message.display_text` (NOT `msg.buttons[*].display_text`). FR-014a(e).
+  - **(e) URL length is NOT limited**: same fixture as (a) but with a 200-char `url`; assert `build_direct_send_message` returns a non-None payload and the URL is preserved verbatim — the 20-char `MAX_BUTTON_LABEL_LENGTH` ceiling applies to `display_text` only, never to `url` (contract §3.3 / `cta_url` row).
+  - **(f) Pure-helper test**: in `test_direct_send_payload_builder.py`, exercise the new helper signature directly (whichever shape the implementation chooses — e.g. `build_direct_send_cta_message(metadata, template_variables, *, template_name) -> Optional[Dict[str, Any]]`). Assert it returns `None` when no `URL` button is present, returns `{"display_text": ..., "url": ...}` when present, and is invoked at most once per dispatch (FR-014a(c) — count cap is structural via FR-003f's ≤1 URL fetch-time guard).
+
+  **Implementation contract**: in `direct_send_payload_builder.py`, replace the URL branch of `build_direct_send_buttons` with a new top-level helper that returns the FR-014a `cta_message` dict (or extend the dispatch builder directly to consume it). In `Broadcast.build_direct_send_message`, when the substituted CTA URL helper returns a dict, set `msg["interaction_type"] = "cta_url"` and `msg["cta_message"] = {"display_text": ..., "url": ...}`; do NOT add the URL entry to `msg.buttons`. Update `_exceeds_direct_send_length_limits` (`broadcast.py:820-850`) to read the post-substitution `display_text` from `msg.get("cta_message", {}).get("display_text", "")` instead of iterating `msg["buttons"][*]`. The combined-case interaction with FR-014b is pinned by T114(g).
+
+- [X] T114 [US1] **FR-014b — QUICK_REPLY wire shape relocation (Session 2026-05-22 Q10)** — **SUPERSEDES T011a**. Tests in `retail/agents/tests/services/test_broadcast_direct_send.py` AND `retail/agents/tests/services/test_direct_send_payload_builder.py` AND dispatch implementation in `retail/agents/domains/agent_webhook/services/broadcast.py` + `retail/agents/domains/agent_webhook/services/direct_send_payload_builder.py`. **Tests** (one method per branch):
+  - **(a) Wire shape — flat array of titles**: a Direct Send-enabled IntegratedAgent + a Template whose `metadata.buttons` carries 3 `QUICK_REPLY` entries with `text` of "Sim" / "Não" / "Cancelar"; call `Broadcast.build_direct_send_message(...)`; assert `msg["quick_replies"] == ["Sim", "Não", "Cancelar"]` (a JSON list of strings, no wrapping object) AND `"buttons" not in msg`. FR-014b(a) / FR-014b(b).
+  - **(b) Order preservation**: same fixture; assert the order of titles in `msg["quick_replies"]` matches the order of entries in `metadata.buttons` (this is the regression-pin equivalent of T011a's "preserves order" assertion, lifted onto the new shape).
+  - **(c) `id` field is intentionally not on the wire**: `metadata.buttons` carries `{type: "QUICK_REPLY", id: "yes_track", text: "Acompanhar"}`; assert each element of `msg["quick_replies"]` is a STRING (not a dict) — `assertTrue(all(isinstance(elem, str) for elem in msg["quick_replies"]))`. FR-014b(a).
+  - **(d) Variable substitution applies defensively**: at least one QUICK_REPLY's `text` contains `{{1}}` (e.g. `"Acompanhar {{1}}"`) with `template_variables={"1": "12345"}`; assert the substituted value (`"Acompanhar 12345"`) appears in `msg["quick_replies"]` — even though OrderStatus titles are static today, the substitution path MUST run unconditionally per FR-014b(d).
+  - **(e) Length-limit refusal — `quick_replies[*]`**: at least one `QUICK_REPLY.title` such that the post-substitution title exceeds `MAX_BUTTON_LABEL_LENGTH=20`; assert `build_direct_send_message` returns `None` + the existing `reason=component_length_limit` audit-log shape (same as T013, location relocated). `_exceeds_direct_send_length_limits` MUST iterate `msg.get("quick_replies", [])` (a list of strings) instead of `msg["buttons"][*]["title"]`. FR-014b(e).
+  - **(f) Combined-case (URL + ≤3 QUICK_REPLY)**: a Template whose `metadata.buttons` carries ONE `URL` entry AND TWO `QUICK_REPLY` entries; assert the resulting `msg` carries BOTH `msg["interaction_type"] == "cta_url"` + `msg["cta_message"] == {...}` (FR-014a) AND `msg["quick_replies"] == [...]` (FR-014b) as PARALLEL siblings; neither suppresses the other. FR-014b(f). This is the missing combined-case regression guard called out by `/speckit-analyze` finding M1.
+  - **(g) `interaction_type` is NOT set when only QUICK_REPLY is present**: a Template whose `metadata.buttons` carries ONLY QUICK_REPLY entries (no URL); assert `"interaction_type" not in msg` AND `"cta_message" not in msg` AND `msg["quick_replies"] == [...]`. FR-014b(f) negative branch.
+  - **(h) Pure-helper test**: in `test_direct_send_payload_builder.py`, exercise the new helper signature (e.g. `build_direct_send_quick_replies(metadata, template_variables, *, template_name) -> Optional[List[str]]`); assert it returns `None` when no QUICK_REPLY is present, returns a list of substituted strings when present, and the list length is ≤3 (FR-014b(c) — count cap is structural via FR-003f's ≤3 QUICK_REPLY fetch-time guard).
+
+  **Implementation contract**: in `direct_send_payload_builder.py`, replace the QUICK_REPLY branch of `build_direct_send_buttons` with a new helper returning `Optional[List[str]]` of substituted titles (or remove the joint helper entirely and let `build_direct_send_message` compose CTA URL + quick_replies directly); the canonical decision is "the Direct Send path NEVER emits a `msg.buttons` key". In `Broadcast.build_direct_send_message`, when the QUICK_REPLY helper returns a non-empty list, set `msg["quick_replies"] = [...]`. Update `_exceeds_direct_send_length_limits` (`broadcast.py:820-850`) to iterate `msg.get("quick_replies", [])` for the per-entry post-substitution length check. After this task lands, reading `msg["buttons"]` on a Direct Send payload MUST always raise `KeyError` — pin this in (a) via `self.assertNotIn("buttons", msg)`.
+
+- [X] T115 [docs] **Contract artifact correction (FR-014a(f) / FR-014b(g))** — Edit `contracts/messaging-gateway-payload.md` to reflect the FR-014a + FR-014b wire shapes. **Status (verified 2026-05-22 by `/speckit-analyze`)**: §3.1 / §3.2 / §3.3 / §3.4 / §3.5 / §4 / §5.1 are on disk in the canonical FR-014a / FR-014b shape (`msg.interaction_type`, `msg.cta_message`, `msg.quick_replies` siblings; the contract explicitly states "Direct Send NEVER emits `msg.buttons`"). The verification grep gate at the bottom of this task body returns zero matches inside §3.x / §5.x for `sub_type":\s*"cta_url"` and `sub_type":\s*"reply"`. Specifically: (a) §3.1 — replace the line `"buttons": [ /* see §3.3 */ ],` inside the Direct Send `msg` example with `"interaction_type": "cta_url",` (optional) + `"cta_message": { /* see §3.3 */ },` (optional) + `"quick_replies": [ /* see §3.3 */ ],` (optional); update the §3.1 table accordingly so `interaction_type` / `cta_message` / `quick_replies` rows replace the `buttons` row, and the new rows reference §3.3. (b) §3.3 — rewrite the entire "Buttons (Direct Send)" sub-section as "CTA URL and Quick Replies (Direct Send)" with the FR-014a / FR-014b shapes (cite FR-014a(c) / FR-014b(c) for the count caps, cite FR-014a(d) / FR-014b(d) for the substitution rule, cite FR-014a(e) / FR-014b(e) for the length checks); explicitly state that `msg.buttons` is LEGACY-ONLY on the Direct Send path. (c) §3.4 — update the "Behavioural guarantees" bullet that lists substitution targets to read `body`, `header.text`, `footer`, `cta_message.display_text`, `cta_message.url`, `quick_replies[*]` (drop the `buttons[*].url` / `buttons[*].title` enumeration). (d) §4 — update the validation summary's component-length-limit clause (rule 3) to read "the substituted body, header, footer, `cta_message.display_text`, or any `quick_replies[*]` …" (drop `buttons[*].title` / `buttons[*].display_text`). (e) §5.1 — replace the `"buttons": [{"sub_type": "cta_url", ...}]` array in the example with the `"interaction_type": "cta_url"` + `"cta_message": {...}` siblings on `msg`; add a sibling §5.1b example for QUICK_REPLY emitting `"quick_replies": [...]`. (f) Add a new sub-section "§3.5 — Spec is canonical" stating that this contract restates the spec-level FR-014a / FR-014b shapes for reviewer convenience and that any future drift between this contract and `spec.md` resolves in favour of the spec (mirroring the FR-003e precedent).
+
+  **Verification (single-pass grep gate)**: after the edits, run `rg -n 'sub_type":\s*"cta_url"|sub_type":\s*"reply"' contracts/messaging-gateway-payload.md` — the command MUST return zero matches inside §3.x and §5.x. The legacy §2.2 buttons table (`sub_type: "url"`, `sub_type: "payment_request"`) is UNTOUCHED — those are the legacy-path shapes preserved bit-for-bit per FR-020. Also re-grep the contract for `buttons[*].title|buttons[*].url|buttons[*].display_text` (treated as ripgrep regex) and confirm those references are confined to §2 (legacy) and the new §3.4 reference to LEGACY-ONLY in §2; any survivor in §3.x is a residual error.
+
+### Implementation for Phase 8 (original — T120; FR-003e / FR-003f / Q3 drop-rule)
 
 > **Code change scope** (informational — NOT in the spec-only fold-in
 > PR): the adapter `adapt_meta_library_template_response` at
@@ -462,10 +663,26 @@ restatements.
 
 - [X] T120 [US2] Tighten `adapt_meta_library_template_response` in `retail/templates/usecases/_meta_library_template_fetch.py` to satisfy T107–T111. Reuse the existing `DirectSendUnsupportedComponentError` (T007); set `component_type` to one of `"header"`, `"<button.type>"`, `"<component>"`, or `"malformed"` so audit logs and DRF error responses carry a stable discriminator. The four rejection branches (header shape, button type, length/count overflow, malformed JSON) collapse to the same exception class so the use case keeps a single FR-003c → FR-003d routing path. URL-button shape normalization MUST go through the same `_ensure_protocol` + `_append_placeholder_if_needed` heuristic the push-path `ButtonTransformer` already applies — extract a shared helper if needed rather than duplicating. The auxiliary-field drop MUST be applied at the top of the adapter (before validation) so length-limit and component-type checks see only the dispatch-relevant subset.
 
-**Checkpoint**: Phase 8 complete — T107–T111 pin the three Session
-2026-05-22 clarifications as automated tests and T120 lands the
-adapter tightening that makes them green. `/speckit-analyze` SHOULD
-stop reporting the C1 / C2 / C3 coverage gaps; rerun it to confirm.
+**Checkpoint**: Phase 8 complete when:
+
+1. **Original scope (T107–T111, T120)** — pins FR-003e / FR-003f /
+   the Q3 auxiliary-field drop. Closes `/speckit-analyze` 2026-05-21
+   findings on adapter coverage.
+2. **Extension scope (T112–T115)** — pins FR-003g (override map),
+   FR-014a (CTA URL wire shape), FR-014b (quick_replies wire shape),
+   and corrects the contract artifact. Closes `/speckit-analyze`
+   2026-05-22 findings C1 / C2 / C3 (CTA URL wire shape, QUICK_REPLY
+   wire shape, override map coverage gaps), H1 / H2 / H3 / H4 / H5
+   (plan fold-in, Phase 8 scope, T011a / T013 contradictions,
+   contract-correction surface), M1 / M3 (combined-case regression
+   guard, length-limit refusal location), L1 / L2 (cross-references).
+
+After both scopes land, rerun `/speckit-analyze` and confirm the C / H
+findings clear. Rerun `poetry run python contrib/compare_coverage.py`
+and confirm `Number of test lines decreased` is NOT reported (T011a's
+`[~] SUPERSEDED` removal of the old QUICK_REPLY assertions is offset
+by T114's new-shape assertions plus T112 / T113's new branches, so
+the net delta is positive).
 
 ---
 
@@ -479,11 +696,15 @@ stop reporting the C1 / C2 / C3 coverage gaps; rerun it to confirm.
 - **Spec correction (Phase 3.5)**: Depends on US1 (Phase 3) being complete (Phase 3.5 retroactively corrects the `direct_send` storage scheme introduced by US1's T002). **MUST run BEFORE Phase 4 (US2)** so US2 fixtures and implementation are authored against the canonical `IntegratedAgent.config["direct_send"]` JSON-key form from the start, AND **MUST run BEFORE Phase 7 (T036–T039)** so the polish/coverage/PR phase runs against the canonical shape from `data-model.md §1`, not the superseded column form. Strictly speaking the phase touches only the agents-side storage (US2/US3/US4 are independent of it for code correctness because their tasks already specify the JSON-key form per T104's "task description sweep"), but running it BEFORE US2 caps the surface T104 has to migrate at the existing US1 fixture set rather than letting US2/US3/US4 fixtures grow it.
 - **User Stories (Phases 4–6)**: All depend on Foundational AND on Phase 3.5 being complete. After Phase 3.5, US2/US3/US4 run independently — sequentially (P2 → P3 → P4) for a single implementer or in parallel for a multi-developer team.
 - **Polish (Phase 7)**: Depends on every desired user story being complete (Phases 3, 4, 5, 6) AND on Phase 3.5 being complete. Running T037 (coverage parity) or T039 (open PR) before Phase 3.5 would ship the wrong storage scheme.
-- **Post-implementation fold-in (Phase 8)**: Added after Phase 7 closed out, to cover the Session 2026-05-22 spec clarifications (FR-003e, FR-003f, Q3 drop-rule). Phase 8 ships T107–T111 (TDD-first tests) plus T120 (adapter tightening); T107–T111 are authored red against the current adapter, then T120 makes them green. Depends on Phase 4 (US2 — the adapter is the touch point) and Phase 7 (the baseline implementation must already be in main). Phase 8 is a strict superset of US2's adapter contract; running it before Phase 4 has no meaning. Rerun the Phase 7 coverage-parity gate (T037 / `compare_coverage.py`) at the end of Phase 8 so T107–T111 + T120 count toward the merge floor.
+- **Post-implementation fold-in (Phase 8)**: Added after Phase 7 closed out, to cover the Session 2026-05-22 spec clarifications. Phase 8 ships in TWO scopes:
+  - **Original scope (T107–T111, T120)** — covers FR-003e, FR-003f, and the Q3 auxiliary-field drop-rule. T107–T111 are authored red against the current adapter, then T120 makes them green. Depends on Phase 4 (US2 — the adapter is the touch point) and Phase 7 (the baseline implementation must already be in main).
+  - **Extension scope (T112, T113, T114, T115)** — covers FR-003g (override map), FR-014a (CTA URL wire shape), FR-014b (QUICK_REPLY wire shape), and the contract artifact correction. Depends on the original Phase 8 scope (T120's adapter rules are the foundation T112 extends), Phase 4 (US2 — adapter touch point for T112), Phase 3 (US1 — dispatch builder touch point for T113 + T114), and Phase 7 (baseline implementation). Within the extension, run order is **T112 → T113 → T114 → T115** (adapter override map → CTA URL dispatch → QUICK_REPLY dispatch → contract artifact correction). T115 is a pure-doc task and is `[X]`; T112 / T113 / T114 are `[ ]` and are the OUTSTANDING WORK BEFORE MERGE callouts pinned at the top of this file.
+
+  Phase 8 in either scope is a strict superset of US2's adapter contract / US1's dispatch contract; running either scope before Phase 4 / Phase 3 has no meaning. **Rerun the Phase 7 coverage-parity gate (T037 / `compare_coverage.py`) AND the Phase 7 quickstart gate (T036) AT THE END OF EACH PHASE-8 SCOPE** so T107–T111 + T120 + T112 + T113 + T114 count toward the merge floor (see the Phase 7 re-run gate inline note above T036). Without the re-run, T011a's `[~] SUPERSEDED by T114` removal of the original QUICK_REPLY assertions is not offset by T114's replacements in the coverage floor and the merge gate is structurally satisfied only on paper.
 
 ### User Story Dependencies
 
-- **US1 (P1)**: Depends only on Foundational (T002, T004, T007). Tested via fixtures; does not need US2's assignment flow. T014a (dedup regression), T014b (FR-031 official-agent precedence regression), and T014c (FR-030 different-`current_state` regression) additionally depend on T014 — the dispatch branching done by T014 is what allows the dedup and resolution mechanisms to admit a Direct Send-enabled IntegratedAgent end-to-end.
+- **US1 (P1)**: Depends only on Foundational (T002, T004, T007). Tested via fixtures; does not need US2's assignment flow. T014a (dedup regression), T014b (FR-031 official-agent precedence regression), T014c (FR-030 different-`current_state` regression), and T014d (unpause-race regression — depends additionally on T031's unified dispatch-gate skip shape from US3) additionally depend on T014 — the dispatch branching done by T014 is what allows the dedup and resolution mechanisms to admit a Direct Send-enabled IntegratedAgent end-to-end. T014d is `[ ]` pending; see the OUTSTANDING WORK BEFORE MERGE banner.
 - **US2 (P2)**: Depends only on Foundational. Independent of US1's payload builder.
 - **US3 (P3)**: Depends only on Foundational (T004 — the new statuses). Independent of US1 and US2.
 - **US4 (P4)**: Depends only on Foundational. The legacy-cohort default (`direct_send=False`) holds because `obj.config.get("direct_send", False)` collapses absence-of-key to `False` for every pre-existing IntegratedAgent — no schema change is required. Pure regression-guard surface; no implementation tasks.
@@ -498,7 +719,7 @@ stop reporting the C1 / C2 / C3 coverage gaps; rerun it to confirm.
 ### Parallel Opportunities
 
 - T006, T007 (foundational, different files) can run in parallel after T002–T005.
-- All `[P]` tests within a single phase touch different files and run in parallel. **Exception**: the T011/T011a–T011d cluster shares `test_broadcast_direct_send.py` (T011e lives in the sibling `test_broadcast_direct_send_persistence.py` so the persistence-focused fixtures stay separated from the wire-shape fixtures), the T018/T018a–T018e cluster shares `test_assign_direct_send.py`, and the T014a/T014c cluster shares `test_order_status_dedup_direct_send.py`. The sub-tasks within each cluster are still independent test methods on disjoint scenarios (naming-rule vs. empty-body vs. happy-path; same-tuple-dedup vs. different-`current_state`-dispatch; new-assignment vs. re-assignment-after-`is_active=False`, etc.), so they can be authored in any order by separate developers and merged sequentially without conflict; the `[P]` tag denotes task-level parallelism for multi-developer assignment, not file-level isolation.
+- All `[P]` tests within a single phase touch different files and run in parallel. **Exception**: the T011/T011a–T011d cluster shares `test_broadcast_direct_send.py` (T011e lives in the sibling `test_broadcast_direct_send_persistence.py` so the persistence-focused fixtures stay separated from the wire-shape fixtures), the T018/T018a–T018e cluster shares `test_assign_direct_send.py`, and the T014a/T014c/T014d cluster shares `test_order_status_dedup_direct_send.py`. The sub-tasks within each cluster are still independent test methods on disjoint scenarios (naming-rule vs. empty-body vs. happy-path; same-tuple-dedup vs. different-`current_state`-dispatch vs. unpause-race-during-dedup-window; new-assignment vs. re-assignment-after-`is_active=False`, etc.), so they can be authored in any order by separate developers and merged sequentially without conflict; the `[P]` tag denotes task-level parallelism for multi-developer assignment, not file-level isolation.
 - Different user stories run in parallel after Foundational (multi-developer setting).
 
 ---

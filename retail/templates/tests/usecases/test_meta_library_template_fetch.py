@@ -31,6 +31,8 @@ contract with:
   is propagated to ``TemplateInfo.metadata``.
 """
 
+import logging
+
 from unittest.mock import MagicMock
 
 from django.test import TestCase
@@ -567,3 +569,218 @@ class AuxiliaryFieldDropTest(TestCase):
 
         self.assertIsNotNone(result)
         self.assertNotIn("direct_send", result["metadata"])
+
+
+class ButtonLabelOverrideMapTest(TestCase):
+    """T112 — FR-003g per-(template_name, language) button-label override map.
+
+    The override map is consulted ONLY when an upstream URL button's
+    ``text`` would otherwise overflow ``MAX_BUTTON_LABEL_LENGTH``. The
+    map is a remediation for Meta's library catalog occasionally
+    publishing button labels longer than the 20-char ceiling on
+    locale-translated variants (the canonical real-world example is
+    ``order_canceled_3``'s ``"Ver detalhes do pedido"`` in ``pt_BR``
+    and ``"Ver detalles del pedido"`` in ``es``).
+
+    Per FR-003g(a) the override applies only at the URL button surface;
+    QUICK_REPLY overflows still raise. Per FR-003g(h) an override value
+    that itself overflows MUST raise (override is a remediation, not
+    a length-check bypass).
+    """
+
+    _OVERLONG_PT = "Ver detalhes do pedido"
+    _OVERRIDE_PT = "Detalhes do pedido"
+    _OVERLONG_ES = "Ver detalles del pedido"
+    _OVERRIDE_ES = "Detalles del pedido"
+
+    def test_overflow_with_map_hit_uses_override_pt_br(self):
+        raw = _typical_response(
+            name="order_canceled_3",
+            buttons=[
+                {
+                    "type": "URL",
+                    "text": self._OVERLONG_PT,
+                    "url": "https://loja.com/track/{{1}}",
+                }
+            ],
+        )
+        with self.assertLogs(
+            "retail.templates.usecases._meta_library_template_fetch",
+            level=logging.INFO,
+        ) as captured:
+            result = adapt_meta_library_template_response(raw, language="pt_BR")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["metadata"]["buttons"][0]["text"], self._OVERRIDE_PT)
+        expected_substrings = [
+            "direct_send_button_label_overridden",
+            "template=order_canceled_3",
+            "language=pt_BR",
+            f"upstream='{self._OVERLONG_PT}'",
+            f"override='{self._OVERRIDE_PT}'",
+        ]
+        self.assertTrue(
+            any(
+                all(sub in line for sub in expected_substrings)
+                for line in captured.output
+            ),
+            captured.output,
+        )
+
+    def test_overflow_with_map_hit_uses_override_es(self):
+        raw = _typical_response(
+            name="order_canceled_3",
+            buttons=[
+                {
+                    "type": "URL",
+                    "text": self._OVERLONG_ES,
+                    "url": "https://loja.com/track/{{1}}",
+                }
+            ],
+        )
+        result = adapt_meta_library_template_response(raw, language="es")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["metadata"]["buttons"][0]["text"], self._OVERRIDE_ES)
+
+    def test_overflow_with_map_miss_raises_buttons(self):
+        raw = _typical_response(
+            name="unknown_template",
+            buttons=[
+                {
+                    "type": "URL",
+                    "text": "An overlong button label",
+                    "url": "https://loja.com/track/{{1}}",
+                }
+            ],
+        )
+        with self.assertRaises(DirectSendUnsupportedComponentError) as ctx:
+            adapt_meta_library_template_response(raw, language="pt_BR")
+        self.assertEqual(ctx.exception.component_type, "buttons")
+
+    def test_overflow_with_map_miss_on_wrong_language_raises(self):
+        raw = _typical_response(
+            name="order_canceled_3",
+            buttons=[
+                {
+                    "type": "URL",
+                    "text": self._OVERLONG_PT,
+                    "url": "https://loja.com/track/{{1}}",
+                }
+            ],
+        )
+        with self.assertRaises(DirectSendUnsupportedComponentError) as ctx:
+            adapt_meta_library_template_response(raw, language="fr")
+        self.assertEqual(ctx.exception.component_type, "buttons")
+
+    def test_no_overflow_does_not_consult_override(self):
+        from retail.agents.domains.agent_webhook.services import (
+            direct_send_button_overrides,
+        )
+
+        sentinel_map = MagicMock()
+        sentinel_map.__contains__ = MagicMock(
+            side_effect=AssertionError("override map MUST NOT be consulted")
+        )
+        sentinel_map.__getitem__ = MagicMock(
+            side_effect=AssertionError("override map MUST NOT be consulted")
+        )
+
+        raw = _typical_response(
+            name="order_canceled_3",
+            buttons=[
+                {
+                    "type": "URL",
+                    "text": "View order details",
+                    "url": "https://loja.com/track/{{1}}",
+                }
+            ],
+        )
+        original = direct_send_button_overrides.DIRECT_SEND_BUTTON_LABEL_OVERRIDES
+        direct_send_button_overrides.DIRECT_SEND_BUTTON_LABEL_OVERRIDES = sentinel_map
+        try:
+            result = adapt_meta_library_template_response(raw, language="pt_BR")
+        finally:
+            direct_send_button_overrides.DIRECT_SEND_BUTTON_LABEL_OVERRIDES = original
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["metadata"]["buttons"][0]["text"], "View order details")
+
+    def test_overflow_quick_reply_still_raises_regardless_of_map(self):
+        raw = _typical_response(
+            name="order_canceled_3",
+            buttons=[{"type": "QUICK_REPLY", "text": "x" * 21}],
+        )
+        with self.assertRaises(DirectSendUnsupportedComponentError) as ctx:
+            adapt_meta_library_template_response(raw, language="pt_BR")
+        self.assertEqual(ctx.exception.component_type, "buttons")
+
+    def test_misconfigured_override_value_still_overflows_and_raises(self):
+        from unittest.mock import patch as _patch
+
+        from retail.agents.domains.agent_webhook.services import (
+            direct_send_button_overrides,
+        )
+
+        raw = _typical_response(
+            name="test_template",
+            buttons=[
+                {
+                    "type": "URL",
+                    "text": "Original overlong text here {{1}}",
+                    "url": "https://loja.com/track/{{1}}",
+                }
+            ],
+        )
+        misconfigured = {("test_template", "pt_BR"): "x" * 21}
+        with _patch.object(
+            direct_send_button_overrides,
+            "DIRECT_SEND_BUTTON_LABEL_OVERRIDES",
+            misconfigured,
+        ):
+            with self.assertRaises(DirectSendUnsupportedComponentError) as ctx:
+                adapt_meta_library_template_response(raw, language="pt_BR")
+        self.assertEqual(ctx.exception.component_type, "buttons")
+
+    def test_initial_map_contents_are_exactly_two_seed_entries(self):
+        from retail.agents.domains.agent_webhook.services.direct_send_button_overrides import (
+            DIRECT_SEND_BUTTON_LABEL_OVERRIDES,
+        )
+
+        self.assertEqual(len(DIRECT_SEND_BUTTON_LABEL_OVERRIDES), 2)
+        self.assertEqual(
+            DIRECT_SEND_BUTTON_LABEL_OVERRIDES[("order_canceled_3", "pt_BR")],
+            self._OVERRIDE_PT,
+        )
+        self.assertEqual(
+            DIRECT_SEND_BUTTON_LABEL_OVERRIDES[("order_canceled_3", "es")],
+            self._OVERRIDE_ES,
+        )
+
+
+class FetchMetaLibraryTemplateMetadataLanguagePropagationTest(TestCase):
+    """T112 — language argument MUST be propagated to the adapter so the
+    override map can be consulted on overflow per FR-003g.
+    """
+
+    def test_language_is_forwarded_to_adapter_for_override_lookup(self):
+        meta_service = MagicMock()
+        meta_service.fetch_library_template_by_name_and_language.return_value = (
+            _typical_response(
+                name="order_canceled_3",
+                buttons=[
+                    {
+                        "type": "URL",
+                        "text": "Ver detalhes do pedido",
+                        "url": "https://loja.com/track/{{1}}",
+                    }
+                ],
+            )
+        )
+
+        result = fetch_meta_library_template_metadata(
+            meta_service, "order_canceled_3", "pt_BR"
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["metadata"]["buttons"][0]["text"], "Detalhes do pedido")

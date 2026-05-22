@@ -12,7 +12,9 @@ import logging
 from django.test import TestCase
 
 from retail.agents.domains.agent_webhook.services.direct_send_payload_builder import (
+    build_direct_send_cta_message,
     build_direct_send_header,
+    build_direct_send_quick_replies,
     is_valid_direct_send_template_name,
     substitute_template_variables,
 )
@@ -146,3 +148,91 @@ class BuildDirectSendHeaderEdgeCasesTest(TestCase):
             template_name="weni_order_shipped",
         )
         self.assertIsNone(result)
+
+
+class BuildDirectSendCtaMessageTest(TestCase):
+    """T113 / FR-014a — pure helper for the ``cta_message`` sub-object.
+
+    Returns ``None`` when no ``URL`` button is present (the dispatch
+    path skips ``msg.interaction_type`` / ``msg.cta_message``); returns
+    ``{display_text, url}`` for the single URL button per template
+    (FR-003f caps URL count at ≤1 at fetch time).
+    """
+
+    def test_returns_none_when_metadata_has_no_buttons(self):
+        result = build_direct_send_cta_message(
+            metadata={"body": "Olá"},
+            template_variables={},
+            template_name="weni_order_shipped",
+        )
+        self.assertIsNone(result)
+
+    def test_returns_none_when_buttons_contain_no_url_entry(self):
+        result = build_direct_send_cta_message(
+            metadata={"buttons": [{"type": "QUICK_REPLY", "text": "Sim"}]},
+            template_variables={},
+            template_name="weni_order_shipped",
+        )
+        self.assertIsNone(result)
+
+    def test_returns_cta_message_with_substituted_display_text_and_url(self):
+        result = build_direct_send_cta_message(
+            metadata={
+                "buttons": [
+                    {
+                        "type": "URL",
+                        "text": "Acomp {{1}}",
+                        "url": "https://loja.com/track/{{2}}",
+                    }
+                ]
+            },
+            template_variables={"1": "Maria", "2": "12345"},
+            template_name="weni_order_shipped",
+        )
+        self.assertEqual(
+            result,
+            {"display_text": "Acomp Maria", "url": "https://loja.com/track/12345"},
+        )
+
+
+class BuildDirectSendQuickRepliesTest(TestCase):
+    """T114 / FR-014b — pure helper for the ``quick_replies`` flat array.
+
+    Returns ``None`` when no ``QUICK_REPLY`` button is present; returns
+    a list of substituted title strings otherwise. The list length is
+    capped at ≤3 by FR-003f's fetch-time guard.
+    """
+
+    def test_returns_none_when_metadata_has_no_buttons(self):
+        result = build_direct_send_quick_replies(
+            metadata={"body": "Olá"},
+            template_variables={},
+            template_name="weni_order_shipped",
+        )
+        self.assertIsNone(result)
+
+    def test_returns_none_when_buttons_contain_no_quick_reply_entry(self):
+        result = build_direct_send_quick_replies(
+            metadata={
+                "buttons": [{"type": "URL", "text": "Acomp", "url": "https://loja.com"}]
+            },
+            template_variables={},
+            template_name="weni_order_shipped",
+        )
+        self.assertIsNone(result)
+
+    def test_returns_list_of_substituted_titles(self):
+        result = build_direct_send_quick_replies(
+            metadata={
+                "buttons": [
+                    {"type": "QUICK_REPLY", "text": "Sim, {{1}}"},
+                    {"type": "QUICK_REPLY", "text": "Não recebi"},
+                    {"type": "QUICK_REPLY", "text": "Ajuda"},
+                ]
+            },
+            template_variables={"1": "Maria"},
+            template_name="weni_order_shipped",
+        )
+        self.assertEqual(result, ["Sim, Maria", "Não recebi", "Ajuda"])
+        self.assertTrue(all(isinstance(elem, str) for elem in result))
+        self.assertLessEqual(len(result), 3)

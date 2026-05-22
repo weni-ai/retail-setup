@@ -1,5 +1,5 @@
 """FR-028 / FR-029 / FR-030 / FR-039 dedup regression on the Direct
-Send cohort (T014a + T014c).
+Send cohort (T014a + T014c + T014d).
 
 Pins the canonical idempotency tuple
 ``(project, integrated_agent.uuid, order_id, current_state)`` on the
@@ -17,6 +17,14 @@ Direct Send path:
   ``current_state`` — a refactor dropping that component from the key
   would silently merge two distinct logical broadcasts into one and
   fail this test.
+- The unpause race (PAUSED → APPROVED flip during the dedup window of
+  an in-flight broadcast for the same template) MUST NOT auto-replay —
+  the dedup cache key was populated by the original PAUSED-skip
+  attempt, and the subsequent webhook (within the dedup window) skips
+  via the FR-028 duplicate-skip gate even though the version status is
+  now APPROVED (T014d). Pins the spec Edge Case "an event that arrived
+  during the dedup window of an earlier PAUSED-skip will NOT
+  auto-replay; the next webhook is the trigger".
 
 The legacy cohort is already covered by the pre-feature dedup tests
 in ``test_order_status_update.py``; this file is the Direct
@@ -278,9 +286,7 @@ class OrderStatusDedupOnDirectSendTest(TestCase):
             persisted_rows.values_list("broadcast_id", flat=True)
         )
         self.assertEqual(persisted_broadcast_ids, [9001, 9002])
-        persisted_order_ids = set(
-            persisted_rows.values_list("order_id", flat=True)
-        )
+        persisted_order_ids = set(persisted_rows.values_list("order_id", flat=True))
         self.assertEqual(persisted_order_ids, {self.order_status_dto.orderId})
 
         self.assertEqual(len(captured_keys), 2, captured_keys)
@@ -292,3 +298,96 @@ class OrderStatusDedupOnDirectSendTest(TestCase):
         self.assertEqual(first_segments[:4], second_segments[:4])
         self.assertEqual(first_segments[4], "invoiced")
         self.assertEqual(second_segments[4], "shipped")
+
+    def test_unpause_race_within_dedup_window_does_not_auto_replay(self):
+        """T014d / spec Edge Case — PAUSED → APPROVED flip during the
+        dedup window of an in-flight broadcast for the same template
+        MUST NOT auto-replay.
+
+        Steps:
+        1. Template ``current_version.status`` starts at ``PAUSED``.
+        2. Invoke ``execute(...)`` once → dispatch is skipped via the
+           FR-039 unified ``[BroadcastDispatch] skipped_due_to_status``
+           audit shape; the dedup cache key IS populated (the dedup
+           gate accepted the event BEFORE the version-status read).
+        3. Flip the version status to ``APPROVED`` (simulating the
+           unpause race).
+        4. Invoke ``execute(...)`` again with the SAME canonical
+           idempotency tuple — the dedup gate now skips the event
+           via the FR-028 ``[ORDER_STATUS] duplicate_skipped`` audit
+           shape; no Flows POST and no ``BroadcastMessage`` row.
+
+        Pins the spec edge case "an event that arrived during the
+        dedup window of an earlier PAUSED-skip will NOT auto-replay;
+        the next webhook is the trigger" against a future refactor
+        that moved the version-status read BEFORE the dedup cache
+        write (which would silently re-fire the dispatch on unpause).
+        """
+        version = Version.objects.get(template__name="weni_order_shipped")
+        version.status = "PAUSED"
+        version.save(update_fields=["status"])
+
+        webhook_factory = self._build_webhook_factory()
+        with patch(
+            "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase",
+            side_effect=lambda *_a, **_kw: webhook_factory(),
+        ):
+            with self.assertLogs(
+                "retail.agents.domains.agent_webhook.services.broadcast",
+                level=logging.WARNING,
+            ) as paused_logs:
+                self.usecase.execute(self.integrated_agent, self.order_status_dto)
+
+        self.flows_service.send_whatsapp_broadcast.assert_not_called()
+        self.assertFalse(
+            BroadcastMessage.objects.filter(
+                integrated_agent=self.integrated_agent
+            ).exists()
+        )
+        expected_paused_substrings = [
+            "[BroadcastDispatch] skipped_due_to_status",
+            f"project_uuid={self.project.uuid}",
+            "template=weni_order_shipped",
+            "version_status=PAUSED",
+        ]
+        self.assertTrue(
+            any(
+                all(sub in line for sub in expected_paused_substrings)
+                for line in paused_logs.output
+            ),
+            paused_logs.output,
+        )
+
+        version.status = "APPROVED"
+        version.save(update_fields=["status"])
+
+        with patch(
+            "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase",
+            side_effect=lambda *_a, **_kw: webhook_factory(),
+        ):
+            with self.assertLogs(
+                "retail.agents.domains.agent_webhook.usecases.order_status",
+                level=logging.INFO,
+            ) as dedup_logs:
+                self.usecase.execute(self.integrated_agent, self.order_status_dto)
+
+        self.flows_service.send_whatsapp_broadcast.assert_not_called()
+        self.assertFalse(
+            BroadcastMessage.objects.filter(
+                integrated_agent=self.integrated_agent
+            ).exists()
+        )
+        expected_dedup_substrings = [
+            "[ORDER_STATUS] duplicate_skipped",
+            f"vtex_account={self.project.vtex_account}",
+            f"agent_uuid={self.integrated_agent.uuid}",
+            "current_state=invoiced",
+            "order_id=12345-01",
+        ]
+        self.assertTrue(
+            any(
+                all(sub in line for sub in expected_dedup_substrings)
+                for line in dedup_logs.output
+            ),
+            dedup_logs.output,
+        )

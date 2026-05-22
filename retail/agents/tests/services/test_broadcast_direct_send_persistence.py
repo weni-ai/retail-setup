@@ -173,16 +173,15 @@ class BroadcastDirectSendPersistenceTest(TestCase):
             {"type": "image", "image_url": "https://cdn.loja.com/order_12345.jpg"},
         )
         self.assertEqual(msg["footer"], "Acompanhe pelo app Maria.")
+        self.assertEqual(msg["interaction_type"], "cta_url")
         self.assertEqual(
-            msg["buttons"],
-            [
-                {
-                    "sub_type": "cta_url",
-                    "display_text": "Acompanhar pedido",
-                    "url": "https://loja.com/track/12345",
-                }
-            ],
+            msg["cta_message"],
+            {
+                "display_text": "Acompanhar pedido",
+                "url": "https://loja.com/track/12345",
+            },
         )
+        self.assertNotIn("buttons", msg)
         self.assertEqual(
             msg["attachments"],
             ["image/jpeg:https://cdn.loja.com/order_12345.jpg"],

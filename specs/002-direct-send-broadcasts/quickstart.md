@@ -210,8 +210,26 @@ the webhook with Lambda payload that includes
 - `msg.header.type == "image"` and `msg.header.image_url` is the
   literal URL.
 - `msg.attachments[0]` is `"image/jpeg:<URL>"`.
-- `msg.buttons[0]` is `{"sub_type": "cta_url", "display_text": "...",
-  "url": "https://loja.com/track/12345"}` (final substituted URL).
+- `msg.interaction_type == "cta_url"` (FR-014a; spelling
+  `interactive_type` is INVALID).
+- `msg.cta_message == {"display_text": "<substituted button label>",
+  "url": "https://loja.com/track/12345"}` (FR-014a; the URL is the
+  final substituted form).
+- `msg.buttons` is **absent** — the Direct Send path NEVER emits
+  `msg.buttons` (FR-014a(b) + FR-014b(b); the key is LEGACY-ONLY).
+- If the same template also carries `QUICK_REPLY` buttons,
+  `msg.quick_replies` is a flat array of post-substitution title
+  strings (FR-014b); cardinality 1..3.
+
+> **Historical note (pre-FR-014a / FR-014b — Session 2026-05-22 Q4 /
+> Q10)**: earlier revisions of this script asserted
+> `msg.buttons[0] == {"sub_type": "cta_url", "display_text": "...",
+> "url": "..."}` and a sibling `{"sub_type": "reply", "id", "title"}`
+> shape for QUICK_REPLY. Both are documentation/implementation
+> errors per spec FR-014a(b) / FR-014b(b); the canonical wire shape
+> is restated above. The pre-FR-014a/b code paths are tracked as
+> SUPERSEDED in `tasks.md` (T011a `[~]`, T013 overlay note) and are
+> being relocated by Phase 8 / T113 / T114.
 
 ---
 
