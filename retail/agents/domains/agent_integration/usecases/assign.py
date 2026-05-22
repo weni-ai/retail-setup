@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from typing import Dict, List, TypedDict, Mapping, Any, Optional
@@ -10,19 +11,27 @@ from django.conf import settings
 
 from rest_framework.exceptions import NotFound, ValidationError
 
+from retail.agents.domains.agent_integration.exceptions import (
+    DirectSendTemplateUnavailableError,
+)
 from retail.agents.domains.agent_integration.models import IntegratedAgent, Credential
 from retail.agents.domains.agent_integration.usecases.fetch_country_phone_code import (
     FetchCountryPhoneCodeUseCase,
 )
 from retail.agents.domains.agent_management.models import Agent, PreApprovedTemplate
 from retail.services.integrations.service import IntegrationsService
+from retail.services.meta import MetaService
 from retail.interfaces.services.integrations import IntegrationsServiceInterface
+from retail.interfaces.services.meta import MetaServiceInterface
 from retail.projects.models import Project
 from retail.templates.usecases.create_library_template import (
     LibraryTemplateData,
     CreateLibraryTemplateUseCase,
 )
 from retail.templates.usecases._base_template_creator import TemplateBuilderMixin
+from retail.templates.usecases._meta_library_template_fetch import (
+    fetch_meta_library_template_metadata,
+)
 from retail.templates.usecases.create_custom_template import (
     CreateCustomTemplateUseCase,
     CreateCustomTemplateData,
@@ -40,6 +49,9 @@ from retail.vtex.usecases.proxy_vtex import ProxyVtexUsecase
 from retail.services.vtex_io.service import VtexIOService
 
 logger = logging.getLogger(__name__)
+
+
+_DIRECT_SEND_FALLBACK_LANGUAGE = "pt_BR"
 
 
 class MetaButtonFormat(TypedDict):
@@ -73,11 +85,56 @@ class AssignAgentUseCase:
         self,
         integrations_service: Optional[IntegrationsServiceInterface] = None,
         fetch_country_phone_code_usecase: Optional[FetchCountryPhoneCodeUseCase] = None,
+        meta_service: Optional[MetaServiceInterface] = None,
     ):
         self.integrations_service = integrations_service or IntegrationsService()
         self.fetch_country_phone_code_usecase = (
             fetch_country_phone_code_usecase or FetchCountryPhoneCodeUseCase()
         )
+        self._meta_service = meta_service
+
+    @property
+    def meta_service(self) -> MetaServiceInterface:
+        """Lazily construct ``MetaService`` only when the Direct Send branch
+        actually needs it.
+
+        ``MetaClient.__init__`` reads ``settings.META_SYSTEM_USER_ACCESS_TOKEN``,
+        which is only configured under ``USE_LAMBDA=True``. Eager
+        construction in ``__init__`` would break every legacy-cohort
+        assignment whose tests don't inject a meta_service mock — the
+        Direct Send fetch is the ONLY consumer (`_create_library_templates`
+        Direct Send branch), so deferring construction also avoids
+        instantiating an unused HTTP client on every legacy assignment.
+        """
+        if self._meta_service is None:
+            self._meta_service = MetaService()
+        return self._meta_service
+
+    def _resolve_direct_send_flag(self, agent: Agent, app_uuid: UUID) -> bool:
+        """Decide whether the assignment should take the Direct Send path.
+
+        Two signals must both be true (FR-019, contract
+        ``integrations-channel-app.md`` §4):
+
+        - the agent is the OrderStatus agent
+          (``settings.ORDER_STATUS_AGENT_UUID``);
+        - the channel-app reports ``config.direct_send=True``.
+
+        On any failure the conservative default is ``False`` (FR-005).
+        """
+        order_status_agent_uuid = getattr(settings, "ORDER_STATUS_AGENT_UUID", "")
+        if not order_status_agent_uuid or str(agent.uuid) != order_status_agent_uuid:
+            return False
+
+        app = self.integrations_service.get_channel_app("wpp-cloud", str(app_uuid))
+        if app is None:
+            logger.warning(
+                f"[DirectSend] channel_lookup_failed: agent={agent.uuid} "
+                f"app_uuid={app_uuid} — defaulting to direct_send=False"
+            )
+            return False
+
+        return bool((app.get("config") or {}).get("direct_send", False))
 
     def _get_project(self, project_uuid: UUID):
         try:
@@ -92,10 +149,16 @@ class AssignAgentUseCase:
         channel_uuid: UUID,
         ignore_templates: List[str],
         contact_percentage: Optional[int] = None,
+        direct_send: bool = False,
     ) -> IntegratedAgent:
         ignore_templates_slugs = self._get_ignore_templates_slugs(ignore_templates)
 
         initial_config = self._build_initial_config(agent, project)
+        # FR-001 / SC-004: write the key only when True; absence is the
+        # canonical legacy marker and writing False on the legacy cohort
+        # would expand the persisted config shape and break SC-004 / SC-007.
+        if direct_send:
+            initial_config["direct_send"] = True
 
         defaults: Dict[str, Any] = {
             "channel_uuid": channel_uuid,
@@ -312,6 +375,126 @@ class AssignAgentUseCase:
             integrated_agent.ignore_templates.append(template.parent.slug)
             integrated_agent.save(update_fields=["ignore_templates"])
 
+    def _create_direct_send_library_templates(
+        self,
+        integrated_agent: IntegratedAgent,
+        library_pre_approveds: List[PreApprovedTemplate],
+        project_uuid: UUID,
+        app_uuid: UUID,
+    ) -> None:
+        """Persist library-catalog templates locally for the Direct Send path.
+
+        For every pre-approved spec, fetches the template content from
+        Meta's library catalog in the project-resolved language. If the
+        project locale is missing AND it is not already ``pt_BR``,
+        retries in ``pt_BR`` (FR-003c). If both attempts fail, raises
+        :class:`DirectSendTemplateUnavailableError` so the surrounding
+        ``@transaction.atomic`` block rolls back the whole assignment
+        (FR-003d). Skips every Integrations Engine template-creation
+        call (Decision 5).
+        """
+        template_builder = TemplateBuilderMixin()
+        project_language = integrated_agent.config.get(
+            "initial_template_language", DEFAULT_TEMPLATE_LANGUAGE
+        )
+
+        for pre_approved in library_pre_approveds:
+            content, actual_language = self._fetch_direct_send_template_content(
+                pre_approved=pre_approved,
+                project=integrated_agent.project,
+                integrated_agent=integrated_agent,
+                project_language=project_language,
+            )
+
+            template, version = template_builder.build_template_and_version(
+                payload={
+                    "template_name": pre_approved.name,
+                    "app_uuid": app_uuid,
+                    "project_uuid": project_uuid,
+                },
+                integrated_agent=integrated_agent,
+            )
+
+            template.metadata = {
+                **content["metadata"],
+                "direct_send": {
+                    "fetched_from_meta_library": True,
+                    "fetched_at": datetime.now(timezone.utc).isoformat(),
+                    "requested_language": project_language,
+                    "actual_language": actual_language,
+                },
+            }
+            template.config = pre_approved.config or {}
+            template.parent = pre_approved
+            template.start_condition = pre_approved.start_condition
+            template.display_name = pre_approved.display_name
+            template.current_version = version
+            template.integrated_agent = integrated_agent
+            template.save()
+
+            version.template_name = pre_approved.name
+            version.status = "APPROVED"
+            version.save()
+
+            integrated_agent.ignore_templates.append(pre_approved.slug)
+            integrated_agent.save(update_fields=["ignore_templates"])
+
+            logger.info(
+                f"[DirectSend] template_persisted: project_uuid={integrated_agent.project.uuid} "
+                f"agent={integrated_agent.uuid} template={pre_approved.name} "
+                f"requested_language={project_language} actual_language={actual_language}"
+            )
+
+    def _fetch_direct_send_template_content(
+        self,
+        *,
+        pre_approved: PreApprovedTemplate,
+        project: Project,
+        integrated_agent: IntegratedAgent,
+        project_language: str,
+    ):
+        """Fetch the template content with a ``pt_BR`` per-template fallback.
+
+        Returns ``(content, actual_language)`` on success. Raises
+        :class:`DirectSendTemplateUnavailableError` when neither the
+        project locale nor ``pt_BR`` returns content (FR-003d).
+        """
+        content = fetch_meta_library_template_metadata(
+            self.meta_service, pre_approved.name, project_language
+        )
+        actual_language = project_language
+
+        if content is None and project_language != _DIRECT_SEND_FALLBACK_LANGUAGE:
+            content = fetch_meta_library_template_metadata(
+                self.meta_service, pre_approved.name, _DIRECT_SEND_FALLBACK_LANGUAGE
+            )
+            if content is not None:
+                actual_language = _DIRECT_SEND_FALLBACK_LANGUAGE
+                logger.warning(
+                    f"[DirectSend] template_language_fallback: "
+                    f"project_uuid={project.uuid} agent={integrated_agent.uuid} "
+                    f"template={pre_approved.name} "
+                    f"requested_language={project_language} fallback_language=pt_BR"
+                )
+
+        if content is None:
+            reason = "missing_translation"
+            logger.error(
+                f"[DirectSend] assignment_failed_atomic: "
+                f"project_uuid={project.uuid} agent={integrated_agent.uuid} "
+                f"template={pre_approved.name} "
+                f"requested_language={project_language} fallback_language=pt_BR "
+                f"reason={reason}"
+            )
+            raise DirectSendTemplateUnavailableError(
+                template_name=pre_approved.name,
+                requested_language=project_language,
+                fallback_language=_DIRECT_SEND_FALLBACK_LANGUAGE,
+                reason=reason,
+            )
+
+        return content, actual_language
+
     def _adopt_customer_templates(
         self,
         integrated_agent: IntegratedAgent,
@@ -432,6 +615,15 @@ class AssignAgentUseCase:
                     display_name__in=reserved_display_names
                 )
 
+        if integrated_agent.config.get("direct_send", False):
+            self._create_direct_send_library_templates(
+                integrated_agent,
+                list(pre_approveds),
+                project_uuid,
+                app_uuid,
+            )
+            return
+
         library_pre_approveds = pre_approveds.filter(is_valid=True)
         customer_sourced_pre_approveds = pre_approveds.filter(is_valid=False)
 
@@ -500,12 +692,15 @@ class AssignAgentUseCase:
 
         contact_percentage = self._resolve_contact_percentage(agent)
 
+        direct_send = self._resolve_direct_send_flag(agent, app_uuid)
+
         integrated_agent = self._create_integrated_agent(
             agent=agent,
             project=project,
             channel_uuid=channel_uuid,
             ignore_templates=ignore_templates,
             contact_percentage=contact_percentage,
+            direct_send=direct_send,
         )
         logger.info(f"[AssignAgent] integrated_agent created={integrated_agent.uuid}")
 

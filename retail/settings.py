@@ -415,9 +415,29 @@ USE_META = env.bool("USE_LAMBDA", default=False)
 if USE_META:
     META_SYSTEM_USER_ACCESS_TOKEN = env.str("META_SYSTEM_USER_ACCESS_TOKEN")
     META_VERSION = env.str("META_VERSION", default="v20.0")
-    META_API_URL = urllib.parse.urljoin(
-        env.str("WHATSAPP_API_URL", default="https://graph.facebook.com/"), META_VERSION
-    )
+
+    # Meta's Graph API has two URL shapes that we both consume:
+    #
+    #   META_GRAPH_BASE_URL → https://graph.facebook.com
+    #     Used by endpoints that are mounted directly on a resource id,
+    #     without the version segment. Example:
+    #       POST /{phone_number_id}/whatsapp_business_encryption
+    #
+    #   META_API_URL → https://graph.facebook.com/{META_VERSION}
+    #     Used by every other versioned endpoint. Example:
+    #       POST /{waba_id}/flows
+    #       POST /{flow_id}/publish
+    #
+    # We read WHATSAPP_API_URL once and derive both, so changing the
+    # host or version only requires touching the env variables.
+    META_GRAPH_BASE_URL = env.str(
+        "WHATSAPP_API_URL", default="https://graph.facebook.com/"
+    ).rstrip("/")
+    META_API_URL = urllib.parse.urljoin(f"{META_GRAPH_BASE_URL}/", META_VERSION)
+
+# One-Click Payment microservice (WhatsApp Cloud onboarding final step).
+PAYMENT_REST_ENDPOINT = env.str("PAYMENT_REST_ENDPOINT", default="")
+PAYMENT_FLOW_NAME = env.str("PAYMENT_FLOW_NAME", default="payment_confirmation_flow")
 
 ORDER_STATUS_AGENT_UUID = env.str("ORDER_STATUS_AGENT_UUID", default="")
 ABANDONED_CART_AGENT_UUID = env.str("ABANDONED_CART_AGENT_UUID", default="")

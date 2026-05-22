@@ -15,6 +15,8 @@ class UpdateTemplateData(TypedDict):
         "DELETED",
         "DISABLED",
         "LOCKED",
+        "PAUSED",
+        "FLAGGED",
     ]
     version_uuid: str
 
@@ -47,6 +49,10 @@ class UpdateTemplateUseCase:
 
         status = payload.get("status")
 
+        # FR-026: PAUSED/FLAGGED are persisted as-is and MUST NOT be promoted
+        # to current_version. Do NOT add full_clean()/choices validation here —
+        # it would re-validate against historical choices and silently break
+        # dispatch-time gating (US3 / T031).
         if status == "APPROVED":
             template = self._update_template_current_version(version, template)
 
