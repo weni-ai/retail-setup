@@ -71,6 +71,39 @@ class MetaClient(MetaClientInterface, RequestClient):
 
         return response.json()
 
+    def fetch_library_template_by_name_and_language(
+        self, template_name: str, language: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Returns the exact ``(name, language)`` match from Meta's library catalog.
+
+        Meta's ``message_template_library`` endpoint takes ``search`` as a
+        fuzzy match, so the response may include items whose name only
+        partially matches and the cross-language variant when the
+        requested locale is missing. The Direct Send path requires an
+        EXACT match on both name and language; this method post-filters
+        the fuzzy response from :meth:`get_pre_approved_template` per
+        ``contracts/meta-library-catalog.md`` §3:
+
+        - Returns the first item whose ``name == template_name``
+          (case-sensitive) AND, when the item carries a ``language``
+          field, whose ``language == language`` (case-sensitive).
+        - Items without a ``language`` field fall through the language
+          guard and are matched on name alone.
+        - Returns ``None`` when no item satisfies both filters.
+        """
+        response = self.get_pre_approved_template(template_name, language)
+        data = response.get("data") or []
+
+        for item in data:
+            if item.get("name") != template_name:
+                continue
+            item_language = item.get("language")
+            if item_language is None or item_language == language:
+                return item
+
+        return None
+
     def create_flow(
         self,
         waba_id: str,

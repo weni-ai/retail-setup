@@ -64,10 +64,10 @@
 
 ## Migration & Schema Safety (Coverage)
 
-- [ ] CHK030 Is the requirement "no `IntegratedAgent` migration ships with this feature; absence of `direct_send` in `config` is treated as False, so legacy rows need no backfill" stated (FR-025; data-model.md §1 Decision)?
+- [x] CHK030 Is the requirement "no `IntegratedAgent` migration ships with this feature; absence of `direct_send` in `config` is treated as False, so legacy rows need no backfill" stated (FR-025; data-model.md §1 Decision)?
 - [x] CHK031 Is "the `Version.STATUS_CHOICES` extension MUST not invalidate any existing row's status (every legacy row is one of the eight pre-existing values)" stated as a migration-safety guarantee?
 - [x] CHK032 Is "no data backfill required by either migration" stated as a deploy-safety guarantee?
-- [ ] CHK033 Is the migration-dependency chain for the one new migration (`Version.STATUS_CHOICES` extension) documented (its `dependencies = [...]` list), so applying it against an arbitrary baseline cannot break the existing migration history?
+- [x] CHK033 Is the migration-dependency chain for the one new migration (`Version.STATUS_CHOICES` extension) documented (its `dependencies = [...]` list), so applying it against an arbitrary baseline cannot break the existing migration history? [plan.md §Migration & rollback safety; migration file `templates/migrations/0017_alter_version_status_paused_flagged.py` declares `dependencies = [("templates", "0016_template_config")]`]
 - [x] CHK034 Is the rollback story documented — can the code be reverted without rolling back the column / new enum values, leaving the database in a known-safe state? `quickstart.md §9` discusses rollback; is the schema-safety implication explicit?
 
 ## Status Enum Extension Compatibility (Edge Cases)
@@ -99,7 +99,7 @@
 - [x] CHK047 Is "byte-identical" defined unambiguously — literal byte equivalence in the serialized JSON, semantic equivalence (key order may differ but values match), or JSON-Schema-equivalent? Without a precise definition, the snapshot test can't be unambiguously specified.
 - [x] CHK048 [Conflict-Resolved] Resolved in favor of the JSON-key storage Decision (`data-model.md §1`) — `direct_send` is exposed as a top-level read-only field on `ReadIntegratedAgentSerializer`, computed from `obj.config.get("direct_send", False)`. The wire shape is unchanged from US1's first implementation; the storage relocation (column → `config` JSON key) is invisible to downstream consumers and is purely additive within the existing public surface. Resolution recorded in the new Decision entry in `data-model.md §1`.
 - [x] CHK049 Is the spec's stance on rollback unambiguous — `quickstart.md §9` says reverting code is safe even with the column / enum still in place, but does the spec also require the migration to be REVERSIBLE (Django's `RunPython` / `RemoveField`) for ops?
-- [ ] CHK050 Is the storage relocation of `direct_send` (column →
+- [x] CHK050 Is the storage relocation of `direct_send` (column →
       config JSON key) stated as a deliberate spec correction with
       rationale (zero schema change, reduced rollout footprint)?
       [Conflict-Resolved, spec.md §FR-005, data-model.md §1]

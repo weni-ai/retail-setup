@@ -1,10 +1,15 @@
-from typing import Any, Dict, List, Protocol
+from typing import Any, Dict, List, Optional, Protocol
 
 
 class MetaClientInterface(Protocol):
     def get_pre_approved_template(
         self, template_name: str, language: str
     ) -> Dict[str, Any]:
+        ...
+
+    def fetch_library_template_by_name_and_language(
+        self, template_name: str, language: str
+    ) -> Optional[Dict[str, Any]]:
         ...
 
     def create_flow(
