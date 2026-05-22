@@ -33,10 +33,15 @@ stable discriminator:
 - ``"malformed"`` — missing required keys, structural violations
 """
 
+import logging
+
 from typing import Any, Dict, List, Optional, TypedDict
 
 from retail.agents.domains.agent_integration.exceptions import (
     DirectSendUnsupportedComponentError,
+)
+from retail.agents.domains.agent_webhook.services import (
+    direct_send_button_overrides,
 )
 from retail.agents.domains.agent_webhook.services.direct_send_constants import (
     MAX_BODY_LENGTH,
@@ -49,6 +54,8 @@ from retail.templates.adapters.url_normalization import (
     append_placeholder_if_needed,
     ensure_protocol,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class TemplateInfo(TypedDict):
@@ -64,6 +71,7 @@ _MAX_QUICK_REPLY_BUTTONS = 3
 
 def adapt_meta_library_template_response(
     raw: Optional[Dict[str, Any]],
+    language: Optional[str] = None,
 ) -> Optional[TemplateInfo]:
     """Validate and shape a library-catalog response into ``TemplateInfo``.
 
@@ -75,6 +83,13 @@ def adapt_meta_library_template_response(
     Raises :class:`DirectSendUnsupportedComponentError` on any
     violation so the assignment use case routes through FR-003c →
     FR-003d (Decision 12).
+
+    ``language`` is the locale the Direct Send fetch is occurring in
+    (project locale or ``pt_BR`` fallback). When provided AND a URL
+    button's text would overflow ``MAX_BUTTON_LABEL_LENGTH``, the
+    per-``(template_name, language)`` override map is consulted to
+    remediate the overflow (FR-003g). Defaults to ``None`` so the
+    legacy push-time validation flow remains source-compatible.
     """
     if raw is None:
         return None
@@ -84,7 +99,9 @@ def adapt_meta_library_template_response(
     body = _validate_body(raw, template_name=template_name)
     header = _validate_and_normalize_header(raw, template_name=template_name)
     footer = _validate_footer(raw, template_name=template_name)
-    buttons = _validate_and_normalize_buttons(raw, template_name=template_name)
+    buttons = _validate_and_normalize_buttons(
+        raw, template_name=template_name, language=language
+    )
 
     return {
         "name": raw.get("name"),
@@ -119,7 +136,7 @@ def fetch_meta_library_template_metadata(
     raw = meta_service.fetch_library_template_by_name_and_language(
         template_name, language
     )
-    return adapt_meta_library_template_response(raw)
+    return adapt_meta_library_template_response(raw, language=language)
 
 
 def _validate_body(raw: Dict[str, Any], *, template_name: str) -> str:
@@ -181,7 +198,10 @@ def _validate_footer(raw: Dict[str, Any], *, template_name: str) -> Optional[str
 
 
 def _validate_and_normalize_buttons(
-    raw: Dict[str, Any], *, template_name: str
+    raw: Dict[str, Any],
+    *,
+    template_name: str,
+    language: Optional[str] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     """Validate types and normalize URL-button shapes.
 
@@ -192,6 +212,12 @@ def _validate_and_normalize_buttons(
     normalized to a single flat-string canonical form via the shared
     ``ensure_protocol`` + ``append_placeholder_if_needed`` helpers
     (push-path ``ButtonTransformer`` agrees on the same heuristic).
+
+    FR-003g: when a URL button's text would otherwise overflow
+    ``MAX_BUTTON_LABEL_LENGTH`` AND a ``(template_name, language)``
+    entry exists in ``DIRECT_SEND_BUTTON_LABEL_OVERRIDES``, the
+    override value replaces the upstream label and the length check
+    is re-run. QUICK_REPLY overflows continue to raise.
     """
     raw_buttons = raw.get("buttons")
     if raw_buttons is None:
@@ -217,10 +243,17 @@ def _validate_and_normalize_buttons(
 
         label = button.get("text") or ""
         if len(label) > MAX_BUTTON_LABEL_LENGTH:
-            raise DirectSendUnsupportedComponentError(
-                template_name=template_name,
-                component_type="buttons",
-            )
+            if btn_type == "URL":
+                label = _resolve_url_button_label_override(
+                    upstream=label,
+                    template_name=template_name,
+                    language=language,
+                )
+            else:
+                raise DirectSendUnsupportedComponentError(
+                    template_name=template_name,
+                    component_type="buttons",
+                )
 
         if btn_type == "URL":
             url_count += 1
@@ -242,6 +275,45 @@ def _validate_and_normalize_buttons(
         )
 
     return normalized
+
+
+def _resolve_url_button_label_override(
+    *,
+    upstream: str,
+    template_name: str,
+    language: Optional[str],
+) -> str:
+    """Look up the URL button label override for ``(template_name, language)``.
+
+    The override is applied ONLY when the upstream label overflowed
+    ``MAX_BUTTON_LABEL_LENGTH`` (the caller has already confirmed the
+    overflow). Per FR-003g(h) the override value itself MUST satisfy
+    the same length ceiling; an override that overflows raises
+    ``DirectSendUnsupportedComponentError`` (the map is a remediation,
+    not a length-check bypass). Per FR-003g(f) audit is INFO-log-only.
+    """
+    override_key = (template_name, language)
+    override_map = direct_send_button_overrides.DIRECT_SEND_BUTTON_LABEL_OVERRIDES
+    if language is None or override_key not in override_map:
+        raise DirectSendUnsupportedComponentError(
+            template_name=template_name,
+            component_type="buttons",
+        )
+
+    override = override_map[override_key]
+    if len(override) > MAX_BUTTON_LABEL_LENGTH:
+        raise DirectSendUnsupportedComponentError(
+            template_name=template_name,
+            component_type="buttons",
+        )
+
+    logger.info(
+        f"direct_send_button_label_overridden: "
+        f"template={template_name} language={language} "
+        f"upstream='{upstream}' ({len(upstream)} chars) "
+        f"override='{override}' ({len(override)} chars)"
+    )
+    return override
 
 
 def _flatten_url(url: Any, *, template_name: str) -> str:

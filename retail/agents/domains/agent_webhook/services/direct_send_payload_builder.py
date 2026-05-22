@@ -15,9 +15,16 @@ Two responsibilities:
   Beta identifier rule (snake_case + ≤ 512 chars, research Decision 7
   / FR-017).
 
-The header / footer / buttons builders consume the ``Template.metadata``
-shape produced by ``_get_template_info`` /
+The header / footer / cta / quick_replies builders consume the
+``Template.metadata`` shape produced by ``_get_template_info`` /
 ``adapt_meta_library_template_response`` (data-model.md §3).
+
+FR-014a / FR-014b wire shape (Session 2026-05-22 Q4 / Q10) — the
+Direct Send path NEVER emits ``msg.buttons`` (LEGACY-ONLY):
+
+- CTA URL → ``msg.interaction_type = "cta_url"`` +
+  ``msg.cta_message = {display_text, url}`` siblings on ``msg``.
+- QUICK_REPLY → flat ``msg.quick_replies = ["title 1", ...]`` array.
 """
 
 import logging
@@ -127,59 +134,62 @@ def build_direct_send_footer(
     )
 
 
-def build_direct_send_buttons(
+def build_direct_send_cta_message(
     metadata: Dict[str, Any],
     template_variables: Dict[str, Any],
     *,
     template_name: str,
-) -> Optional[List[Dict[str, Any]]]:
-    """Build the ``msg.buttons`` list for the Direct Send payload.
+) -> Optional[Dict[str, Any]]:
+    """Build the ``msg.cta_message`` sub-object for the Direct Send payload.
 
-    Maps Meta library-catalog button types to Direct Send sub_types
-    (research Decision 8; ``contracts/messaging-gateway-payload.md``
-    §3.3):
-
-    - ``URL`` → ``{"sub_type": "cta_url", "display_text", "url"}``
-      with the URL substituted server-side.
-    - ``QUICK_REPLY`` → ``{"sub_type": "reply", "id", "title"}`` with
-      the title substituted; ``id`` defaults to the literal title
-      when the source button carries no explicit id (Meta's library
-      catalog response does not surface one).
+    Reads the single ``URL`` button from ``metadata.buttons`` (FR-003f
+    caps URL count at ≤1 at fetch time) and emits the FR-014a wire
+    shape ``{display_text, url}`` with both fields substituted
+    server-side. Returns ``None`` when no URL button is present so
+    the dispatch builder skips ``msg.interaction_type`` and
+    ``msg.cta_message``.
     """
-    raw_buttons = metadata.get("buttons")
-    if not raw_buttons:
-        return None
-
-    result: List[Dict[str, Any]] = []
+    raw_buttons = metadata.get("buttons") or []
     for btn in raw_buttons:
-        btn_type = btn.get("type")
-        if btn_type == "URL":
-            result.append(
-                {
-                    "sub_type": "cta_url",
-                    "display_text": substitute_template_variables(
-                        btn.get("text", ""),
-                        template_variables,
-                        template_name=template_name,
-                    ),
-                    "url": substitute_template_variables(
-                        btn.get("url", ""),
-                        template_variables,
-                        template_name=template_name,
-                    ),
-                }
-            )
-        elif btn_type == "QUICK_REPLY":
-            title = substitute_template_variables(
-                btn.get("text", ""),
-                template_variables,
-                template_name=template_name,
-            )
-            result.append(
-                {
-                    "sub_type": "reply",
-                    "id": btn.get("id") or title,
-                    "title": title,
-                }
-            )
-    return result or None
+        if btn.get("type") == "URL":
+            return {
+                "display_text": substitute_template_variables(
+                    btn.get("text", ""),
+                    template_variables,
+                    template_name=template_name,
+                ),
+                "url": substitute_template_variables(
+                    btn.get("url", ""),
+                    template_variables,
+                    template_name=template_name,
+                ),
+            }
+    return None
+
+
+def build_direct_send_quick_replies(
+    metadata: Dict[str, Any],
+    template_variables: Dict[str, Any],
+    *,
+    template_name: str,
+) -> Optional[List[str]]:
+    """Build the ``msg.quick_replies`` flat array for the Direct Send payload.
+
+    Reads ``QUICK_REPLY`` entries from ``metadata.buttons`` and emits
+    the FR-014b wire shape — a flat list of post-substitution title
+    strings (no wrapping object, no ``sub_type`` / ``id`` field; Meta
+    library catalog's ``id`` is intentionally not carried on the wire).
+    Returns ``None`` when no QUICK_REPLY entry is present so the
+    dispatch builder skips ``msg.quick_replies``.
+    """
+    raw_buttons = metadata.get("buttons") or []
+    titles = [
+        substitute_template_variables(
+            btn.get("text", ""),
+            template_variables,
+            template_name=template_name,
+        )
+        for btn in raw_buttons
+        if btn.get("type") == "QUICK_REPLY"
+    ]
+    return titles or None

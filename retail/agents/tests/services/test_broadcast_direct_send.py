@@ -100,6 +100,10 @@ class BuildDirectSendMessageHappyPathTest(TestCase):
         self.assertNotIn("attachments", result["msg"])
 
     def test_as2_image_header_and_cta_url_button(self):
+        """AS2 with FR-014a wire shape: CTA URL is emitted via
+        ``msg.interaction_type`` + ``msg.cta_message`` siblings, NOT
+        inside ``msg.buttons`` (which is LEGACY-ONLY).
+        """
         template = _make_template(
             body="Olá {{1}}, seu pedido {{2}} chegou.",
             header={"header_type": "IMAGE", "text": "image-placeholder"},
@@ -138,16 +142,15 @@ class BuildDirectSendMessageHappyPathTest(TestCase):
             result["msg"]["attachments"],
             ["image/jpeg:https://cdn.loja.com/order_12345.jpg"],
         )
+        self.assertEqual(result["msg"]["interaction_type"], "cta_url")
         self.assertEqual(
-            result["msg"]["buttons"],
-            [
-                {
-                    "sub_type": "cta_url",
-                    "display_text": "Acompanhar pedido",
-                    "url": "https://loja.com/track/Maria",
-                }
-            ],
+            result["msg"]["cta_message"],
+            {
+                "display_text": "Acompanhar pedido",
+                "url": "https://loja.com/track/Maria",
+            },
         )
+        self.assertNotIn("buttons", result["msg"])
         self.assertEqual(result["msg"]["body"], "Olá Maria, seu pedido 12345 chegou.")
 
     def test_as3_body_only_no_variables_no_buttons_no_header(self):
@@ -215,14 +218,37 @@ class BuildDirectSendMessageHappyPathTest(TestCase):
         self.assertNotIn("attachments", result["msg"])
 
 
-class BuildDirectSendMessageQuickReplyButtonsTest(TestCase):
-    """Quick-reply buttons rendering (T011a, contract §3.3)."""
+class BuildDirectSendMessageQuickReplyWireShapeTest(TestCase):
+    """T114 / FR-014b — QUICK_REPLY wire shape relocation.
+
+    On the Direct Send dispatch path, Quick Reply buttons MUST be
+    emitted as a top-level flat array of post-substitution title strings
+    on ``msg``: ``msg.quick_replies = ["title 1", ...]`` (no wrapping
+    object, no ``sub_type`` / ``id`` field). The QUICK_REPLY entries
+    MUST NOT appear inside ``msg.buttons`` — combined with FR-014a,
+    the Direct Send path NEVER emits a ``msg.buttons`` key.
+
+    SUPERSEDES the previous ``BuildDirectSendMessageQuickReplyButtonsTest``
+    class which asserted the pre-FR-014b ``msg.buttons[*].sub_type=reply``
+    shape (T011a). The original assertions were dropped from the
+    coverage floor when T011a was marked ``[~] SUPERSEDED by T114``;
+    this class restores coverage on the canonical wire shape.
+    """
 
     def setUp(self):
         self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
         self.integrated_agent = _make_integrated_agent()
 
-    def test_three_quick_replies_with_substitution(self):
+    def _build(self, template, data):
+        return self.handler.build_direct_send_message(
+            data=data,
+            channel_uuid=str(self.integrated_agent.channel_uuid),
+            project_uuid=str(self.integrated_agent.project.uuid),
+            template=template,
+            integrated_agent=self.integrated_agent,
+        )
+
+    def test_three_quick_replies_emit_flat_array_no_buttons_key(self):
         template = _make_template(
             body="Olá {{1}}, confirme seu pedido.",
             buttons=[
@@ -235,43 +261,116 @@ class BuildDirectSendMessageQuickReplyButtonsTest(TestCase):
             "template_variables": {"1": "Maria"},
             "contact_urn": "whatsapp:5598123456789",
         }
-        result = self.handler.build_direct_send_message(
-            data=data,
-            channel_uuid=str(self.integrated_agent.channel_uuid),
-            project_uuid=str(self.integrated_agent.project.uuid),
-            template=template,
-            integrated_agent=self.integrated_agent,
-        )
+        result = self._build(template, data)
         self.assertIsNotNone(result)
-        buttons = result["msg"]["buttons"]
-        self.assertEqual(len(buttons), 3)
         self.assertEqual(
-            buttons,
-            [
-                {"sub_type": "reply", "id": "Sim, Maria", "title": "Sim, Maria"},
-                {"sub_type": "reply", "id": "Não recebi", "title": "Não recebi"},
-                {"sub_type": "reply", "id": "Ajuda", "title": "Ajuda"},
-            ],
+            result["msg"]["quick_replies"], ["Sim, Maria", "Não recebi", "Ajuda"]
         )
+        self.assertNotIn("buttons", result["msg"])
 
-    def test_substituted_title_within_length_limit_survives(self):
+    def test_order_is_preserved(self):
         template = _make_template(
             body="Body",
-            buttons=[{"type": "QUICK_REPLY", "text": "Hi {{1}}"}],
+            buttons=[
+                {"type": "QUICK_REPLY", "text": "Sim"},
+                {"type": "QUICK_REPLY", "text": "Não"},
+                {"type": "QUICK_REPLY", "text": "Cancelar"},
+            ],
+        )
+        data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
+        result = self._build(template, data)
+        self.assertEqual(result["msg"]["quick_replies"], ["Sim", "Não", "Cancelar"])
+
+    def test_id_field_is_not_carried_on_the_wire(self):
+        """Meta's library catalog ``id`` field is intentionally NOT
+        propagated to the Direct Send wire shape. Each element of
+        ``msg.quick_replies`` MUST be a plain string, not a dict.
+        """
+        template = _make_template(
+            body="Body",
+            buttons=[{"type": "QUICK_REPLY", "id": "yes_track", "text": "Acompanhar"}],
+        )
+        data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
+        result = self._build(template, data)
+        self.assertTrue(
+            all(isinstance(elem, str) for elem in result["msg"]["quick_replies"])
+        )
+        self.assertEqual(result["msg"]["quick_replies"], ["Acompanhar"])
+
+    def test_variable_substitution_applies_to_quick_reply_titles(self):
+        template = _make_template(
+            body="Body",
+            buttons=[{"type": "QUICK_REPLY", "text": "Acompanhar {{1}}"}],
+        )
+        data = {
+            "template_variables": {"1": "12345"},
+            "contact_urn": "whatsapp:55",
+        }
+        result = self._build(template, data)
+        self.assertEqual(result["msg"]["quick_replies"], ["Acompanhar 12345"])
+
+    def test_quick_reply_title_over_20_chars_refuses(self):
+        template = _make_template(
+            body="Body",
+            buttons=[{"type": "QUICK_REPLY", "text": "x" * 20 + " {{1}}"}],
         )
         data = {
             "template_variables": {"1": "Maria"},
-            "contact_urn": "whatsapp:5598123456789",
+            "contact_urn": "whatsapp:55",
         }
-        result = self.handler.build_direct_send_message(
-            data=data,
-            channel_uuid=str(self.integrated_agent.channel_uuid),
-            project_uuid=str(self.integrated_agent.project.uuid),
-            template=template,
-            integrated_agent=self.integrated_agent,
+        with self.assertLogs(_BUILDER_LOGGER, level=logging.WARNING) as captured:
+            result = self._build(template, data)
+        self.assertIsNone(result)
+        self.assertTrue(
+            any(
+                "skipped_due_to_direct_send_validation" in line
+                and "reason=component_length_limit" in line
+                for line in captured.output
+            ),
+            captured.output,
         )
+
+    def test_combined_url_and_quick_replies_emit_parallel_siblings(self):
+        """FR-014b(f) — combined-case regression guard. Both surfaces
+        are independent on the wire and neither suppresses the other.
+        """
+        template = _make_template(
+            body="Olá.",
+            buttons=[
+                {
+                    "type": "URL",
+                    "text": "Acompanhar",
+                    "url": "https://loja.com/track",
+                },
+                {"type": "QUICK_REPLY", "text": "Sim"},
+                {"type": "QUICK_REPLY", "text": "Não"},
+            ],
+        )
+        data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
+        result = self._build(template, data)
         self.assertIsNotNone(result)
-        self.assertEqual(result["msg"]["buttons"][0]["title"], "Hi Maria")
+        self.assertEqual(result["msg"]["interaction_type"], "cta_url")
+        self.assertEqual(
+            result["msg"]["cta_message"],
+            {"display_text": "Acompanhar", "url": "https://loja.com/track"},
+        )
+        self.assertEqual(result["msg"]["quick_replies"], ["Sim", "Não"])
+        self.assertNotIn("buttons", result["msg"])
+
+    def test_interaction_type_is_absent_when_only_quick_replies_present(self):
+        template = _make_template(
+            body="Olá.",
+            buttons=[
+                {"type": "QUICK_REPLY", "text": "Sim"},
+                {"type": "QUICK_REPLY", "text": "Não"},
+            ],
+        )
+        data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
+        result = self._build(template, data)
+        self.assertNotIn("interaction_type", result["msg"])
+        self.assertNotIn("cta_message", result["msg"])
+        self.assertEqual(result["msg"]["quick_replies"], ["Sim", "Não"])
+        self.assertNotIn("buttons", result["msg"])
 
 
 class BuildDirectSendMessageNamingRuleRefusalTest(TestCase):
@@ -476,6 +575,7 @@ class BuildDirectSendMessageLengthAndEmptyBodyRefusalTest(TestCase):
     def test_cta_button_url_over_20_chars_is_allowed(self):
         """``url`` is NOT length-checked at this gate (contract §3.3 —
         URLs can be much longer than the 20-char ``display_text`` ceiling).
+        With FR-014a the URL is read from ``msg.cta_message.url``.
         """
         long_url = "https://loja.com/track/" + "x" * 100
         template = _make_template(
@@ -494,7 +594,147 @@ class BuildDirectSendMessageLengthAndEmptyBodyRefusalTest(TestCase):
         }
         result = self._build(template, data)
         self.assertIsNotNone(result)
-        self.assertEqual(result["msg"]["buttons"][0]["url"], long_url + "Maria")
+        self.assertNotIn("buttons", result["msg"])
+        self.assertEqual(result["msg"]["cta_message"]["url"], long_url + "Maria")
+
+
+class BuildDirectSendMessageCtaUrlWireShapeTest(TestCase):
+    """T113 / FR-014a — CTA URL wire shape relocation.
+
+    On the Direct Send dispatch path, a CTA URL button (sourced from a
+    Meta library template ``buttons`` entry of ``type: "URL"``) MUST be
+    emitted on the wire as a top-level discriminator + sibling
+    sub-object on ``msg``: ``msg.interaction_type = "cta_url"`` +
+    ``msg.cta_message = {display_text: <substituted>, url: <substituted>}``.
+    The CTA URL entry MUST NOT appear inside ``msg.buttons``.
+
+    Variable substitution (FR-013) applies to BOTH
+    ``cta_message.display_text`` and ``cta_message.url``. The 20-char
+    post-substitution length validation continues to be enforced —
+    relocated from ``msg.buttons[*].display_text`` to
+    ``msg.cta_message.display_text``. The URL itself is NOT length-checked
+    here (contract §3.3 — URLs can be up to 2000 chars).
+    """
+
+    def setUp(self):
+        self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
+        self.integrated_agent = _make_integrated_agent()
+
+    def _build(self, template, data):
+        return self.handler.build_direct_send_message(
+            data=data,
+            channel_uuid=str(self.integrated_agent.channel_uuid),
+            project_uuid=str(self.integrated_agent.project.uuid),
+            template=template,
+            integrated_agent=self.integrated_agent,
+        )
+
+    def test_url_only_emits_cta_message_siblings_no_buttons_key(self):
+        template = _make_template(
+            body="Olá.",
+            buttons=[
+                {
+                    "type": "URL",
+                    "text": "Acompanhar pedido",
+                    "url": "https://loja.com/track/{{1}}",
+                }
+            ],
+        )
+        data = {
+            "template_variables": {"1": "12345"},
+            "contact_urn": "whatsapp:55",
+        }
+        result = self._build(template, data)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["msg"]["interaction_type"], "cta_url")
+        self.assertEqual(
+            result["msg"]["cta_message"],
+            {
+                "display_text": "Acompanhar pedido",
+                "url": "https://loja.com/track/12345",
+            },
+        )
+        self.assertNotIn("buttons", result["msg"])
+
+    def test_discriminator_key_spelled_interaction_type_not_interactive(self):
+        template = _make_template(
+            body="Olá.",
+            buttons=[
+                {
+                    "type": "URL",
+                    "text": "Acompanhar",
+                    "url": "https://loja.com/track",
+                }
+            ],
+        )
+        data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
+        result = self._build(template, data)
+        self.assertIn("interaction_type", result["msg"])
+        self.assertNotIn("interactive_type", result["msg"])
+
+    def test_variable_substitution_on_both_display_text_and_url(self):
+        template = _make_template(
+            body="Olá.",
+            buttons=[
+                {
+                    "type": "URL",
+                    "text": "Acomp {{1}}",
+                    "url": "https://loja.com/track/{{2}}",
+                }
+            ],
+        )
+        data = {
+            "template_variables": {"1": "Maria", "2": "12345"},
+            "contact_urn": "whatsapp:55",
+        }
+        result = self._build(template, data)
+        self.assertEqual(result["msg"]["cta_message"]["display_text"], "Acomp Maria")
+        self.assertEqual(
+            result["msg"]["cta_message"]["url"], "https://loja.com/track/12345"
+        )
+
+    def test_cta_message_display_text_over_20_chars_refuses(self):
+        template = _make_template(
+            body="Olá.",
+            buttons=[
+                {
+                    "type": "URL",
+                    "text": "Texto muito longo aqui {{1}}",
+                    "url": "https://loja.com/track",
+                }
+            ],
+        )
+        data = {
+            "template_variables": {"1": "Maria"},
+            "contact_urn": "whatsapp:55",
+        }
+        with self.assertLogs(_BUILDER_LOGGER, level=logging.WARNING) as captured:
+            result = self._build(template, data)
+        self.assertIsNone(result)
+        self.assertTrue(
+            any(
+                "skipped_due_to_direct_send_validation" in line
+                and f"project_uuid={self.integrated_agent.project.uuid}" in line
+                and "reason=component_length_limit" in line
+                for line in captured.output
+            ),
+            captured.output,
+        )
+
+    def test_url_over_200_chars_is_allowed(self):
+        long_url = "https://loja.com/track/" + "x" * 200
+        template = _make_template(
+            body="Olá.",
+            buttons=[{"type": "URL", "text": "Acomp", "url": long_url + "{{1}}"}],
+        )
+        data = {
+            "template_variables": {"1": "Maria"},
+            "contact_urn": "whatsapp:55",
+        }
+        result = self._build(template, data)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["msg"]["cta_message"]["url"], long_url + "Maria")
+        self.assertNotIn("buttons", result["msg"])
 
 
 class BuildMessageNoLocalTemplateEdgeCaseTest(TestCase):
@@ -510,7 +750,9 @@ class BuildMessageNoLocalTemplateEdgeCaseTest(TestCase):
     def setUp(self):
         self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
         self.integrated_agent = _make_integrated_agent(direct_send=True)
-        self.integrated_agent.templates.filter.return_value.select_related.return_value.first.return_value = None
+        self.integrated_agent.templates.filter.return_value.select_related.return_value.first.return_value = (
+            None
+        )
 
     def test_returns_none_without_invoking_direct_send_builder(self):
         data = {

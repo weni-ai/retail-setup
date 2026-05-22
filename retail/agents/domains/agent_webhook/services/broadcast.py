@@ -15,9 +15,10 @@ from retail.agents.domains.agent_webhook.services.direct_send_constants import (
     MAX_HEADER_TEXT_LENGTH,
 )
 from retail.agents.domains.agent_webhook.services.direct_send_payload_builder import (
-    build_direct_send_buttons,
+    build_direct_send_cta_message,
     build_direct_send_footer,
     build_direct_send_header,
+    build_direct_send_quick_replies,
     is_valid_direct_send_template_name,
     substitute_template_variables,
 )
@@ -778,12 +779,19 @@ class Broadcast:
         footer = build_direct_send_footer(
             metadata, template_variables, template_name=template_name
         )
-        buttons = build_direct_send_buttons(
+        cta_message = build_direct_send_cta_message(
+            metadata, template_variables, template_name=template_name
+        )
+        quick_replies = build_direct_send_quick_replies(
             metadata, template_variables, template_name=template_name
         )
 
         if self._exceeds_direct_send_length_limits(
-            body=substituted_body, header=header, footer=footer, buttons=buttons
+            body=substituted_body,
+            header=header,
+            footer=footer,
+            cta_message=cta_message,
+            quick_replies=quick_replies,
         ):
             self._log_direct_send_refusal(
                 integrated_agent=integrated_agent,
@@ -805,8 +813,11 @@ class Broadcast:
             msg["header"] = header
         if footer is not None:
             msg["footer"] = footer
-        if buttons:
-            msg["buttons"] = buttons
+        if cta_message is not None:
+            msg["interaction_type"] = "cta_url"
+            msg["cta_message"] = cta_message
+        if quick_replies:
+            msg["quick_replies"] = quick_replies
         if header is not None and header.get("type") == "image":
             msg["attachments"] = [f"image/jpeg:{header['image_url']}"]
 
@@ -823,7 +834,8 @@ class Broadcast:
         body: str,
         header: Optional[Dict[str, Any]],
         footer: Optional[str],
-        buttons: Optional[List[Dict[str, Any]]],
+        cta_message: Optional[Dict[str, Any]],
+        quick_replies: Optional[List[str]],
     ) -> bool:
         if len(body) > MAX_BODY_LENGTH:
             return True
@@ -835,17 +847,13 @@ class Broadcast:
             return True
         if footer is not None and len(footer) > MAX_FOOTER_LENGTH:
             return True
-        for button in buttons or []:
-            sub_type = button.get("sub_type")
-            if (
-                sub_type == "cta_url"
-                and len(button.get("display_text", "")) > MAX_BUTTON_LABEL_LENGTH
-            ):
-                return True
-            if (
-                sub_type == "reply"
-                and len(button.get("title", "")) > MAX_BUTTON_LABEL_LENGTH
-            ):
+        if (
+            cta_message is not None
+            and len(cta_message.get("display_text", "")) > MAX_BUTTON_LABEL_LENGTH
+        ):
+            return True
+        for title in quick_replies or []:
+            if len(title) > MAX_BUTTON_LABEL_LENGTH:
                 return True
         return False
 
