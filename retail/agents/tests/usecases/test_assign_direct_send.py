@@ -47,6 +47,7 @@ def _typical_meta_response(
     name: str,
     body: str = "Olá {{1}}, seu pedido {{2}}.",
     language: str = "pt_BR",
+    header: Any = "Pedido enviado",
 ) -> Dict[str, Any]:
     return {
         "name": name,
@@ -55,7 +56,7 @@ def _typical_meta_response(
         "body": body,
         "body_params": ["customer_name", "order_id"],
         "footer": "Equipe Loja",
-        "header": {"type": "TEXT", "text": "Pedido enviado"},
+        "header": header,
         "buttons": [{"type": "QUICK_REPLY", "text": "Não recebi"}],
     }
 
@@ -204,9 +205,7 @@ class ResolveDirectSendFlagTest(AssignDirectSendBaseTest):
         with override_settings(
             ORDER_STATUS_AGENT_UUID=str(self.order_status_agent_uuid)
         ):
-            result = self.use_case._resolve_direct_send_flag(
-                self.other_agent, uuid4()
-            )
+            result = self.use_case._resolve_direct_send_flag(self.other_agent, uuid4())
 
         self.assertFalse(result)
         self.integrations_service.get_channel_app.assert_not_called()
@@ -266,10 +265,16 @@ class AssignDirectSendHappyPathTest(AssignDirectSendBaseTest):
 
         self.integrations_service.fetch_templates_from_user.assert_not_called()
         self.assertFalse(
-            getattr(self.integrations_service, "create_template_message", MagicMock()).called
+            getattr(
+                self.integrations_service, "create_template_message", MagicMock()
+            ).called
         )
         self.assertFalse(
-            getattr(self.integrations_service, "create_library_template_message", MagicMock()).called
+            getattr(
+                self.integrations_service,
+                "create_library_template_message",
+                MagicMock(),
+            ).called
         )
 
 
@@ -323,13 +328,9 @@ class AssignDirectSendFallbackTest(AssignDirectSendBaseTest):
         self.assertEqual(
             invoiced.metadata["direct_send"]["requested_language"], "es_MX"
         )
-        self.assertEqual(
-            invoiced.metadata["direct_send"]["actual_language"], "pt_BR"
-        )
+        self.assertEqual(invoiced.metadata["direct_send"]["actual_language"], "pt_BR")
         shipped = Template.objects.get(name="weni_order_shipped")
-        self.assertEqual(
-            shipped.metadata["direct_send"]["actual_language"], "es_MX"
-        )
+        self.assertEqual(shipped.metadata["direct_send"]["actual_language"], "es_MX")
 
         joined = "\n".join(captured.output)
         self.assertIn("template_language_fallback", joined)
@@ -359,7 +360,9 @@ class AssignDirectSendAtomicRollbackBothLanguagesTest(AssignDirectSendBaseTest):
         ), self.assertLogs(
             "retail.agents.domains.agent_integration.usecases.assign",
             level=logging.ERROR,
-        ) as captured, self.assertRaises(DirectSendTemplateUnavailableError):
+        ) as captured, self.assertRaises(
+            DirectSendTemplateUnavailableError
+        ):
             self.use_case.execute(
                 agent=self.order_status_agent,
                 project_uuid=self.project.uuid,
@@ -424,11 +427,85 @@ class AssignDirectSendAtomicRollbackUnsupportedComponentTest(AssignDirectSendBas
                 ],
             )
 
-        self.assertEqual(ctx.exception.default_code, "direct_send_unsupported_component")
+        self.assertEqual(
+            ctx.exception.default_code, "direct_send_unsupported_component"
+        )
         self.assertEqual(IntegratedAgent.objects.count(), ia_count)
         self.assertEqual(Template.objects.count(), template_count)
         self.assertEqual(Version.objects.count(), version_count)
         self.assertEqual(Credential.objects.count(), credential_count)
+
+
+class AssignDirectSendAdapterRejectionRoutesThroughFallbackTest(
+    AssignDirectSendBaseTest
+):
+    """T108 routing — adapter rejection on first locale routes through pt_BR.
+
+    FR-003c (c) treats "HTTP 200 with malformed JSON or a schema the
+    local adapter rejects" identically to a missing translation: the
+    use case retries in ``pt_BR`` before failing atomically (FR-003d).
+    Pinned here at the use-case boundary so a future refactor that
+    propagates ``DirectSendUnsupportedComponentError`` directly to the
+    caller — skipping the FR-003c fallback — fails this regression.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.integrations_service.get_channel_app.return_value = {
+            "config": {"direct_send": True}
+        }
+        self.fetch_country_phone_code.fetch_locale_info.return_value = VtexLocaleInfo(
+            country_phone_code="52",
+            meta_language="es_MX",
+            vtex_locale="es-MX",
+        )
+
+        def fetch_side_effect(name, language):
+            if language == "es_MX":
+                return _typical_meta_response(
+                    name=name,
+                    language=language,
+                    header={"type": "TEXT", "text": "Pedido enviado"},
+                )
+            return _typical_meta_response(name=name, language=language)
+
+        self.meta_service.fetch_library_template_by_name_and_language.side_effect = (
+            fetch_side_effect
+        )
+
+    def test_first_locale_rejection_falls_back_to_pt_br(self):
+        with override_settings(
+            ORDER_STATUS_AGENT_UUID=str(self.order_status_agent_uuid)
+        ), self.assertLogs(
+            "retail.agents.domains.agent_integration.usecases.assign",
+            level=logging.WARNING,
+        ) as captured:
+            integrated_agent = self.use_case.execute(
+                agent=self.order_status_agent,
+                project_uuid=self.project.uuid,
+                app_uuid=uuid4(),
+                channel_uuid=uuid4(),
+                credentials={},
+                include_templates=[
+                    str(self.template_a.uuid),
+                    str(self.template_b.uuid),
+                ],
+            )
+
+        self.assertTrue(integrated_agent.config.get("direct_send"))
+        templates = Template.objects.filter(integrated_agent=integrated_agent)
+        self.assertEqual(templates.count(), 2)
+        for template in templates:
+            self.assertEqual(
+                template.metadata["direct_send"]["requested_language"], "es_MX"
+            )
+            self.assertEqual(
+                template.metadata["direct_send"]["actual_language"], "pt_BR"
+            )
+
+        joined = "\n".join(captured.output)
+        self.assertIn("template_language_fallback", joined)
+        self.assertIn("fallback_language=pt_BR", joined)
 
 
 class AssignDirectSendReassignmentTest(AssignDirectSendBaseTest):
@@ -516,9 +593,7 @@ class AssignDirectSendReassignmentTest(AssignDirectSendBaseTest):
         es_mx_calls = [c for c in fetch_calls if c.args[1] == "es_MX"]
         self.assertEqual(len(es_mx_calls), 2)
 
-        self.assertEqual(
-            IntegratedAgent.objects.filter(is_active=False).count(), 1
-        )
+        self.assertEqual(IntegratedAgent.objects.filter(is_active=False).count(), 1)
 
         prior_intact = Template.objects.filter(
             integrated_agent=self.inactive_ia

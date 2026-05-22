@@ -47,7 +47,23 @@ The technical approach (resolved in `./research.md`) is:
    per-template fallback, persist the local Template+Version with
    content + `status="APPROVED"`, and skip the Integrations-engine
    submission. The whole flow runs inside the existing
-   `@transaction.atomic execute(...)`.
+   `@transaction.atomic execute(...)`. The shared adapter
+   (`adapt_meta_library_template_response`) normalizes the upstream
+   payload at the service boundary per FR-003e (plain-string `header`
+   → `{header_type: "TEXT", text: <string>}`), FR-003f (strict
+   rejection of `PHONE_NUMBER` / `PAYMENT_REQUEST` / `ORDER_DETAILS`
+   / `COPY_CODE` / `FLOW` button types; dual URL-button shape
+   normalization), and the Session 2026-05-22 Q3 drop-rule (auxiliary
+   curation fields `body_param_types` / `attributes` / `topic` /
+   `usecase` / `industry` / `id` MUST be dropped at fetch time). All
+   four rejection branches (header shape, button type, length / count
+   overflow, malformed JSON) raise
+   `DirectSendUnsupportedComponentError`; the use case routes the
+   exception through FR-003c (pt_BR retry) and then FR-003d (atomic
+   rollback) so the operator-facing outcome stays uniform — see
+   `data-model.md §5` ("Adapter normative behaviour") and the
+   `Post-design spec updates folded in` sub-section of §Constraints
+   below.
 3. Extend `Version.STATUS_CHOICES` with `PAUSED` and `FLAGGED`. Tighten
    the existing single dispatch gate at
    `Broadcast.get_current_template` so that `PAUSED`/`FLAGGED` versions
@@ -227,6 +243,78 @@ gateway + internal HTTP API consumed by Flows / Integrations).
     reverted code, falling back onto the legacy path
     (`quickstart.md` §9 covers the operator-facing rollback procedure
     end-to-end).
+
+- **Post-design spec updates folded in (Session 2026-05-22 —
+  FR-003e, FR-003f, auxiliary-field drop)**: three normative
+  clarifications were appended to `spec.md` AFTER this plan's
+  initial design pass and AFTER the original implementation closed
+  out (Phase 7 T036–T039 marked `[X]` on 2026-05-21). They are
+  restated here so the plan stays self-contained for review and so
+  the merge gate covers them:
+
+  - **FR-003e — `header` plain-string + canonical normalization**:
+    Meta's library catalog ALWAYS returns `header` either absent or
+    as a plain text string (NEVER as a dict). The fetch-time
+    adapter (`adapt_meta_library_template_response` in
+    `retail/templates/usecases/_meta_library_template_fetch.py`)
+    MUST accept `header` only when absent or a string,
+    length-validate it against `MAX_HEADER_TEXT_LENGTH`, and
+    normalize the persisted form to
+    `Template.metadata.header = {header_type: "TEXT", text: <string>}`
+    — the canonical Retail-internal shape (`data-model.md §3`).
+    Any non-string, non-null `header` raises
+    `DirectSendUnsupportedComponentError` so the use case routes
+    through FR-003c → FR-003d. Image / media headers on Direct
+    Send-path Templates arise EXCLUSIVELY from post-assignment
+    edits to `Template.metadata.header.header_type` via the
+    `update_template` endpoint (FR-026); the dispatch path
+    (`Broadcast.build_direct_send_message` →
+    `direct_send_payload_builder.build_direct_send_header`)
+    continues to honour both `TEXT` and `IMAGE` header types
+    unchanged from US1. The contract artifact
+    `contracts/meta-library-catalog.md §2 / §5` previously showed
+    `header` as a dict; both sections have been corrected to match
+    FR-003e (the spec is canonical).
+  - **FR-003f — button-type strict rejection + dual URL shape
+    normalization**: any `buttons[*].type` outside
+    `{URL, QUICK_REPLY}` — including `PHONE_NUMBER`,
+    `PAYMENT_REQUEST`, `ORDER_DETAILS`, `COPY_CODE`, `FLOW`, or any
+    future Meta-curated value — MUST be rejected at fetch time by
+    raising `DirectSendUnsupportedComponentError`; the use case
+    routes through FR-003c → FR-003d. URL-button entries MAY arrive
+    with either a flat `url` string OR the legacy nested
+    `{base_url, url_suffix_example}` shape; both MUST be normalized
+    to a flat `url` string at persist time via the same
+    `_ensure_protocol` + `_append_placeholder_if_needed` heuristic
+    the push-path `ButtonTransformer` already applies, so
+    `metadata.buttons` stores a single canonical shape regardless
+    of upstream variance. The fetch-time count limits (≤1 `URL`,
+    ≤3 `QUICK_REPLY`) and `MAX_BUTTON_LABEL_LENGTH` (20 chars)
+    remain enforced. Post-assignment edits to
+    `Template.metadata.buttons` via `update_template` are governed
+    by FR-026 and are NOT bound by this fetch-time policy.
+  - **Auxiliary-field drop at fetch time (Session 2026-05-22 Q3)**:
+    Meta's library-catalog response may carry auxiliary curation
+    fields (`body_param_types`, `attributes`, `topic`, `usecase`,
+    `industry`, `id`). The adapter MUST drop all of them — only
+    the dispatch-relevant subset
+    `{header, body, body_params, footer, buttons, category,
+    language}` is propagated to `TemplateInfo.metadata`, alongside
+    the `direct_send` audit sub-object that the use case adds at
+    write time (`data-model.md §3`). Anti-YAGNI: future features
+    that need AMOUNT/DATE-aware variable rendering or
+    Meta-template-ID correlation will be free to extend
+    `metadata.direct_send` additively rather than ingesting unused
+    fields preemptively.
+
+  These three rules use the pre-existing
+  `DirectSendUnsupportedComponentError` exception (T007) so no new
+  exception type is introduced. Their fold-in is tracked as
+  `tasks.md` Phase 8 (T107–T111) and applies retroactively to US2's
+  adapter implementation (T023). If a future PR ever needs to
+  loosen any of the three rules, the spec edit MUST be reflected
+  here in the same PR; if this section and `spec.md` ever disagree,
+  the spec wins.
 
 - **Template-status webhook (FR-023)**: The existing template-status
   webhook handler is not touched by this feature. The future feature
@@ -694,7 +782,7 @@ retail/
 │   ├── migrations/
 │   │   └── 0017_alter_version_status_paused_flagged.py     # NEW — AlterField with PAUSED/FLAGGED
 │   └── usecases/
-│       ├── _meta_library_template_fetch.py                 # NEW — shared adapter (Decision 9)
+│       ├── _meta_library_template_fetch.py                 # NEW — shared adapter (Decision 9; further tightened by Phase 8 / T120 — FR-003e / FR-003f / 2026-05-22 Q3)
 │       └── update_template.py                              # MOD — extend UpdateTemplateData.status Literal
 └── api/
     └── integrated_agent/
@@ -724,7 +812,7 @@ retail/  # tests
 ├── templates/
 │   └── tests/
 │       └── usecases/
-│           ├── test_meta_library_template_fetch.py         # NEW — exact-match + adapter shape tests
+│           ├── test_meta_library_template_fetch.py         # NEW — exact-match + adapter shape tests (extended by Phase 8 / T107–T111)
 │           └── test_update_template.py                     # MOD — FR-026 PAUSED/FLAGGED behavioural test (T030a)
 ├── services/
 │   └── meta/

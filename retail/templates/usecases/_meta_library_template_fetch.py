@@ -17,9 +17,23 @@ Two helpers split per research Decision 9 / data-model.md §5:
 
 The split preserves Decision 4's "push-time keeps fuzzy semantics"
 guarantee while extracting the response-shaping drift risk.
+
+The four rejection branches (header shape, button type, length/count
+overflow, malformed JSON) collapse to a single exception class
+(``DirectSendUnsupportedComponentError``) so the use case keeps a
+single FR-003c → FR-003d routing path. ``component_type`` carries a
+stable discriminator:
+
+- ``"header"`` — header shape OR header length issues (FR-003e)
+- ``"<button.type>"`` — specific button type outside ``{URL, QUICK_REPLY}``
+  (FR-003f); e.g. ``"PHONE_NUMBER"``, ``"PAYMENT_REQUEST"``,
+  ``"ORDER_DETAILS"``, ``"COPY_CODE"``, ``"FLOW"``
+- ``"body"`` / ``"footer"`` / ``"buttons"`` — length or count overflow
+  on a known component
+- ``"malformed"`` — missing required keys, structural violations
 """
 
-from typing import Any, Dict, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 from retail.agents.domains.agent_integration.exceptions import (
     DirectSendUnsupportedComponentError,
@@ -31,6 +45,10 @@ from retail.agents.domains.agent_webhook.services.direct_send_constants import (
     MAX_HEADER_TEXT_LENGTH,
 )
 from retail.interfaces.services.meta import MetaServiceInterface
+from retail.templates.adapters.url_normalization import (
+    append_placeholder_if_needed,
+    ensure_protocol,
+)
 
 
 class TemplateInfo(TypedDict):
@@ -39,7 +57,6 @@ class TemplateInfo(TypedDict):
     metadata: Dict[str, Any]
 
 
-_SUPPORTED_HEADER_TYPES = {"TEXT", "IMAGE"}
 _SUPPORTED_BUTTON_TYPES = {"URL", "QUICK_REPLY"}
 _MAX_URL_BUTTONS = 1
 _MAX_QUICK_REPLY_BUTTONS = 3
@@ -56,25 +73,28 @@ def adapt_meta_library_template_response(
     into the local ``Template.metadata`` form consumed by
     ``Broadcast.build_direct_send_message`` (data-model.md §3).
     Raises :class:`DirectSendUnsupportedComponentError` on any
-    violation so the assignment use case rolls back atomically
-    (Decision 12, FR-003d).
+    violation so the assignment use case routes through FR-003c →
+    FR-003d (Decision 12).
     """
     if raw is None:
         return None
 
     template_name = raw.get("name") or "<unknown>"
 
-    _validate_components(raw, template_name=template_name)
+    body = _validate_body(raw, template_name=template_name)
+    header = _validate_and_normalize_header(raw, template_name=template_name)
+    footer = _validate_footer(raw, template_name=template_name)
+    buttons = _validate_and_normalize_buttons(raw, template_name=template_name)
 
     return {
         "name": raw.get("name"),
-        "content": raw.get("body"),
+        "content": body,
         "metadata": {
-            "header": _normalize_header(raw.get("header")),
-            "body": raw.get("body"),
+            "header": header,
+            "body": body,
             "body_params": raw.get("body_params"),
-            "footer": raw.get("footer"),
-            "buttons": raw.get("buttons"),
+            "footer": footer,
+            "buttons": buttons,
             "category": raw.get("category"),
             "language": raw.get("language"),
         },
@@ -102,99 +122,144 @@ def fetch_meta_library_template_metadata(
     return adapt_meta_library_template_response(raw)
 
 
-def _validate_components(raw: Dict[str, Any], *, template_name: str) -> None:
-    """Enforce contract §5 Direct Send Beta v1 supported-set rules."""
+def _validate_body(raw: Dict[str, Any], *, template_name: str) -> str:
     body = raw.get("body")
     if not isinstance(body, str) or not body:
         raise DirectSendUnsupportedComponentError(
             template_name=template_name,
-            component_type="body_missing_or_empty",
+            component_type="malformed",
         )
     if len(body) > MAX_BODY_LENGTH:
         raise DirectSendUnsupportedComponentError(
             template_name=template_name,
-            component_type=f"body_length>{MAX_BODY_LENGTH}",
+            component_type="body",
         )
+    return body
 
+
+def _validate_and_normalize_header(
+    raw: Dict[str, Any], *, template_name: str
+) -> Optional[Dict[str, Any]]:
+    """Normalize Meta's plain-string ``header`` to the canonical shape.
+
+    FR-003e: Meta's library catalog ALWAYS returns ``header`` either
+    absent or as a plain text string. Any non-string, non-null shape
+    (including the pre-FR-003e dict ``{type, text}``) is treated as
+    malformed and raises ``DirectSendUnsupportedComponentError(
+    component_type="header")`` so the use case routes through
+    FR-003c → FR-003d. Plain-string headers are length-validated
+    against ``MAX_HEADER_TEXT_LENGTH`` and normalized to the
+    canonical Retail-internal shape ``{header_type: "TEXT",
+    text: <string>}`` (data-model.md §3).
+    """
     header = raw.get("header")
-    if header is not None:
-        header_type = header.get("type") if isinstance(header, dict) else None
-        if header_type not in _SUPPORTED_HEADER_TYPES:
-            raise DirectSendUnsupportedComponentError(
-                template_name=template_name,
-                component_type=f"header_type:{header_type}",
-            )
-        if header_type == "TEXT":
-            header_text = header.get("text") or ""
-            if len(header_text) > MAX_HEADER_TEXT_LENGTH:
-                raise DirectSendUnsupportedComponentError(
-                    template_name=template_name,
-                    component_type=f"header_length>{MAX_HEADER_TEXT_LENGTH}",
-                )
-
-    footer = raw.get("footer")
-    if footer is not None and len(footer) > MAX_FOOTER_LENGTH:
+    if header is None:
+        return None
+    if not isinstance(header, str):
         raise DirectSendUnsupportedComponentError(
             template_name=template_name,
-            component_type=f"footer_length>{MAX_FOOTER_LENGTH}",
+            component_type="header",
         )
+    if len(header) > MAX_HEADER_TEXT_LENGTH:
+        raise DirectSendUnsupportedComponentError(
+            template_name=template_name,
+            component_type="header",
+        )
+    return {"header_type": "TEXT", "text": header}
 
-    buttons = raw.get("buttons") or []
+
+def _validate_footer(raw: Dict[str, Any], *, template_name: str) -> Optional[str]:
+    footer = raw.get("footer")
+    if footer is None:
+        return None
+    if not isinstance(footer, str) or len(footer) > MAX_FOOTER_LENGTH:
+        raise DirectSendUnsupportedComponentError(
+            template_name=template_name,
+            component_type="footer",
+        )
+    return footer
+
+
+def _validate_and_normalize_buttons(
+    raw: Dict[str, Any], *, template_name: str
+) -> Optional[List[Dict[str, Any]]]:
+    """Validate types and normalize URL-button shapes.
+
+    FR-003f: ``buttons[*].type`` outside ``{URL, QUICK_REPLY}`` raises
+    ``DirectSendUnsupportedComponentError(component_type=<type>)``;
+    URL-button entries accept either a flat ``url`` string OR the
+    legacy nested ``{base_url, url_suffix_example}`` shape and are
+    normalized to a single flat-string canonical form via the shared
+    ``ensure_protocol`` + ``append_placeholder_if_needed`` helpers
+    (push-path ``ButtonTransformer`` agrees on the same heuristic).
+    """
+    raw_buttons = raw.get("buttons")
+    if raw_buttons is None:
+        return None
+
+    normalized: List[Dict[str, Any]] = []
     url_count = 0
     quick_reply_count = 0
-    for button in buttons:
+
+    for button in raw_buttons:
         if not isinstance(button, dict):
             raise DirectSendUnsupportedComponentError(
                 template_name=template_name,
-                component_type="button_malformed",
+                component_type="malformed",
             )
+
         btn_type = button.get("type")
         if btn_type not in _SUPPORTED_BUTTON_TYPES:
             raise DirectSendUnsupportedComponentError(
                 template_name=template_name,
-                component_type=f"button_type:{btn_type}",
+                component_type=btn_type if isinstance(btn_type, str) else "malformed",
             )
-        if btn_type == "URL":
-            url_count += 1
-        else:
-            quick_reply_count += 1
 
         label = button.get("text") or ""
         if len(label) > MAX_BUTTON_LABEL_LENGTH:
             raise DirectSendUnsupportedComponentError(
                 template_name=template_name,
-                component_type=f"button_label_length>{MAX_BUTTON_LABEL_LENGTH}",
+                component_type="buttons",
             )
 
-    if url_count > _MAX_URL_BUTTONS:
+        if btn_type == "URL":
+            url_count += 1
+            normalized.append(
+                {
+                    "type": "URL",
+                    "text": label,
+                    "url": _flatten_url(button.get("url"), template_name=template_name),
+                }
+            )
+        else:
+            quick_reply_count += 1
+            normalized.append({"type": "QUICK_REPLY", "text": label})
+
+    if url_count > _MAX_URL_BUTTONS or quick_reply_count > _MAX_QUICK_REPLY_BUTTONS:
         raise DirectSendUnsupportedComponentError(
             template_name=template_name,
-            component_type=f"url_button_count>{_MAX_URL_BUTTONS}",
-        )
-    if quick_reply_count > _MAX_QUICK_REPLY_BUTTONS:
-        raise DirectSendUnsupportedComponentError(
-            template_name=template_name,
-            component_type=f"quick_reply_button_count>{_MAX_QUICK_REPLY_BUTTONS}",
+            component_type="buttons",
         )
 
+    return normalized
 
-def _normalize_header(header: Any) -> Optional[Dict[str, Any]]:
-    """Convert Meta's library-catalog header shape to Retail's internal one.
 
-    Meta returns ``{"type": "TEXT", "text": "..."}`` or
-    ``{"type": "IMAGE", "example": "..."}``; Retail's metadata stores
-    ``{"header_type": "TEXT", "text": "..."}`` so
-    ``Broadcast.build_direct_send_message`` and the existing
-    ``HeaderTransformer`` "already translated" branch can read the
-    same key. Returns ``None`` when the header is absent.
+def _flatten_url(url: Any, *, template_name: str) -> str:
+    """Collapse the two upstream URL shapes onto a flat string.
 
-    Pre-condition: ``_validate_components`` has already enforced that
-    ``header`` is either ``None`` or a dict whose ``type`` is in
-    ``{"TEXT", "IMAGE"}``.
+    - Flat string: ensure protocol, preserve placeholders verbatim.
+    - Nested ``{base_url, url_suffix_example}``: ensure protocol on
+      ``base_url`` and append ``{{1}}`` when ``url_suffix_example``
+      signals a parameterizable suffix.
     """
-    if not header:
-        return None
-    header_type = header["type"]
-    if header_type == "TEXT":
-        return {"header_type": "TEXT", "text": header.get("text", "")}
-    return {"header_type": "IMAGE", "text": header.get("example", "")}
+    if isinstance(url, str):
+        return ensure_protocol(url)
+    if isinstance(url, dict) and isinstance(url.get("base_url"), str):
+        base = ensure_protocol(url["base_url"])
+        if "url_suffix_example" in url:
+            return append_placeholder_if_needed(base)
+        return base
+    raise DirectSendUnsupportedComponentError(
+        template_name=template_name,
+        component_type="malformed",
+    )

@@ -499,6 +499,28 @@ adapter step is deduplicated.
   guard would be a silent behavior change for the legacy validation
   flow and would invalidate existing `_get_template_info` tests.
 
+**Post-design fold-in (Session 2026-05-22 — FR-003e / FR-003f /
+auxiliary-field drop)**: the spec was clarified after this Decision
+was first written. The pure adapter
+`adapt_meta_library_template_response` is the single touch point for
+the three new rules — `data-model.md §5` ("Adapter normative
+behaviour") now pins them as the adapter's normative contract, and
+`tasks.md` Phase 8 (T107–T111) covers them with TDD-first tests
+against `test_meta_library_template_fetch.py`. The split between
+adapter and HTTP wrapper (above) is what makes the fold-in surgical:
+the Direct Send wrapper does not change, only the shared adapter
+tightens its validation. The push-path caller
+(`ValidatePreApprovedTemplatesUseCase`) inherits the tighter
+validation transparently — that's intentional, because Meta's
+library catalog is the same upstream surface for both callers and a
+malformed-response shape is malformed regardless of which path is
+fetching it. Pre-existing `test_validate_pre_approved_templates.py`
+tests continue to pass because the OrderStatus templates the legacy
+path validates already comply with FR-003e / FR-003f / the drop-rule;
+if a future PR ever extends the legacy path to a template family
+that does NOT comply, the adapter-shared validation will surface the
+incompatibility uniformly across both paths — by design.
+
 ---
 
 ## Decision 10 — Where the broadcast-disabling check for `PAUSED`/`FLAGGED` lives
@@ -992,10 +1014,21 @@ rate-limit) and as a known cross-tenant blast-radius point in
 ## Resolved `NEEDS CLARIFICATION` items
 
 The spec's Clarifications block resolved three items at clarify time
-(language source, project-locale resolution, fallback semantics).
-This research document resolves the remaining plan-time decisions
-listed below; **after this document, no `NEEDS CLARIFICATION` remains
-in the plan**:
+on 2026-05-20 (language source, project-locale resolution, fallback
+semantics) and three more on 2026-05-22 (header plain-string shape
++ normalization → FR-003e; button-type strict rejection + dual URL
+shape normalization → FR-003f; auxiliary curation field drop at
+fetch time → Q3 drop-rule). The 2026-05-22 trio post-dates this
+research document and is folded into the adapter contract via
+Decision 9's "Post-design fold-in" sub-section (above),
+`data-model.md §5` ("Adapter normative behaviour"), `plan.md`
+Constraints sub-section "Post-design spec updates folded in", and
+`tasks.md` Phase 8 (T107–T111). No new research Decision is
+required because the three rules collapse onto Decision 9's
+single-adapter touch point and reuse Decision 12's existing
+`DirectSendUnsupportedComponentError`. This research document
+resolves the remaining plan-time decisions listed below; **after
+this document, no `NEEDS CLARIFICATION` remains in the plan**:
 
 - ✅ Decision 1 — `direct_send` storage location (**superseded by `data-model.md §1`**: stored as a key inside `IntegratedAgent.config` JSON, not as a new column).
 - ✅ Decision 2 — OrderStatus agent identification.

@@ -52,7 +52,7 @@ HTTP 200 with body:
       "body":     "Olá {{1}}, seu pedido {{2}} foi enviado.",
       "body_params": ["customer_name", "order_id"],
       "footer":   "Equipe Loja XYZ",
-      "header":   { "type": "TEXT", "text": "Pedido enviado" },     // OR { "type": "IMAGE", "example": "..." }
+      "header":   "Pedido enviado",
       "buttons":  [
         { "type": "URL",         "text": "Acompanhar pedido", "url": "https://loja.com/track/{{1}}" },
         { "type": "QUICK_REPLY", "text": "Não recebi" }
@@ -69,6 +69,34 @@ the same keys already extracted by
 `ValidatePreApprovedTemplatesUseCase._get_template_info` and
 adapted by `TemplateTranslationAdapter` into the local
 `Template.metadata` shape.
+
+> **`header` shape (spec FR-003e — Session 2026-05-22)**: the library
+> catalog ALWAYS returns `header` either absent or as a plain text
+> string (NEVER as a dict). The adapter normalizes the plain string
+> into the canonical Retail-internal shape
+> `{header_type: "TEXT", text: <string>}` at persist time; a
+> non-string, non-null `header` is treated as a malformed response
+> and routes through FR-003c → FR-003d (pt_BR retry, then atomic
+> rollback). Image / media headers on Direct Send-path Templates
+> arise EXCLUSIVELY from post-assignment edits to
+> `Template.metadata.header.header_type` via the `update_template`
+> endpoint (FR-026); the fetch path itself does NOT handle attachment
+> headers. An earlier draft of this contract showed the example as
+> `{"type": "TEXT", "text": "..."}` and `{"type": "IMAGE", "example":
+> "..."}`; both were documentation errors and have been corrected to
+> match FR-003e.
+
+> **Auxiliary curation fields dropped at fetch time (spec
+> Clarifications Session 2026-05-22 Q3)**: Meta's library catalog
+> response may carry additional curation fields
+> (`body_param_types`, `attributes`, `topic`, `usecase`, `industry`,
+> `id`). The adapter MUST drop all of them — only the dispatch-relevant
+> subset (`{header, body, body_params, footer, buttons, category,
+> language}`) plus the `direct_send` audit sub-object (`data-model.md
+> §3`) is persisted on `Template.metadata`. Anti-YAGNI: future features
+> that need AMOUNT/DATE-aware variable rendering or Meta-template-ID
+> correlation extend `metadata.direct_send` additively rather than
+> ingesting unused fields preemptively.
 
 ---
 
@@ -110,20 +138,38 @@ or `None`**. Use cases never see HTTP details.
 
 After extracting the matching item, the service MUST validate that
 the components are within the Direct Send Beta v1 supported set
-(Decision 12):
+(Decision 12 + spec FR-003e / FR-003f, Session 2026-05-22):
 
 - `body` is a non-empty string.
-- `header.type` ∈ {`TEXT`, `IMAGE`} (or absent).
-- `buttons[*].type` ∈ {`URL`, `QUICK_REPLY`} (or absent).
+- `header` is absent OR a plain text string (FR-003e). Any
+  non-string, non-null `header` (including the historical dict
+  shape) MUST be treated as a malformed response and routed through
+  FR-003c → FR-003d.
+- `buttons[*].type` ∈ {`URL`, `QUICK_REPLY`} (or absent). Any other
+  value — including `PHONE_NUMBER`, `PAYMENT_REQUEST`,
+  `ORDER_DETAILS`, `COPY_CODE`, `FLOW`, or any future Meta-curated
+  value — MUST be treated as a malformed response and routed through
+  FR-003c → FR-003d (spec FR-003f).
+- URL-button entries MAY arrive with either a flat `url` string (the
+  dominant shape in real library-catalog responses) or the legacy
+  nested `{base_url, url_suffix_example}` shape; both MUST be
+  normalized to a flat `url` string at persist time via the same
+  `_ensure_protocol` + `_append_placeholder_if_needed` heuristic the
+  push-path `ButtonTransformer` already applies (FR-003f).
 - At most one `URL` button (Meta CTA limit).
 - At most three `QUICK_REPLY` buttons (Meta reply-buttons limit).
 - No `body`/`header`/`footer`/`button` text exceeds Meta's documented
   length limits (1024 / 60 / 60 / 20 chars respectively, before
-  substitution).
+  substitution). The 20-char ceiling applies to `cta_url.display_text`
+  and `reply.title` — NOT to the underlying `url` (which can be up to
+  2000 chars per `messaging-gateway-payload.md` §3.3).
 
-Any violation MUST raise `DirectSendUnsupportedComponentError`,
-which the use case translates into atomic assignment failure
-(Decision 12, FR-003d).
+Any violation MUST raise `DirectSendUnsupportedComponentError` (the
+pre-existing class) — the use case translates that into atomic
+assignment failure (Decision 12, FR-003d). FR-003e / FR-003f reuse
+this exception so the operator-facing outcome stays uniform across
+all four "malformed response" branches (header shape, button type,
+length overflow, JSON parse failure).
 
 ---
 
