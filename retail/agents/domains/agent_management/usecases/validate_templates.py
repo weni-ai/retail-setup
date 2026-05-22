@@ -18,7 +18,15 @@ class ValidatePreApprovedTemplatesUseCase:
         self,
         meta_service: Optional[MetaServiceInterface] = None,
     ):
-        self.meta_service = meta_service or MetaService()
+        self._meta_service = meta_service
+
+    @property
+    def meta_service(self) -> MetaServiceInterface:
+        """Lazily construct ``MetaService`` only when the validation actually
+        fires."""
+        if self._meta_service is None:
+            self._meta_service = MetaService()
+        return self._meta_service
 
     def _get_template_info(
         self, template_name: str, language: str

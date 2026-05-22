@@ -128,6 +128,73 @@ class BroadcastDirectSendPersistenceTest(TestCase):
         self.assertEqual(row.broadcast_id, 4242)
         self.flows_service.send_whatsapp_broadcast.assert_called_once()
 
+    def test_full_template_with_header_footer_buttons_persists_and_dispatches(self):
+        """Realistic OrderStatus dispatch — image header + footer + CTA URL
+        button. Pins ``quickstart.md §4.3`` end-to-end against the
+        persistence path so a regression on any optional metadata branch
+        (header / footer / buttons) of ``build_direct_send_message``
+        surfaces as a persistence-parity failure.
+        """
+        Template.objects.all().delete()
+        self._create_template(
+            name="weni_order_invoiced",
+            body="Olá {{1}}, sua nota fiscal do pedido {{2}} foi emitida.",
+            header={"header_type": "IMAGE", "text": "image-placeholder"},
+            footer="Acompanhe pelo app {{1}}.",
+            buttons=[
+                {
+                    "type": "URL",
+                    "text": "Acompanhar pedido",
+                    "url": "https://loja.com/track/{{2}}",
+                }
+            ],
+        )
+        lambda_data = {
+            "template": "weni_order_invoiced",
+            "template_variables": {
+                "1": "Maria",
+                "2": "12345",
+                "image_url": "https://cdn.loja.com/order_12345.jpg",
+            },
+            "contact_urn": "whatsapp:5598123456789",
+        }
+
+        message = self.handler.build_message(self.integrated_agent, lambda_data)
+        self.assertIsNotNone(message)
+        self.handler.send_message(message, self.integrated_agent, lambda_data)
+
+        outbound = self.flows_service.send_whatsapp_broadcast.call_args.args[0]
+        msg = outbound["msg"]
+        self.assertEqual(
+            msg["body"], "Olá Maria, sua nota fiscal do pedido 12345 foi emitida."
+        )
+        self.assertEqual(
+            msg["header"],
+            {"type": "image", "image_url": "https://cdn.loja.com/order_12345.jpg"},
+        )
+        self.assertEqual(msg["footer"], "Acompanhe pelo app Maria.")
+        self.assertEqual(
+            msg["buttons"],
+            [
+                {
+                    "sub_type": "cta_url",
+                    "display_text": "Acompanhar pedido",
+                    "url": "https://loja.com/track/12345",
+                }
+            ],
+        )
+        self.assertEqual(
+            msg["attachments"],
+            ["image/jpeg:https://cdn.loja.com/order_12345.jpg"],
+        )
+
+        rows = BroadcastMessage.objects.filter(integrated_agent=self.integrated_agent)
+        self.assertEqual(rows.count(), 1)
+        row = rows.first()
+        self.assertEqual(row.template_name, "weni_order_invoiced")
+        self.assertEqual(row.contact_urn, "whatsapp:5598123456789")
+        self.assertEqual(row.project_id, self.project.pk)
+
     def test_naming_rule_refusal_does_not_persist(self):
         Template.objects.all().delete()
         self._create_template(

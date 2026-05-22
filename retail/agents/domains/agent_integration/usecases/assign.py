@@ -91,7 +91,24 @@ class AssignAgentUseCase:
         self.fetch_country_phone_code_usecase = (
             fetch_country_phone_code_usecase or FetchCountryPhoneCodeUseCase()
         )
-        self.meta_service = meta_service or MetaService()
+        self._meta_service = meta_service
+
+    @property
+    def meta_service(self) -> MetaServiceInterface:
+        """Lazily construct ``MetaService`` only when the Direct Send branch
+        actually needs it.
+
+        ``MetaClient.__init__`` reads ``settings.META_SYSTEM_USER_ACCESS_TOKEN``,
+        which is only configured under ``USE_LAMBDA=True``. Eager
+        construction in ``__init__`` would break every legacy-cohort
+        assignment whose tests don't inject a meta_service mock — the
+        Direct Send fetch is the ONLY consumer (`_create_library_templates`
+        Direct Send branch), so deferring construction also avoids
+        instantiating an unused HTTP client on every legacy assignment.
+        """
+        if self._meta_service is None:
+            self._meta_service = MetaService()
+        return self._meta_service
 
     def _resolve_direct_send_flag(self, agent: Agent, app_uuid: UUID) -> bool:
         """Decide whether the assignment should take the Direct Send path.

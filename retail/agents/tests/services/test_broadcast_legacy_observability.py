@@ -13,8 +13,8 @@ review (FR-027: legacy observability surface is preserved unchanged;
 the optional ``direct_send`` tag is absent or ``False``).
 """
 
-from typing import Any, Dict
-from unittest.mock import MagicMock, patch
+from typing import Dict
+from unittest.mock import MagicMock, call, patch
 from uuid import uuid4
 
 from django.test import TestCase
@@ -118,22 +118,10 @@ class LegacyBroadcastObservabilitySnapshotTest(TestCase):
         review gate.
         """
         captures: Dict[str, MagicMock] = {}
-        patchers = []
         for target in _SENTRY_TAG_FUNCS + _APM_TAG_FUNCS:
-            try:
-                patcher = patch(target, create=True)
-                mock = patcher.start()
-                patchers.append(patcher)
-                captures[target] = mock
-            except (ModuleNotFoundError, AttributeError):
-                # The SDK is not importable in this environment; the
-                # corresponding boundary cannot be exercised here and is
-                # not part of the baseline (its absence is itself the
-                # pinned baseline — adding the SDK call later would
-                # introduce a new module import that lints surface).
-                continue
-
-        self.addCleanup(lambda: [p.stop() for p in patchers])
+            patcher = patch(target, create=True)
+            captures[target] = patcher.start()
+            self.addCleanup(patcher.stop)
         return captures
 
     def test_legacy_dispatch_emits_no_sentry_or_apm_tags(self):
@@ -164,38 +152,93 @@ class LegacyBroadcastObservabilitySnapshotTest(TestCase):
 
     def test_legacy_dispatch_does_not_set_direct_send_tag(self):
         """Even if a future PR introduces ANY Sentry/APM instrumentation,
-        the ``direct_send`` tag/context key MUST NOT be set on the
-        legacy path (FR-027: optional ``direct_send`` tag is absent or
-        ``False``).
+        the ``direct_send`` tag/context key MUST NOT be set with a truthy
+        value on the legacy path (FR-027: optional ``direct_send`` tag
+        is absent or ``False``).
         """
         captures = self._make_tag_captures()
 
         message = self.handler.build_message(self.integrated_agent, self.lambda_data)
         self.handler.send_message(message, self.integrated_agent, self.lambda_data)
 
-        for target, mock in captures.items():
-            for call in mock.call_args_list:
-                args, kwargs = call
-                tag_name = args[0] if args else kwargs.get("key")
-                tag_value = args[1] if len(args) > 1 else kwargs.get("value")
-                if tag_name == "direct_send":
-                    self.assertFalse(
-                        tag_value,
-                        f"{target} set direct_send={tag_value!r} on the "
-                        "legacy path; FR-027 requires the tag be absent "
-                        "or False on this cohort.",
-                    )
-                if isinstance(tag_value, dict):
-                    self.assertNotIn(
-                        "direct_send",
-                        {k: v for k, v in tag_value.items() if v},
-                        f"{target} set direct_send=True inside a context "
-                        f"on the legacy path: {tag_value!r}",
-                    )
+        offending_calls = [
+            (target, captured_call)
+            for target, mock in captures.items()
+            for captured_call in mock.call_args_list
+            if _call_sets_direct_send_true_tag(captured_call)
+        ]
+        self.assertEqual(
+            offending_calls,
+            [],
+            "Legacy path must not set direct_send=True on any Sentry/APM "
+            f"boundary (FR-027). Offending calls: {offending_calls}",
+        )
 
 
-def _capture_kwargs_for_inspection(*args: Any, **kwargs: Any) -> None:
-    """Placeholder; kept here so future maintainers can wire bespoke
-    side effects on the captured patches without touching the test body.
+def _call_sets_direct_send_true_tag(captured_call) -> bool:
+    """Return True iff ``captured_call`` sets a truthy ``direct_send``
+    tag/context value.
+
+    Two surface shapes are accepted (the union of Sentry's and APM's
+    public signatures):
+
+    - ``f("direct_send", True)`` or ``f(key="direct_send", value=True)``
+      — the tag-name / tag-value positional or keyword form;
+    - ``f("context", {"direct_send": True, ...})`` — a context dict
+      where ``direct_send`` is one of the keys.
+
+    Either shape with a falsy value (``False`` / ``None`` / ``0``) is
+    spec-compliant per FR-027's "absent or ``False``" clause.
     """
-    return None
+    args = captured_call.args
+    kwargs = captured_call.kwargs
+    tag_name = args[0] if args else kwargs.get("key")
+    tag_value = args[1] if len(args) > 1 else kwargs.get("value")
+
+    if tag_name == "direct_send" and tag_value:
+        return True
+    if isinstance(tag_value, dict) and tag_value.get("direct_send"):
+        return True
+    return False
+
+
+class CallSetsDirectSendTrueTagHelperTest(TestCase):
+    """Unit-tests the pure helper used by the snapshot's assertion arm.
+
+    The helper is the contract by which ``test_legacy_dispatch_does_not_set_direct_send_tag``
+    classifies a captured Sentry/APM call as FR-027-compliant or
+    offending. Exercising every branch here guarantees the snapshot
+    guard itself is sound when drift eventually surfaces.
+    """
+
+    def test_positional_direct_send_true_is_offending(self):
+        self.assertTrue(_call_sets_direct_send_true_tag(call("direct_send", True)))
+
+    def test_keyword_direct_send_true_is_offending(self):
+        self.assertTrue(
+            _call_sets_direct_send_true_tag(call(key="direct_send", value=True))
+        )
+
+    def test_context_dict_with_direct_send_true_is_offending(self):
+        self.assertTrue(
+            _call_sets_direct_send_true_tag(call("ctx", {"direct_send": True}))
+        )
+
+    def test_positional_direct_send_false_is_compliant(self):
+        self.assertFalse(_call_sets_direct_send_true_tag(call("direct_send", False)))
+
+    def test_other_tag_name_is_compliant(self):
+        self.assertFalse(_call_sets_direct_send_true_tag(call("other_tag", True)))
+
+    def test_context_dict_with_direct_send_false_is_compliant(self):
+        self.assertFalse(
+            _call_sets_direct_send_true_tag(call("ctx", {"direct_send": False}))
+        )
+
+    def test_context_dict_without_direct_send_key_is_compliant(self):
+        self.assertFalse(
+            _call_sets_direct_send_true_tag(call("ctx", {"other_key": True}))
+        )
+
+    def test_empty_call_is_compliant(self):
+        self.assertFalse(_call_sets_direct_send_true_tag(call()))
