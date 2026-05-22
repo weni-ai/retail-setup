@@ -510,7 +510,7 @@ class BuildMessageNoLocalTemplateEdgeCaseTest(TestCase):
     def setUp(self):
         self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
         self.integrated_agent = _make_integrated_agent(direct_send=True)
-        self.integrated_agent.templates.filter.return_value.first.return_value = None
+        self.integrated_agent.templates.filter.return_value.select_related.return_value.first.return_value = None
 
     def test_returns_none_without_invoking_direct_send_builder(self):
         data = {

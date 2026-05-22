@@ -618,12 +618,22 @@ class Broadcast:
         """
         Get current template from integrated agent templates.
 
-        Expectation: the agent/Lambda must return the stable template base name
-        (Template.name), e.g., "payment_confirmation_2" or "payment_approved".
+        Expectation: the agent/Lambda must return the stable template base
+        name (Template.name), e.g., "payment_confirmation_2" or
+        "payment_approved".
 
-        The lookup uses only Template.name and ensures the template is active and
-        has an APPROVED current_version. Version.template_name is no longer used
-        for matching.
+        The lookup uses only ``Template.name`` and ensures the template is
+        active and has a non-null ``current_version``. The status
+        classification happens in Python so a single SQL query (with
+        ``current_version`` eagerly joined via ``select_related``) covers
+        every branch: ``APPROVED`` returns the Template; every other
+        outcome — including the no-row case — routes through the unified
+        ``_log_dispatch_skipped_due_to_status`` helper with the
+        ``version_status`` discriminator (``NOT_FOUND`` when no row matched,
+        the actual ``Version.status`` otherwise) and returns ``None``
+        (FR-012, FR-027 Exception clause, FR-039 "Dispatch-gate skip
+        (unified shape)", FR-044 ``project_uuid`` + ``vtex_account`` are
+        top-level keys).
         """
         template_name = data.get("template")
         project_uuid = str(integrated_agent.project.uuid)
@@ -637,24 +647,61 @@ class Broadcast:
             )
             return None
 
-        # Single query: search by Template.name only
-        # Only consider templates with approved current_version
-        template = integrated_agent.templates.filter(
-            name=template_name,
-            is_active=True,
-            current_version__isnull=False,
-            current_version__status="APPROVED",
-        ).first()
-
-        if template is None:
-            logger.warning(
-                f"Template {template_name} does not exist in database or has no approved version. "
-                f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
-                f"Data: {data}"
+        template = (
+            integrated_agent.templates.filter(
+                name=template_name,
+                is_active=True,
+                current_version__isnull=False,
             )
-            return None
+            .select_related("current_version")
+            .first()
+        )
 
-        return template
+        status = template.current_version.status if template else "NOT_FOUND"
+
+        if status == "APPROVED":
+            return template
+
+        self._log_dispatch_skipped_due_to_status(
+            integrated_agent=integrated_agent,
+            template_name=template_name,
+            version_status=status,
+            data=data,
+        )
+        return None
+
+    @staticmethod
+    def _log_dispatch_skipped_due_to_status(
+        *,
+        integrated_agent: IntegratedAgent,
+        template_name: str,
+        version_status: str,
+        data: Dict[str, Any],
+    ) -> None:
+        """Emit the unified FR-039 "Dispatch-gate skip" audit log line.
+
+        Single observability shape for every non-``APPROVED`` skip class at
+        the dispatch gate: ``NOT_FOUND`` (no row matched the requested
+        name), ``PAUSED`` / ``FLAGGED`` (the US3 dispatch-disabling
+        states), and every other pre-existing non-``APPROVED``
+        ``Version.status`` value (``PENDING``, ``REJECTED``, ``IN_APPEAL``,
+        ``LOCKED``, ``DISABLED``, ``DELETED``, ``PENDING_DELETION``). The
+        ``version_status`` discriminator carries the skip class so log
+        consumers can route on each class independently without parser
+        changes (FR-027 Exception clause).
+
+        Both ``project_uuid`` and ``vtex_account`` are top-level
+        structured fields (FR-044) so operators can filter by either
+        tenant identifier.
+        """
+        logger.warning(
+            f"[BroadcastDispatch] skipped_due_to_status: "
+            f"project_uuid={integrated_agent.project.uuid} "
+            f"vtex_account={integrated_agent.project.vtex_account} "
+            f"agent={integrated_agent.uuid} "
+            f"template={template_name} "
+            f"version_status={version_status} event={data}"
+        )
 
     def build_direct_send_message(
         self,

@@ -1,3 +1,5 @@
+import logging
+
 from django.test import TestCase
 
 from unittest.mock import MagicMock, patch
@@ -112,7 +114,7 @@ class BroadcastHandlerTest(TestCase):
         mock_template.current_version.status = "APPROVED"
 
         mock_filter = MagicMock()
-        mock_filter.first.return_value = mock_template
+        mock_filter.select_related.return_value.first.return_value = mock_template
         self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         result = self.handler.get_current_template(self.mock_agent, data)
@@ -123,7 +125,7 @@ class BroadcastHandlerTest(TestCase):
     def test_get_current_template_name_not_found(self):
         data = {"template": "non_existent_template"}
         mock_filter = MagicMock()
-        mock_filter.first.return_value = None
+        mock_filter.select_related.return_value.first.return_value = None
         self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         result = self.handler.get_current_template(self.mock_agent, data)
@@ -134,12 +136,305 @@ class BroadcastHandlerTest(TestCase):
         data = {"template": "order_update"}
         # Filter returns None when no template matches (because current_version__isnull=False filter)
         mock_filter = MagicMock()
-        mock_filter.first.return_value = None
+        mock_filter.select_related.return_value.first.return_value = None
         self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         result = self.handler.get_current_template(self.mock_agent, data)
 
         self.assertIsNone(result)
+
+    def _stub_template_lookup(self, template) -> MagicMock:
+        """Wire ``templates.filter(...).select_related(...).first()`` to
+        return ``template`` (or ``None``) in a single chain. The
+        implementation issues exactly one ``filter()`` call per
+        ``get_current_template`` invocation and classifies the version
+        status in Python (US3 / T031).
+        """
+        mock_filter = MagicMock()
+        mock_filter.select_related.return_value.first.return_value = template
+        self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
+        return mock_filter
+
+    def _assert_dispatch_skip_audit(
+        self, audit_line: str, *, expected_version_status: str
+    ) -> None:
+        """Assert the unified ``[BroadcastDispatch] skipped_due_to_status``
+        audit log shape per FR-039 + FR-044 (US3 / T029):
+        prefix, top-level ``project_uuid`` + ``vtex_account``, ``agent``,
+        ``template``, ``version_status``, and the ``event`` payload.
+        """
+        self.assertIn("[BroadcastDispatch] skipped_due_to_status:", audit_line)
+        self.assertIn(f"project_uuid={self.mock_agent.project.uuid}", audit_line)
+        self.assertIn(
+            f"vtex_account={self.mock_agent.project.vtex_account}", audit_line
+        )
+        self.assertIn(f"agent={self.mock_agent.uuid}", audit_line)
+        self.assertIn("template=order_update", audit_line)
+        self.assertIn(f"version_status={expected_version_status}", audit_line)
+        self.assertIn("event=", audit_line)
+
+    def test_get_current_template_paused_returns_none_and_logs_audit(self):
+        """Story 3 AS1 + FR-039 unified Dispatch-gate skip shape (T029)."""
+        data = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:5511",
+            "orderId": "ORDER-1",
+            "currentState": "invoiced",
+        }
+        paused_template = MagicMock()
+        paused_template.name = "order_update"
+        paused_template.current_version.status = "PAUSED"
+
+        self._stub_template_lookup(paused_template)
+
+        logger_name = (
+            "retail.agents.domains.agent_webhook.services.broadcast"
+        )
+        with self.assertLogs(logger_name, level="WARNING") as captured:
+            result = self.handler.get_current_template(self.mock_agent, data)
+
+        self.assertIsNone(result)
+
+        audit_lines = [
+            msg
+            for msg in captured.output
+            if "skipped_due_to_status" in msg
+        ]
+        self.assertEqual(
+            len(audit_lines),
+            1,
+            f"expected exactly one PAUSED audit log line, got: {captured.output}",
+        )
+        self._assert_dispatch_skip_audit(
+            audit_lines[0], expected_version_status="PAUSED"
+        )
+        self.assertIn("ORDER-1", audit_lines[0])
+
+    def test_get_current_template_flagged_returns_none_and_logs_audit(self):
+        """Story 3 AS2 — same assertion for FLAGGED (T029)."""
+        data = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:5511",
+            "orderId": "ORDER-2",
+            "currentState": "shipped",
+        }
+        flagged_template = MagicMock()
+        flagged_template.name = "order_update"
+        flagged_template.current_version.status = "FLAGGED"
+
+        self._stub_template_lookup(flagged_template)
+
+        logger_name = (
+            "retail.agents.domains.agent_webhook.services.broadcast"
+        )
+        with self.assertLogs(logger_name, level="WARNING") as captured:
+            result = self.handler.get_current_template(self.mock_agent, data)
+
+        self.assertIsNone(result)
+
+        audit_lines = [
+            msg
+            for msg in captured.output
+            if "skipped_due_to_status" in msg
+        ]
+        self.assertEqual(len(audit_lines), 1)
+        self._assert_dispatch_skip_audit(
+            audit_lines[0], expected_version_status="FLAGGED"
+        )
+        self.assertIn("ORDER-2", audit_lines[0])
+
+    def test_get_current_template_not_found_emits_unified_audit_shape(self):
+        """T029 — when no Template row matches the requested name,
+        ``get_current_template`` emits the unified audit shape with
+        ``version_status=NOT_FOUND`` (FR-027 Exception clause / FR-039
+        "Dispatch-gate skip (unified shape)"). Replaces the per-name miss
+        legacy line previously emitted at this gate.
+        """
+        data = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:5511",
+            "orderId": "ORDER-3",
+            "currentState": "invoiced",
+        }
+        self._stub_template_lookup(None)
+
+        logger_name = (
+            "retail.agents.domains.agent_webhook.services.broadcast"
+        )
+        with self.assertLogs(logger_name, level="WARNING") as captured:
+            result = self.handler.get_current_template(self.mock_agent, data)
+
+        self.assertIsNone(result)
+
+        audit_lines = [
+            msg
+            for msg in captured.output
+            if "skipped_due_to_status" in msg
+        ]
+        self.assertEqual(len(audit_lines), 1)
+        self._assert_dispatch_skip_audit(
+            audit_lines[0], expected_version_status="NOT_FOUND"
+        )
+        self.assertIn("ORDER-3", audit_lines[0])
+
+        # The previously-legacy per-name miss line MUST NOT be emitted at
+        # this gate anymore (FR-027 Exception clause).
+        self.assertEqual(
+            [
+                msg
+                for msg in captured.output
+                if "does not exist in database or has no approved version" in msg
+            ],
+            [],
+        )
+
+    def test_get_current_template_returns_template_after_resume_to_approved(self):
+        """Story 3 AS3 / SC-006 — after the version flips back to
+        APPROVED the next call returns the Template and emits no new
+        audit log entry (T029).
+        """
+        data = {"template": "order_update", "contact_urn": "whatsapp:5511"}
+        approved_template = MagicMock()
+        approved_template.current_version.template_name = "order_update_v3"
+        approved_template.current_version.status = "APPROVED"
+
+        self._stub_template_lookup(approved_template)
+
+        logger_name = (
+            "retail.agents.domains.agent_webhook.services.broadcast"
+        )
+        with self.assertLogs(logger_name, level="WARNING") as captured:
+            # assertLogs requires at least one record at the requested level
+            # — emit a sentinel so the context can exit cleanly when the
+            # implementation correctly produces no warning of its own.
+            logging.getLogger(logger_name).warning("sentinel")
+            result = self.handler.get_current_template(self.mock_agent, data)
+
+        self.assertIs(result, approved_template)
+        self.assertEqual(
+            [msg for msg in captured.output if "skipped_due_to_status" in msg],
+            [],
+        )
+
+    def test_get_current_template_non_approved_other_states_emit_unified_audit_shape(
+        self,
+    ):
+        """T029 — pre-existing non-APPROVED states (PENDING, REJECTED,
+        IN_APPEAL, LOCKED, DISABLED, DELETED, PENDING_DELETION) emit the
+        SAME unified ``[BroadcastDispatch] skipped_due_to_status`` audit
+        shape as PAUSED/FLAGGED, with the actual status as the
+        ``version_status`` discriminator (FR-027 Exception clause /
+        FR-039 "Dispatch-gate skip (unified shape)"). Replaces the prior
+        regression that asserted these states KEPT the legacy
+        ``"Template not found ..."`` line — that line is now consolidated
+        into the audit shape at this gate.
+        """
+        legacy_states = [
+            "PENDING",
+            "REJECTED",
+            "IN_APPEAL",
+            "LOCKED",
+            "DISABLED",
+            "DELETED",
+            "PENDING_DELETION",
+        ]
+        logger_name = (
+            "retail.agents.domains.agent_webhook.services.broadcast"
+        )
+
+        for state in legacy_states:
+            with self.subTest(version_status=state):
+                data = {
+                    "template": "order_update",
+                    "contact_urn": "whatsapp:5511",
+                }
+                non_approved_template = MagicMock()
+                non_approved_template.name = "order_update"
+                non_approved_template.current_version.status = state
+
+                self._stub_template_lookup(non_approved_template)
+
+                with self.assertLogs(logger_name, level="WARNING") as captured:
+                    result = self.handler.get_current_template(
+                        self.mock_agent, data
+                    )
+
+                self.assertIsNone(result)
+                audit_lines = [
+                    msg
+                    for msg in captured.output
+                    if "skipped_due_to_status" in msg
+                ]
+                self.assertEqual(
+                    len(audit_lines),
+                    1,
+                    f"state={state} must emit exactly one unified audit line, "
+                    f"got: {captured.output}",
+                )
+                self._assert_dispatch_skip_audit(
+                    audit_lines[0], expected_version_status=state
+                )
+                self.assertEqual(
+                    [
+                        msg
+                        for msg in captured.output
+                        if "does not exist in database or has no approved version"
+                        in msg
+                    ],
+                    [],
+                    f"state={state} must NOT emit the legacy per-name miss line "
+                    "(consolidated by FR-027 Exception clause)",
+                )
+
+    def test_get_current_template_paused_emits_audit_on_each_call(self):
+        """Spec edge case 'concurrent broadcasts targeting the same
+        paused template' — two sequential ``get_current_template``
+        calls against the same PAUSED template both return ``None`` and
+        both emit the audit log entry (proves the gate is per-event
+        and stateless) (T029).
+        """
+        data = {"template": "order_update", "contact_urn": "whatsapp:5511"}
+        paused_template = MagicMock()
+        paused_template.name = "order_update"
+        paused_template.current_version.status = "PAUSED"
+
+        self._stub_template_lookup(paused_template)
+
+        logger_name = (
+            "retail.agents.domains.agent_webhook.services.broadcast"
+        )
+        with self.assertLogs(logger_name, level="WARNING") as captured:
+            first = self.handler.get_current_template(self.mock_agent, data)
+            second = self.handler.get_current_template(self.mock_agent, data)
+
+        self.assertIsNone(first)
+        self.assertIsNone(second)
+        audit_lines = [
+            msg
+            for msg in captured.output
+            if "skipped_due_to_status" in msg
+        ]
+        self.assertEqual(len(audit_lines), 2)
+        for line in audit_lines:
+            self._assert_dispatch_skip_audit(
+                line, expected_version_status="PAUSED"
+            )
+
+    def test_get_current_template_issues_single_filter_call(self):
+        """T031 strategy pin — ``get_current_template`` MUST issue
+        exactly one ``templates.filter(...)`` call per invocation. A
+        regression that re-introduced a sibling fallback query would
+        fail this test even on the happy path.
+        """
+        data = {"template": "order_update", "contact_urn": "whatsapp:5511"}
+        approved_template = MagicMock()
+        approved_template.current_version.status = "APPROVED"
+
+        self._stub_template_lookup(approved_template)
+
+        self.handler.get_current_template(self.mock_agent, data)
+
+        self.assertEqual(self.mock_agent.templates.filter.call_count, 1)
 
     def test_send_message(self):
         message = {"template": "test", "contact": "whatsapp:123"}
@@ -162,7 +457,7 @@ class BroadcastHandlerTest(TestCase):
         mock_template.current_version.status = "APPROVED"
 
         mock_filter = MagicMock()
-        mock_filter.first.return_value = mock_template
+        mock_filter.select_related.return_value.first.return_value = mock_template
         self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         with patch.object(
@@ -183,7 +478,7 @@ class BroadcastHandlerTest(TestCase):
     def test_build_message_template_not_found(self):
         data = {"template": "non_existent_template"}
         mock_filter = MagicMock()
-        mock_filter.first.return_value = None
+        mock_filter.select_related.return_value.first.return_value = None
         self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         result = self.handler.build_message(self.mock_agent, data)

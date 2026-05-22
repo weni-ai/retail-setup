@@ -203,7 +203,7 @@ gateway + internal HTTP API consumed by Flows / Integrations).
 
 - **Migration & rollback safety (FR-025, FR-026)**:
   - The feature ships ONE migration only —
-    `0XXX_alter_version_status_paused_flagged` — which appends
+    `0017_alter_version_status_paused_flagged` — which appends
     `PAUSED` and `FLAGGED` to `Version.STATUS_CHOICES` at the end of
     the existing tuple; every existing row's status (one of the
     eight pre-existing values) remains valid, no backfill required.
