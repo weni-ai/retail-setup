@@ -100,22 +100,31 @@ message content to the Direct Send Beta endpoint.
   "body":   "Olá Maria, seu pedido 12345 foi enviado.",     // required, fully substituted body
   "header": { /* see §3.2 */ },                             // optional
   "footer": "Equipe Loja XYZ",                              // optional
-  "buttons": [ /* see §3.3 */ ],                            // optional
+  "interaction_type": "cta_url",                            // optional — see §3.3 (FR-014a)
+  "cta_message": { /* see §3.3 */ },                        // optional — see §3.3 (FR-014a); siblings to interaction_type
+  "quick_replies": [ /* see §3.3 */ ],                      // optional — see §3.3 (FR-014b); flat array of strings
   "attachments": ["image/jpeg:<URL>"]                       // optional, MUST appear when header.type == "image"
 }
 ```
 
-| Key             | Required                              | Notes                                                                                       |
-| --------------- | ------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `direct_send`   | yes                                   | Top-level routing signal (Decision 8). MUST be the literal `true`.                          |
-| `category`      | yes                                   | MUST be `"utility"` per Direct Send Beta v1; non-utility is out of scope.                    |
-| `template.name` | yes                                   | The local `Version.template_name`. Validated against `^[a-z0-9_]+$`/512 chars before send.   |
-| `template.locale` | yes                                  | The actual language the substituted content is in (after any FR-003c fallback).              |
-| `body`          | yes                                   | Final substituted body text (Retail-side substitution applied). Max 1024 chars (Meta limit). |
-| `header`        | conditional — required when the template defines a header | See §3.2 for the discriminated-union shape.                              |
-| `footer`        | optional                              | Final substituted footer text. Max 60 chars (Meta limit).                                    |
-| `buttons`       | optional                              | See §3.3.                                                                                   |
-| `attachments`   | conditional — required when `header.type == "image"` | Same shape as legacy (`"image/<subtype>:<URL>"`).                       |
+> **Direct Send NEVER emits `msg.buttons`** — the `buttons` key is
+> LEGACY-ONLY on the wire (FR-014a(b) + FR-014b(b)). CTA URL and
+> Quick Reply surfaces are emitted as top-level siblings on `msg`
+> per FR-014a / FR-014b; see §3.3.
+
+| Key                  | Required                              | Notes                                                                                       |
+| -------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `direct_send`        | yes                                   | Top-level routing signal (Decision 8). MUST be the literal `true`.                          |
+| `category`           | yes                                   | MUST be `"utility"` per Direct Send Beta v1; non-utility is out of scope.                    |
+| `template.name`      | yes                                   | The local `Version.template_name`. Validated against `^[a-z0-9_]+$`/512 chars before send.   |
+| `template.locale`    | yes                                   | The actual language the substituted content is in (after any FR-003c fallback).              |
+| `body`               | yes                                   | Final substituted body text (Retail-side substitution applied). Max 1024 chars (Meta limit). |
+| `header`             | conditional — required when the template defines a header | See §3.2 for the discriminated-union shape.                              |
+| `footer`             | optional                              | Final substituted footer text. Max 60 chars (Meta limit).                                    |
+| `interaction_type`   | conditional — required when a CTA URL button is present | Spec FR-014a. Allowed value at v1: `"cta_url"`. Reserved spelling — `"interactive_type"` is INVALID. |
+| `cta_message`        | conditional — required when `interaction_type == "cta_url"` | Spec FR-014a. See §3.3.                                              |
+| `quick_replies`      | conditional — required when ≥1 QUICK_REPLY button is present | Spec FR-014b. JSON array of post-substitution title strings (no wrapping object). See §3.3. |
+| `attachments`        | conditional — required when `header.type == "image"` | Same shape as legacy (`"image/<subtype>:<URL>"`).                                |
 
 ### 3.2 Header (Direct Send)
 
@@ -134,33 +143,130 @@ Discriminated union on `type`:
 | `text`  | `text`                  | Final substituted header text. Max 60 chars (Meta limit).                            |
 | `image` | `image_url`             | Direct URL. Same value MUST also appear in `msg.attachments[0]` for downstream parity. |
 
-### 3.3 Buttons (Direct Send)
+### 3.3 CTA URL and Quick Replies (Direct Send)
 
-Discriminated union on `sub_type`:
+> **Spec is canonical**: this section restates the wire shapes
+> pinned by `spec.md` FR-014a and FR-014b. Earlier revisions of
+> this contract (and the `direct_send_payload_builder` v1
+> implementation) emitted CTA URL and Quick Replies as objects
+> inside `msg.buttons` with `sub_type` discriminators
+> (`{sub_type: "cta_url", display_text, url}` for CTA,
+> `{sub_type: "reply", id, title}` for Quick Replies). Both shapes
+> are documentation/implementation errors and are SUPERSEDED by
+> FR-014a / FR-014b. The Direct Send path NEVER emits a
+> `msg.buttons` key — `buttons` is LEGACY-ONLY (see §2.2 for the
+> legacy-cohort shape).
+
+#### 3.3.1 CTA URL — at most ONE per message (FR-014a)
+
+The CTA URL surface is emitted as a top-level discriminator +
+sibling sub-object on `msg`:
 
 ```jsonc
-// CTA URL — at most ONE per message (Direct Send Beta limit)
-{ "sub_type": "cta_url", "display_text": "Acompanhar pedido", "url": "https://loja.com/track/12345" }
-
-// Quick reply — up to THREE per message (Direct Send Beta limit)
-{ "sub_type": "reply", "id": "yes_track", "title": "Acompanhar" }
+{
+  "msg": {
+    "direct_send": true,
+    "category":    "utility",
+    "template": { "name": "<template_name>", "locale": "<locale>" },
+    "body":   "<substituted body>",
+    "interaction_type": "cta_url",
+    "cta_message": {
+      "display_text": "Acompanhar pedido",
+      "url":          "https://loja.com/track/12345"
+    }
+  }
+}
 ```
 
-| `sub_type` | Required keys                  | Notes                                                                              |
-| ---------- | ------------------------------ | ---------------------------------------------------------------------------------- |
-| `cta_url`  | `display_text`, `url`           | Final substituted URL. Max 20 chars on `display_text` (Meta limit).                |
-| `reply`    | `id`, `title`                   | Final substituted title. Max 20 chars (Meta limit).                                |
+| Key                          | Required keys                  | Notes                                                                                                |
+| ---------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `msg.interaction_type`       | exact value `"cta_url"`        | FR-014a(a). Spelling `interactive_type` is INVALID.                                                  |
+| `msg.cta_message.display_text` | yes                          | Final post-substitution button label. Max 20 chars (Meta limit; FR-014a(e)).                         |
+| `msg.cta_message.url`        | yes                            | Final post-substitution URL (placeholders such as `{{1}}` substituted server-side per FR-013). The 20-char `MAX_BUTTON_LABEL_LENGTH` ceiling does NOT apply to `url` — Meta allows up to ~2000 chars. |
+
+Cardinality: at most ONE `cta_message` per `msg` — structurally
+guaranteed by FR-003f(d)'s ≤1 URL fetch-time count limit
+(FR-014a(c)).
+
+#### 3.3.2 Quick Replies — up to THREE per message (FR-014b)
+
+Quick Reply surfaces are emitted as a top-level flat array of
+post-substitution title strings on `msg`:
+
+```jsonc
+{
+  "msg": {
+    "direct_send": true,
+    "category":    "utility",
+    "template": { "name": "<template_name>", "locale": "<locale>" },
+    "body":   "<substituted body>",
+    "quick_replies": ["Sim", "Não", "Cancelar"]
+  }
+}
+```
+
+| Key                      | Required type           | Notes                                                                                                       |
+| ------------------------ | ----------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `msg.quick_replies`      | `string[]` (1..3 items) | FR-014b(a). Each element is the post-substitution `title` of a `QUICK_REPLY` button from the catalog response. |
+
+Cardinality: 1..3 entries per `msg` — structurally guaranteed by
+FR-003f(d)'s ≤3 QUICK_REPLY fetch-time count limit (FR-014b(c)).
+
+The Meta library catalog's `id` field (when present in the catalog
+response) is intentionally NOT carried on the wire (FR-014b(a)).
+Flows derives any downstream payload identifier from the title or
+from its own per-channel handling against Meta's Direct Send Beta
+endpoint.
+
+#### 3.3.3 Combined case — URL + QUICK_REPLY in the same template
+
+A template that carries BOTH a `URL` button AND `QUICK_REPLY`
+buttons emits BOTH sets of keys as PARALLEL siblings on `msg`;
+each surface is independent and neither suppresses the other
+(FR-014b(f)):
+
+```jsonc
+{
+  "msg": {
+    "direct_send": true,
+    "category":    "utility",
+    "template": { "name": "<template_name>", "locale": "<locale>" },
+    "body":   "<substituted body>",
+    "interaction_type": "cta_url",
+    "cta_message":  { "display_text": "Acompanhar pedido", "url": "https://loja.com/track/12345" },
+    "quick_replies": ["Sim", "Não"]
+  }
+}
+```
+
+Upstream Direct Send Beta acceptance of the combined shape is a
+Flows / Meta-side concern that the Retail spec does not enlarge —
+if upstream rejects it, the broadcast settles as
+`BroadcastMessage.status=FAILED` via the standard FR-035 flow.
 
 ### 3.4 Behavioural guarantees
 
-- Retail does **all** variable substitution (FR-013). The keys `body`,
-  `header.text`, `footer`, `buttons[*].url`, `buttons[*].title` are
+- Retail does **all** variable substitution (FR-013). The keys
+  `body`, `header.text`, `footer`, `cta_message.display_text`,
+  `cta_message.url`, and each entry of `quick_replies[*]` are
   literal final strings — no `{{N}}` placeholders may appear.
-- `template.variables` and `buttons[*].parameters` are intentionally
-  absent in this shape — sending them would be ambiguous (Decision 8).
-- `template.name` MUST satisfy `^[a-z0-9_]+$` and length ≤ 512. If
-  it doesn't, the broadcast is **not sent** at all and an audit log
-  entry records the skip (Decision 7).
+- `template.variables` is intentionally absent in this shape —
+  sending it would be ambiguous (Decision 8). The legacy
+  `buttons[*].parameters` field is also absent because
+  `msg.buttons` is LEGACY-ONLY on the wire (FR-014a(b) +
+  FR-014b(b)).
+- `template.name` MUST satisfy `^[a-z0-9_]+$` and length ≤ 512.
+  If it doesn't, the broadcast is **not sent** at all and an audit
+  log entry records the skip (Decision 7).
+
+### 3.5 Spec is canonical
+
+This contract restates the spec-level FR-014a / FR-014b shapes
+for reviewer convenience and so the Flows-side consumer can wire
+against the wire-shape without cross-referencing `spec.md`. If
+this contract and `spec.md` ever disagree, the spec wins. This
+mirrors the precedent established by FR-003e for the `header`
+shape correction.
 
 ---
 
@@ -175,11 +281,17 @@ audit log entry, mirroring the existing "template not found" path):
 2. `template.metadata["body"]` is missing or empty (FR — Direct Send
    beta requires a body component; pre-existing constraint restated
    in spec edge cases).
-3. The substituted body, header, footer, or any button text
-   produced through variable substitution would exceed Meta's per-
-   component length limits (Decision 6 logs a warning but still
-   emits; the absolute length limits are enforced here as a
-   defensive last check before sending to Flows).
+3. The substituted body, header, footer, `cta_message.display_text`,
+   or any `quick_replies[*]` entry produced through variable
+   substitution would exceed Meta's per-component length limits —
+   body ≤ `MAX_BODY_LENGTH` (1024), header.text ≤
+   `MAX_HEADER_TEXT_LENGTH` (60), footer ≤ `MAX_FOOTER_LENGTH` (60),
+   `cta_message.display_text` ≤ `MAX_BUTTON_LABEL_LENGTH` (20),
+   each `quick_replies[*]` ≤ `MAX_BUTTON_LABEL_LENGTH` (20). The
+   `cta_message.url` field is NOT length-checked at this gate
+   (FR-014a(e)). Decision 6 logs a warning but still emits; the
+   absolute length limits are enforced here as a defensive last
+   check before sending to Flows.
 
 In every case the existing `BroadcastMessage` row is NOT persisted
 (matching the legacy "template not found" semantics — see Story 1
@@ -189,7 +301,7 @@ spec text).
 
 ## 5. Examples
 
-### 5.1 Direct Send — body + URL button + image header
+### 5.1 Direct Send — body + CTA URL + image header (FR-014a)
 
 ```jsonc
 {
@@ -206,10 +318,58 @@ spec text).
     "body":   "Olá Maria, seu pedido 12345 foi enviado e chegará em 3 dias úteis.",
     "header": { "type": "image", "image_url": "https://cdn.loja.com/order_12345.jpg" },
     "footer": "Equipe Loja XYZ",
-    "buttons": [
-      { "sub_type": "cta_url", "display_text": "Acompanhar pedido", "url": "https://loja.com/track/12345" }
-    ],
+    "interaction_type": "cta_url",
+    "cta_message": {
+      "display_text": "Acompanhar pedido",
+      "url":          "https://loja.com/track/12345"
+    },
     "attachments": ["image/jpeg:https://cdn.loja.com/order_12345.jpg"]
+  }
+}
+```
+
+> **Note**: `msg.buttons` is intentionally absent on the Direct
+> Send path (FR-014a(b)). The CTA URL surface lives on
+> `msg.interaction_type` + `msg.cta_message`.
+
+### 5.1b Direct Send — body + Quick Replies (FR-014b)
+
+```jsonc
+{
+  "project": "9c2a1f3a-7b3a-4d61-9f17-fe4b2c2a1f3a",
+  "urns":    ["whatsapp:5598123456789"],
+  "channel": "1f3a9c2a-fe4b-4d61-9f17-7b3a4d619f17",
+  "msg": {
+    "direct_send": true,
+    "category":    "utility",
+    "template": {
+      "name":   "order_canceled_3",
+      "locale": "pt-BR"
+    },
+    "body":   "Olá Maria, seu pedido 12345 foi cancelado. Você gostaria de…",
+    "quick_replies": ["Sim", "Não", "Detalhes do pedido"]
+  }
+}
+```
+
+### 5.1c Direct Send — body + CTA URL + Quick Replies (combined case)
+
+```jsonc
+{
+  "project": "9c2a1f3a-7b3a-4d61-9f17-fe4b2c2a1f3a",
+  "urns":    ["whatsapp:5598123456789"],
+  "channel": "1f3a9c2a-fe4b-4d61-9f17-7b3a4d619f17",
+  "msg": {
+    "direct_send": true,
+    "category":    "utility",
+    "template": {
+      "name":   "weni_order_invoiced_1700000000",
+      "locale": "pt-BR"
+    },
+    "body":   "Olá Maria, sua nota fiscal do pedido 12345 foi emitida.",
+    "interaction_type": "cta_url",
+    "cta_message":  { "display_text": "Acompanhar pedido", "url": "https://loja.com/track/12345" },
+    "quick_replies": ["Sim", "Não"]
   }
 }
 ```

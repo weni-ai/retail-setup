@@ -377,9 +377,7 @@ reason={naming_rule|empty_body|component_length_limit} event={data}`
    applied to text headers).
 4. Adding `msg.footer: "<literal footer text>"` when the template
    has a footer.
-5. Replacing `msg.buttons[i].parameters[0].text` payload semantics
-   with the literal final values: `{sub_type: "cta_url", display_text, url}`
-   for CTA URL, `{sub_type: "reply", id, title}` for quick replies.
+5. **⚠️ SUPERSEDED by spec FR-014a / FR-014b (Session 2026-05-22 Q4 / Q10) and `tasks.md` Phase 8 / T113 / T114.** Original Decision 8 wording: "Replacing `msg.buttons[i].parameters[0].text` payload semantics with the literal final values: `{sub_type: "cta_url", display_text, url}` for CTA URL, `{sub_type: "reply", id, title}` for quick replies." The canonical wire shape on the Direct Send path is now: CTA URL → top-level `msg.interaction_type = "cta_url"` + `msg.cta_message = {display_text, url}` (FR-014a); QUICK_REPLY → top-level flat array `msg.quick_replies = ["title 1", ...]` (FR-014b); the Direct Send path NEVER emits a `msg.buttons` key — `msg.buttons` is LEGACY-ONLY (the legacy cohort keeps emitting `{sub_type: "url", parameters: [...]}` and `{sub_type: "payment_request", parameters: [...]}` per FR-020 byte-identical preservation, but this is on a different code path that does NOT exercise this Decision). The original wording is preserved verbatim above for git-history continuity; the canonical shape lives on `spec.md` FR-014a / FR-014b and is restated in `contracts/messaging-gateway-payload.md` §3.3 (corrected by `tasks.md` T115).
 6. Removing `msg.template.variables` entirely from the Direct Send
    shape — Retail does the substitution, so Flows doesn't need them.
 7. Keeping `msg.template.name` and `msg.template.locale` because
