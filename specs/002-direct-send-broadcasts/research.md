@@ -367,22 +367,34 @@ reason={naming_rule|empty_body|component_length_limit} event={data}`
 
 ## Decision 8 — Direct Send payload shape sent to the messaging gateway
 
+**⚠️ SUPERSEDED in part by spec FR-014c / FR-014d (Session 2026-05-22 Q14–Q18) and `tasks.md` Phase 8 second extension / T116 / T117 / T118.** Original Decision 8 points 2, 6, and 7 below describe the pre-FR-014c / pre-FR-014d wire shape (substituted body emitted as `msg.body`; local template name nested under `msg.template.name`; locale carried on `msg.template.locale`). The canonical Direct Send wire shape now drops `msg.template` entirely (FR-014c(a)), emits the local template name on the top-level sibling key `msg.direct_send_template_name` (FR-014c(g)), drops locale from the wire entirely (FR-014c(f) — no `msg.locale` / `msg.language` / `msg.template.locale`), and renames the substituted body wire key from `msg.body` to `msg.text` (FR-014d). FR-014c is a structural relocation; FR-014d is a wire-only rename (the internal storage key `Template.metadata["body"]`, the `MAX_BODY_LENGTH` constant, and the FR-039 audit-log discriminator `reason=empty_body` are preserved unchanged per FR-014d(c)). The original wording is preserved verbatim below for git-history continuity; the canonical shape lives on `spec.md` FR-014c / FR-014d and is restated in `contracts/messaging-gateway-payload.md` §3.1 / §3.4 / §5.x (corrected by `tasks.md` T118).
+
 **Decision**: Extend the existing Flows broadcast payload by:
 
 1. Adding a top-level boolean `msg.direct_send: true`.
 2. Adding `msg.body: "<final substituted body text>"` (literal
-   substituted body).
+   substituted body). **⚠️ SUPERSEDED by FR-014d** — the canonical wire
+   key is now `msg.text`; see the SUPERSEDED block above for the full
+   rationale.
 3. Adding `msg.header: {type: "text"|"image", text: "...", image_url: "..."}`
    when the template has a header (text or image, with substitution
    applied to text headers).
 4. Adding `msg.footer: "<literal footer text>"` when the template
    has a footer.
 5. **⚠️ SUPERSEDED by spec FR-014a / FR-014b (Session 2026-05-22 Q4 / Q10) and `tasks.md` Phase 8 / T113 / T114.** Original Decision 8 wording: "Replacing `msg.buttons[i].parameters[0].text` payload semantics with the literal final values: `{sub_type: "cta_url", display_text, url}` for CTA URL, `{sub_type: "reply", id, title}` for quick replies." The canonical wire shape on the Direct Send path is now: CTA URL → top-level `msg.interaction_type = "cta_url"` + `msg.cta_message = {display_text, url}` (FR-014a); QUICK_REPLY → top-level flat array `msg.quick_replies = ["title 1", ...]` (FR-014b); the Direct Send path NEVER emits a `msg.buttons` key — `msg.buttons` is LEGACY-ONLY (the legacy cohort keeps emitting `{sub_type: "url", parameters: [...]}` and `{sub_type: "payment_request", parameters: [...]}` per FR-020 byte-identical preservation, but this is on a different code path that does NOT exercise this Decision). The original wording is preserved verbatim above for git-history continuity; the canonical shape lives on `spec.md` FR-014a / FR-014b and is restated in `contracts/messaging-gateway-payload.md` §3.3 (corrected by `tasks.md` T115).
-6. Removing `msg.template.variables` entirely from the Direct Send
-   shape — Retail does the substitution, so Flows doesn't need them.
-7. Keeping `msg.template.name` and `msg.template.locale` because
-   Flows uses them as the Direct Send `direct_send_config.template_name`
-   and as the WhatsApp message language tag.
+6. **⚠️ SUPERSEDED by FR-014c** — Removing `msg.template.variables`
+   entirely from the Direct Send shape — Retail does the substitution,
+   so Flows doesn't need them. The canonical wire shape drops the
+   entire `msg.template` block (FR-014c(a)), so the "removing
+   variables" point is structurally subsumed.
+7. **⚠️ SUPERSEDED by FR-014c** — Keeping `msg.template.name` and
+   `msg.template.locale` because Flows uses them as the Direct Send
+   `direct_send_config.template_name` and as the WhatsApp message
+   language tag. The canonical wire shape now emits the local template
+   name on `msg.direct_send_template_name` (FR-014c(g)) and computes
+   locale internally without emitting it on the wire (FR-014c(f));
+   Flows resolves the language internally from the channel's stored
+   credentials.
 
 The legacy payload shape (template name + locale + positional
 variables, with components passed via `buttons` / `attachments` /
@@ -396,15 +408,22 @@ is `False` (FR-015, SC-004).
 - A single boolean (`msg.direct_send`) lets Flows route at the
   top level — no shape detection required. This is the minimum
   signal the spec demands ("with the Direct Send flag set").
-- Keeping `msg.template.name` is required by the spec ("the
-  template name carried as the Direct Send identifier") and
-  matches the Direct Send Beta API: Flows passes it as
-  `direct_send_config.template_name` to Meta.
-- Putting the literal substituted content in dedicated keys
-  (`msg.body`, `msg.header`, `msg.footer`) — instead of jamming
-  it back into the legacy `msg.template.variables` — keeps the
-  legacy payload untouched (zero risk for the regression Story 4
-  protects against) and makes the new path self-describing.
+- **⚠️ Historical note — superseded by FR-014c** — Keeping
+  `msg.template.name` was originally required as the Direct Send
+  identifier carried to Meta. Folded by FR-014c: the local template
+  name is now emitted on the top-level sibling key
+  `msg.direct_send_template_name`; the canonical Direct Send
+  `direct_send_config.template_name` is sourced by Flows from that
+  key.
+- **⚠️ Historical note — superseded in part by FR-014d** — Putting
+  the literal substituted content in dedicated keys (originally
+  `msg.body`, `msg.header`, `msg.footer`) — instead of jamming it
+  back into the legacy `msg.template.variables` — keeps the legacy
+  payload untouched (zero risk for the regression Story 4 protects
+  against) and makes the new path self-describing. FR-014d renames
+  the wire body key from `msg.body` to `msg.text` (wire-only —
+  internal storage `Template.metadata["body"]` is preserved per
+  FR-014d(c)); the header / footer sibling keys are unchanged.
 - The image header continues to be carried via the existing
   `msg.attachments[0]` mechanism for Direct Send too — the rule
   engine returns an `image_url` and the existing builder logic

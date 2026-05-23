@@ -452,6 +452,17 @@ plain `Dict[str, Any]` at runtime (matching the existing
 `Broadcast.build_broadcast_template_message` return type) so we
 preserve the current calling convention.
 
+> **⚠️ FR-014c / FR-014d canonical wire keys** — on the Direct Send
+> path, the local template name is emitted as the top-level sibling
+> key `msg.direct_send_template_name` (FR-014c(g)) and the
+> substituted body is emitted as `msg.text` (FR-014d). The pre-FR-014c
+> `msg.template` nested block is forbidden on the Direct Send path,
+> and the pre-FR-014d `msg.body` wire key has been renamed (wire-only;
+> the internal storage key `Template.metadata["body"]` in §3 is
+> preserved unchanged per FR-014d(c)). See
+> `contracts/messaging-gateway-payload.md` §3.1 for the canonical
+> wire contract.
+
 ### `DirectSendTemplateUnavailableError`, `DirectSendUnsupportedComponentError`
 
 ```python

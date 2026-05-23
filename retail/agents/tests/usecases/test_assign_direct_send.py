@@ -255,6 +255,12 @@ class AssignDirectSendHappyPathTest(AssignDirectSendBaseTest):
             self.assertIn("fetched_at", direct_send_meta)
             self.assertEqual(direct_send_meta.get("requested_language"), "pt_BR")
             self.assertEqual(direct_send_meta.get("actual_language"), "pt_BR")
+            # FR-014d(c) / T117(f): Meta's ``body`` field is persisted
+            # under ``Template.metadata["body"]`` verbatim; the FR-014d
+            # wire-key rename (``msg.body`` → ``msg.text``) does NOT
+            # leak into storage.
+            self.assertIn("body", template.metadata)
+            self.assertNotIn("text", template.metadata)
 
         joined = "\n".join(captured.output)
         self.assertIn("template_persisted", joined)

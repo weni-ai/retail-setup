@@ -154,18 +154,22 @@ Retail substitutes `{{1}}` → `"Maria"` and `{{2}}` → `"12345"` server-side a
   "msg": {
     "direct_send": true,
     "category":    "utility",
-    "template":    { "name": "weni_order_invoiced", "locale": "pt-BR" },
-    "body":        "Olá Maria, sua nota fiscal do pedido 12345 foi emitida."
+    "direct_send_template_name": "weni_order_invoiced",
+    "text":        "Olá Maria, sua nota fiscal do pedido 12345 foi emitida."
   }
 }
 ```
 
-**Locale-format note**: the local `Template.metadata.language` stores
-the Meta-format underscore value (`pt_BR`), while `msg.template.locale`
-on the wire is the ISO-style hyphen form (`pt-BR`) — `_` is rewritten
-to `-` at builder time. See
-`contracts/messaging-gateway-payload.md §3.1` for the canonical wire
-contract.
+> **⚠️ FR-014c / FR-014d wire-shape notes** — on the Direct Send
+> path, the local template name lives on the top-level sibling key
+> `msg.direct_send_template_name` (FR-014c(g)); locale is computed
+> internally for `BroadcastMessage` persistence and datalake events
+> but is intentionally absent from the wire (FR-014c(f)); the
+> substituted body is emitted as `msg.text` (FR-014d) — the
+> internal storage key `Template.metadata.body` is preserved
+> unchanged (FR-014d(c)). See
+> `contracts/messaging-gateway-payload.md §3.1` for the canonical
+> wire contract.
 
 Verify by inspecting Flows' inbound logs (or by mocking the Flows
 service in a local run; see §6).
