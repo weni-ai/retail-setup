@@ -418,9 +418,13 @@ class Broadcast:
         """
         project_uuid = str(integrated_agent.project.uuid)
         vtex_account = integrated_agent.project.vtex_account
-        template_name = (
-            message.get("msg", {}).get("template", {}).get("name", "unknown")
-        )
+        # FR-014c(d) / T116(h): path-aware accessor so the Direct Send
+        # dispatch log line continues to emit the template name after
+        # ``msg.template`` is dropped from the Direct Send wire shape.
+        msg_payload = message.get("msg", {})
+        template_name = msg_payload.get("direct_send_template_name") or msg_payload.get(
+            "template", {}
+        ).get("name", "unknown")
 
         try:
             response = self.flows_service.send_whatsapp_broadcast(message)
@@ -734,7 +738,6 @@ class Broadcast:
         contact_urn = data.get("contact_urn")
         template_name = template.current_version.template_name
         metadata = template.metadata or {}
-        language = self._resolve_language(data, template)
 
         image_url = template_variables.pop("image_url", None)
         template_variables.pop("button", None)
@@ -801,14 +804,22 @@ class Broadcast:
             )
             return None
 
+        # FR-014c: the local template name is emitted as a top-level
+        # sibling key (``direct_send_template_name``) — no nested
+        # ``msg.template`` block on the Direct Send path.
+        # FR-014c(f): ``language`` is resolved internally (above) so
+        # downstream persistence and datalake calls keep their locale
+        # context, but the wire MUST NOT carry locale on the Direct
+        # Send path — no ``msg.locale`` / ``msg.language``.
+        # FR-014d: the substituted body is emitted under ``msg.text``;
+        # the storage key ``Template.metadata["body"]`` and the local
+        # variable ``substituted_body`` stay unchanged (wire-only rename).
         msg: Dict[str, Any] = {
             "direct_send": True,
             "category": "utility",
-            "template": {"name": template_name},
-            "body": substituted_body,
+            "direct_send_template_name": template_name,
+            "text": substituted_body,
         }
-        if language:
-            msg["template"]["locale"] = language
         if header is not None:
             msg["header"] = header
         if footer is not None:
@@ -966,12 +977,18 @@ class Broadcast:
             lambda_data: Lambda response data containing status, template, template_variables, contact_urn
         """
 
-        # Extract template name from lambda data or message
+        # Extract template name from lambda data or message.
+        # FR-014c: the Direct Send wire shape carries the local
+        # template name on ``msg.direct_send_template_name``; the legacy
+        # shape continues to nest it under ``msg.template.name``.
         template_name = ""
         if lambda_data and "template" in lambda_data:
             template_name = lambda_data["template"]
-        elif message and "msg" in message and "template" in message["msg"]:
-            template_name = message["msg"]["template"].get("name")
+        elif message and "msg" in message:
+            msg_payload = message["msg"]
+            template_name = msg_payload.get(
+                "direct_send_template_name"
+            ) or msg_payload.get("template", {}).get("name", "")
 
         # Extract contact_urn from lambda data or message
         contact_urn = ""

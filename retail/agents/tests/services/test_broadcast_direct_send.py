@@ -69,6 +69,16 @@ class BuildDirectSendMessageHappyPathTest(TestCase):
         self.integrated_agent = _make_integrated_agent()
 
     def test_as1_body_with_two_variables_substituted_and_direct_send_flag(self):
+        """AS1 — canonical Direct Send wire shape (FR-014c / FR-014d).
+
+        On the Direct Send dispatch path the substituted body is carried
+        under ``msg.text`` (FR-014d) and the local template name under
+        ``msg.direct_send_template_name`` (FR-014c). The wire MUST NOT
+        carry ``msg.template`` or ``msg.locale`` / ``msg.language``
+        (FR-014c(a) / FR-014c(f)) — locale is computed internally for
+        ``BroadcastMessage`` persistence and datalake events but is
+        intentionally omitted from the outbound payload.
+        """
         template = _make_template(
             body="Olá {{1}}, seu pedido {{2}} foi enviado.",
         )
@@ -89,12 +99,16 @@ class BuildDirectSendMessageHappyPathTest(TestCase):
         self.assertEqual(result["channel"], str(self.integrated_agent.channel_uuid))
         self.assertIs(result["msg"]["direct_send"], True)
         self.assertEqual(result["msg"]["category"], "utility")
-        self.assertEqual(result["msg"]["template"]["name"], "weni_order_shipped")
-        self.assertEqual(result["msg"]["template"]["locale"], "pt-BR")
         self.assertEqual(
-            result["msg"]["body"], "Olá Maria, seu pedido 12345 foi enviado."
+            result["msg"]["direct_send_template_name"], "weni_order_shipped"
         )
-        self.assertNotIn("variables", result["msg"]["template"])
+        self.assertEqual(
+            result["msg"]["text"], "Olá Maria, seu pedido 12345 foi enviado."
+        )
+        self.assertNotIn("template", result["msg"])
+        self.assertNotIn("body", result["msg"])
+        self.assertNotIn("locale", result["msg"])
+        self.assertNotIn("language", result["msg"])
         self.assertNotIn("buttons", result["msg"])
         self.assertNotIn("header", result["msg"])
         self.assertNotIn("attachments", result["msg"])
@@ -151,7 +165,9 @@ class BuildDirectSendMessageHappyPathTest(TestCase):
             },
         )
         self.assertNotIn("buttons", result["msg"])
-        self.assertEqual(result["msg"]["body"], "Olá Maria, seu pedido 12345 chegou.")
+        self.assertEqual(result["msg"]["text"], "Olá Maria, seu pedido 12345 chegou.")
+        self.assertNotIn("body", result["msg"])
+        self.assertNotIn("template", result["msg"])
 
     def test_as3_body_only_no_variables_no_buttons_no_header(self):
         template = _make_template(
@@ -170,13 +186,14 @@ class BuildDirectSendMessageHappyPathTest(TestCase):
         )
         self.assertIsNotNone(result)
         self.assertEqual(
-            result["msg"]["body"], "Olá cliente, sua nota fiscal foi emitida."
+            result["msg"]["text"], "Olá cliente, sua nota fiscal foi emitida."
         )
+        self.assertNotIn("body", result["msg"])
+        self.assertNotIn("template", result["msg"])
         self.assertNotIn("buttons", result["msg"])
         self.assertNotIn("header", result["msg"])
         self.assertNotIn("attachments", result["msg"])
         self.assertNotIn("footer", result["msg"])
-        self.assertNotIn("variables", result["msg"]["template"])
 
     def test_footer_is_substituted_when_present(self):
         template = _make_template(
@@ -773,3 +790,216 @@ class BuildMessageNoLocalTemplateEdgeCaseTest(TestCase):
             if "skipped_due_to_direct_send_validation" in line
         ]
         self.assertEqual(direct_send_validation_hits, [])
+
+
+class BuildDirectSendMessageTemplateNameWireShapeTest(TestCase):
+    """T116 / FR-014c — drop ``msg.template``, add
+    ``msg.direct_send_template_name``, drop wire locale.
+
+    On the Direct Send dispatch path the canonical wire shape carries
+    the local template name on the top-level sibling key
+    ``msg.direct_send_template_name``; the nested ``msg.template``
+    block emitted by earlier revisions is forbidden (FR-014c(a)).
+    Locale is computed internally for ``BroadcastMessage`` persistence
+    and datalake events but is NOT emitted on the wire — neither under
+    ``msg.template.locale`` (forbidden by FR-014c(a)) nor under
+    sibling keys ``msg.locale`` / ``msg.language`` (forbidden by
+    FR-014c(f)).
+    """
+
+    def setUp(self):
+        self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
+        self.integrated_agent = _make_integrated_agent()
+
+    def _build(self, template, data):
+        return self.handler.build_direct_send_message(
+            data=data,
+            channel_uuid=str(self.integrated_agent.channel_uuid),
+            project_uuid=str(self.integrated_agent.project.uuid),
+            template=template,
+            integrated_agent=self.integrated_agent,
+        )
+
+    def test_msg_template_is_dropped(self):
+        template = _make_template(body="Olá.")
+        data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
+        result = self._build(template, data)
+        self.assertIsNotNone(result)
+        self.assertNotIn("template", result["msg"])
+
+    def test_direct_send_template_name_carries_local_template_name(self):
+        template = _make_template(name="weni_order_invoiced", body="Olá.")
+        data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
+        result = self._build(template, data)
+        self.assertEqual(
+            result["msg"]["direct_send_template_name"], "weni_order_invoiced"
+        )
+
+    def test_direct_send_template_name_is_a_top_level_string(self):
+        template = _make_template(body="Olá.")
+        data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
+        result = self._build(template, data)
+        self.assertIsInstance(result["msg"].get("direct_send_template_name"), str)
+        with self.assertRaises(TypeError):
+            result["msg"]["direct_send_template_name"]["name"]  # noqa: B018
+
+    def test_locale_is_dropped_from_the_wire(self):
+        """FR-014c(f) — no language hint on the wire.
+
+        The internal locale resolution helper (``_resolve_language``)
+        MUST still be invoked for persistence / datalake purposes; we
+        capture that side via ``_resolve_language`` being callable on
+        the handler (it remains a method, never deleted).
+        """
+        template = _make_template(
+            name="weni_order_shipped", body="Olá.", language="es_MX"
+        )
+        data = {
+            "template_variables": {},
+            "contact_urn": "whatsapp:55",
+            "language": "es_MX",
+        }
+        result = self._build(template, data)
+        self.assertIsNotNone(result)
+        self.assertNotIn("locale", result["msg"])
+        self.assertNotIn("language", result["msg"])
+        self.assertNotIn("template", result["msg"])
+        self.assertTrue(callable(getattr(self.handler, "_resolve_language", None)))
+
+    def test_naming_rule_refusal_still_gates_the_wire_identifier(self):
+        """FR-014c(b) + FR-017 — invalid template names MUST be refused
+        BEFORE any wire emission so an invalid identifier never lands
+        in ``msg.direct_send_template_name``.
+        """
+        template = _make_template(name="Weni-Order-Invoiced", body="Olá.")
+        data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
+        with self.assertLogs(_BUILDER_LOGGER, level=logging.WARNING) as captured:
+            result = self._build(template, data)
+        self.assertIsNone(result)
+        self.assertTrue(
+            any(
+                "skipped_due_to_direct_send_validation" in line
+                and "reason=naming_rule" in line
+                and "template=Weni-Order-Invoiced" in line
+                for line in captured.output
+            ),
+            captured.output,
+        )
+
+    def test_audit_log_keeps_template_field_unchanged(self):
+        """FR-014c(d) — the audit-log ``template={...}`` field is
+        INTERNAL observability and MUST NOT be renamed alongside the
+        wire-shape relocation. Log consumers continue to filter on
+        ``template=<template_name>`` regardless of the wire-emission
+        location of the same value.
+        """
+        template = _make_template(name="weni_order_empty", body="")
+        data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
+        with self.assertLogs(_BUILDER_LOGGER, level=logging.WARNING) as captured:
+            self._build(template, data)
+        self.assertTrue(
+            any(
+                "skipped_due_to_direct_send_validation" in line
+                and "template=weni_order_empty" in line
+                and "reason=empty_body" in line
+                for line in captured.output
+            ),
+            captured.output,
+        )
+        for line in captured.output:
+            self.assertNotIn("direct_send_template_name=", line)
+
+
+class BuildDirectSendMessageBodyTextRenameWireShapeTest(TestCase):
+    """T117 / FR-014d — rename wire key ``msg.body`` → ``msg.text``.
+
+    Wire-only rename: ``Template.metadata["body"]`` storage,
+    ``MAX_BODY_LENGTH`` constant, the ``reason=empty_body`` audit-log
+    discriminator, and local variable identifiers are preserved
+    unchanged (FR-014d(c)). Only the outbound JSON-key spelling
+    changes on the Direct Send path.
+    """
+
+    def setUp(self):
+        self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
+        self.integrated_agent = _make_integrated_agent()
+
+    def _build(self, template, data):
+        return self.handler.build_direct_send_message(
+            data=data,
+            channel_uuid=str(self.integrated_agent.channel_uuid),
+            project_uuid=str(self.integrated_agent.project.uuid),
+            template=template,
+            integrated_agent=self.integrated_agent,
+        )
+
+    def test_wire_key_is_exactly_text(self):
+        template = _make_template(body="Olá {{1}}")
+        data = {
+            "template_variables": {"1": "Maria"},
+            "contact_urn": "whatsapp:55",
+        }
+        result = self._build(template, data)
+        self.assertEqual(result["msg"]["text"], "Olá Maria")
+        self.assertNotIn("body", result["msg"])
+
+    def test_text_is_top_level_sibling_string(self):
+        template = _make_template(body="Olá.")
+        data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
+        result = self._build(template, data)
+        msg = result["msg"]
+        self.assertIsInstance(msg["text"], str)
+        self.assertIn("direct_send", msg)
+        self.assertIn("category", msg)
+        self.assertIn("direct_send_template_name", msg)
+
+    def test_empty_body_refusal_preserves_empty_body_reason(self):
+        template = _make_template(body="")
+        data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
+        with self.assertLogs(_BUILDER_LOGGER, level=logging.WARNING) as captured:
+            result = self._build(template, data)
+        self.assertIsNone(result)
+        self.assertTrue(
+            any(
+                "reason=empty_body" in line and "reason=empty_text" not in line
+                for line in captured.output
+            ),
+            captured.output,
+        )
+
+    def test_body_length_limit_uses_max_body_length_constant(self):
+        from retail.agents.domains.agent_webhook.services.direct_send_constants import (
+            MAX_BODY_LENGTH,
+        )
+
+        self.assertEqual(MAX_BODY_LENGTH, 1024)
+        template = _make_template(body="x" * MAX_BODY_LENGTH + " {{1}}")
+        data = {
+            "template_variables": {"1": "Maria"},
+            "contact_urn": "whatsapp:55",
+        }
+        with self.assertLogs(_BUILDER_LOGGER, level=logging.WARNING) as captured:
+            result = self._build(template, data)
+        self.assertIsNone(result)
+        self.assertTrue(
+            any("reason=component_length_limit" in line for line in captured.output),
+            captured.output,
+        )
+
+    def test_length_check_runs_against_substituted_body_not_wire_key(self):
+        """FR-014d(e) — the gate reads from the local
+        ``substituted_body`` variable, NOT from ``msg["body"]`` or
+        ``msg["text"]``. Refusal happens BEFORE ``msg`` is assembled,
+        so the wire-key rename cannot change where the limit reads
+        from.
+        """
+        long_body = "x" * 2048
+        template = _make_template(body=long_body)
+        data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
+        with self.assertLogs(_BUILDER_LOGGER, level=logging.WARNING) as captured:
+            result = self._build(template, data)
+        self.assertIsNone(result)
+        self.assertTrue(
+            any("reason=component_length_limit" in line for line in captured.output),
+            captured.output,
+        )

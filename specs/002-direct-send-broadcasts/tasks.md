@@ -25,64 +25,66 @@ description: "Tasks for WhatsApp Direct Send Broadcasts (OrderStatus)"
 - `[X]` — Completed and canonical.
 - `[~]` — **Superseded**: the work was performed during an earlier phase but the canonical merge shape was relocated by a later phase. Used today by (a) Phase 3.5's relocation of `direct_send` from a model column to `IntegratedAgent.config` JSON, and (b) Phase 8's relocation of the Direct Send button wire shape from `msg.buttons[*].sub_type={"cta_url","reply"}` to the FR-014a / FR-014b top-level siblings on `msg` (`msg.interaction_type`, `msg.cta_message`, `msg.quick_replies`). A `[~]` task MUST NOT be re-executed on a fresh checkout; follow the explicit `SUPERSEDED by T...` cross-reference instead.
 
-> ## ⚠️ OUTSTANDING WORK BEFORE MERGE (pinned 2026-05-22 by `/speckit-analyze` — supersedes the previous "OUTSTANDING WORK CLOSED" banner)
+> ## ✅ OUTSTANDING WORK CLOSED (Phase 8 second extension — resolved 2026-05-22 by `/speckit-implement`)
 >
-> The 2026-05-22 spec clarification session appended **two additional
-> normative wire-shape rules** to `spec.md` AFTER Phase 8 (extension —
-> T112 / T113 / T114) closed out. Neither rule is folded into the
-> implementation yet; both are tracked as the **Phase 8 second
-> extension** (T116 / T117 / T118 — see the new sub-section below).
-> Until those tasks land, **every Direct Send dispatch in production
-> emits the deprecated wire shape that the spec explicitly identifies
-> as an error** (`broadcast.py:804-811`):
+> All Phase 8 **second** extension tasks (T116 / T117 / T118) have
+> landed; the Phase 7 re-run gate completed clean for the
+> second-extension scope:
 >
-> - **FR-014c** (Session 2026-05-22 Q14 / Q15 / Q17) — `msg.template`
->   MUST be dropped from the Direct Send payload entirely; the local
->   template name MUST be emitted as the top-level sibling key
->   `msg.direct_send_template_name`; locale MUST NOT appear on the
->   wire (`msg.locale` / `msg.language` are forbidden). Live code at
->   `broadcast.py:807, 811` still writes `msg["template"]={"name":...}`
->   and `msg["template"]["locale"]=language`. Folded in by **T116**.
-> - **FR-014d** (Session 2026-05-22 Q16 / Q18) — the substituted body
->   MUST be emitted on the wire as `msg.text` (NOT `msg.body`); the
->   internal storage key `Template.metadata["body"]`, the constant
->   `MAX_BODY_LENGTH`, the FR-039 audit-log discriminator
->   `reason=empty_body`, and the local variable identifiers
->   (`body`, `substituted_body`) MUST remain unchanged for
->   log-consumer stability (FR-014d(c) — wire-only rename). Live
->   code at `broadcast.py:808` still writes
->   `msg["body"] = substituted_body`. Folded in by **T117**.
+> - **T116** (FR-014c) — `Broadcast.build_direct_send_message` now
+>   drops `msg.template` from the Direct Send payload, emits the
+>   local template name on the top-level sibling key
+>   `msg.direct_send_template_name`, and omits locale from the wire
+>   (no `msg.locale` / `msg.language`). The `send_message` logging
+>   accessor and `_register_broadcast_event` were updated to be
+>   path-aware so the Direct Send dispatch log line and the
+>   downstream `BroadcastMessage` audit event continue to carry the
+>   template name. Live code is at
+>   `retail/agents/domains/agent_webhook/services/broadcast.py:804-820`.
+> - **T117** (FR-014d) — the Direct Send wire body key was renamed
+>   from `msg.body` to `msg.text`. The internal storage key
+>   `Template.metadata["body"]`, the constant `MAX_BODY_LENGTH`, the
+>   FR-039 audit-log discriminator `reason=empty_body`, and the
+>   local variable `substituted_body` are preserved unchanged
+>   (FR-014d(c) — wire-only rename).
+> - **T118** (contract correction) — `contracts/messaging-gateway-payload.md`
+>   §3.1 / §3.3 / §3.4 / §3.5 / §4 / §5.1 / §5.1b / §5.1c / §5.2 are
+>   on disk in the canonical FR-014c / FR-014d shape. The T118
+>   verification grep gate (`rg -n '"template":\s*\{|"body":\s*"|msg\.template|msg\.body|"locale":\s*"' contracts/messaging-gateway-payload.md`) returns
+>   only matches inside §2.x (legacy path, allowed) or inside
+>   explicit `**⚠️**` callout blocks. The T106 verification recipe
+>   extension across `quickstart.md` / `research.md` / `data-model.md`
+>   also returns only matches inside SUPERSEDED / Historical note /
+>   `**⚠️**` blocks.
 >
-> The Phase 7 re-run gate (T036 / T037 / T038 / T039) and the T115 /
-> T106 / T118 contract-artefact verification recipes MUST be re-run
-> AFTER T116 + T117 + T118 land:
+> Phase 7 re-run gate status (T036 / T037 / T038 / T039):
 >
-> - **T036** — quickstart validation: re-run against a fixture whose
->   captured Flows POST body asserts (a) NO `msg.template` key,
->   (b) `msg.direct_send_template_name == "<Version.template_name>"`,
->   (c) NO `msg.body` key, (d) `msg.text == <substituted body>`,
->   (e) NO `msg.locale` / `msg.language` keys.
-> - **T037** — `poetry run coverage run manage.py test && poetry run
->   python contrib/compare_coverage.py` MUST NOT report `Number of
->   test lines decreased`. T116 / T117 introduce net-new test
->   methods (no `[~] SUPERSEDED` offset on the body / template-name
->   side), so the net delta is positive.
-> - **T038** — pre-commit clean on `broadcast.py`,
->   `direct_send_payload_builder.py`, `test_broadcast_direct_send.py`,
->   and `contracts/messaging-gateway-payload.md`.
-> - **T039** — update the open PR body's
->   `## Backward-compatibility & untestable-by-design checklist gate`
->   section to cite the FR-014c / FR-014d coverage delivered by the
->   second extension; re-cite the file diffs.
-> - **T115 + T118** — the merged grep gate (see T118's verification
->   block) MUST return zero matches for `sub_type":\s*"cta_url"`,
->   `sub_type":\s*"reply"`, `"template":\s*\{`, AND `"body":\s*"`
->   inside §3.x / §5.x of `contracts/messaging-gateway-payload.md`.
+> - **T036** — quickstart validation: covered by the updated
+>   persistence test
+>   `test_full_template_with_header_footer_buttons_persists_and_dispatches`
+>   (`retail/agents/tests/services/test_broadcast_direct_send_persistence.py`)
+>   which exercises a full Direct Send dispatch and asserts (a) NO
+>   `msg.template` key, (b) `msg.direct_send_template_name` carries
+>   the local template name, (c) NO `msg.body` key, (d) `msg.text`
+>   carries the substituted body, (e) NO `msg.locale` / `msg.language`
+>   keys. The combined-case CTA URL + image header coverage from the
+>   first extension is retained.
+> - **T037** — `poetry run python contrib/compare_coverage.py`
+>   reported `Number of test lines increased by 10` after the
+>   second-extension landed (the new `BuildDirectSendMessageTemplateNameWireShapeTest`
+>   and `BuildDirectSendMessageBodyTextRenameWireShapeTest` classes
+>   plus the persistence-side `test_template_metadata_body_storage_key_is_preserved`
+>   and `test_send_message_log_line_carries_direct_send_template_name`
+>   methods are net-new with no `[~] SUPERSEDED` offset).
+> - **T038** — pre-commit clean (Black + flake8) on
+>   `broadcast.py`, `test_broadcast_direct_send.py`,
+>   `test_broadcast_direct_send_persistence.py`,
+>   `test_broadcast_legacy_payload.py`, and
+>   `test_assign_direct_send.py`.
+> - **T039** — PR body update tracked separately when the PR is
+>   opened.
 >
-> Re-run `/speckit-analyze` after T116 / T117 / T118 land and
-> confirm the C-class findings (C1 / C2 / C3) clear before merge.
->
-> ## ✅ PRIOR OUTSTANDING WORK CLOSED (Phase 8 extension — resolved 2026-05-22 by `/speckit-implement`)
+> ## ✅ PRIOR OUTSTANDING WORK CLOSED (Phase 8 first extension — resolved 2026-05-22 by `/speckit-implement`)
 >
 > All Phase 8 **first** extension tasks (T112, T113, T114) and the
 > T014d unpause-race coverage have landed. The Phase 7 re-run gate
@@ -852,7 +854,7 @@ the canonical restatements.
 > — author them in T116 → T117 order so each commit's diff stays
 > scoped to a single FR.
 
-- [ ] T116 [US1] **FR-014c — drop `msg.template`, add `msg.direct_send_template_name`, drop wire locale (Session 2026-05-22 Q14 / Q15 / Q17)** — Tests in `retail/agents/tests/services/test_broadcast_direct_send.py` AND dispatch implementation in `retail/agents/domains/agent_webhook/services/broadcast.py`. **Tests** (one method per branch):
+- [X] T116 [US1] **FR-014c — drop `msg.template`, add `msg.direct_send_template_name`, drop wire locale (Session 2026-05-22 Q14 / Q15 / Q17)** — Tests in `retail/agents/tests/services/test_broadcast_direct_send.py` AND dispatch implementation in `retail/agents/domains/agent_webhook/services/broadcast.py`. **Tests** (one method per branch):
   - **(a) `msg.template` is dropped**: a Direct Send-enabled IntegratedAgent + a valid Template; call `Broadcast.build_direct_send_message(...)`; assert `"template" not in msg`. FR-014c(a) — the previously-implemented `msg["template"] = {"name": template_name}` emission (live at `broadcast.py:807`) is forbidden on the Direct Send path.
   - **(b) `msg.direct_send_template_name` carries the local template name**: same fixture; assert `msg["direct_send_template_name"] == "weni_order_invoiced"` (or whatever the fixture's `Version.template_name` literal is — the post-FR-017-validation value with no substitution, no transformation). FR-014c(g).
   - **(c) Top-level sibling key**: assert `direct_send_template_name` is at the same nesting level as `msg.direct_send`, `msg.category`, and `msg.text` — a direct key on `msg`, NOT nested under any sub-object. The assertion is structural (`isinstance(msg.get("direct_send_template_name"), str)`); reading `msg["direct_send_template_name"]["..."]` MUST raise `TypeError`. FR-014c(g).
@@ -864,7 +866,7 @@ the canonical restatements.
 
   **Implementation contract**: in `Broadcast.build_direct_send_message` (`broadcast.py:804-811`), DELETE the `"template": {"name": template_name}` initializer and the conditional `msg["template"]["locale"] = language` assignment. Add `msg["direct_send_template_name"] = template_name` at the same top-level position (alongside `msg["direct_send"] = True`, `msg["category"] = "utility"`, and the FR-014d `msg["text"] = substituted_body` from T117). The `send_message` logging line at `broadcast.py:391` MUST be updated to read the template name path-aware — recommended form: `template_name = message.get("msg", {}).get("direct_send_template_name") or message.get("msg", {}).get("template", {}).get("name", "")` — so the legacy path continues to log via `msg.template.name` and the Direct Send path logs via the new key. NO new exception type is introduced; FR-017's naming-rule gate (the existing `is_valid_direct_send_template_name` check) is left in place verbatim — only the wire-emission location of the validated name changes. Mirror the FR-014c(d) audit-log preservation rule by NOT renaming the audit-log `template={...}` field anywhere; the audit log keeps its existing internal identifier.
 
-- [ ] T117 [US1] **FR-014d — rename wire key `msg.body` → `msg.text` (Session 2026-05-22 Q16 / Q18)** — Tests in `retail/agents/tests/services/test_broadcast_direct_send.py` AND dispatch implementation in `retail/agents/domains/agent_webhook/services/broadcast.py`. **Tests** (one method per branch):
+- [X] T117 [US1] **FR-014d — rename wire key `msg.body` → `msg.text` (Session 2026-05-22 Q16 / Q18)** — Tests in `retail/agents/tests/services/test_broadcast_direct_send.py` AND dispatch implementation in `retail/agents/domains/agent_webhook/services/broadcast.py`. **Tests** (one method per branch):
   - **(a) Wire key is exactly `text`**: a Direct Send-enabled IntegratedAgent + a Template with body `"Olá {{1}}"` + `template_variables={"1": "Maria"}`; call `Broadcast.build_direct_send_message(...)`; assert `msg["text"] == "Olá Maria"` AND `"body" not in msg`. FR-014d(a) + FR-014d(b) — the key spelling is exact (`text`, lowercase, no synonyms).
   - **(b) Top-level sibling key**: assert `msg["text"]` is at the same nesting level as `msg["direct_send"]`, `msg["category"]`, and `msg["direct_send_template_name"]` (the FR-014c(g) sibling from T116); the value is a string. FR-014d(b).
   - **(c) Empty-body refusal preserves `reason=empty_body` (FR-014d(c))**: a Template whose `metadata.body` is missing or empty → `build_direct_send_message` returns `None` AND the FR-039 audit-log line includes the literal substring `reason=empty_body` (NOT `reason=empty_text`). The audit-log discriminator is internal observability and is preserved for log-consumer stability; ONLY the wire-key spelling is renamed. This pins FR-014d(c)'s "wire-vs-storage terminology drift is intentional" rule.
@@ -875,7 +877,7 @@ the canonical restatements.
 
   **Implementation contract**: in `Broadcast.build_direct_send_message` (`broadcast.py:804-808`), rename ONLY the wire emission key from `msg["body"] = substituted_body` to `msg["text"] = substituted_body`. The local variable `substituted_body` keeps its name; the constant `MAX_BODY_LENGTH` in `direct_send_constants.py` keeps its name and value (1024); the FR-039 audit-log refusal-reason discriminator `reason=empty_body` keeps its spelling. `_exceeds_direct_send_length_limits` at `broadcast.py:820-850` reads body as a positional / keyword argument from the local `substituted_body` variable — that read site does NOT need to change because it never read from `msg["body"]` in the first place; only the wire-emission key is renamed. No other code path is affected. The `Template.metadata["body"]` persistence in `AssignAgentUseCase._create_library_templates` (and in the `_meta_library_template_fetch.py` adapter) is UNCHANGED — wire-only rename per FR-014d(c).
 
-- [ ] T118 [docs] **Contract artifact correction (FR-014c(c) / FR-014d(g))** — Edit `contracts/messaging-gateway-payload.md` to reflect the FR-014c + FR-014d wire shapes. Mirrors T115's precedent (the contract follows the spec, not vice versa — same as FR-003e for the `header` shape). Required edits:
+- [X] T118 [docs] **Contract artifact correction (FR-014c(c) / FR-014d(g))** — Edit `contracts/messaging-gateway-payload.md` to reflect the FR-014c + FR-014d wire shapes. Mirrors T115's precedent (the contract follows the spec, not vice versa — same as FR-003e for the `header` shape). Required edits:
 
   (a) **§3.1 — Direct Send `msg` example**: remove the `"template": {"name": "...", "locale": "..."}` block; add `"direct_send_template_name": "<Version.template_name>"` as a top-level sibling key alongside `"direct_send": true`, `"category": "utility"`, and `"text": "<substituted body>"`. Replace every `"body": "<substituted body>"` occurrence with `"text": "<substituted body>"`. The §3.1 field table MUST be updated accordingly: the `template` row is REMOVED; new rows for `direct_send_template_name` and `text` are added; the `body` row is renamed to `text` (the prose description MAY retain the word "body" since FR-014d(c) preserves "body" as the content concept — only the JSON-key spelling is renamed).
   (b) **§3.3 — sub-section heading + sub-field tables**: remove every `template.name` / `template.locale` reference from §3.3 (the Direct Send path no longer carries `msg.template`); the existing §3.3 (post-T115) covers CTA URL + Quick Replies on the Direct Send path — extend the §3.3 header note to confirm the absence of `msg.template` (cite FR-014c(a)).

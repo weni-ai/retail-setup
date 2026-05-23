@@ -166,8 +166,13 @@ class BroadcastDirectSendPersistenceTest(TestCase):
         outbound = self.flows_service.send_whatsapp_broadcast.call_args.args[0]
         msg = outbound["msg"]
         self.assertEqual(
-            msg["body"], "Olá Maria, sua nota fiscal do pedido 12345 foi emitida."
+            msg["text"], "Olá Maria, sua nota fiscal do pedido 12345 foi emitida."
         )
+        self.assertNotIn("body", msg)
+        self.assertEqual(msg["direct_send_template_name"], "weni_order_invoiced")
+        self.assertNotIn("template", msg)
+        self.assertNotIn("locale", msg)
+        self.assertNotIn("language", msg)
         self.assertEqual(
             msg["header"],
             {"type": "image", "image_url": "https://cdn.loja.com/order_12345.jpg"},
@@ -292,3 +297,37 @@ class BroadcastDirectSendPersistenceTest(TestCase):
             ),
             captured.output,
         )
+
+    def test_template_metadata_body_storage_key_is_preserved(self):
+        """T117(f) / FR-014d(c) — internal storage MUST keep ``body``.
+
+        The FR-014d rename only relocates the OUTBOUND wire key
+        (``msg.body`` → ``msg.text``). ``Template.metadata["body"]``
+        is internal storage written from Meta's library catalog response
+        and is preserved unchanged so persisted rows, log consumers,
+        and downstream tooling do not require migration.
+        """
+        self.assertEqual(
+            self.template.metadata["body"],
+            "Olá {{1}}, seu pedido {{2}} foi enviado.",
+        )
+        self.assertNotIn("text", self.template.metadata)
+
+    def test_send_message_log_line_carries_direct_send_template_name(self):
+        """T116(h) — ``Broadcast.send_message`` logging accessor MUST
+        be path-aware so the Direct Send dispatch log line continues to
+        emit the resolved template name after FR-014c drops
+        ``msg.template`` from the wire.
+        """
+        message = self.handler.build_message(self.integrated_agent, self.lambda_data)
+        self.assertIsNotNone(message)
+
+        with self.assertLogs(
+            "retail.agents.domains.agent_webhook.services.broadcast",
+            level=logging.INFO,
+        ) as captured:
+            self.handler.send_message(message, self.integrated_agent, self.lambda_data)
+
+        joined = "\n".join(captured.output)
+        self.assertIn("weni_order_shipped", joined)
+        self.assertNotIn("Template: unknown", joined)

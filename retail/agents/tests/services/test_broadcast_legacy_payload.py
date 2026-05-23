@@ -37,9 +37,7 @@ class LegacyBroadcastPayloadSnapshotTest(TestCase):
     """
 
     def setUp(self):
-        self.handler = Broadcast(
-            flows_service=MagicMock(), audit_func=MagicMock()
-        )
+        self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
 
     def _make_template(self, *, template_name: str, header: dict = None):
         template = MagicMock()
@@ -48,7 +46,14 @@ class LegacyBroadcastPayloadSnapshotTest(TestCase):
         return template
 
     def test_body_only_with_positional_variables(self):
-        """Scenario (a) — body + positional variables, no header / no buttons."""
+        """Scenario (a) — body + positional variables, no header / no buttons.
+
+        T116(g) / T117(g) — the FR-014c / FR-014d wire-shape rules are
+        Direct-Send-only. The legacy payload MUST continue to carry
+        ``msg.template = {name, locale, variables}`` byte-for-byte and
+        MUST NOT leak ``msg.direct_send_template_name`` or ``msg.text``
+        onto the legacy cohort.
+        """
         template = self._make_template(template_name="weni_order_invoiced_1700000000")
         data = {
             "template_variables": {"1": "Maria", "2": "12345"},
@@ -78,6 +83,9 @@ class LegacyBroadcastPayloadSnapshotTest(TestCase):
                 },
             },
         )
+        self.assertNotIn("direct_send_template_name", result["msg"])
+        self.assertNotIn("text", result["msg"])
+        self.assertNotIn("direct_send", result["msg"])
 
     def test_image_header_s3_keyed_with_url_button_and_variables(self):
         """Scenario (b) — body + image header (s3-keyed) + ``url``-sub_type
@@ -212,9 +220,7 @@ class LegacyBroadcastPayloadSnapshotTest(TestCase):
                         "locale": "pt-BR",
                         "variables": ["Roberta"],
                     },
-                    "attachments": [
-                        "image/jpeg:https://cdn.loja.com/orders/12345.jpg"
-                    ],
+                    "attachments": ["image/jpeg:https://cdn.loja.com/orders/12345.jpg"],
                     "interaction_type": "order_details",
                     "order_details": order_details,
                     "buttons": [
