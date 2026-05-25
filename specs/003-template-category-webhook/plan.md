@@ -14,10 +14,15 @@ Integrations calls when Meta-side category-detection determines that
 a Direct Send template's category is wrong. The webhook fans out
 across every `IntegratedAgent` linked to the named project + app and
 flips each matched `Template.current_version.status` to `FLAGGED`
-when the spec's two-clause flagging condition fires
-(`template_category != template_correct_category` OR
-`template_category != "UTILITY"`). Spec 002's pre-existing dispatch
-gate (`Broadcast.get_current_template` at
+when the spec's single-field flagging condition fires
+(`template_correct_category != "UTILITY"` — pinned by Clarifications
+session 2026-05-25 Q3). `template_category` is captured verbatim on
+every audit-log `k=v` payload for diagnostic visibility but does NOT
+participate in the flag-or-demote decision. The symmetric inverse
+(`template_correct_category == "UTILITY"` against an already-`FLAGGED`
+Version) auto-demotes the Version back to `APPROVED` per FR-006c /
+FR-007d. Spec 002's pre-existing dispatch gate
+(`Broadcast.get_current_template` at
 `retail/agents/domains/agent_webhook/services/broadcast.py:665-676`)
 already skips broadcasts for any non-`APPROVED` Version, so the
 `FLAGGED` write is immediately effective at the next dispatch
@@ -163,9 +168,9 @@ URL namespace).
   This webhook transitions `* → FLAGGED` on the flag branch
   (FR-007) and `FLAGGED → APPROVED` on the auto-demote branch
   (FR-006c / FR-007d) when a corrected-category payload
-  (`template_category == template_correct_category == "UTILITY"`)
-  arrives for an already-`FLAGGED` Version. The operator-driven
-  `UpdateTemplateUseCase` at
+  (`template_correct_category == "UTILITY"`, regardless of
+  `template_category`) arrives for an already-`FLAGGED` Version.
+  The operator-driven `UpdateTemplateUseCase` at
   `retail/templates/usecases/update_template.py:46-64` remains
   available as a second, manual recovery channel. Both channels
   converge on `Version.status = "APPROVED"` via a single-row
@@ -187,9 +192,13 @@ URL namespace).
   path / state transitions / replays, WARNING for "expected but
   unhappy" lookup misses, ERROR with `exc_info=True` for
   `unexpected_error` only (FR-009b). The `reason=<sub_reason>` k=v
-  on `flagged` events draws from the closed enumeration
-  `{category_mismatch, category_not_utility, category_mismatch_and_not_utility}`
-  per FR-006b / FR-009a.
+  on `flagged` events carries the single token
+  `correct_category_not_utility` per FR-006b / FR-009a (collapsed
+  from the prior three-value enumeration by Clarifications session
+  2026-05-25 Q3 — under the single-field flag rule there is only
+  one reason that can fire). The sub-enumeration is additive-only;
+  future flag clauses MAY add new reason values but MUST NOT
+  rename or remove `correct_category_not_utility`.
 - **Tenant isolation (FR-004 / SC-006 / Decision 3)**: The
   IntegratedAgent queryset filters on `project.uuid == payload.project_uuid`
   AND requires at least one `Version` with
@@ -300,17 +309,22 @@ Every new code branch will be exercised by tests in the same PR
 
 - **Use case tests** (`test_direct_send_category.py` in
   `retail/webhooks/templates/tests/usecases/`): cover all 10 event-name
-  branches from FR-009a (`received`, `flagged` ×3 reasons,
-  `flag_replay_noop`, `no_action_required`, `auto_demoted`,
+  branches from FR-009a (`received`, `flagged` with the single
+  reason `correct_category_not_utility`, `flag_replay_noop`,
+  `no_action_required`, `auto_demoted`,
   `no_matching_integrated_agent`, `template_not_found`,
   `template_has_no_current_version`, `completed`, `unexpected_error`).
-  The flagging-condition truth table (FR-006) is pinned by four
-  parametrized scenarios covering the four (match / mismatch) ×
-  (UTILITY / non-UTILITY) cells; the auto-demote branch is pinned
-  by a scenario that pre-seeds the Version as `FLAGGED` and fires
-  the `UTILITY/UTILITY` payload, asserting the Version is rewritten
-  to `APPROVED` and the audit line is `auto_demoted` with
-  `previous_status=FLAGGED new_status=APPROVED` and no `reason`
+  The flagging-condition truth table (FR-006) is pinned by two
+  parametrized cells — `template_correct_category != "UTILITY"`
+  (flag fires) and `template_correct_category == "UTILITY"`
+  (flag does not fire) — each cell exercised across multiple
+  `template_category` values to assert the diagnostic-only role of
+  `template_category` (Clarifications session 2026-05-25 Q3); the
+  auto-demote branch is pinned by a scenario that pre-seeds the
+  Version as `FLAGGED` and fires a `template_correct_category=UTILITY`
+  payload (regardless of `template_category`), asserting the Version
+  is rewritten to `APPROVED` and the audit line is `auto_demoted`
+  with `previous_status=FLAGGED new_status=APPROVED` and no `reason`
   key.
 - **View tests** (`test_direct_send_category.py` in
   `retail/webhooks/templates/tests/views/`): cover the HTTP 200 /
@@ -345,7 +359,8 @@ Every new code branch will be exercised by tests in the same PR
   (no `logger.info(f"[DirectSendCategoryWebhook] ...")` scattered
   across the codebase).
 - Docstrings are reserved for non-obvious *why* (e.g. why the
-  reason enumeration is composite for `category_mismatch_and_not_utility`,
+  `FlaggingReason` enumeration is a single value
+  `correct_category_not_utility` under the single-field flag rule,
   why the IntegratedAgent lookup includes `is_active=False`, why
   the idempotency contract does not require a dedup cache).
 - Logging f-string identifiers always carry both tenant identifiers

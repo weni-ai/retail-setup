@@ -64,9 +64,12 @@ and differ only in the target value and the audit-log event name
   dispatcher (clause below) instead of re-issuing the UPDATE.
 - **Auto-demote branch pre-condition**: `version.status == "FLAGGED"`
   AND the FR-006 flagging condition is **false** (corrected-category
-  signal — `template_category == template_correct_category == "UTILITY"`).
-  This is the inverse of the flag pre-condition, and is the only
-  path by which this webhook writes a non-`"FLAGGED"` status value.
+  signal — `template_correct_category == "UTILITY"`, regardless of
+  `template_category`; pinned by Clarifications session 2026-05-25
+  Q3). This is the symmetric inverse of the flag pre-condition (both
+  rules are governed by the same single field — `template_correct_category`
+  — making them exact inverses), and is the only path by which this
+  webhook writes a non-`"FLAGGED"` status value.
 - **Write post-conditions**:
   - Flag branch: `templates_version.status = 'FLAGGED'` on exactly
     one row.
@@ -338,8 +341,8 @@ itself does no validation — it relies on the serializer's
 | `project_uuid`              | `UUID` | `serializers.UUIDField`      | Matches `Project.uuid` (`unique=True`). Used in the IntegratedAgent fan-out clause (Decision 3).                                                |
 | `app_uuid`                  | `UUID` | `serializers.UUIDField`      | Matches `Version.integrations_app_uuid`. Used in the JOIN clause (Decision 2).                                                                  |
 | `template_name`             | `str`  | `serializers.CharField`      | Compared case-sensitive against `Template.name` (FR-005). Empty string is rejected at the serializer level (`allow_blank=False`).             |
-| `template_category`         | `str`  | `serializers.CharField`      | Compared as-is against `template_correct_category` and against the literal `"UTILITY"` (FR-006 / FR-006a). No normalization (spec.md A3).      |
-| `template_correct_category` | `str`  | `serializers.CharField`      | Same semantics as `template_category`. Both fields together drive the FR-006 two-clause flagging condition.                                    |
+| `template_category`         | `str`  | `serializers.CharField`      | Captured verbatim on every audit-log `k=v` payload for diagnostic visibility. Does NOT participate in the FR-006 flagging decision under the single-field eligibility model (Clarifications session 2026-05-25 Q3). No normalization (spec.md A3).      |
+| `template_correct_category` | `str`  | `serializers.CharField`      | Compared as-is against the literal `"UTILITY"` (FR-006 / FR-006a). Sole driver of the FR-006 single-field flagging condition. No normalization (spec.md A3).                                    |
 
 ### 5.2 `DirectSendCategoryResult` — outbound response shape
 
@@ -393,9 +396,9 @@ dominant outcome. The closed enumeration is:
   emitted `flag_replay_noop`); no write occurred.
 - `"No action required."` — every matched IntegratedAgent's
   Template passed the flagging condition without firing
-  (`template_category == template_correct_category == "UTILITY"`)
-  AND no Version was in `"FLAGGED"` (so the auto-demote branch
-  did not fire either).
+  (`template_correct_category == "UTILITY"`, regardless of
+  `template_category`) AND no Version was in `"FLAGGED"` (so the
+  auto-demote branch did not fire either).
 - `"No matching IntegratedAgent."` — the fan-out queryset returned
   zero IntegratedAgents (FR-004b).
 - `"Template not found."` — every matched IntegratedAgent had no
@@ -428,25 +431,30 @@ class FlaggingReason(str, Enum):
 
     Pinned by FR-006b / FR-009a. Additive-only: new reasons MAY be
     added; existing reasons MUST NOT be renamed or removed.
+
+    Collapsed to a single variant by Clarifications session
+    2026-05-25 Q3 (single-field eligibility model). Under the
+    single-clause flag rule (``template_correct_category != "UTILITY"``)
+    there is only one reason that can fire whenever the flag branch
+    is taken; the prior three-variant enumeration (``CATEGORY_MISMATCH``,
+    ``CATEGORY_NOT_UTILITY``, ``CATEGORY_MISMATCH_AND_NOT_UTILITY``)
+    is retired.
     """
 
-    CATEGORY_MISMATCH = "category_mismatch"
-    CATEGORY_NOT_UTILITY = "category_not_utility"
-    CATEGORY_MISMATCH_AND_NOT_UTILITY = "category_mismatch_and_not_utility"
+    CORRECT_CATEGORY_NOT_UTILITY = "correct_category_not_utility"
 ```
 
 **Determination rule** (FR-006 / FR-006b):
 
-| `template_category != template_correct_category` | `template_category != "UTILITY"` | Reason                                       |
-| ----------------------------------------------- | -------------------------------- | -------------------------------------------- |
-| `False`                                         | `False`                          | (flagging condition does not fire)           |
-| `True`                                          | `False`                          | `CATEGORY_MISMATCH`                          |
-| `False`                                         | `True`                           | `CATEGORY_NOT_UTILITY`                       |
-| `True`                                          | `True`                           | `CATEGORY_MISMATCH_AND_NOT_UTILITY`          |
+| `template_correct_category != "UTILITY"` | Reason emitted on the `flagged` audit line |
+| ---------------------------------------- | ------------------------------------------ |
+| `False`                                  | (flagging condition does not fire — `no_action_required` against an `APPROVED` Version, or `auto_demoted` against a `FLAGGED` Version per FR-006c) |
+| `True`                                   | `CORRECT_CATEGORY_NOT_UTILITY` (the constant single value) |
 
-The composite case in the bottom-right cell produces a single audit
-line with the composite reason — NOT two separate lines (FR-006b
-last sentence).
+`template_category` is NOT consulted by the determination rule —
+it is captured verbatim on every audit-log `k=v` payload (FR-009d)
+for diagnostic visibility but does not participate in the
+flag-or-demote decision.
 
 ### 5.4 `EventName` — closed enumeration
 
@@ -493,7 +501,7 @@ interactions:
 | `Project`          | Transitively via `IntegratedAgent.objects.filter(project__uuid=...)`                        | None                                         | None          |
 | `IntegratedAgent`  | `IntegratedAgent.objects.filter(project__uuid=..., templates__versions__integrations_app_uuid=...).distinct()`; transitively `agent.uuid`, `agent.project.uuid` on the audit-log emission. | None                                         | None          |
 | `Template`         | `integrated_agent.templates.select_related("current_version").filter(name=...).first()`; transitively `template.uuid` on the audit-log emission. | None                                         | None          |
-| `Version`          | `template.current_version` (status, uuid) via `select_related`; `versions__integrations_app_uuid` on the IntegratedAgent fan-out queryset. | Two write targets, mutually exclusive per request and per Version: (a) `version.status = "FLAGGED"; version.save(update_fields=["status"])` — fires when `version.status != "FLAGGED"` AND the FR-006 flagging condition is true (FR-007 / FR-007b). (b) `version.status = "APPROVED"; version.save(update_fields=["status"])` — fires when `version.status == "FLAGGED"` AND the FR-006 flagging condition is false (auto-demote, FR-006c / FR-007d). Exactly one column on one row per matched Template per request. | None          |
+| `Version`          | `template.current_version` (status, uuid) via `select_related`; `versions__integrations_app_uuid` on the IntegratedAgent fan-out queryset. | Two write targets, mutually exclusive per request and per Version: (a) `version.status = "FLAGGED"; version.save(update_fields=["status"])` — fires when `version.status != "FLAGGED"` AND the FR-006 single-field flagging condition is true (`template_correct_category != "UTILITY"`; FR-007 / FR-007b). (b) `version.status = "APPROVED"; version.save(update_fields=["status"])` — fires when `version.status == "FLAGGED"` AND the FR-006 flagging condition is false (`template_correct_category == "UTILITY"`; auto-demote, FR-006c / FR-007d). `template_category` is captured for audit only and does NOT participate in either gate (Clarifications session 2026-05-25 Q3). Exactly one column on one row per matched Template per request. | None          |
 
 **Migration count**: 0.
 **New constraint count**: 0.
