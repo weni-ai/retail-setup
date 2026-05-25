@@ -59,12 +59,18 @@ The technical approach (resolved in `./research.md`) is:
    template-creation time by
    `retail.templates.usecases._base_template_creator._create_version`
    (Decision 2 / `data-model.md §2`).
-4. **Idempotency** is achieved by a single early-return guard inside
-   the use case: when the matched `Version.status == "FLAGGED"`
-   already, the use case emits the `flag_replay_noop` (flagging
-   condition) or `no_action_required_already_flagged` (non-flagging
-   condition) audit line and skips the `UPDATE` — no dedup cache, no
-   distributed lock (FR-007c, FR-008, FR-008a; Decision 5).
+4. **Idempotency** is achieved by a two-path dispatch inside the
+   use case: when the matched `Version.status == "FLAGGED"`
+   already, the use case branches on the FR-006 flagging condition
+   — (a) condition true → emit `flag_replay_noop` and skip the
+   `UPDATE` (replay of an existing flag); (b) condition false → call
+   `_demote_version` to write `status = "APPROVED"` and emit
+   `auto_demoted` (the corrected-category recovery channel per
+   FR-006c / FR-007c clause (b) / FR-007d). The same convergence
+   property holds in the reverse direction: replays of the
+   corrected-category payload against a Version already in
+   `APPROVED` follow the `no_action_required` path (FR-006 no-fire).
+   No dedup cache, no distributed lock (FR-008a; Decision 5).
 5. **Cross-tenant isolation** is enforced at the SQL level: the
    IntegratedAgent queryset filters on BOTH `project.uuid == payload.project_uuid`
    AND a join through `templates.versions` with
@@ -153,14 +159,23 @@ URL namespace).
   verifies the end-to-end behavior: webhook fires → `FLAGGED`
   written → next order-status webhook for the same template is
   skipped.
-- **No demote path (FR-014)**: This webhook ONLY transitions
-  `* → FLAGGED`. The reverse (`FLAGGED → APPROVED`) remains
-  operator-driven via the existing `UpdateTemplateUseCase` at
-  `retail/templates/usecases/update_template.py:46-64`. No new
-  endpoint, no automatic demote on a subsequent webhook with
-  `template_category == template_correct_category == "UTILITY"`
-  (the `no_action_required_already_flagged` path is a no-op, not a
-  demote — FR-014 + US2 AS2).
+- **Two convergent demote channels (FR-014, post-2026-05-25)**:
+  This webhook transitions `* → FLAGGED` on the flag branch
+  (FR-007) and `FLAGGED → APPROVED` on the auto-demote branch
+  (FR-006c / FR-007d) when a corrected-category payload
+  (`template_category == template_correct_category == "UTILITY"`)
+  arrives for an already-`FLAGGED` Version. The operator-driven
+  `UpdateTemplateUseCase` at
+  `retail/templates/usecases/update_template.py:46-64` remains
+  available as a second, manual recovery channel. Both channels
+  converge on `Version.status = "APPROVED"` via a single-row
+  `UPDATE`, never change the Template's `current_version` pointer
+  (FR-007a preserved on the demote write), and never create a new
+  Version row. Auto-demote fires regardless of how the prior
+  `FLAGGED` was originally set, per Assumption A11 — operators
+  needing a non-recoverable broadcast block should use a different
+  `Version.status` value (e.g. `PAUSED` or `REJECTED`) which is
+  NOT affected by this webhook.
 - **Audit log shape pinned to `[DirectSendCategoryWebhook] <event_name>: <k=v> ...` (FR-009)**:
   The closed enumeration of `event_name` tokens is the contract
   surface for operator dashboards (FR-009a). New tokens MAY be added
@@ -286,12 +301,17 @@ Every new code branch will be exercised by tests in the same PR
 - **Use case tests** (`test_direct_send_category.py` in
   `retail/webhooks/templates/tests/usecases/`): cover all 10 event-name
   branches from FR-009a (`received`, `flagged` ×3 reasons,
-  `flag_replay_noop`, `no_action_required`,
-  `no_action_required_already_flagged`, `no_matching_integrated_agent`,
-  `template_not_found`, `template_has_no_current_version`,
-  `completed`, `unexpected_error`). The flagging-condition truth
-  table (FR-006) is pinned by four parametrized scenarios covering
-  the four (match / mismatch) × (UTILITY / non-UTILITY) cells.
+  `flag_replay_noop`, `no_action_required`, `auto_demoted`,
+  `no_matching_integrated_agent`, `template_not_found`,
+  `template_has_no_current_version`, `completed`, `unexpected_error`).
+  The flagging-condition truth table (FR-006) is pinned by four
+  parametrized scenarios covering the four (match / mismatch) ×
+  (UTILITY / non-UTILITY) cells; the auto-demote branch is pinned
+  by a scenario that pre-seeds the Version as `FLAGGED` and fires
+  the `UTILITY/UTILITY` payload, asserting the Version is rewritten
+  to `APPROVED` and the audit line is `auto_demoted` with
+  `previous_status=FLAGGED new_status=APPROVED` and no `reason`
+  key.
 - **View tests** (`test_direct_send_category.py` in
   `retail/webhooks/templates/tests/views/`): cover the HTTP 200 /
   400 / 401 / 500 boundary (FR-010, FR-010a, FR-010b). The

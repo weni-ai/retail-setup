@@ -20,56 +20,84 @@ DTO, one result DTO, and two private helper enums).
 
 ---
 
-## 1. `Version.status` — single-row UPDATE to `"FLAGGED"`
+## 1. `Version.status` — bidirectional single-row UPDATE
 
 **File**: `retail/templates/models.py` (read-only context — no
 schema change ships against this model).
 
 ### Schema change
 
-**None.** The `FLAGGED` value is already a member of
-`Version.STATUS_CHOICES` (`retail/templates/models.py:48-59`,
-shipped by spec 002's migration
-`templates.0017_alter_version_status_paused_flagged`). This feature
-adds no value to the enum, adds no field to the model, and adds no
-index / constraint to the table.
+**None.** Both target values (`FLAGGED` and `APPROVED`) are already
+members of `Version.STATUS_CHOICES` (`retail/templates/models.py:48-59`;
+`FLAGGED` was added by spec 002's migration
+`templates.0017_alter_version_status_paused_flagged`, `APPROVED` is
+the long-standing default). This feature adds no value to the enum,
+adds no field to the model, and adds no index / constraint to the
+table.
 
-### Write site
+### Write sites
 
-There is exactly one write site for this feature, inside the use
-case `DirectSendCategoryWebhookUseCase` (see `plan.md` §Source Code):
+There are exactly two write sites for this feature, both inside the
+use case `DirectSendCategoryWebhookUseCase` (see `plan.md` §Source
+Code):
 
 ```python
-# DirectSendCategoryWebhookUseCase._flag_version (illustrative — final shape lives in
-# retail/webhooks/templates/usecases/direct_send_category.py)
+# (a) DirectSendCategoryWebhookUseCase._flag_version
+#     — fires on the flag branch (FR-007).
 version.status = "FLAGGED"
+version.save(update_fields=["status"])
+
+# (b) DirectSendCategoryWebhookUseCase._demote_version
+#     — fires on the auto-demote branch (FR-006c / FR-007d).
+version.status = "APPROVED"
 version.save(update_fields=["status"])
 ```
 
-- **Read pre-condition**: `version.status != "FLAGGED"` (the
-  early-return guard for `version.status == "FLAGGED"` skips the
-  UPDATE per FR-007c / Decision 5).
-- **Write post-condition**: `templates_version.status = 'FLAGGED'`
-  on exactly one row.
+Both call sites share the same mechanics (single-column write,
+`update_fields=["status"]` mandatory, no `@transaction.atomic` wrap)
+and differ only in the target value and the audit-log event name
+(`flagged` vs `auto_demoted`).
+
+- **Flag branch pre-condition**: `version.status != "FLAGGED"`
+  AND the FR-006 flagging condition is true. The early-return guard
+  for `version.status == "FLAGGED"` routes to the auto-demote
+  dispatcher (clause below) instead of re-issuing the UPDATE.
+- **Auto-demote branch pre-condition**: `version.status == "FLAGGED"`
+  AND the FR-006 flagging condition is **false** (corrected-category
+  signal — `template_category == template_correct_category == "UTILITY"`).
+  This is the inverse of the flag pre-condition, and is the only
+  path by which this webhook writes a non-`"FLAGGED"` status value.
+- **Write post-conditions**:
+  - Flag branch: `templates_version.status = 'FLAGGED'` on exactly
+    one row.
+  - Auto-demote branch: `templates_version.status = 'APPROVED'` on
+    exactly one row.
 - **Transaction boundary**: implicit per-statement transaction
   (Django default). No `@transaction.atomic` block wraps the use
   case (Decision 8). The multi-IntegratedAgent fan-out (US1
   scenario 4) issues N independent UPDATEs in sequence; one
   IntegratedAgent's failure does not roll back the others.
+  Heterogeneous fan-outs (e.g. one IA flagged + one IA demoted in
+  the same request) issue the two writes against two independent
+  rows — no cross-row invariant to preserve.
 - **Row identification**: the Version row is identified via
   `template.current_version` after the Template is matched by
   `(integrated_agent, name)`. The use case never queries `Version`
   directly by primary key; it always navigates through the
   Template's `current_version` OneToOne FK
   (`retail/templates/models.py:15-21`).
-- **Update scope**: `update_fields=["status"]` is mandatory — the
-  intent is "transition status, nothing else". Omitting
-  `update_fields` would force Django to compare all 7 columns on
-  the Version row against the in-memory snapshot, which is wasted
-  work and risks accidentally writing a stale field if another
-  transaction modified the row between the read and the save (the
-  one-second window between `template = .select_related(...).first()`
-  and `version.save()`).
+- **Update scope**: `update_fields=["status"]` is mandatory on
+  both branches — the intent is "transition status, nothing else".
+  Omitting `update_fields` would force Django to compare all 7
+  columns on the Version row against the in-memory snapshot, which
+  is wasted work and risks accidentally writing a stale field if
+  another transaction modified the row between the read and the
+  save (the one-second window between
+  `template = .select_related(...).first()` and `version.save()`).
+- **`current_version` pointer**: NEITHER write changes the
+  Template's `current_version` FK (FR-007a is explicit on the flag
+  branch and applies symmetrically to the demote branch — see
+  spec.md FR-007d last sentence).
 - **Side effects**: none. No Django signal fires on `Version.save`
   in the current codebase (verified by `Grep` on `post_save.*Version`
   / `pre_save.*Version` — returns zero hits inside the
@@ -340,11 +368,12 @@ class DirectSendCategoryResult:
         }
 ```
 
-**Counters semantics**:
+**Counters semantics** (per the FR-010 amendment — direction-agnostic
+counter):
 
 | Counter                       | Increment rule                                                                                                                          |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `templates_updated`           | Incremented once per Version whose `status` is transitioned from any other value to `"FLAGGED"` by this request. Replays (`flag_replay_noop`) and no-action paths (`no_action_required`, `no_action_required_already_flagged`) do NOT increment. |
+| `templates_updated`           | Incremented once per Version whose `status` is written by this request, regardless of direction — `+1` for each `flagged` event (`* → "FLAGGED"` write per FR-007) and `+1` for each `auto_demoted` event (`"FLAGGED" → "APPROVED"` write per FR-007d). Replays and no-action paths do NOT increment: `flag_replay_noop` and `no_action_required` are pure observations and issue no `Version.save`. Operators distinguish the two write directions via the audit-log `event_name` token, NOT via the counter. |
 | `integrated_agents_inspected` | Equals the size of the fan-out queryset (Decision 2's `.distinct()` count). On the `no_matching_integrated_agent` path the counter is `0` and the response body still includes both keys with value `0`. |
 
 **`detail` shape**:
@@ -352,22 +381,37 @@ class DirectSendCategoryResult:
 The `detail` string is a short human-readable summary keyed off the
 dominant outcome. The closed enumeration is:
 
-- `"Templates flagged."` — at least one Version transitioned.
+- `"Templates flagged."` — at least one Version was transitioned
+  to `"FLAGGED"` and all observed outcomes belong to the flag
+  family (`flagged`, `flag_replay_noop`).
+- `"Auto-demoted."` — at least one Version was transitioned from
+  `"FLAGGED"` to `"APPROVED"` (FR-006c / FR-007d) and all observed
+  outcomes belong to the demote-or-no-op family (`auto_demoted`,
+  `no_action_required`).
 - `"Already flagged."` — every matched Version was already
-  `FLAGGED` (every line emitted `flag_replay_noop` or
-  `no_action_required_already_flagged`).
+  `FLAGGED` AND the payload was a flagging payload (every line
+  emitted `flag_replay_noop`); no write occurred.
 - `"No action required."` — every matched IntegratedAgent's
   Template passed the flagging condition without firing
-  (`template_category == template_correct_category == "UTILITY"`).
+  (`template_category == template_correct_category == "UTILITY"`)
+  AND no Version was in `"FLAGGED"` (so the auto-demote branch
+  did not fire either).
 - `"No matching IntegratedAgent."` — the fan-out queryset returned
   zero IntegratedAgents (FR-004b).
 - `"Template not found."` — every matched IntegratedAgent had no
   Template named `template_name` (every line emitted
-  `template_not_found`).
+  `template_not_found`) or the matched Template had no
+  `current_version` (`template_has_no_current_version` per FR-005a).
 - `"Mixed outcomes."` — the fan-out across multiple
   IntegratedAgents produced more than one of the above outcomes.
-  This is the multi-IntegratedAgent fan-out case (US1 scenario 4)
-  where IA-1 flagged successfully but IA-2 had no Template.
+  Examples: (a) IA-1 flagged but IA-2 had no Template
+  (US1 scenario 4 variant); (b) IA-1's `APPROVED` Version followed
+  the `no_action_required` path while IA-2's `FLAGGED` Version was
+  auto-demoted under the same `UTILITY/UTILITY` payload (the
+  heterogeneous-status fan-out case from `spec.md §Edge Cases`).
+  Any time the per-IA outcome set has cardinality > 1, this is the
+  result; operators consult the per-IA audit-log lines for the
+  breakdown.
 
 The closed enumeration is operator-facing context; operator
 dashboards filter on the structured audit-log `event_name` token
@@ -421,7 +465,7 @@ class EventName(str, Enum):
     FLAGGED = "flagged"
     FLAG_REPLAY_NOOP = "flag_replay_noop"
     NO_ACTION_REQUIRED = "no_action_required"
-    NO_ACTION_REQUIRED_ALREADY_FLAGGED = "no_action_required_already_flagged"
+    AUTO_DEMOTED = "auto_demoted"
     NO_MATCHING_INTEGRATED_AGENT = "no_matching_integrated_agent"
     TEMPLATE_NOT_FOUND = "template_not_found"
     TEMPLATE_HAS_NO_CURRENT_VERSION = "template_has_no_current_version"
@@ -449,7 +493,7 @@ interactions:
 | `Project`          | Transitively via `IntegratedAgent.objects.filter(project__uuid=...)`                        | None                                         | None          |
 | `IntegratedAgent`  | `IntegratedAgent.objects.filter(project__uuid=..., templates__versions__integrations_app_uuid=...).distinct()`; transitively `agent.uuid`, `agent.project.uuid` on the audit-log emission. | None                                         | None          |
 | `Template`         | `integrated_agent.templates.select_related("current_version").filter(name=...).first()`; transitively `template.uuid` on the audit-log emission. | None                                         | None          |
-| `Version`          | `template.current_version` (status, uuid) via `select_related`; `versions__integrations_app_uuid` on the IntegratedAgent fan-out queryset. | `version.status = "FLAGGED"; version.save(update_fields=["status"])` — exactly one column on one row per matched Template, conditional on `version.status != "FLAGGED"` (early-return guard per FR-007c). | None          |
+| `Version`          | `template.current_version` (status, uuid) via `select_related`; `versions__integrations_app_uuid` on the IntegratedAgent fan-out queryset. | Two write targets, mutually exclusive per request and per Version: (a) `version.status = "FLAGGED"; version.save(update_fields=["status"])` — fires when `version.status != "FLAGGED"` AND the FR-006 flagging condition is true (FR-007 / FR-007b). (b) `version.status = "APPROVED"; version.save(update_fields=["status"])` — fires when `version.status == "FLAGGED"` AND the FR-006 flagging condition is false (auto-demote, FR-006c / FR-007d). Exactly one column on one row per matched Template per request. | None          |
 
 **Migration count**: 0.
 **New constraint count**: 0.
