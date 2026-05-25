@@ -71,7 +71,7 @@ class EventName(str, Enum):
     FLAGGED = "flagged"
     FLAG_REPLAY_NOOP = "flag_replay_noop"
     NO_ACTION_REQUIRED = "no_action_required"
-    NO_ACTION_REQUIRED_ALREADY_FLAGGED = "no_action_required_already_flagged"
+    AUTO_DEMOTED = "auto_demoted"
     NO_MATCHING_INTEGRATED_AGENT = "no_matching_integrated_agent"
     TEMPLATE_NOT_FOUND = "template_not_found"
     TEMPLATE_HAS_NO_CURRENT_VERSION = "template_has_no_current_version"
@@ -91,12 +91,13 @@ class DirectSendCategoryWebhookUseCase:
 
     _UTILITY_CATEGORY = "UTILITY"
     _FLAGGED_STATUS = "FLAGGED"
+    _APPROVED_STATUS = "APPROVED"
 
     _OUTCOME_TO_DETAIL = {
         "flagged": "Templates flagged.",
         "no_action_required": "No action required.",
         "flag_replay_noop": "Already flagged.",
-        "no_action_required_already_flagged": "Already flagged.",
+        "auto_demoted": "Auto-demoted.",
         "template_not_found": "Template not found.",
         "template_has_no_current_version": "Template not found.",
     }
@@ -118,7 +119,7 @@ class DirectSendCategoryWebhookUseCase:
                 return result
 
             inspected = 0
-            flagged = 0
+            templates_updated = 0
             outcomes: list[str] = []
             for integrated_agent in integrated_agents:
                 inspected += 1
@@ -138,24 +139,21 @@ class DirectSendCategoryWebhookUseCase:
                 flagging_condition_met = self._evaluate_flagging_condition(dto)
 
                 if version.status == self._FLAGGED_STATUS:
-                    self._handle_already_flagged(
-                        version,
-                        template,
-                        integrated_agent,
-                        dto,
-                        flagging_condition_met=flagging_condition_met,
-                    )
-                    outcomes.append(
-                        "flag_replay_noop"
-                        if flagging_condition_met
-                        else "no_action_required_already_flagged"
-                    )
+                    if flagging_condition_met:
+                        self._emit_flag_replay_noop(
+                            integrated_agent, template, version, dto
+                        )
+                        outcomes.append("flag_replay_noop")
+                    else:
+                        self._demote_version(version, template, integrated_agent, dto)
+                        templates_updated += 1
+                        outcomes.append("auto_demoted")
                     continue
 
                 if flagging_condition_met:
                     reason = self._determine_flagging_reason(dto)
                     self._flag_version(version, template, integrated_agent, dto, reason)
-                    flagged += 1
+                    templates_updated += 1
                     outcomes.append("flagged")
                 else:
                     self._emit_no_action_required(
@@ -164,7 +162,7 @@ class DirectSendCategoryWebhookUseCase:
                     outcomes.append("no_action_required")
 
             result = DirectSendCategoryResult(
-                templates_updated=flagged,
+                templates_updated=templates_updated,
                 integrated_agents_inspected=inspected,
                 detail=self._determine_detail(outcomes),
             )
@@ -218,31 +216,30 @@ class DirectSendCategoryWebhookUseCase:
             integrated_agent, template, version, dto, previous_status, reason
         )
 
-    def _handle_already_flagged(
+    def _demote_version(
         self,
         version,
         template,
         integrated_agent: IntegratedAgent,
         dto: DirectSendCategoryDTO,
-        flagging_condition_met: bool,
     ) -> None:
-        """Dispatch the replay-time audit line without re-issuing the UPDATE.
+        """Write the corrected-category recovery transition.
 
-        FR-007c / FR-008 require that a Version whose ``status`` is
-        already ``"FLAGGED"`` is observed and recorded without a
-        redundant write. The two replay tokens differ only in which
-        flagging condition the replay payload would have evaluated to:
-        ``flag_replay_noop`` when the condition fires (a true replay of
-        the original flag), ``no_action_required_already_flagged`` when
-        the payload would not have flagged a fresh Version (FR-014
-        "never demoted" — the existing FLAGGED state wins).
+        FR-006c / FR-007c clause (b) / FR-007d: when the matched
+        Version is already ``"FLAGGED"`` AND the FR-006 flagging
+        condition is false (the corrected-category signal —
+        ``template_category == template_correct_category == "UTILITY"``),
+        the webhook writes ``status = "APPROVED"`` and emits
+        ``auto_demoted``. The Template's ``current_version`` pointer
+        is NOT changed (FR-007a applies symmetrically to the demote
+        branch — only the status string is updated).
         """
-        if flagging_condition_met:
-            self._emit_flag_replay_noop(integrated_agent, template, version, dto)
-        else:
-            self._emit_no_action_required_already_flagged(
-                integrated_agent, template, version, dto
-            )
+        previous_status = version.status
+        version.status = self._APPROVED_STATUS
+        version.save(update_fields=["status"])
+        self._emit_auto_demoted(
+            integrated_agent, template, version, dto, previous_status
+        )
 
     def _determine_detail(self, outcomes: list) -> str:
         groups = {self._OUTCOME_TO_DETAIL[outcome] for outcome in outcomes}
@@ -352,15 +349,16 @@ class DirectSendCategoryWebhookUseCase:
             previous_status=version.status,
         )
 
-    def _emit_no_action_required_already_flagged(
+    def _emit_auto_demoted(
         self,
         integrated_agent: IntegratedAgent,
         template,
         version,
         dto: DirectSendCategoryDTO,
+        previous_status: str,
     ) -> None:
         self._emit(
-            EventName.NO_ACTION_REQUIRED_ALREADY_FLAGGED,
+            EventName.AUTO_DEMOTED,
             logging.INFO,
             project_uuid=dto.project_uuid,
             app_uuid=dto.app_uuid,
@@ -370,7 +368,8 @@ class DirectSendCategoryWebhookUseCase:
             integrated_agent_uuid=integrated_agent.uuid,
             template_uuid=template.uuid,
             version_uuid=version.uuid,
-            previous_status=version.status,
+            previous_status=previous_status,
+            new_status=self._APPROVED_STATUS,
         )
 
     def _emit_no_matching_integrated_agent(self, dto: DirectSendCategoryDTO) -> None:

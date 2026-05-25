@@ -245,33 +245,45 @@ an extra query.
 
 ## Decision 5 — Idempotency without a dedup cache
 
-**Decision**: Idempotency is achieved purely by the early-return
-guard inside the use case:
+**Decision**: Idempotency is achieved purely by the two-path
+dispatch inside the use case:
 
 ```python
 if template.current_version.status == "FLAGGED":
     if flagging_condition_fires:
+        # Replay of an existing flag — no write, observation only.
         self._emit_flag_replay_noop(...)
+        return
     else:
-        self._emit_no_action_required_already_flagged(...)
-    return  # no UPDATE
+        # Corrected-category recovery — the only path that writes
+        # APPROVED (FR-006c / FR-007d).
+        self._demote_version(...)  # writes "APPROVED", emits auto_demoted
+        return
 ```
 
 No dedup cache (Redis SETNX or LocMemCache wrapper) is introduced
-for this webhook.
+for this webhook. The demote write is itself idempotent: a re-fire
+of the `UTILITY/UTILITY` payload against the post-demote
+`APPROVED` Version short-circuits through `no_action_required`
+(FR-006 no-fire) because FR-006c requires `status == "FLAGGED"` to
+trigger the demote.
 
 **Rationale**:
 
-- FR-007c / FR-008 / FR-008a are explicit: the early-return guard
+- FR-007c / FR-008 / FR-008a are explicit: the two-path dispatch
   is the sole idempotency mechanism. The webhook is the producer of
-  `FLAGGED`-state writes, and the underlying write is a single-row
+  both `FLAGGED`-state writes (flag branch) and `APPROVED`-state
+  writes (auto-demote branch); each underlying write is a single-row
   `UPDATE` against `Version.status` — concurrency is handled by
   Postgres' implicit row-level UPDATE lock under Django's default
   per-statement transaction model (READ COMMITTED isolation does
   not by itself serialize transactions, but the per-row exclusive
   lock taken by `UPDATE` is sufficient for this single-column
-  write); both concurrent calls converge on the same final state
-  without application-level coordination.
+  write). Concurrent calls converge on the same final state without
+  application-level coordination — in either direction, the
+  late-arriving call observes the written value and routes through
+  the appropriate replay branch (`flag_replay_noop` after the flag
+  write, `no_action_required` after the demote write).
 - A dedup cache would have to be invalidated when the operator
   later restores the template to `APPROVED` via
   `UpdateTemplateUseCase` (FR-014's recovery channel). Without the
@@ -305,9 +317,14 @@ for this webhook.
 - *Use `Version.objects.filter(...).update(status="FLAGGED")`
   unconditionally* (no early-return — let Postgres do the no-op
   write): rejected because the audit log would lose the
-  `flag_replay_noop` / `no_action_required_already_flagged`
+  `flag_replay_noop` / `auto_demoted` / `no_action_required`
   distinction (every call would log `flagged`), and operators would
-  have no way to distinguish a real state transition from a replay.
+  have no way to distinguish a fresh flag from a replay, nor a
+  corrected-category demote from either. The audit-log
+  discriminator is the contract surface for operator dashboards
+  (FR-009a); the dispatch logic exists primarily to populate it
+  correctly, with the "no redundant UPDATE" optimization a
+  secondary benefit.
 
 ---
 
@@ -638,10 +655,13 @@ own PR.
 - **Dispatch-gate logic in
   `Broadcast.get_current_template`**: FR-013 — out of scope.
   Already implemented by spec 002.
-- **Automated `FLAGGED → APPROVED` demote**: FR-014 — out of scope.
-  Operator-driven recovery via `UpdateTemplateUseCase` remains the
-  only supported channel until / unless a future feature
-  introduces an automated demote webhook.
+- **Automated `FLAGGED → APPROVED` demote**: in scope as of the
+  2026-05-25 spec clarification. FR-006c / FR-007d / FR-014 now
+  define an auto-demote channel that fires on a corrected-category
+  payload (`template_category == template_correct_category == "UTILITY"`)
+  against a Version already in `"FLAGGED"`. Operator-driven recovery
+  via `UpdateTemplateUseCase` remains supported as a second,
+  manual channel (FR-014 documents the two as convergent).
 - **A new dedup cache for this webhook**: rejected by Decision 5 —
   the early-return guard is the v1 idempotency mechanism.
 - **A new database migration**: rejected by spec.md A10 — the

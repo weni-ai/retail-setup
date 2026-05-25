@@ -130,11 +130,12 @@ two counters computed by the use case.
 | Two IntegratedAgents both flagged for the same template (US1 scenario 4).                     | `2`                 | `2`                           | `"Templates flagged."`                |
 | Replay: matched Version is already `FLAGGED`, flagging condition fires.                       | `0`                 | `1`                           | `"Already flagged."`                  |
 | Non-flagging payload, matched Version is `APPROVED` (US1 scenario 3 / FR-006 no-fire case).   | `0`                 | `1`                           | `"No action required."`               |
-| Non-flagging payload, matched Version is already `FLAGGED` (US2 AS2).                         | `0`                 | `1`                           | `"Already flagged."`                  |
+| Non-flagging payload, matched Version is already `FLAGGED` (US2 AS2 — auto-demote per FR-006c / FR-007d). | `1`                 | `1`                           | `"Auto-demoted."`                     |
+| Non-flagging payload re-fired against a Version already `APPROVED` (post-demote settling — FR-008 last clause). | `0`                 | `1`                           | `"No action required."`               |
 | The fan-out queryset returned zero IntegratedAgents (FR-004b / US3 scenario 1).              | `0`                 | `0`                           | `"No matching IntegratedAgent."`      |
 | One IntegratedAgent matched but had no Template named `template_name` (FR-005 / US3 scenario 2). | `0`                 | `1`                           | `"Template not found."`              |
 | Matched Template has no `current_version` (FR-005a / US3 scenario 3).                         | `0`                 | `1`                           | `"Template not found."` *             |
-| Multiple IntegratedAgents with mixed outcomes (e.g. IA-1 flagged, IA-2 had no Template).      | `≥1`                | `≥2`                          | `"Mixed outcomes."`                   |
+| Multiple IntegratedAgents with mixed outcomes (e.g. IA-1 flagged, IA-2 had no Template; or IA-1 `no_action_required` + IA-2 `auto_demoted`). | `≥1`                | `≥2`                          | `"Mixed outcomes."`                   |
 
 \* The `template_has_no_current_version` audit event is a
 defensively-handled inconsistent state; the response `detail`
@@ -214,19 +215,34 @@ FR-005 / FR-005a.
 
 The webhook is idempotent at the Version level (FR-008).
 
-- **Same payload retry**: the early-return guard
-  (`if version.status == "FLAGGED"`) skips the UPDATE; the audit
-  log records `flag_replay_noop` (if flagging condition fires) or
-  `no_action_required_already_flagged` (if not). The response is
-  HTTP 200 with the same shape (`templates_updated=0` because no
-  transition occurred).
+- **Same flagging-payload retry against a Version already `FLAGGED`**:
+  the dispatcher routes to `flag_replay_noop` — no `Version.save`,
+  audit line `flag_replay_noop`, response shape
+  `templates_updated=0`, `detail="Already flagged."`.
+- **Corrected-category payload (`UTILITY/UTILITY`) against a Version
+  already `FLAGGED`** (FR-006c / FR-007d): the dispatcher routes to
+  the auto-demote branch — writes `status="APPROVED"`, audit line
+  `auto_demoted` with `previous_status=FLAGGED new_status=APPROVED`,
+  response shape `templates_updated=1`, `detail="Auto-demoted."`.
+  The dispatch gate from spec 002's `Broadcast.get_current_template`
+  re-admits the template on the next broadcast attempt with no
+  operator action required.
+- **Corrected-category payload re-fired against a Version already
+  `APPROVED`** (post-demote settling): the FR-006 flagging
+  condition is false AND the Version is not `FLAGGED`, so the
+  dispatcher routes to `no_action_required` — no `Version.save`,
+  audit line `no_action_required`, response shape
+  `templates_updated=0`, `detail="No action required."` This
+  convergence is required by FR-008 last clause.
 - **Concurrent same-payload calls**: Django's default transaction
-  isolation serializes the UPDATEs. Both calls converge on
-  `FLAGGED`; one call observes `version.status != "FLAGGED"`
-  during its read and issues the UPDATE, while the second call
-  observes `version.status == "FLAGGED"` and routes through the
-  early-return. The audit log records one `flagged` entry and one
-  `flag_replay_noop` entry.
+  isolation serializes the UPDATEs. For a flagging payload against
+  an `APPROVED` Version, both calls converge on `FLAGGED` — one
+  call observes `APPROVED` and issues the UPDATE, the other
+  observes `FLAGGED` and routes through `flag_replay_noop`. The
+  audit log records one `flagged` entry and one `flag_replay_noop`
+  entry. Symmetric convergence holds for a corrected-category
+  payload against a `FLAGGED` Version (one `auto_demoted`, one
+  `no_action_required`).
 - **Replay window**: unbounded. There is no dedup cache, no
   sliding-window suppression. The upstream courier (per spec.md
   US2) MAY replay events hours / days later; Retail observes the
@@ -291,7 +307,7 @@ spec.md Edge Cases row 9).
 [DirectSendCategoryWebhook] completed: project_uuid=11111111-... app_uuid=22222222-... template_name=weni_order_invoiced templates_updated=1 integrated_agents_inspected=1
 ```
 
-### 6.2 Replay — Version already FLAGGED (US2 scenario 1)
+### 6.2 Flagging-payload replay — Version already FLAGGED (US2 scenario 1)
 
 Same request as 6.1, fired a second time.
 
@@ -312,6 +328,48 @@ Same request as 6.1, fired a second time.
 [DirectSendCategoryWebhook] flag_replay_noop: project_uuid=... app_uuid=... template_name=... template_category=MARKETING template_correct_category=MARKETING integrated_agent_uuid=... template_uuid=... version_uuid=... previous_status=FLAGGED
 [DirectSendCategoryWebhook] completed: project_uuid=... app_uuid=... template_name=... templates_updated=0 integrated_agents_inspected=1
 ```
+
+### 6.2a Auto-demote — corrected-category replay against a FLAGGED Version (US2 AS2 / FR-006c)
+
+After 6.1 has flipped the Version to `FLAGGED`, the operator fixes
+the template content on the Meta side so the category is now
+`UTILITY`. Integrations re-fires the webhook with the corrected
+payload:
+
+**Request**:
+
+```json
+{
+  "project_uuid":              "11111111-1111-1111-1111-111111111111",
+  "app_uuid":                  "22222222-2222-2222-2222-222222222222",
+  "template_name":             "weni_order_invoiced",
+  "template_category":         "UTILITY",
+  "template_correct_category": "UTILITY"
+}
+```
+
+**Response**: `HTTP 200`
+
+```json
+{
+  "detail":                       "Auto-demoted.",
+  "templates_updated":            1,
+  "integrated_agents_inspected":  1
+}
+```
+
+**Audit log**:
+
+```text
+[DirectSendCategoryWebhook] received: ...
+[DirectSendCategoryWebhook] auto_demoted: project_uuid=... app_uuid=... template_name=... template_category=UTILITY template_correct_category=UTILITY integrated_agent_uuid=... template_uuid=... version_uuid=... previous_status=FLAGGED new_status=APPROVED
+[DirectSendCategoryWebhook] completed: project_uuid=... app_uuid=... template_name=... templates_updated=1 integrated_agents_inspected=1
+```
+
+A second invocation with the same `UTILITY/UTILITY` payload (now
+against the post-demote `APPROVED` Version) routes through the
+`no_action_required` path: HTTP 200, `templates_updated=0`,
+`detail="No action required."`, audit line `no_action_required`.
 
 ### 6.3 No-action — UTILITY/UTILITY (US1 scenario 3)
 

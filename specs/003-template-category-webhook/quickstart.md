@@ -194,15 +194,86 @@ The `previous_status=FLAGGED` field on the `flag_replay_noop` line
 is the operator-facing signal that the row was already in the
 target state before the request. This satisfies spec.md SC-004
 ("when the same payload is replayed N times … the database
-receives exactly one `UPDATE` against `Version.status`").
+receives exactly one `UPDATE` against `Version.status`"). For the
+bidirectional case — replays of a corrected-category payload
+against the same `FLAGGED` Version, which auto-demote the Version
+to `APPROVED` per FR-006c / FR-007d — see §5.1 below.
 
 ---
 
-## 6. Restore the template (out-of-scope recovery, FR-014)
+## 5.1 Fire the webhook with a corrected-category payload — auto-demote (US2 AS2 / FR-006c / FR-007d)
 
-A `FLAGGED → APPROVED` demote is NOT automated by this feature.
-The operator uses the existing internal `update_template` endpoint
-to restore the template:
+After §5 leaves the Version in `FLAGGED`, the operator fixes the
+template content on the Meta side so Meta now classifies it as
+`UTILITY`. Integrations re-fires the webhook with the corrected
+payload:
+
+```bash
+curl -X POST "$BASE_URL/webhook/templates-status/api/category-notification/" \
+  -H "Authorization: Bearer $INTERNAL_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-raw '{
+    "project_uuid":              "11111111-1111-1111-1111-111111111111",
+    "app_uuid":                  "22222222-2222-2222-2222-222222222222",
+    "template_name":             "weni_order_invoiced",
+    "template_category":         "UTILITY",
+    "template_correct_category": "UTILITY"
+  }'
+```
+
+### Expected outcome
+
+- **HTTP status**: `200 OK`.
+- **Response body**:
+  ```json
+  {
+    "detail":                       "Auto-demoted.",
+    "templates_updated":            1,
+    "integrated_agents_inspected":  1
+  }
+  ```
+- **Database side effect**: exactly one `UPDATE` against
+  `templates_version.status` for the matched Version row; new
+  value `"APPROVED"`. The Template's `current_version` FK is
+  unchanged (FR-007a preserved on the demote branch).
+- **Audit log** (INFO level for `received` / `auto_demoted` / `completed`):
+  ```text
+  [DirectSendCategoryWebhook] received: project_uuid=11111111-... app_uuid=22222222-... template_name=weni_order_invoiced template_category=UTILITY template_correct_category=UTILITY
+  [DirectSendCategoryWebhook] auto_demoted: project_uuid=11111111-... app_uuid=22222222-... template_name=weni_order_invoiced template_category=UTILITY template_correct_category=UTILITY integrated_agent_uuid=33333333-... template_uuid=44444444-... version_uuid=55555555-... previous_status=FLAGGED new_status=APPROVED
+  [DirectSendCategoryWebhook] completed: project_uuid=11111111-... app_uuid=22222222-... template_name=weni_order_invoiced templates_updated=1 integrated_agents_inspected=1
+  ```
+
+### Post-flight verification
+
+Re-run the pre-flight shell snippet from §2. The output now reads:
+
+```text
+agent=33333333-... template=44444444-... version=55555555-... status=APPROVED
+```
+
+The dispatch gate from spec 002's `Broadcast.get_current_template`
+immediately re-admits the template on the next order-status
+broadcast attempt — no operator action required. Firing the same
+`UTILITY/UTILITY` payload a third time (now against the
+`APPROVED` Version) routes through the `no_action_required` path:
+HTTP 200, `templates_updated=0`, `detail="No action required."`,
+audit line `no_action_required`. This is the FR-008 last-clause
+convergence behavior.
+
+---
+
+## 6. Operator-driven recovery channel (FR-014 second channel)
+
+A `FLAGGED → APPROVED` demote has **two** supported channels per
+FR-014: (a) the auto-demote channel walked through in §5.1
+(`UTILITY/UTILITY` payload against a `FLAGGED` Version), and (b)
+the operator-driven channel documented here. The operator channel
+remains useful when the recovery is initiated by Retail's own
+operator rather than by an upstream Meta-side determination — for
+example, restoring a template that was manually `FLAGGED` via
+`UpdateTemplateUseCase` for reasons unrelated to category
+mismatch (per Assumption A11). The operator uses the existing
+internal `update_template` endpoint to restore the template:
 
 ```bash
 curl -X PATCH "$BASE_URL/api/templates/update/" \
@@ -433,15 +504,16 @@ two counters appear on (a) the HTTP 200 response body and (b) the
 
 ## 11. Mapping back to spec
 
-| Quickstart step          | Spec scenario           | FR / SC                        |
-| ------------------------ | ----------------------- | ------------------------------ |
-| §3 (flag firing)         | US1 scenario 1          | FR-001, FR-006, FR-007, SC-001 |
-| §4 (dispatch skipped)    | US1 + spec 002          | FR-013, SC-002                 |
-| §5 (replay)              | US2 scenario 1          | FR-007c, FR-008, SC-004        |
-| §6 (restoration)         | FR-014 recovery channel | FR-014                         |
-| §7.1 (misrouted app)     | US3 scenario 1          | FR-004, FR-004b, FR-009a       |
-| §7.2 (misrouted template) | US3 scenario 2         | FR-005                          |
-| §7.3 (malformed payload) | Edge Case row 1         | FR-003, FR-010a                |
-| §8 (cross-tenant drill)  | Edge Case row 9         | FR-004, SC-006                  |
-| §9 (rollback)            | Out-of-scope safety net | (no FR — operator runbook)     |
-| §10 (SQL parity checks)  | Out-of-band ops         | SC-001, SC-005, SC-006         |
+| Quickstart step           | Spec scenario                       | FR / SC                                |
+| ------------------------- | ----------------------------------- | -------------------------------------- |
+| §3 (flag firing)          | US1 scenario 1                      | FR-001, FR-006, FR-007, SC-001         |
+| §4 (dispatch skipped)     | US1 + spec 002                      | FR-013, SC-002                         |
+| §5 (flag replay)          | US2 scenario 1                      | FR-007c, FR-008, SC-004                |
+| §5.1 (auto-demote replay) | US2 AS2                             | FR-006c, FR-007c, FR-007d, FR-008, FR-014 |
+| §6 (operator restoration) | FR-014 operator-driven channel      | FR-014                                 |
+| §7.1 (misrouted app)      | US3 scenario 1                      | FR-004, FR-004b, FR-009a               |
+| §7.2 (misrouted template) | US3 scenario 2                      | FR-005                                 |
+| §7.3 (malformed payload)  | Edge Case row 1                     | FR-003, FR-010a                        |
+| §8 (cross-tenant drill)   | Edge Case row 9                     | FR-004, SC-006                         |
+| §9 (rollback)             | Out-of-scope safety net             | (no FR — operator runbook)             |
+| §10 (SQL parity checks)   | Out-of-band ops                     | SC-001, SC-005, SC-006                 |

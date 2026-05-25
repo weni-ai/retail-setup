@@ -58,7 +58,18 @@ EXPECTED_KEYS_BY_EVENT = {
     },
     EventName.NO_ACTION_REQUIRED.value: _NO_WRITE_OUTCOME_KEYS,
     EventName.FLAG_REPLAY_NOOP.value: _NO_WRITE_OUTCOME_KEYS,
-    EventName.NO_ACTION_REQUIRED_ALREADY_FLAGGED.value: _NO_WRITE_OUTCOME_KEYS,
+    EventName.AUTO_DEMOTED.value: {
+        "project_uuid",
+        "app_uuid",
+        "template_name",
+        "template_category",
+        "template_correct_category",
+        "integrated_agent_uuid",
+        "template_uuid",
+        "version_uuid",
+        "previous_status",
+        "new_status",
+    },
     EventName.COMPLETED.value: {
         "project_uuid",
         "app_uuid",
@@ -492,8 +503,13 @@ class IdempotentReplayWithFlaggingPayloadTest(_AlreadyFlaggedTestBase):
         self.assertEqual(replay.args["previous_status"], "FLAGGED")
 
 
-class IdempotentReplayWithNonFlaggingPayloadTest(_AlreadyFlaggedTestBase):
-    def test_replay_emits_no_action_required_already_flagged_and_skips_save(self):
+class AutoDemoteOnCorrectedCategoryTest(_AlreadyFlaggedTestBase):
+    """FR-006c / FR-007c clause (b) / FR-007d: when the Version is
+    already ``FLAGGED`` AND the FR-006 flagging condition is false
+    (the corrected-category signal — ``UTILITY/UTILITY``), the webhook
+    writes ``status="APPROVED"`` and emits ``auto_demoted``."""
+
+    def test_corrected_category_payload_demotes_flagged_version_to_approved(self):
         with _VersionSaveSpy() as save_spy:
             dto = self._build_dto(
                 template_category="UTILITY",
@@ -506,26 +522,76 @@ class IdempotentReplayWithNonFlaggingPayloadTest(_AlreadyFlaggedTestBase):
                 result = self.usecase.execute(dto)
 
         self.version.refresh_from_db()
-        self.assertEqual(self.version.status, "FLAGGED")
-        self.assertEqual(save_spy.call_count, 0)
-        self.assertEqual(result.templates_updated, 0)
+        self.assertEqual(self.version.status, "APPROVED")
+        self.assertEqual(save_spy.call_count, 1)
+        self.assertEqual(save_spy.last_call_kwargs.get("update_fields"), ["status"])
+        self.assertEqual(result.templates_updated, 1)
         self.assertEqual(result.integrated_agents_inspected, 1)
-        self.assertEqual(result.detail, "Already flagged.")
+        self.assertEqual(result.detail, "Auto-demoted.")
 
         events = _records_by_event(log_ctx.records)
-        self.assertIn("no_action_required_already_flagged", events)
+        self.assertIn("auto_demoted", events)
         self.assertNotIn("flagged", events)
         self.assertNotIn("no_action_required", events)
+        self.assertNotIn("flag_replay_noop", events)
 
-        replay = events["no_action_required_already_flagged"][0]
-        self.assertEqual(replay.levelno, logging.INFO)
+        demoted = events["auto_demoted"][0]
+        self.assertEqual(demoted.levelno, logging.INFO)
         self.assertEqual(
-            set(replay.args.keys()),
-            EXPECTED_KEYS_BY_EVENT[EventName.NO_ACTION_REQUIRED_ALREADY_FLAGGED.value],
+            set(demoted.args.keys()),
+            EXPECTED_KEYS_BY_EVENT[EventName.AUTO_DEMOTED.value],
         )
-        self.assertNotIn("new_status", replay.args)
-        self.assertNotIn("reason", replay.args)
-        self.assertEqual(replay.args["previous_status"], "FLAGGED")
+        self.assertNotIn("reason", demoted.args)
+        self.assertEqual(demoted.args["previous_status"], "FLAGGED")
+        self.assertEqual(demoted.args["new_status"], "APPROVED")
+
+    def test_auto_demote_preserves_template_current_version_pointer(self):
+        original_current_version_id = self.template.current_version_id
+
+        dto = self._build_dto(
+            template_category="UTILITY",
+            template_correct_category="UTILITY",
+        )
+        self.usecase.execute(dto)
+
+        self.template.refresh_from_db()
+        self.assertEqual(self.template.current_version_id, original_current_version_id)
+
+
+class AutoDemoteSettlesIntoNoActionRequiredTest(_AlreadyFlaggedTestBase):
+    """FR-008 last clause: after a corrected-category payload demotes a
+    ``FLAGGED`` Version to ``APPROVED``, re-firing the same payload
+    settles into ``no_action_required`` instead of writing again."""
+
+    def test_consecutive_corrected_category_calls_converge_to_no_action_required(self):
+        dto = self._build_dto(
+            template_category="UTILITY",
+            template_correct_category="UTILITY",
+        )
+
+        with _VersionSaveSpy() as save_spy:
+            with self.assertLogs(
+                "retail.webhooks.templates.usecases.direct_send_category",
+                level="INFO",
+            ) as log_ctx:
+                first_result = self.usecase.execute(dto)
+                second_result = self.usecase.execute(dto)
+
+        self.version.refresh_from_db()
+        self.assertEqual(self.version.status, "APPROVED")
+        self.assertEqual(save_spy.call_count, 1)
+        self.assertEqual(save_spy.last_call_kwargs.get("update_fields"), ["status"])
+
+        self.assertEqual(first_result.templates_updated, 1)
+        self.assertEqual(first_result.detail, "Auto-demoted.")
+        self.assertEqual(second_result.templates_updated, 0)
+        self.assertEqual(second_result.detail, "No action required.")
+
+        events = _records_by_event(log_ctx.records)
+        self.assertEqual(len(events["auto_demoted"]), 1)
+        self.assertEqual(len(events["no_action_required"]), 1)
+        self.assertEqual(len(events["received"]), 2)
+        self.assertEqual(len(events["completed"]), 2)
 
 
 class ConsecutiveCallsConvergeIdempotentlyTest(_UseCaseTestBase):

@@ -190,9 +190,13 @@ class DirectSendCategoryWebhookViewTest(BaseTestMixin, APITestCase):
 
 @with_test_settings
 class DirectSendCategoryWebhookReplayTest(BaseTestMixin, APITestCase):
-    """Pins FR-014 + SC-004: posting the same payload twice converges on
+    """Pins the bidirectional FR-008 idempotency contract via the HTTP
+    boundary: (a) firing the same flagging payload twice converges on
     ``FLAGGED`` with exactly one underlying write and an
-    ``"Already flagged."`` response on the replay."""
+    ``"Already flagged."`` response on the replay (SC-004);
+    (b) firing a corrected-category payload against an already
+    ``FLAGGED`` Version auto-demotes to ``APPROVED`` per FR-006c /
+    FR-007d."""
 
     URL_NAME = "direct-send-category-webhook"
     TEMPLATE_NAME = "weni_order_invoiced"
@@ -213,16 +217,18 @@ class DirectSendCategoryWebhookReplayTest(BaseTestMixin, APITestCase):
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
-    def _payload(self):
-        return {
+    def _payload(self, **overrides):
+        payload = {
             "project_uuid": str(self.project.uuid),
             "app_uuid": str(self.app_uuid),
             "template_name": self.TEMPLATE_NAME,
             "template_category": "MARKETING",
             "template_correct_category": "MARKETING",
         }
+        payload.update(overrides)
+        return payload
 
-    def test_second_post_returns_already_flagged_without_rewriting_version(self):
+    def test_flag_replay_with_same_payload_is_noop(self):
         with patch.object(
             Version, "save", autospec=True, side_effect=Version.save
         ) as save_mock:
@@ -249,15 +255,40 @@ class DirectSendCategoryWebhookReplayTest(BaseTestMixin, APITestCase):
             },
         )
 
-        flagging_saves = [
+        status_saves = [
             call
             for call in save_mock.call_args_list
             if call.kwargs.get("update_fields") == ["status"]
         ]
-        self.assertEqual(len(flagging_saves), 1)
+        self.assertEqual(len(status_saves), 1)
 
         self.version.refresh_from_db()
         self.assertEqual(self.version.status, "FLAGGED")
+
+    def test_corrected_category_replay_auto_demotes_to_approved(self):
+        Version.objects.filter(pk=self.version.pk).update(status="FLAGGED")
+
+        response = self.client.post(
+            self.url,
+            self._payload(
+                template_category="UTILITY",
+                template_correct_category="UTILITY",
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "detail": "Auto-demoted.",
+                "templates_updated": 1,
+                "integrated_agents_inspected": 1,
+            },
+        )
+
+        self.version.refresh_from_db()
+        self.assertEqual(self.version.status, "APPROVED")
 
 
 @with_test_settings
