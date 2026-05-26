@@ -29,3 +29,8 @@ class MetaClientInterface(Protocol):
 
     def publish_flow(self, flow_id: str) -> Dict[str, Any]:
         ...
+
+    def submit_template_sample(
+        self, waba_id: str, sample_body: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        ...
