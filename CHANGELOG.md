@@ -1,3 +1,6 @@
+# 5.24.1
+- fix: Make One-Click Payment Meta Flow name unique per channel
+
 # 5.24.0
 - feat: Adds One-Click Payment configuration to WPP Cloud onboarding
 - feat: Adds One-Click Payment agent with wpp_flow_uuid credential
