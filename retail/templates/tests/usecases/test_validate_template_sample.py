@@ -11,14 +11,15 @@ US1 acceptance properties:
 """
 
 import logging
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from django.test import TestCase, override_settings
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_management.models import Agent
-from retail.projects.models import Project, ProjectOnboarding
+from retail.interfaces.services.integrations import IntegrationsServiceInterface
+from retail.projects.models import Project
 from retail.templates.exceptions import (
     NotDirectSendEligibleError,
 )
@@ -48,23 +49,20 @@ _WABA_ID = "987654321"
     META_SYSTEM_USER_ACCESS_TOKEN="test-token",
 )
 class _UseCaseTestBase(TestCase):
-    """Shared fixtures: Direct Send-eligible Template + ProjectOnboarding."""
+    """Shared fixtures: Direct Send-eligible Template + mocked integrations.
+
+    Per the 2026-05-26 clarification (FR-005a / A2), the use case now
+    resolves the WABA id via ``IntegrationsService.get_channel_app(
+    "wpp-cloud", app_uuid)`` instead of reading a local ``ProjectOnboarding``
+    row. Tests inject a ``MagicMock(spec=IntegrationsServiceInterface)``
+    whose ``get_channel_app`` returns the canonical
+    ``{"config": {"waba": {"id": _WABA_ID}}}`` shape (Phase 3b).
+    """
 
     def setUp(self):
         super().setUp()
         self.project = Project.objects.create(
             uuid=uuid4(), name="Test Project"
-        )
-        ProjectOnboarding.objects.create(
-            project=self.project,
-            vtex_account=f"test-{self.project.uuid}",
-            config={
-                "channels": {
-                    "wpp-cloud": {
-                        "channel_data": {"waba_id": _WABA_ID}
-                    }
-                }
-            },
         )
         self.agent = Agent.objects.create(
             project=self.project,
@@ -94,9 +92,14 @@ class _UseCaseTestBase(TestCase):
         self.metadata_handler._upload_header_image.return_value = (
             "https://bucket.s3.amazonaws.com/uploaded.png"
         )
+        self.integrations_service = MagicMock(spec=IntegrationsServiceInterface)
+        self.integrations_service.get_channel_app.return_value = {
+            "config": {"waba": {"id": _WABA_ID}}
+        }
         self.use_case = ValidateTemplateSampleUseCase(
             meta_service=self.meta_service,
             metadata_handler=self.metadata_handler,
+            integrations_service=self.integrations_service,
         )
 
     def _build_dto(self, **overrides) -> ValidateTemplateSampleDTO:
@@ -156,6 +159,10 @@ class HappyPathUtilityBodyOnlyTest(_UseCaseTestBase):
         self.assertEqual(call_args.args[0], _WABA_ID)
         self.assertEqual(call_args.args[1]["type"], "text")
 
+        self.integrations_service.get_channel_app.assert_called_once_with(
+            "wpp-cloud", dto.app_uuid
+        )
+
     def _event_of(self, record: logging.LogRecord) -> str:
         message = record.getMessage()
         prefix, _, rest = message.partition(":")
@@ -192,6 +199,9 @@ class HappyPathUtilityCtaUrlTextHeaderTest(_UseCaseTestBase):
         persisted_buttons = self.template.metadata.get("buttons") or []
         self.assertEqual(len(persisted_buttons), 1)
         self.assertEqual(persisted_buttons[0]["type"], "URL")
+        self.integrations_service.get_channel_app.assert_called_once_with(
+            "wpp-cloud", dto.app_uuid
+        )
 
 
 class HappyPathUtilityImageHeaderTest(_UseCaseTestBase):
@@ -213,6 +223,9 @@ class HappyPathUtilityImageHeaderTest(_UseCaseTestBase):
         self.meta_service.submit_template_sample.assert_called_once()
         wire_body = self.meta_service.submit_template_sample.call_args.args[1]
         self.assertEqual(wire_body["type"], "text")
+        self.integrations_service.get_channel_app.assert_called_once_with(
+            "wpp-cloud", dto.app_uuid
+        )
 
     def test_image_base64_header_routes_resolved_url_into_interactive_header(self):
         self.metadata_handler._upload_header_image.return_value = (
@@ -240,6 +253,9 @@ class HappyPathUtilityImageHeaderTest(_UseCaseTestBase):
             wire_body["interactive"]["header"]["image"]["link"],
             "https://bucket.s3.amazonaws.com/uploaded.png",
         )
+        self.integrations_service.get_channel_app.assert_called_once_with(
+            "wpp-cloud", dto.app_uuid
+        )
 
 
 class HappyPathReplyButtonsTest(_UseCaseTestBase):
@@ -263,6 +279,9 @@ class HappyPathReplyButtonsTest(_UseCaseTestBase):
         buttons = wire_body["interactive"]["action"]["buttons"]
         self.assertEqual(buttons[0]["reply"]["id"], "yes")
         self.assertEqual(buttons[1]["reply"]["id"], "no")
+        self.integrations_service.get_channel_app.assert_called_once_with(
+            "wpp-cloud", dto.app_uuid
+        )
 
 
 class NonUtilityNoLocalUpdateTest(_UseCaseTestBase):
@@ -274,6 +293,10 @@ class NonUtilityNoLocalUpdateTest(_UseCaseTestBase):
         for category in self.NON_UTILITY_CATEGORIES:
             with self.subTest(category=category):
                 self.meta_service.reset_mock()
+                self.integrations_service.reset_mock()
+                self.integrations_service.get_channel_app.return_value = {
+                    "config": {"waba": {"id": _WABA_ID}}
+                }
                 self.template.refresh_from_db()
                 pre_metadata = dict(self.template.metadata)
                 pre_current_version = self.template.current_version
@@ -301,6 +324,10 @@ class NonUtilityNoLocalUpdateTest(_UseCaseTestBase):
                 for record in log_ctx.records:
                     self.assertEqual(record.levelno, logging.INFO)
 
+                self.integrations_service.get_channel_app.assert_called_once_with(
+                    "wpp-cloud", dto.app_uuid
+                )
+
 
 class ByteIdenticalResubmissionTest(_UseCaseTestBase):
     """T017 (h) — byte-identical content still calls Meta and writes a new Version."""
@@ -326,6 +353,9 @@ class ByteIdenticalResubmissionTest(_UseCaseTestBase):
         result = self.use_case.execute(dto)
 
         self.meta_service.submit_template_sample.assert_called_once()
+        self.integrations_service.get_channel_app.assert_called_once_with(
+            "wpp-cloud", dto.app_uuid
+        )
         self.template.refresh_from_db()
         self.assertTrue(result.template_updated)
         self.assertNotEqual(self.template.current_version_id, existing_version.id)
@@ -351,6 +381,9 @@ class BlockedProjectStillProcessesTest(_UseCaseTestBase):
         self.template.refresh_from_db()
         self.assertTrue(result.template_updated)
         self.assertEqual(self.template.current_version.status, "APPROVED")
+        self.integrations_service.get_channel_app.assert_called_once_with(
+            "wpp-cloud", dto.app_uuid
+        )
 
 
 class DirectSendEligibilityGateTest(_UseCaseTestBase):
@@ -378,3 +411,35 @@ class DirectSendEligibilityGateTest(_UseCaseTestBase):
             self.use_case.execute(dto)
 
         self.meta_service.submit_template_sample.assert_not_called()
+
+
+class ZeroProjectOnboardingQueryRegressionTest(_UseCaseTestBase):
+    """T036 step 3 — pin that ``ProjectOnboarding`` is never read.
+
+    Per the 2026-05-26 clarification + data-model.md §3, the WABA-id
+    resolution flows exclusively through
+    ``IntegrationsService.get_channel_app(...)``. A regression that
+    re-introduces a ``ProjectOnboarding.objects.*`` read would silently
+    degrade the SC-008 / FR-005a guarantee that the integrations engine
+    is the sole authoritative source for channel-app state.
+    """
+
+    def test_utility_request_never_reads_project_onboarding(self):
+        self.meta_service.submit_template_sample.return_value = {
+            "success": True,
+            "category": "UTILITY",
+        }
+        dto = self._build_dto()
+
+        with patch(
+            "retail.projects.models.ProjectOnboarding.objects",
+            new=MagicMock(),
+        ) as mock_objects:
+            self.use_case.execute(dto)
+
+        mock_objects.filter.assert_not_called()
+        mock_objects.get.assert_not_called()
+        mock_objects.all.assert_not_called()
+        self.integrations_service.get_channel_app.assert_called_once_with(
+            "wpp-cloud", dto.app_uuid
+        )

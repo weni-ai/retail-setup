@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 from rest_framework.exceptions import NotFound
 
 from retail.clients.exceptions import CustomAPIException
+from retail.interfaces.services.integrations import IntegrationsServiceInterface
 from retail.interfaces.services.meta import MetaServiceInterface
 from retail.templates.adapters.direct_send_sample_translator import (
     build_meta_sample_body,
@@ -166,18 +167,22 @@ class ValidateTemplateSampleUseCase:
     _IMAGE_HEADER_PROTOCOLS = ("http://", "https://")
     _BASE64_DATA_URI_PREFIX = "data:"
     _APPROVED_VERSION_STATUS = "APPROVED"
+    _WPP_CLOUD_APPTYPE = "wpp-cloud"
 
     def __init__(
         self,
         meta_service: Optional[MetaServiceInterface] = None,
         strategy: Optional[UpdateNormalTemplateStrategy] = None,
         metadata_handler: Optional[TemplateMetadataHandler] = None,
+        integrations_service: Optional[IntegrationsServiceInterface] = None,
     ):
+        from retail.services.integrations.service import IntegrationsService
         from retail.services.meta.service import MetaService
 
         self.meta_service = meta_service or MetaService()
         self.strategy = strategy or UpdateNormalTemplateStrategy()
         self.metadata_handler = metadata_handler or TemplateMetadataHandler()
+        self.integrations_service = integrations_service or IntegrationsService()
 
     def execute(
         self, dto: ValidateTemplateSampleDTO
@@ -186,7 +191,7 @@ class ValidateTemplateSampleUseCase:
 
         template = self._load_template(dto.template_uuid)
         self._gate_on_direct_send_eligibility(template)
-        waba_id = self._resolve_waba_id(dto.project_uuid)
+        waba_id = self._resolve_waba_id(dto.project_uuid, dto.app_uuid)
 
         sample_body, sample_type = self._build_sample_body(dto)
         self._emit_meta_sample_submitted(dto, waba_id, sample_type)
@@ -248,37 +253,34 @@ class ValidateTemplateSampleUseCase:
             f"Template {template.uuid} is not Direct Send-eligible"
         )
 
-    def _resolve_waba_id(self, project_uuid: str) -> str:
-        """FR-005a — resolve the project's WABA id from onboarding config.
+    def _resolve_waba_id(self, project_uuid: str, app_uuid: str) -> str:
+        """FR-005a / A2 — resolve the project's WABA id via integrations.
 
-        Four failure modes collapse to a single ``WabaNotConfiguredError``
-        (``data-model.md`` §3): missing ``ProjectOnboarding`` row,
-        missing ``channels.wpp-cloud`` sub-config, missing
-        ``channel_data.waba_id`` field, empty-string value. Operator
-        observability is preserved by the ``waba_not_configured``
-        audit-log event.
+        Calls ``IntegrationsService.get_channel_app("wpp-cloud", app_uuid)``
+        and reads ``app["config"]["waba"]["id"]`` — the same field path
+        ``ConfigureOneClickPaymentUseCase._fetch_channel_info`` consumes
+        at ``retail/projects/usecases/configure_one_click_payment.py:192``.
+        Three failure modes collapse to a single ``WabaNotConfiguredError``
+        per Q3-2026-05-26: (a) integrations infra failure (service returns
+        ``None`` after swallowing ``CustomAPIException``), (b) no app for
+        the supplied ``app_uuid`` (also ``None`` under the swallow
+        contract), (c) app exists but ``config["waba"]["id"]`` is missing
+        / empty. The audit-log ``integrations_response_present`` boolean
+        discriminates (a) / (b) from (c).
         """
-        from retail.projects.models import ProjectOnboarding
-
-        onboarding = ProjectOnboarding.objects.filter(
-            project__uuid=project_uuid
-        ).first()
-        waba_id = self._extract_waba_id_from_onboarding(onboarding)
+        app = self.integrations_service.get_channel_app(
+            self._WPP_CLOUD_APPTYPE, app_uuid
+        )
+        waba_id = ((app or {}).get("config") or {}).get("waba", {}).get("id")
         if waba_id:
             return waba_id
 
-        self._emit_waba_not_configured(project_uuid)
+        self._emit_waba_not_configured(
+            project_uuid, app_uuid, integrations_response_present=bool(app)
+        )
         raise WabaNotConfiguredError(
             f"WABA not configured for project {project_uuid}"
         )
-
-    def _extract_waba_id_from_onboarding(self, onboarding) -> Optional[str]:
-        if onboarding is None:
-            return None
-        channels = (onboarding.config or {}).get("channels") or {}
-        wpp_cloud = channels.get("wpp-cloud") or {}
-        channel_data = wpp_cloud.get("channel_data") or {}
-        return channel_data.get("waba_id") or None
 
     def _build_sample_body(
         self, dto: ValidateTemplateSampleDTO
@@ -573,11 +575,18 @@ class ValidateTemplateSampleUseCase:
             meta_response=meta_response,
         )
 
-    def _emit_waba_not_configured(self, project_uuid: str) -> None:
+    def _emit_waba_not_configured(
+        self,
+        project_uuid: str,
+        app_uuid: str,
+        integrations_response_present: bool,
+    ) -> None:
         self._emit(
             EventName.WABA_NOT_CONFIGURED,
             logging.WARNING,
             project_uuid=project_uuid,
+            app_uuid=app_uuid,
+            integrations_response_present=integrations_response_present,
         )
 
     def _emit_not_direct_send_eligible(
