@@ -237,10 +237,11 @@ class ConfigureOneClickPaymentUseCase:
     def _create_meta_flow(
         self, waba_id: str, channel_uuid: str, endpoint_uri: str
     ) -> Dict[str, Any]:
+        flow_name = self._build_flow_name(channel_uuid)
         try:
             flow = self.meta_service.create_flow(
                 waba_id=waba_id,
-                name=settings.PAYMENT_FLOW_NAME,
+                name=flow_name,
                 categories=PAYMENT_FLOW_CATEGORIES,
                 endpoint_uri=endpoint_uri,
                 flow_json=build_payment_flow_json(),
@@ -248,7 +249,7 @@ class ConfigureOneClickPaymentUseCase:
         except CustomAPIException as exc:
             raise OneClickPaymentConfigError(
                 f"Failed to create Meta Flow for waba_id={waba_id} "
-                f"channel_uuid={channel_uuid}: {exc}"
+                f"channel_uuid={channel_uuid} name={flow_name}: {exc}"
             ) from exc
 
         if not flow or not flow.get("id"):
@@ -258,6 +259,19 @@ class ConfigureOneClickPaymentUseCase:
             )
 
         return flow
+
+    @staticmethod
+    def _build_flow_name(channel_uuid: str) -> str:
+        """Builds a unique Flow name per channel.
+
+        Meta requires Flow names to be unique inside a WABA, so we
+        derive the name from ``settings.PAYMENT_FLOW_NAME`` + the
+        first segment of ``channel_uuid``. Using the channel uuid
+        (instead of a timestamp) keeps the name deterministic, so
+        retries always target the same Flow.
+        """
+        suffix = channel_uuid.split("-", 1)[0]
+        return f"{settings.PAYMENT_FLOW_NAME}_{suffix}"
 
     def _publish_flow(self, flow_id: str) -> None:
         try:

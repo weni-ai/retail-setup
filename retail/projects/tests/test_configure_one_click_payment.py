@@ -100,9 +100,12 @@ class TestConfigureOneClickPaymentUseCase(TestCase):
         self.mock_meta_service.register_public_key.assert_called_once_with(
             phone_number_id="phone-1", public_key_pem="-----PUB-----"
         )
+        expected_flow_name = (
+            f"payment_confirmation_flow_{self.flow_object_uuid.split('-', 1)[0]}"
+        )
         self.mock_meta_service.create_flow.assert_called_once_with(
             waba_id="waba-1",
-            name="payment_confirmation_flow",
+            name=expected_flow_name,
             categories=PAYMENT_FLOW_CATEGORIES,
             endpoint_uri=(
                 f"https://payment.test/v1/channels/{self.flow_object_uuid}"
