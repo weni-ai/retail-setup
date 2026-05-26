@@ -277,8 +277,16 @@ deterministically from `button.text`:
 2. strip non-alphanumeric to underscore: "ver detalhes" → "ver_detalhes"
 3. collapse consecutive underscores: "ver__detalhes" → "ver_detalhes"
 4. strip leading/trailing underscores: "_ver_detalhes_" → "ver_detalhes"
-5. truncate to a safe cap (e.g. 256 chars; Meta's exact cap is
-   undocumented in the beta docs, 256 is well below any plausible limit)
+5. truncate to 64 chars — the conservative bound aligned with
+   WhatsApp Cloud's documented `button.reply.id` 256-character cap
+   for production messages (the beta docs do not pin the cap for
+   sample submissions; 64 chars leaves headroom for the
+   positional-suffix tiebreaker in step 6 and keeps logs / dashboards
+   tidy). Reference: WhatsApp Cloud API "Interactive Reply Buttons"
+   docs (https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-message-templates)
+   — `parameters[].type=payload` carries the same identity surface
+   for production sends, capped at 256 chars; we choose 64 as the
+   internal safe value.
 6. on duplicate-within-payload: append _2, _3, ... positional suffix
 ```
 

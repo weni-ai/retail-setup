@@ -719,3 +719,74 @@ On HTTP 4xx / 5xx error responses the body shape differs (FR-007b
   (new categories, additional metadata) and embedding the raw
   body under one key isolates Retail's wrapper from Meta-side
   schema drift.
+
+---
+
+## Decision 11 — `Project-Uuid` header MUST equal body `project_uuid`
+
+**Decision**: The new `ValidateTemplateSampleSerializer` enforces
+`request.headers["Project-Uuid"] == validated_data["project_uuid"]`
+via a `validate_project_uuid` method. Mismatch surfaces as a
+field-level serializer error and the view translates it to
+HTTP 400 with body
+`{"detail": "Project-Uuid header does not match body project_uuid",
+"error_code": "project_uuid_mismatch"}` per FR-002b / FR-007f.
+The view also emits a WARNING-level audit-log line
+`[TemplateSampleValidation] project_uuid_mismatch:
+header_project_uuid=<a> body_project_uuid=<b> template_uuid=<uuid>`
+per FR-008a / FR-008b.
+
+**Rationale**:
+
+- `HasProjectPermission` (`retail/internal/permissions.py:67`)
+  authorizes against the `Project-Uuid` HTTP header.
+- The use case's FR-005a WABA-id resolution uses
+  `dto.project_uuid` from the request body.
+- Without the equality check, an operator authorized for project A
+  can submit a body with `project_uuid = B` and route the Meta
+  sample call to project B's WABA — a SC-008 cross-tenant
+  isolation violation. The legacy `PATCH /api/v3/templates/<uuid>/`
+  endpoint inherits the same theoretical vector but predates the
+  guarantee; the new endpoint closes it at the serializer layer.
+- The check runs at the serializer layer (not the use case)
+  because (a) it has nothing to do with domain rules (it's a
+  request-shape integrity check), (b) failing it before any DB
+  lookup / Meta call saves quota and latency on a definitely-bad
+  request, and (c) DRF's serializer-validation idiom already
+  emits field-level errors that the frontend knows how to render.
+  The view passes `context={"request": request}` so the
+  serializer can read `request.headers["Project-Uuid"]`.
+- The check is free (one string comparison) and adds zero new
+  permission classes, zero new domain exceptions, and zero new
+  layers — it's a single `validate_project_uuid` method on the
+  serializer.
+
+**Alternatives considered**:
+
+- *Add the check to the use case alongside FR-002a*: rejected
+  because by the time the use case runs, a DB read for the
+  Template has already happened (the Template load is the first
+  thing the use case does). Adding the check at the serializer
+  layer fails fast and keeps the use case focused on domain
+  rules.
+- *Introduce a new permission class
+  `ProjectUuidHeaderMatchesBody`*: rejected because permission
+  classes run BEFORE the serializer parses the body, so they
+  don't have `validated_data["project_uuid"]` in hand. Reading
+  the raw request body inside a permission class to peek at
+  `project_uuid` would re-parse JSON and couple the permission to
+  the request format — a layering inversion.
+- *Trust the body's `project_uuid` and use the header only for
+  `HasProjectPermission`*: rejected because the legacy PATCH
+  endpoint inherits this exact gap and SC-008 demands the new
+  endpoint structurally prevents cross-tenant leaks.
+- *Use only the body's `project_uuid` and ignore the header for
+  authorization*: rejected because `HasProjectPermission` is the
+  cross-cutting authentication idiom across the project — the
+  header IS the trust source on every other authenticated
+  endpoint, and breaking that convention here would create an
+  inconsistent permission model across the codebase.
+- *Make the check optional (warn-and-allow)*: rejected because the
+  point is to structurally prevent the leak, not just observe it.
+  A warn-and-allow check is a security finding waiting to happen
+  the moment an operator mis-clicks.

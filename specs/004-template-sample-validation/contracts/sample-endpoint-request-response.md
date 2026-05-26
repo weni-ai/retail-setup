@@ -94,6 +94,7 @@ it sends to the legacy `PATCH` endpoint.
 | ≤ 1 `URL`-type button (FR-003a)                             | DRF default field-level error                                                                                                     |
 | ≤ 3 `QUICK_REPLY`-type buttons (FR-003a)                    | DRF default field-level error                                                                                                     |
 | No mixing `URL` + `QUICK_REPLY` types in a single payload (FR-003a) | DRF default field-level error                                                                                                     |
+| `Project-Uuid` header MUST equal body `project_uuid` (FR-002b — SC-008 cross-tenant isolation) | `{"detail": "Project-Uuid header does not match body project_uuid", "error_code": "project_uuid_mismatch"}` (HTTP 400) |
 | `template_uuid` path param resolves to a real Template      | DRF default `NotFound` → HTTP 404                                                                                                  |
 
 ---
@@ -225,6 +226,23 @@ Fires when:
 - `template.integrated_agent.config.get("direct_send", False)` is
   `False` / missing (legacy IntegratedAgent assigned before the
   Direct Send rollout).
+
+### Project-Uuid header / body project_uuid mismatch (FR-007f / FR-002b)
+
+```jsonc
+{
+  "detail": "Project-Uuid header does not match body project_uuid",
+  "error_code": "project_uuid_mismatch"
+}
+```
+
+Fires when the `Project-Uuid` HTTP header (the trust source for
+`HasProjectPermission`) does not equal the `project_uuid` field in
+the request body (the source used by FR-005a for WABA resolution).
+The check runs at the serializer layer BEFORE any DB lookup or
+Meta call. This is the SC-008 cross-tenant isolation guard — an
+operator authorized for project A cannot route a sample call to
+project B's WABA.
 
 ### WABA not configured for project (FR-007d / FR-005a)
 

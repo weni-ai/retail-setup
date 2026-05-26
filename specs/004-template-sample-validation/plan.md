@@ -41,10 +41,15 @@ The technical approach (resolved in `./research.md`) is:
    view is thin — it validates input via a new
    `ValidateTemplateSampleSerializer` (a literal subclass of
    `UpdateTemplateContentSerializer` that adds the FR-003a length
-   caps + button-mode disjointness check), builds a frozen
-   `ValidateTemplateSampleDTO` (`@dataclass(frozen=True)`), delegates
-   to the use case, and returns the HTTP response (Constitution
-   Principle I — Views layer; FR-001 / FR-002 / FR-003 / FR-003a).
+   caps + button-mode disjointness check, AND the FR-002b
+   `Project-Uuid` header ↔ body `project_uuid` equality check),
+   builds a frozen `ValidateTemplateSampleDTO`
+   (`@dataclass(frozen=True)`), delegates to the use case, and
+   returns the HTTP response (Constitution Principle I — Views
+   layer; FR-001 / FR-002 / FR-002b / FR-003 / FR-003a). The view
+   instantiates the serializer with
+   `context={"request": request}` so the serializer can read
+   `request.headers["Project-Uuid"]` per FR-002b.
 2. **New use case** `ValidateTemplateSampleUseCase` lives under
    `retail/templates/usecases/validate_template_sample.py`. It owns
    the orchestration: load the Template by uuid with
@@ -213,6 +218,24 @@ namespace).
 
 **Constraints**:
 
+- **Zero migrations gate (FR-010)**: PR-time verification runs
+  `poetry run python manage.py makemigrations --check --dry-run`;
+  exit code MUST be 0. Any non-zero exit means the PR
+  accidentally introduced a schema change and is blocked. This is
+  added to the polish phase as task T031b alongside the existing
+  lint + coverage gates.
+- **Cross-tenant isolation gate (SC-008, FR-002b)**: The
+  serializer-layer FR-002b check refuses any request whose
+  `Project-Uuid` HTTP header does not equal the body's
+  `project_uuid`. `HasProjectPermission` authorizes against the
+  header, and the use case's WABA resolution uses the body's
+  `project_uuid` — without the equality check, an operator
+  authorized for project A could route a Meta sample call to
+  project B's WABA. The check runs at the serializer layer (no DB
+  lookup, no Meta call), surfaces as HTTP 400 with
+  `error_code = "project_uuid_mismatch"`, and emits a WARNING-level
+  audit-log line `[TemplateSampleValidation] project_uuid_mismatch:
+  header_project_uuid=<a> body_project_uuid=<b> ...`.
 - **Backward compatibility — existing `PATCH /api/v3/templates/<uuid>/` untouched (FR-011, FR-014)**:
   The legacy endpoint continues to operate exactly as today after
   the strategy refactor in point 4 above. The refactor extracts
@@ -375,6 +398,14 @@ design. Reference: `.specify/memory/constitution.md` (v1.0.0).*
   user allowed to access this template". The distinction matches
   the Constitution Principle I separation: domain rules live in
   the use case; permission rules live on the view.
+- The new FR-002b serializer-layer check (`Project-Uuid` header
+  must equal body `project_uuid`) is ALSO not an authorization
+  check — it is a tenant-coherence check on the request payload,
+  enforced by a `validate_project_uuid` method on
+  `ValidateTemplateSampleSerializer`. Authorization remains on the
+  view via `permission_classes`. Per Constitution Principle I,
+  request-level data validation belongs in the serializer; this
+  check is in the right layer.
 - Both permission classes inherit (transitively or directly) from
   `BasePermission`, so the existing `&` / `|` composition is
   preserved.
@@ -390,23 +421,39 @@ Every new code branch will be exercised by tests in the same PR
   `meta_sample_submitted`, `meta_sample_response`,
   `template_updated`, `update_skipped`, `meta_error`,
   `meta_invalid_response`, `waba_not_configured`,
-  `not_direct_send_eligible`, `local_update_failed_after_meta_approval`).
-  The conditional-update gate is pinned by parametrized cells:
-  `category == "UTILITY"` triggers the update,
-  `category == "MARKETING"` / `category == "AUTHENTICATION"` /
-  arbitrary other non-UTILITY value does NOT, missing `category`
-  field surfaces as `meta_invalid_response`. The FR-002a gating
-  predicate is pinned by three cells: `integrated_agent is None`,
+  `not_direct_send_eligible`, `project_uuid_mismatch`,
+  `local_update_failed_after_meta_approval`) AND assert the
+  FR-008b log level (INFO / WARNING / ERROR + `exc_info=True`) per
+  event via `self.assertLogs(level=...)`. The conditional-update
+  gate is pinned by parametrized cells: `category == "UTILITY"`
+  triggers the update, `category == "MARKETING"` /
+  `category == "AUTHENTICATION"` / arbitrary other non-UTILITY
+  value does NOT, missing `category` field surfaces as
+  `meta_invalid_response`. The FR-002a gating predicate is pinned
+  by three cells: `integrated_agent is None`,
   `integrated_agent.config = {}`,
-  `integrated_agent.config = {"direct_send": False}`.
+  `integrated_agent.config = {"direct_send": False}`. The FR-002b
+  serializer-layer mismatch is pinned by a view-test case (the use
+  case never sees a mismatched payload because the serializer
+  refuses upstream).
 - **View tests**
   (`retail/templates/tests/views/test_validate_template_sample_view.py`):
   cover the HTTP 200 / 400 / 401 / 404 / 500 / 502 boundaries
-  (FR-007 / FR-007a–e / FR-007b). The auth gate is exercised by
+  (FR-007 / FR-007a–f / FR-007b). The auth gate is exercised by
   sending the request with and without
   `IsAuthenticated + HasProjectPermission`. The serializer
   validation gate is exercised by sending payloads that violate
-  the FR-003a length caps and the button-mode disjointness rule.
+  the FR-003a length caps, the button-mode disjointness rule, and
+  the FR-002b `Project-Uuid` ↔ body `project_uuid` equality rule.
+  The SC-008 cross-tenant isolation guarantee is pinned by a
+  dedicated test that (a) submits with a `Project-Uuid` header for
+  project A but a body `project_uuid` for project B and expects
+  HTTP 400 / `project_uuid_mismatch`; and (b) submits a request
+  whose body `project_uuid` is the operator's authorized project
+  but whose `template_uuid` belongs to a different project — and
+  expects the request to fail (either at the Template-load step
+  with HTTP 404, or at the FR-002a gate when the template's
+  IntegratedAgent's project does not match the authorized one).
 - **Translator tests**
   (`retail/templates/tests/adapters/test_direct_send_sample_translator.py`):
   pure-function tests covering every wire-shape variant

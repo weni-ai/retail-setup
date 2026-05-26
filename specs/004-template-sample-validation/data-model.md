@@ -8,16 +8,27 @@
 This document captures the persisted-state and in-memory data
 model required by the feature. The feature has **zero schema
 changes** — no new model, no new column, no new index, no new
-constraint, no new migration. At runtime, on a UTILITY-classified
-sample, the only persisted-state changes are: (1) one `INSERT` on
-`templates_version` (the new Version row), (2) two `UPDATE`s on
-`templates_template` (one for `metadata`, one for
-`current_version_id`), and (3) two `UPDATE`s on `templates_version`
-(one for `status` on the newly-inserted row to flip the default
-`PENDING` to `APPROVED`, and an optional one for the
-`abandoned_cart` config sync on `agents_integratedagent.config`
-when the abandoned-cart agent's header image changes per
-`_sync_abandoned_cart_image_config`).
+constraint, no new migration. PR-time verification:
+`poetry run python manage.py makemigrations --check --dry-run`
+MUST exit with code 0 (per FR-010).
+
+At runtime, on a UTILITY-classified sample, the persisted-state
+changes are exactly:
+
+| Table | Statement | Field(s) | Mandatory? |
+|---|---|---|---|
+| `templates_version` | `INSERT` | new row (status defaults to `PENDING`) | yes |
+| `templates_version` | `UPDATE` (single row) | `status = 'APPROVED'` via `update_fields=["status"]` | yes |
+| `templates_template` | `UPDATE` (single row) | `metadata = <new>` via `update_fields=["metadata"]` | yes |
+| `templates_template` | `UPDATE` (single row) | `current_version_id = <new>` via `update_fields=["current_version"]` | yes |
+| `agents_integratedagent` | `UPDATE` (single row) | `config = <synced>` via `update_fields=["config"]` | optional — fires only when the abandoned-cart agent's header image config flips via `_sync_abandoned_cart_image_config` |
+
+Total per UTILITY-classified request: **4 mandatory writes** (1
+INSERT + 3 UPDATEs) + **1 optional UPDATE** (abandoned-cart sync)
++ **1 optional cache CLEAR** (paired with the abandoned-cart UPDATE
+— Redis or `LocMemCache` in tests). The non-UTILITY path performs
+**zero writes**; the FR-002a / FR-002b / FR-005a refusal paths
+also perform zero writes.
 
 The bulk of this document describes (a) the read interactions with
 the five existing models the feature consults (`Project`,
@@ -43,9 +54,9 @@ adds no index / constraint to the table.
 
 ### Write sites
 
-There are exactly two write sites for this feature on
-`templates_version`, both inside the strategy helper
-`_create_version_with_options` (refactored from
+There are exactly two writes on `templates_version` per
+UTILITY-classified request (1 INSERT + 1 UPDATE), both inside the
+strategy helper `_create_version_with_options` (refactored from
 `UpdateNormalTemplateStrategy._create_version` per research
 Decision 4):
 
@@ -134,9 +145,16 @@ carries the new and previous Version identifiers + statuses:
   template_uuid=<uuid>
   new_version_uuid=<new_version.uuid>
   new_version_status=APPROVED
-  previous_current_version_uuid=<prior_pk_or_null>
+  previous_current_version_uuid=<prior_version_uuid_or_null>
   previous_current_version_status=<prior_status_or_null>
 ```
+
+Both `new_version_uuid` and `previous_current_version_uuid` are the
+public `Version.uuid` identifier (per the project's "integer PK +
+separate UUID for external identification" convention — see
+constitution Principle V); they are NOT the integer `Version.id`.
+The audit-log dashboards filter on UUIDs because the integer PKs are
+internal storage identifiers.
 
 ---
 
@@ -273,6 +291,20 @@ FR-005a: (a) no `ProjectOnboarding` row, (b) missing
 `channels.wpp-cloud` sub-config, (c) missing
 `channel_data.waba_id` field, (d) empty-string value. All four
 surface as HTTP 400 with `error_code = "waba_not_configured"`.
+
+### `.first()` is safe under the current uniqueness contract
+
+`.first()` is used (rather than `.get()`) because
+`ProjectOnboarding.project` is a `OneToOneField` (see
+`retail/projects/models.py` — the column is `project_id` UNIQUE),
+so at most one row exists per project. The `.first()` choice is
+defensive: if a future schema relaxation allowed multiple
+onboarding rows per project, ordering would become implicit; today
+that risk is zero because the schema enforces uniqueness. Switching
+to `.get()` would raise `MultipleObjectsReturned` in that
+(currently impossible) state instead of silently picking one;
+prefer `.first()` for forward-compatibility with the explicit
+`if not waba_id` guard handling the empty case uniformly.
 
 ### Write site
 
@@ -473,6 +505,7 @@ class EventName(str, Enum):
     META_INVALID_RESPONSE = "meta_invalid_response"
     WABA_NOT_CONFIGURED = "waba_not_configured"
     NOT_DIRECT_SEND_ELIGIBLE = "not_direct_send_eligible"
+    PROJECT_UUID_MISMATCH = "project_uuid_mismatch"
     LOCAL_UPDATE_FAILED_AFTER_META_APPROVAL = (
         "local_update_failed_after_meta_approval"
     )
@@ -586,10 +619,14 @@ endpoint per FR-011).
 ## 9. Sequencing summary (UTILITY happy path)
 
 For the happy path (UTILITY classification on a Direct
-Send-eligible template), the use case executes the following
-write sequence:
+Send-eligible template), the view + use case execute the
+following sequence:
 
 ```text
+0. View: ValidateTemplateSampleSerializer.is_valid(raise_exception=True)
+   → FR-002b check: header Project-Uuid must equal body project_uuid;
+     otherwise serializer raises ValidationError → HTTP 400 /
+     error_code=project_uuid_mismatch (no use case invocation)
 1. _emit RECEIVED log line
 2. Template.objects.select_related("integrated_agent").get(uuid=...)
    → 1 DB read
@@ -617,15 +654,97 @@ write sequence:
 13. Return ValidateTemplateSampleResult
 ```
 
-Total DB operations on the happy path: **2 reads** (Template +
-ProjectOnboarding) + **3–4 writes** (Template.metadata,
-Version INSERT, Version.status, Template.current_version_id, and
-optionally IntegratedAgent.config) + **1 cache clear** (optional)
-+ **1 S3 upload** (optional, only for new base64 IMAGE headers)
-+ **1 outbound HTTP call** (Meta). The latency budget of SC-006
-(p99 < 3s) accommodates these with the Meta call dominating.
+Total DB operations on the UTILITY happy path: **2 reads**
+(Template + ProjectOnboarding) + **4 mandatory writes**
+(Template.metadata, Version INSERT, Version.status,
+Template.current_version_id) + **1 optional write**
+(IntegratedAgent.config — only for the abandoned-cart agent's
+header-image flip) + **1 optional cache clear** (paired with the
+optional write) + **1 optional S3 upload** (only for new base64
+IMAGE headers) + **1 outbound HTTP call** (Meta). The latency
+budget of SC-006 (p99 < 3s) accommodates these with the Meta call
+dominating.
 
 For the non-UTILITY path the sequence stops at step 9 (no local
-writes); for the FR-002a-refused path the sequence stops at step
-3 (no Meta call, no writes); for the FR-005a-refused path the
-sequence stops at step 5 (no Meta call, no writes).
+writes); for the FR-002b-refused path the sequence stops at step 0
+(no use case invocation, no DB read, no Meta call); for the
+FR-002a-refused path the sequence stops at step 3 (no Meta call,
+no writes); for the FR-005a-refused path the sequence stops at
+step 5 (no Meta call, no writes).
+
+---
+
+## 10. `Project-Uuid` header ↔ body `project_uuid` equality (FR-002b)
+
+**File**: `retail/templates/serializers.py` — the new
+`ValidateTemplateSampleSerializer.validate_project_uuid` method.
+
+### Schema change
+
+**None.** The check is purely behavioral on existing request
+fields.
+
+### Read sites
+
+The serializer reads two sources:
+
+```python
+def validate_project_uuid(self, value: str) -> str:
+    """FR-002b — refuse when the Project-Uuid header does not match
+    the body's project_uuid. The header is the trust source for
+    HasProjectPermission (retail/internal/permissions.py:67), so
+    the body's project_uuid MUST agree with it to keep the WABA
+    resolution scoped to the authorized tenant (SC-008)."""
+    request = self.context.get("request")
+    header_project_uuid = (
+        request.headers.get("Project-Uuid") if request else None
+    )
+    if header_project_uuid and header_project_uuid != value:
+        raise serializers.ValidationError(
+            "Project-Uuid header does not match body project_uuid",
+            code="project_uuid_mismatch",
+        )
+    return value
+```
+
+The view passes the request via the DRF default
+`Serializer(context={"request": request})` pattern (which the
+`@action` decorator handles automatically on a ViewSet's
+`get_serializer_context` — but the new action constructs the
+serializer manually, so the view MUST pass
+`context={"request": request}` explicitly).
+
+### Write sites
+
+**None.** The check is read-only and rejection-only.
+
+### Audit log
+
+The view's serializer-error translation block emits a single
+`[TemplateSampleValidation] project_uuid_mismatch:
+header_project_uuid=<a> body_project_uuid=<b> template_uuid=<uuid>`
+WARNING-level line per FR-008a / FR-008b before returning the
+HTTP 400 response. The header / body project UUIDs are tenant
+identifiers (not customer-facing content), so they are logged
+verbatim per the FR-008c carve-out for UUIDs.
+
+### Failure mode interaction with cross-tenant isolation (SC-008)
+
+Three structural defenses protect SC-008:
+
+1. `HasProjectPermission` (view layer) validates the `Project-Uuid`
+   header against Connect's authorization API. An operator who is
+   not authorized for the header's project never reaches the
+   serializer.
+2. `ValidateTemplateSampleSerializer.validate_project_uuid`
+   (serializer layer, FR-002b) refuses any request whose body
+   `project_uuid` does not equal the verified-trusted header. This
+   prevents the "authorize as A, target B's WABA" attack vector.
+3. `ProjectOnboarding.objects.filter(project__uuid=dto.project_uuid)`
+   (use case layer, FR-005a) scopes the WABA lookup to the body's
+   `project_uuid` — which is now guaranteed equal to the
+   header by check (2).
+
+Together, the three checks make a successful sample submission for
+project B impossible when the operator is authorized only for
+project A.
