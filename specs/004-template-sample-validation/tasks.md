@@ -15,6 +15,8 @@ description: "Task list for the Template Sample Validation Endpoint for Direct S
 
 > **2026-05-26 clarification update**: The WABA-resolution mechanism was switched from `ProjectOnboarding.config["channels"]["wpp-cloud"]["channel_data"]["waba_id"]` to a live call to `IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)` reading `app["config"]["waba"]["id"]` (per the updated FR-005a / A2 / SC-008 / SC-003 / FR-008a). Phase 1–3 tasks (T001–T018) were completed under the prior spec; the new **Phase 3b: Post-Clarification Refactor** (T034–T037) brings the implementation in line with the updated spec without re-opening already-checked tasks or appending pending work to already-checkpointed phases. Pending tasks in Phase 5 (T024, T026, T027b) have had their descriptions updated in place to target the new failure surface.
 
+> **2026-05-26 clarification round 2 update (extended Shape 1b)**: The translator at `retail/templates/adapters/direct_send_sample_translator.py:109` silently drops `template_header` and `template_footer` whenever the payload has no buttons — the bug reported 2026-05-26 (`{template_body, template_header: "Pedido recebido", template_button: []}` produces `{"type": "text", "text": {"body": ...}}` with the header lost). The clarification pinned an extended Shape 1b super-shape (`{"type": "text", "header": {...}?, "footer": {...}?, "text": {"body": ...}}`) covering all four no-button-with-extras combinations (TEXT header alone, IMAGE header alone, footer alone, header + footer) per the updated FR-004 / FR-004a / A13 / spec AS4. The new **Phase 3c: Extended Shape 1b for No-Button Header / Footer Payloads** (T038–T041) implements the fix, adds translator unit tests for each combination, updates `contracts/meta-message-samples.md` from a three-shape to a four-shape taxonomy, and pins the end-to-end bug case via a view-level integration test. Phase 3c is BLOCKING for the MVP slice — landing US1 without it ships the bug.
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependencies on incomplete tasks)
@@ -129,6 +131,56 @@ description: "Task list for the Template Sample Validation Endpoint for Direct S
 
 ---
 
+## Phase 3c: Extended Shape 1b for No-Button Header / Footer Payloads (US1 — Priority: P1) 🔁 BLOCKING
+
+**Purpose**: The 2026-05-26 clarification round 2 closed a gap in the translator's no-buttons branch (`retail/templates/adapters/direct_send_sample_translator.py:109` — `return {"type": "text", "text": {"body": substituted_body}}`) that caused `template_header` and `template_footer` to be silently dropped from the outbound Meta sample whenever the payload had no buttons. The fix is an extended Shape 1b super-shape (`{"type": "text", "header": {...}?, "footer": {...}?, "text": {"body": <substituted>}}`) covering all four no-button-with-extras combinations: TEXT header alone, IMAGE header alone (HTTP URL or base64 → S3), footer alone, header + footer. The pure body-only sub-case (no header AND no footer) reduces bit-identically to the previous Shape 1 output. The local persistence path is unchanged (the existing `UpdateNormalTemplateStrategy._apply_metadata_update` already handles header / footer correctly); only the outbound wire body needed widening.
+
+**Goal**: After this phase, no-button payloads emit the extended Shape 1b on the wire including the corresponding `header` and / or `footer` top-level keys when set; the four no-button-with-extras combinations each produce a deterministic, correctly-substituted wire body validated against Meta's live API (per A13); the `MetaSampleType.TEXT` audit-log bucket continues to cover both sub-cases (per the Q3 → A decision — no new enum value); the `contracts/meta-message-samples.md` document reflects the new four-shape taxonomy; the bug-report case is pinned end-to-end by a view-level integration test (spec AS4).
+
+**Independent Test**: Submit the literal bug-report payload (`template_body`, `template_header: "Pedido recebido"`, `template_body_params: ["John", "nº 12345"]`, `template_button: []`); assert the outbound Meta `message_samples` request body is exactly `{"type": "text", "header": {"type": "text", "text": "Pedido recebido"}, "text": {"body": "Olá John!\n\nRecebemos seu pedido nº 12345. ..."}}`. Repeat for IMAGE header (HTTP URL), IMAGE header (base64 → S3), footer-only, and header + footer combinations — each MUST emit the corresponding subset of optional keys.
+
+### Implementation for Phase 3c
+
+- [X] T038 [P] [US1] **Extend the translator** in `retail/templates/adapters/direct_send_sample_translator.py` (existing file, MOD) to emit the extended Shape 1b when a no-button payload carries a header and / or footer per FR-004 (post-clarification) / FR-004a / A13. Required changes:
+  1. Replace the no-button branch at the end of `build_meta_sample_body` (currently `return {"type": "text", "text": {"body": substituted_body}}`) with a call to a new private helper `_build_text_shape(dto, *, variables, substituted_body, substituted_footer, resolved_header_url, template_name) -> Dict[str, Any]`.
+  2. `_build_text_shape` body: start with `body: Dict[str, Any] = {"type": "text", "text": {"body": substituted_body}}`; reuse the existing `_build_header_subobject(dto.template_header, variables=..., resolved_header_url=..., template_name=...)` helper (NO changes to that helper — it already returns the correct TEXT / IMAGE discriminated-union shape per FR-004a); if the result is non-None, set `body["header"] = header_subobject`; if `substituted_footer` is truthy, set `body["footer"] = {"text": substituted_footer}`; return `body`. The key ordering inside the dict is consistent with the existing Shape 2 / Shape 3 helpers — header first, then footer, then text — which keeps the wire serialization stable for log-grep parity with the existing patterns even though JSON itself does not require it.
+  3. The pure body-only sub-case (no header AND no footer) MUST reduce bit-identically to the pre-existing `{"type": "text", "text": {"body": <substituted>}}` — verified by the regression assertion in T039 (f). No degenerate `"header": null` / `"footer": null` keys are emitted; the optional keys are ABSENT when the corresponding input fields are missing.
+  4. NO change to `_infer_sample_type` in `retail/templates/usecases/validate_template_sample.py` — the 2026-05-26 round 2 Q3 → A decision pinned that the existing `MetaSampleType.TEXT` enum covers both pure body-only and body-with-extras sub-cases; dashboards split the two via the `received` event's `template_header_present` / `template_footer_present` boolean flags (already emitted per FR-008a / T015). The FR-008a closed-enumeration additive-only contract is preserved.
+  5. The function MUST remain a pure function (no DB / I/O) per FR-004d. The IMAGE base64 → S3 upload still happens UPSTREAM in `ValidateTemplateSampleUseCase._resolve_header_image_url` BEFORE the translator runs (Research Decision 6 / A9); the translator only consumes the already-resolved URL via the existing `resolved_header_url` parameter. No change to that upload boundary.
+  6. Constitution Principle IV: helper names carry intent (`_build_text_shape` for the extended super-shape; reuse `_build_header_subobject` rather than inlining the TEXT / IMAGE branch). No narrative comments describing the change.
+
+- [X] T039 [P] [US1] **Add translator unit tests** for the four no-button-with-extras combinations in `retail/templates/tests/adapters/test_direct_send_sample_translator.py` (existing file, MOD). Six test cases covering FR-004 (post-clarification) / spec AS4:
+  - (a) Body + TEXT header + no footer + no buttons (the literal bug-report payload `template_header="Pedido recebido", template_body="Olá {{1}}!...", template_body_params=["John", "nº 12345"]`) → wire body is `{"type": "text", "header": {"type": "text", "text": "Pedido recebido"}, "text": {"body": "Olá John!..."}}`; body / header substitution fires using `template_body_params` per FR-004e.
+  - (b) Body + IMAGE header (HTTP(S) URL, e.g. `"https://example.com/banner.png"`) + no footer + no buttons → `{"type": "text", "header": {"type": "image", "image": {"link": "https://example.com/banner.png"}}, "text": {"body": "<substituted>"}}`; `resolved_header_url` arg is omitted (the URL is already public) — the translator falls through to `link = resolved_header_url or header`.
+  - (c) Body + IMAGE header (base64 data URI, e.g. `"data:image/png;base64,..."`) + no footer + no buttons → caller passes `resolved_header_url="https://retail-bucket.s3.amazonaws.com/template_headers/<hash>.png"`; wire body's `header.image.link` is the resolved S3 URL (NOT the base64 blob).
+  - (d) Body + footer + no header + no buttons → `{"type": "text", "footer": {"text": "<substituted_footer>"}, "text": {"body": "<substituted>"}}`; the `header` key is ABSENT (not `null`).
+  - (e) Body + TEXT header + footer + no buttons → both top-level `header` and `footer` keys present with their respective substituted content.
+  - (f) Body + no header + no footer + no buttons (REGRESSION — the pre-existing T011 (a) case) → `{"type": "text", "text": {"body": "<substituted>"}}` bit-identical to the pre-Phase-3c behavior; neither `header` nor `footer` keys appear (degenerate Shape 1b reduces to Shape 1).
+  - Parametrize the variable-substitution assertion across (a), (d), and (e) so missing-index substitution (FR-004e — substitutes to empty string with WARNING) is also pinned for the no-button path.
+  - Pure-function tests — no Django `TestCase` boilerplate; use plain `unittest.TestCase` matching the existing T011 style. (Depends on T038.)
+
+- [X] T040 [P] [US1] **Update the wire-contract document** at `specs/004-template-sample-validation/contracts/meta-message-samples.md` (existing file, MOD) from a three-shape to a four-shape taxonomy. Required changes:
+  1. Rename the section heading `## Request body — three discriminated-union shapes` to `## Request body — four discriminated-union shapes`.
+  2. Rename the `### Shape 1 — text-only (no header, no footer, no buttons)` heading to `### Shape 1 — non-interactive (no buttons)` and update its body to document BOTH sub-cases: (a) the canonical pure body-only shape (the pre-existing `{"type": "text", "text": {"body": "..."}}`, docs ref `docs/direct-send-api-beta-integration.md:579-586`) and (b) the extended Shape 1b super-shape with optional `header` and / or `footer` top-level keys (the 2026-05-26 round 2 clarification — empirically validated per Assumption A13). Show both example JSON bodies, side by side, with explicit comments calling out when each fires.
+  3. Update the "Fires when" trigger line from `... has template_body set AND no template_header AND no template_footer AND no template_button` to `... has no template_button entries (regardless of whether template_header and / or template_footer are present)`.
+  4. In the existing `## Header sub-object discriminated union (Shape 2 + Shape 3)` section, expand the parenthetical to `## Header sub-object discriminated union (Shape 1 extended / Shape 2 / Shape 3)` and add a sentence: "the header sub-object shape is shared across the extended Shape 1, Shape 2, and Shape 3 — the same TEXT / IMAGE discriminator applies regardless of which top-level container wraps it (per FR-004a)".
+  5. Add a clarifying note in the `## What is NOT sent to Meta` section: "the `header` and `footer` top-level keys are ABSENT (not `null`) when the corresponding input fields are missing — `template_header is None` → no `header` key in the wire body; `template_footer is None` → no `footer` key".
+  6. Add a reference to spec `Assumption A13` at the end of the new Shape 1 extended sub-section: "the extended shape is undocumented in the public Meta docs at `docs/direct-send-api-beta-integration.md:579-685`; empirically validated against the live `message_samples` API via manual `curl` / Postman testing — see spec `Assumption A13` for the validation source and the fallback contract on Meta-side rejection".
+
+- [X] T041 [P] [US1] **Add a view-level integration test** for the bug-report case in `retail/templates/tests/views/test_validate_template_sample_view.py` (existing file, MOD). Setup: a Direct Send-eligible Template + a UTILITY-mocked Meta response. Action: POST the literal bug-report payload — `{template_body: "Olá {{1}}!\n\nRecebemos seu pedido {{2}}. ...", template_header: "Pedido recebido", template_body_params: ["John", "nº 12345"], template_button: [], app_uuid: <test>, project_uuid: <test>, language: "pt_BR"}`. Assertions per spec AS4:
+  - (a) The mock for `MetaService.submit_template_sample` was called exactly once with a `sample_body` argument whose top-level keys are exactly `{"type", "header", "text"}` (no `interactive`, no `footer`, no extras).
+  - (b) `sample_body["type"] == "text"`.
+  - (c) `sample_body["header"] == {"type": "text", "text": "Pedido recebido"}` (TEXT header verbatim — substitution applies if `{{N}}` placeholders are in the header, but the test payload's header is plain text so no substitution is expected).
+  - (d) `sample_body["text"]["body"]` has the substituted body — `{{1}}` → `"John"`, `{{2}}` → `"nº 12345"` per A7.
+  - (e) Post-update local state: `Template.metadata.header.text == "Pedido recebido"` (the local persistence retains the header text verbatim — substitution is OUTBOUND-ONLY per A7); `Template.metadata.body` retains raw `{{N}}` placeholders; a new `Version` row exists with `status == "APPROVED"` per FR-006d; `Template.current_version` is advanced to it.
+  - (f) HTTP response is `200` with `{"category": "UTILITY", "template_updated": true, ...}` and the `meta_sample_response` wrapper field carries Meta's verbatim body.
+  - (g) Audit log carries `[TemplateSampleValidation] meta_sample_submitted: ... sample_type=text ...` (the `MetaSampleType.TEXT` bucket covers the extended sub-case per Q3 → A; no new enum value) AND the upstream `received` event line has `template_header_present=True template_footer_present=False buttons_count=0` so dashboards can split the extended sub-case from pure body-only.
+  - Use the Connect-proxy mock pattern that the existing tests in this file already establish (read T037's view-test refactor for the `IntegrationsService.get_channel_app` mocking precedent). (Depends on T038.)
+
+**Checkpoint**: Phase 3c is complete. The bug reported 2026-05-26 (header / footer dropped on no-button payloads) is fixed; the four no-button-with-extras combinations each emit the deterministic extended Shape 1b wire body; the `MetaSampleType.TEXT` audit-log bucket continues to cover both pure-body and extended sub-cases per the closed-enumeration additive-only contract; the contract document reflects the new four-shape taxonomy; the end-to-end bug case is pinned by a view-level integration test that breaks loudly if the translator regresses. The MVP slice (Phase 3 + Phase 3b + Phase 3c) now matches the post-clarification spec without dropping operator content silently.
+
+---
+
 ## Phase 4: User Story 2 - Local content stays in lockstep with what the Direct Send broadcast renders (Priority: P1)
 
 **Goal**: Pin the schema-parity guarantee between this endpoint's writes and the Direct Send broadcast renderer. After this phase, an integration test proves that a UTILITY-classified sample submission produces local state which `Broadcast.build_direct_send_message` renders correctly on the next dispatch, with the new content visible at the very next broadcast attempt (no cache lag, no asynchronous Integrations convergence window).
@@ -232,32 +284,35 @@ description: "Task list for the Template Sample Validation Endpoint for Direct S
 - **Foundational (Phase 2)**: Depends on Setup. BLOCKS all user-story phases. Within Phase 2, the parallel groups are: {T002, T003, T004, T008, T010, T012, T014} can run fully in parallel (different files, no inter-dependencies); T005 → T006 → T007 are sequential within the Meta-side chain; T009 depends on T008; T011 depends on T010; T013 depends on T012; T012b depends on T012; T013b depends on T012b.
 - **User Story 1 (Phase 3)**: Depends on Foundational (Phase 2). T015 → T016 are sequential (view depends on use case); T017 and T018 can run in parallel against each other and against T015 / T016 if developed concurrently.
 - **Post-Clarification Refactor (Phase 3b)**: Depends on US1 (Phase 3) being complete. T034 (Protocol extension — leaf task, no dependents inside Phase 3b that need to run in parallel with it) → T035 (refactor uses the extended interface) → T036 / T037 (the test refactors verify behavior introduced by T035) is the sequential chain. T036 and T037 can run in parallel after T035. BLOCKS US3 (Phase 5) — T024 / T026 / T027b assert on the post-refactor failure surface and audit-log event payload, so running them before Phase 3b would produce false negatives.
-- **User Story 2 (Phase 4)**: Depends on US1 (Phase 3 — T015, T016 must be done; the integration tests load and exercise the use case). NOT dependent on Phase 3b — US2's lockstep tests are agnostic to the WABA source. T019 / T020 / T021 can run in parallel.
-- **User Story 3 (Phase 5)**: Depends on US1 (Phase 3) AND on Phase 3b (the WABA-resolution refactor must land before T024 / T026 / T027b assert on the new event payload + view-level error mapping). T022 / T023 / T024 / T025 / T026 / T027 / T027b / T027c can run in parallel within Phase 5. T027c (FLAGGED → APPROVED recovery) is independent of Phase 3b and can land any time after US1.
-- **User Story 4 (Phase 6)**: Depends on US1 (Phase 3) + on the serializer (T012). NOT dependent on Phase 3b — schema-parity tests do not exercise the WABA path. T028 is a single task.
-- **Polish (Phase 7)**: Depends on the user-story phases the team chooses to deliver in this PR (US1 minimum for the MVP slice, all four for the full feature). Phase 3b MUST be done before T030 (coverage check) and T032 (PII redaction grep) — both touch test runs that exercise the refactored `_resolve_waba_id`.
+- **Extended Shape 1b for No-Button Header / Footer Payloads (Phase 3c)**: Depends on US1 (Phase 3) being complete. Phase 3c is independent of Phase 3b — the two clarifications touch different code surfaces (Phase 3b reworks `_resolve_waba_id`; Phase 3c reworks the translator's no-button branch) so they can land in either order or in parallel. T038 (translator change) → T039 / T040 / T041 (tests + contract update) is the sequential chain; T039 / T040 / T041 can run in parallel after T038. Phase 3c is BLOCKING for the MVP slice — landing US1 without it ships the silent-header-drop bug reported 2026-05-26. NOT a hard prerequisite for US2 / US3 / US4 — those phases' tests do not assert on the no-button-with-header wire shape — but is part of the MVP completeness contract.
+- **User Story 2 (Phase 4)**: Depends on US1 (Phase 3 — T015, T016 must be done; the integration tests load and exercise the use case). NOT dependent on Phase 3b or Phase 3c — US2's lockstep tests are agnostic to the WABA source and to the translator's no-button branch. T019 / T020 / T021 can run in parallel.
+- **User Story 3 (Phase 5)**: Depends on US1 (Phase 3) AND on Phase 3b (the WABA-resolution refactor must land before T024 / T026 / T027b assert on the new event payload + view-level error mapping). NOT dependent on Phase 3c. T022 / T023 / T024 / T025 / T026 / T027 / T027b / T027c can run in parallel within Phase 5. T027c (FLAGGED → APPROVED recovery) is independent of Phase 3b and can land any time after US1.
+- **User Story 4 (Phase 6)**: Depends on US1 (Phase 3) + on the serializer (T012). NOT dependent on Phase 3b or Phase 3c — schema-parity tests do not exercise the WABA path or the translator's no-button branch. T028 is a single task.
+- **Polish (Phase 7)**: Depends on the user-story phases the team chooses to deliver in this PR (US1 minimum for the MVP slice, all four for the full feature). Phase 3b AND Phase 3c MUST be done before T030 (coverage check) and T032 (PII redaction grep) — both touch test runs that exercise the refactored `_resolve_waba_id` and the extended translator branch.
 
 ### User Story Dependencies
 
 - **US1 (P1)**: Foundational only — no inter-story dependencies.
 - **US1 Refactor (Phase 3b)**: US1 only.
+- **US1 Extended Shape 1b (Phase 3c)**: US1 only. Independent of Phase 3b — different code surfaces.
 - **US2 (P1)**: US1 only (US2's tests load and exercise US1's use case + broadcast renderer).
 - **US3 (P2)**: US1 + Phase 3b (failure-path tests assert on the new WABA failure surface).
 - **US4 (P3)**: US1 only (US4's tests load the response of US1's view).
 
-US2 / US3 / US4 are INDEPENDENT of each other — they can be implemented in any order or in parallel AFTER US1 is done AND Phase 3b is done (Phase 3b blocks US3 only; US2 / US4 can start in parallel with Phase 3b if staffed).
+US2 / US3 / US4 are INDEPENDENT of each other — they can be implemented in any order or in parallel AFTER US1 is done AND Phase 3b is done (Phase 3b blocks US3 only; US2 / US4 can start in parallel with Phase 3b if staffed). Phase 3c can be developed in parallel with Phase 3b and with US2 / US4 since the four phases touch disjoint code surfaces.
 
 ### Within Each User Story
 
 - US1: T015 (use case) → T016 (view) → T017 (use-case tests) + T018 (view tests) — tests can run in parallel after the implementation lands.
 - US1 Refactor: T034 (interface extension) → T035 (use-case refactor) → T036 / T037 (test refactors) in parallel.
+- US1 Extended Shape 1b: T038 (translator change) → T039 (translator tests) + T040 (contract doc) + T041 (view test) in parallel.
 - US2 / US3 / US4: each task within the story is independent of the others (each is a self-contained test file or a sibling test method) — can all run in parallel.
 
 ### Parallel Opportunities
 
 - All [P]-marked Foundational tasks (T002, T003, T004, T008, T010, T012, T014) can run in parallel — 7-way parallelism in Phase 2.
-- All [P]-marked tests within a single user story can run in parallel — e.g. T017 + T018 in US1, T036 + T037 in Phase 3b, T019 + T020 + T021 in US2, T022-T027b in US3.
-- Across user stories (after US1 lands): US2 and US4 can be developed in parallel with Phase 3b; US3 must wait for Phase 3b. Each story's tests run independently.
+- All [P]-marked tests within a single user story can run in parallel — e.g. T017 + T018 in US1, T036 + T037 in Phase 3b, T039 + T040 + T041 in Phase 3c, T019 + T020 + T021 in US2, T022-T027b in US3.
+- Across user stories (after US1 lands): Phase 3b, Phase 3c, US2, and US4 can all be developed in parallel by different developers; US3 must wait for Phase 3b. Each story's tests run independently.
 
 ---
 
@@ -284,6 +339,16 @@ Task: "T036 — Update use-case happy-path tests to mock IntegrationsService.get
 Task: "T037 — Update view tests to patch IntegrationsService"
 ```
 
+## Parallel Example: Extended Shape 1b (Phase 3c)
+
+```bash
+# T038 (translator change) lands first.
+# After T038 commits, T039 / T040 / T041 can run in parallel:
+Task: "T039 — Translator unit tests for the four no-button-with-extras combinations"
+Task: "T040 — Update contracts/meta-message-samples.md to four-shape taxonomy"
+Task: "T041 — View-level integration test pinning the bug-report case end-to-end"
+```
+
 ## Parallel Example: User Story 3 Tests
 
 ```bash
@@ -308,30 +373,32 @@ Task: "T027c — Use-case test for FLAGGED → APPROVED recovery channel"
 1. Complete Phase 1: Setup (T001 — branch + test-suite verification).
 2. Complete Phase 2: Foundational (T002–T014 — the building blocks). CRITICAL — blocks every user-story phase.
 3. Complete Phase 3: User Story 1 (T015–T018 — the happy-path orchestration + view + tests).
-4. Complete Phase 3b: Post-Clarification Refactor (T034–T037 — extend the integrations Protocol, switch the WABA resolver to IntegrationsService, and update fixtures). Required for the MVP slice to match the post-clarification spec; without it the implementation diverges from FR-005a + A2 + FR-008a.
-5. **STOP and VALIDATE**: Run the quickstart steps 3 and 5 manually. Confirm the endpoint accepts a UTILITY-classifying body edit and a MARKETING-classifying body edit and produces the expected HTTP 200 responses with correct local state AND that the integrations call is the only WABA-resolution channel exercised (verify by tailing the audit log and confirming `[TemplateSampleValidation] meta_sample_submitted: waba_id=...` resolves the value via the integrations call, not via any `ProjectOnboarding` read).
-6. Deploy / demo if the MVP is sufficient for the immediate operator need.
+4. Complete Phase 3b: Post-Clarification Refactor (T034–T037 — extend the integrations Protocol, switch the WABA resolver to IntegrationsService, and update fixtures). Required for the MVP slice to match the FR-005a + A2 + FR-008a post-clarification spec.
+5. Complete Phase 3c: Extended Shape 1b (T038–T041 — extend the translator's no-button branch, add unit + view tests, update the contract doc). Required for the MVP slice to NOT ship the silent-header-drop bug reported 2026-05-26.
+6. **STOP and VALIDATE**: Run the quickstart steps 3 and 5 manually. Confirm the endpoint accepts a UTILITY-classifying body edit AND a UTILITY-classifying body+header edit (`{template_body, template_header: "Pedido recebido", template_button: []}`) and produces the expected HTTP 200 responses with correct local state. Verify by tailing the audit log: (a) `[TemplateSampleValidation] meta_sample_submitted: waba_id=... sample_type=text` resolves the WABA via the integrations call (no `ProjectOnboarding` read); (b) the outbound sample body for the body+header payload carries `{"type": "text", "header": {"type": "text", "text": "Pedido recebido"}, "text": {"body": "..."}}` (extended Shape 1b — captured in the audit-log or via a debug-level translator-output dump in a staging env).
+7. Deploy / demo if the MVP is sufficient for the immediate operator need.
 
 ### Incremental Delivery
 
 1. Setup + Foundational → Foundation ready (no observable endpoint behavior).
-2. Add US1 → MVP candidate (legacy ProjectOnboarding-based WABA resolution).
-3. Add Phase 3b → MVP under the 2026-05-26 clarified spec. Test independently per Phase 3b checkpoint.
-4. Add US2 → lockstep guarantee proven by integration test. No new HTTP surface; deepens confidence.
-5. Add US3 → failure-path coverage. Operators see deterministic errors for Meta outages / WABA misconfiguration (integrations-side, post-3b) / non-eligible templates.
-6. Add US4 → schema-parity tests. Frontend integration is regression-proof.
-7. Polish → coverage report + lint + log redaction sanity + PR prep.
+2. Add US1 → MVP candidate (legacy ProjectOnboarding-based WABA resolution; silent header drop on no-button payloads).
+3. Add Phase 3b → MVP under the FR-005a + A2 + FR-008a clarified spec. Test independently per Phase 3b checkpoint.
+4. Add Phase 3c → bug-fixed MVP. Operators no longer see headers / footers silently dropped on no-button payloads. Test independently per Phase 3c checkpoint.
+5. Add US2 → lockstep guarantee proven by integration test. No new HTTP surface; deepens confidence.
+6. Add US3 → failure-path coverage. Operators see deterministic errors for Meta outages / WABA misconfiguration (integrations-side, post-3b) / non-eligible templates.
+7. Add US4 → schema-parity tests. Frontend integration is regression-proof.
+8. Polish → coverage report + lint + log redaction sanity + PR prep.
 
 ### Parallel Team Strategy
 
 With multiple developers after Foundational completes:
 
-1. Developer A: US1 implementation (T015 → T016) → Phase 3b (T034 → T035).
-2. Developer B: US1 + US2 tests (T017, T018, T019, T020, T021) → Phase 3b test refactors (T036, T037) once T035 lands.
+1. Developer A: US1 implementation (T015 → T016) → Phase 3b (T034 → T035) → Phase 3c (T038).
+2. Developer B: US1 + US2 tests (T017, T018, T019, T020, T021) → Phase 3b test refactors (T036, T037) once T035 lands → Phase 3c tests (T039, T041) once T038 lands.
 3. Developer C: US3 tests (T022 → T027b) — but T024 / T026 / T027b BLOCK on Phase 3b. Developer C can productively start T022 / T023 / T025 / T027 immediately after US1 and pick up the Phase 3b-dependent tests after T035.
-4. Developer D: US4 test (T028) + Polish (T029 → T033 + T031b).
+4. Developer D: US4 test (T028) + Phase 3c contract doc (T040) + Polish (T029 → T033 + T031b).
 
-Developers B / C / D can begin their test development as soon as Developer A finishes T015 (the use case execute body); T016 (the view) only blocks the view-level tests (T018, T026, T028, T037).
+Developers B / C / D can begin their test development as soon as Developer A finishes T015 (the use case execute body); T016 (the view) only blocks the view-level tests (T018, T026, T028, T037, T041). Phase 3c's T040 (contract doc) is independent of the implementation and can start at any time.
 
 ---
 

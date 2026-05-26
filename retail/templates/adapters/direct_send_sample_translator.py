@@ -4,9 +4,15 @@ Pure-function module that turns a ``ValidateTemplateSampleDTO`` into the
 Meta ``message_samples`` wire-shape dict pinned by
 ``specs/004-template-sample-validation/contracts/meta-message-samples.md``.
 
-Three discriminated shapes are produced:
+Four discriminated shapes are produced:
 
-- **Shape 1** ``text`` — body-only payload.
+- **Shape 1** ``text`` — non-interactive payload (no buttons). Reduces
+  to the bare ``{"type": "text", "text": {"body": ...}}`` for pure
+  body-only payloads, OR widens to the extended Shape 1b super-shape
+  ``{"type": "text", "header": {...}?, "footer": {...}?, "text": {...}}``
+  when the no-button payload also carries a ``template_header`` and / or
+  ``template_footer`` (per FR-004 post-clarification 2026-05-26 round 2 /
+  A13). Empirically validated against the live ``message_samples`` API.
 - **Shape 2** ``interactive.cta_url`` — exactly one ``URL``-type button.
 - **Shape 3** ``interactive.button`` — 1–3 ``QUICK_REPLY`` buttons.
 
@@ -106,7 +112,14 @@ def build_meta_sample_body(
             template_name=template_name,
         )
 
-    return {"type": "text", "text": {"body": substituted_body}}
+    return _build_text_shape(
+        dto=dto,
+        variables=variables,
+        substituted_body=substituted_body,
+        substituted_footer=substituted_footer,
+        resolved_header_url=resolved_header_url,
+        template_name=template_name,
+    )
 
 
 def _variables_from_body_params(
@@ -179,6 +192,45 @@ def _looks_like_image_header(header: str) -> bool:
     if header.startswith(_BASE64_DATA_URI_PREFIX):
         return True
     return False
+
+
+def _build_text_shape(
+    *,
+    dto: "ValidateTemplateSampleDTO",
+    variables: Dict[str, str],
+    substituted_body: str,
+    substituted_footer: str,
+    resolved_header_url: Optional[str],
+    template_name: str,
+) -> Dict[str, Any]:
+    """Assemble the Shape 1 / extended Shape 1b (``text``) wire body.
+
+    The bare Shape 1 (no header AND no footer) reduces bit-identically
+    to ``{"type": "text", "text": {"body": <substituted>}}``. The
+    extended Shape 1b widens this with optional ``header`` and / or
+    ``footer`` top-level keys when the no-button payload carries them
+    — an empirically-validated super-shape pinned by spec A13 /
+    FR-004 post-clarification 2026-05-26 round 2.
+
+    Optional keys are ABSENT (not ``null``) when the corresponding
+    input field is missing — degenerate Shape 1b reduces to Shape 1
+    so legacy body-only callers see no observable change.
+    """
+    body: Dict[str, Any] = {"type": "text", "text": {"body": substituted_body}}
+
+    header_subobject = _build_header_subobject(
+        dto.template_header,
+        variables=variables,
+        resolved_header_url=resolved_header_url,
+        template_name=template_name,
+    )
+    if header_subobject is not None:
+        body["header"] = header_subobject
+
+    if substituted_footer:
+        body["footer"] = {"text": substituted_footer}
+
+    return body
 
 
 def _build_cta_url_shape(

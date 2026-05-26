@@ -306,3 +306,185 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
             mock_use_case_class.return_value.execute.assert_not_called()
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+META_SERVICE_PATCH_PATH = "retail.services.meta.service.MetaService"
+USECASE_LOGGER = "retail.templates.usecases.validate_template_sample"
+_BUG_REPORT_WABA_ID = "100200300400500"
+
+
+@with_test_settings
+@patch(META_SERVICE_PATCH_PATH)
+@patch(INTEGRATIONS_SERVICE_PATCH_PATH)
+class ValidateTemplateSampleViewExtendedShape1bIntegrationTest(
+    BaseTestMixin, APITestCase
+):
+    """T041 / Phase 3c — end-to-end integration test for the bug-report case.
+
+    Unlike the upstream ``ValidateTemplateSampleViewTest`` (which patches
+    the entire ``ValidateTemplateSampleUseCase`` to assert on the HTTP
+    boundary in isolation), this class lets the real use case execute
+    against patched ``IntegrationsService`` and ``MetaService`` so the
+    extended Shape 1b wire body is observed at the actual ``MetaService``
+    boundary (the only mock surface). This pins spec AS4 / FR-004
+    (post-clarification) end-to-end: the bug case reported 2026-05-26
+    (``{template_body, template_header: "Pedido recebido", template_button:
+    []}``) MUST emit ``{"type": "text", "header": {"type": "text", "text":
+    "Pedido recebido"}, "text": {"body": ...}}`` and update local state.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.user = User.objects.create_user(
+            username="testuser-3c", password="testpass", email="test-3c@example.com"
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+        self.project = Project.objects.create(uuid=uuid4(), name="Project")
+        self.agent = Agent.objects.create(
+            uuid=uuid4(),
+            name="Agent",
+            slug="agent-3c",
+            description="desc",
+            project=self.project,
+        )
+        self.parent = PreApprovedTemplate.objects.create(
+            agent=self.agent,
+            uuid=uuid4(),
+            name="parent",
+            display_name="Parent",
+            content="content",
+            is_valid=True,
+            start_condition="always",
+            metadata={},
+        )
+        self.integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(),
+            agent=self.agent,
+            project=self.project,
+            is_active=True,
+            config={"direct_send": True},
+        )
+        self.template = Template.objects.create(
+            uuid=uuid4(),
+            name="order_received",
+            integrated_agent=self.integrated_agent,
+            parent=self.parent,
+            metadata={"category": "UTILITY", "body": "Original {{1}}"},
+        )
+        self.version = Version.objects.create(
+            template=self.template,
+            template_name="weni_order_received_initial",
+            integrations_app_uuid=uuid4(),
+            project=self.project,
+            status="APPROVED",
+        )
+        self.template.current_version = self.version
+        self.template.save(update_fields=["current_version"])
+
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
+        )
+
+    def _bug_report_payload(self) -> dict:
+        return {
+            "template_body": (
+                "Olá {{1}}!\n\nRecebemos seu pedido {{2}}. "
+                "Em breve nossa equipe entrará em contato."
+            ),
+            "template_header": "Pedido recebido",
+            "template_body_params": ["John", "nº 12345"],
+            "template_button": [],
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+            "language": "pt_BR",
+        }
+
+    def _post_bug_report(self, payload: dict):
+        return self.client.post(
+            reverse("template-sample", args=[str(self.template.uuid)])
+            + f"?user_email={self.user.email}",
+            payload,
+            format="json",
+            HTTP_PROJECT_UUID=str(self.project.uuid),
+        )
+
+    def test_bug_report_payload_emits_extended_shape_1b_and_updates_template(
+        self, mock_integrations_service, mock_meta_service
+    ):
+        mock_integrations_service.return_value.get_channel_app.return_value = {
+            "config": {"waba": {"id": _BUG_REPORT_WABA_ID}}
+        }
+        mock_meta_service.return_value.submit_template_sample.return_value = {
+            "success": True,
+            "category": "UTILITY",
+        }
+
+        baseline_version_count = self.template.versions.count()
+        payload = self._bug_report_payload()
+
+        with self.assertLogs(USECASE_LOGGER, level="INFO") as log_ctx:
+            response = self._post_bug_report(payload)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["category"], "UTILITY")
+        self.assertTrue(response.data["template_updated"])
+        self.assertEqual(
+            response.data["meta_sample_response"],
+            {"success": True, "category": "UTILITY"},
+        )
+
+        mock_meta_service.return_value.submit_template_sample.assert_called_once()
+        call_args = mock_meta_service.return_value.submit_template_sample.call_args
+        waba_arg, sample_body = call_args.args
+        self.assertEqual(waba_arg, _BUG_REPORT_WABA_ID)
+        self.assertEqual(set(sample_body.keys()), {"type", "header", "text"})
+        self.assertEqual(sample_body["type"], "text")
+        self.assertEqual(
+            sample_body["header"], {"type": "text", "text": "Pedido recebido"}
+        )
+        self.assertEqual(
+            sample_body["text"]["body"],
+            "Olá John!\n\nRecebemos seu pedido nº 12345. "
+            "Em breve nossa equipe entrará em contato.",
+        )
+
+        self.template.refresh_from_db()
+        self.assertEqual(self.template.metadata["header"]["text"], "Pedido recebido")
+        self.assertIn("{{1}}", self.template.metadata["body"])
+        self.assertIn("{{2}}", self.template.metadata["body"])
+        self.assertEqual(
+            self.template.versions.count(), baseline_version_count + 1
+        )
+        new_version = self.template.current_version
+        self.assertNotEqual(new_version.uuid, self.version.uuid)
+        self.assertEqual(new_version.status, "APPROVED")
+
+        events = [self._event_of(record) for record in log_ctx.records]
+        self.assertIn("received", events)
+        self.assertIn("meta_sample_submitted", events)
+
+        received_record = next(
+            r for r in log_ctx.records if "received:" in r.getMessage()
+        )
+        received_message = received_record.getMessage()
+        self.assertIn("template_header_present=True", received_message)
+        self.assertIn("template_footer_present=False", received_message)
+        self.assertIn("buttons_count=0", received_message)
+
+        submitted_record = next(
+            r
+            for r in log_ctx.records
+            if "meta_sample_submitted:" in r.getMessage()
+        )
+        self.assertIn("sample_type=text", submitted_record.getMessage())
+
+    @staticmethod
+    def _event_of(record) -> str:
+        message = record.getMessage()
+        prefix, _, _ = message.partition(":")
+        return prefix.replace("[TemplateSampleValidation] ", "")
