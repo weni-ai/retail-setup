@@ -39,7 +39,7 @@ state.
 
 ---
 
-## Request body — three discriminated-union shapes
+## Request body — four discriminated-union shapes
 
 The wire body is built by the new pure-function translator
 `retail.templates.adapters.direct_send_sample_translator.build_meta_sample_body`
@@ -47,7 +47,18 @@ per FR-004 / FR-004a / FR-004e. Variable substitution
 (`{{1}}`, `{{2}}`, ...) happens BEFORE assembling the wire body
 using `template_body_params` (Research Decision 9 / A7).
 
-### Shape 1 — text-only (no header, no footer, no buttons)
+### Shape 1 — non-interactive (no buttons)
+
+This shape covers all no-button payloads. It has two sub-cases —
+the canonical pure body-only Shape 1 (no header, no footer) and
+the extended Shape 1b super-shape (optional `header` and / or
+`footer` top-level keys for no-button payloads that also carry
+those fields). Both sub-cases route through the same
+`MetaSampleType.TEXT` audit-log bucket; dashboards split them via
+the `received` event's `template_header_present` /
+`template_footer_present` boolean flags.
+
+#### Shape 1 (pure body-only)
 
 Per `docs/direct-send-api-beta-integration.md:579-586`:
 
@@ -61,8 +72,54 @@ Per `docs/direct-send-api-beta-integration.md:579-586`:
 }
 ```
 
-Fires when the input payload has `template_body` set AND no
-`template_header` AND no `template_footer` AND no `template_button`.
+Fires when the input payload has `template_body` set, no
+`template_header`, no `template_footer`, and no `template_button`.
+
+#### Shape 1b (extended — no buttons + header and / or footer)
+
+Per the 2026-05-26 round 2 clarification (Assumption A13 —
+empirically validated against the live `message_samples` API via
+manual `curl` / Postman testing; this shape is undocumented in the
+public Meta docs at `docs/direct-send-api-beta-integration.md:579-685`):
+
+```jsonc
+{
+  "type": "text",
+
+  // Optional. Discriminated union — same shape as Shape 2 / Shape 3's
+  // header. Absent (NOT null) when template_header is missing.
+  "header": {
+    "type": "text",
+    "text": "Pedido recebido"
+  },
+
+  // Optional. Same shape as Shape 2 / Shape 3's footer.
+  // Absent (NOT null) when template_footer is missing.
+  "footer": {
+    "text": "Equipe Loja XYZ"
+  },
+
+  // Mandatory. Substituted body — placeholders {{N}} replaced with
+  // template_body_params[N-1].
+  "text": {
+    "body": "Olá João!\n\nRecebemos seu pedido nº 12345."
+  }
+}
+```
+
+Fires when the input payload has no `template_button` entries
+(regardless of whether `template_header` and / or `template_footer`
+are present) AND at least one of `template_header` / `template_footer`
+is set. The four no-button-with-extras combinations are TEXT header
+alone, IMAGE header alone (HTTP URL or base64 → S3), footer alone,
+and header + footer together. The pure body-only sub-case (no
+header AND no footer) reduces bit-identically to Shape 1 above.
+
+Assumption A13 — the extended shape is undocumented in the public
+Meta docs at `docs/direct-send-api-beta-integration.md:579-685`;
+empirically validated against the live `message_samples` API. If
+Meta-side rejects the extended shape (`code: 100` or similar), the
+fallback contract pinned by spec `Assumption A13` applies.
 
 ### Shape 2 — interactive CTA URL button
 
@@ -164,7 +221,11 @@ Fires when the input payload has 1–3 `template_button` entries of
 
 ---
 
-## Header sub-object discriminated union (Shape 2 + Shape 3)
+## Header sub-object discriminated union (Shape 1b extended / Shape 2 / Shape 3)
+
+The header sub-object shape is shared across the extended Shape 1,
+Shape 2, and Shape 3 — the same TEXT / IMAGE discriminator applies
+regardless of which top-level container wraps it (per FR-004a).
 
 Per `docs/direct-send-api-beta-integration.md:599-610`:
 
@@ -338,6 +399,11 @@ US2's lockstep guarantee.
   included (Research Decision 9).
 - Any internal Retail identifier (Version uuid, IntegratedAgent
   uuid, etc.) is NOT included.
+- The `header` and `footer` top-level keys are ABSENT (not
+  `null`) when the corresponding input fields are missing —
+  `template_header is None` → no `header` key in the wire body;
+  `template_footer is None` → no `footer` key. This applies to
+  all four shapes (Shape 1 / Shape 1b / Shape 2 / Shape 3).
 
 The Meta-side classification is content-only — Meta evaluates the
 rendered text + image + button labels against its UTILITY

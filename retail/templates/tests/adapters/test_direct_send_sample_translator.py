@@ -1,10 +1,18 @@
 """Tests for the Direct Send sample-validation translator.
 
-Pure-function tests covering the three discriminated wire shapes
-(body-only ``text``, ``interactive.cta_url``, ``interactive.button``),
-variable substitution, deterministic ``reply.id`` derivation, header
-sub-object dispatch, and the ``parameters`` exclusion rule (Research
-Decision 9).
+Pure-function tests covering the four discriminated wire shapes
+(non-interactive ``text`` — pure body-only Shape 1 and extended Shape
+1b with optional ``header`` and / or ``footer``; ``interactive.cta_url``;
+``interactive.button``), variable substitution, deterministic
+``reply.id`` derivation, header sub-object dispatch, and the
+``parameters`` exclusion rule (Research Decision 9).
+
+The Phase 3c clarification (2026-05-26 round 2 / A13) widened Shape 1
+into a super-shape that carries optional ``header`` and / or ``footer``
+top-level keys for no-button payloads. The
+``BuildMetaSampleBodyExtendedShape1bTest`` class below pins the four
+no-button-with-extras combinations end-to-end at the translator
+boundary.
 """
 
 from unittest import TestCase
@@ -330,3 +338,163 @@ class BuildMetaSampleBodyHeaderDispatchTest(TestCase):
                 "image": {"link": "https://existing-bucket.s3.amazonaws.com/image.png"},
             },
         )
+
+
+class BuildMetaSampleBodyExtendedShape1bTest(TestCase):
+    """Extended Shape 1b — no-button payloads with optional header / footer.
+
+    Pins FR-004 (post-clarification 2026-05-26 round 2) / FR-004a / A13:
+    no-button payloads emit a four-key super-shape ``{"type": "text",
+    "header": {...}?, "footer": {...}?, "text": {"body": ...}}``. The
+    optional keys are ABSENT (not ``null``) when the input field is
+    missing — degenerate Shape 1b reduces bit-identically to Shape 1.
+
+    The bug case (test (a) below) reproduces the literal payload
+    reported 2026-05-26: ``{template_body, template_header: "Pedido
+    recebido", template_button: []}`` was producing ``{"type": "text",
+    "text": {"body": ...}}`` with the header silently dropped.
+    """
+
+    def test_text_header_no_footer_no_buttons_emits_extended_shape_1b(self):
+        dto = _dto(
+            template_body="Olá {{1}}!\n\nRecebemos seu pedido {{2}}.",
+            template_header="Pedido recebido",
+            template_body_params=["John", "nº 12345"],
+        )
+
+        body = build_meta_sample_body(dto)
+
+        self.assertEqual(
+            body,
+            {
+                "type": "text",
+                "header": {"type": "text", "text": "Pedido recebido"},
+                "text": {"body": "Olá John!\n\nRecebemos seu pedido nº 12345."},
+            },
+        )
+
+    def test_image_http_url_header_no_footer_no_buttons_emits_extended_shape_1b(self):
+        dto = _dto(
+            template_body="Body",
+            template_header="https://example.com/banner.png",
+        )
+
+        body = build_meta_sample_body(dto)
+
+        self.assertEqual(
+            body,
+            {
+                "type": "text",
+                "header": {
+                    "type": "image",
+                    "image": {"link": "https://example.com/banner.png"},
+                },
+                "text": {"body": "Body"},
+            },
+        )
+
+    def test_image_base64_header_no_footer_no_buttons_uses_resolved_s3_url(self):
+        dto = _dto(
+            template_body="Body",
+            template_header="data:image/png;base64,abc==",
+        )
+
+        body = build_meta_sample_body(
+            dto,
+            resolved_header_url="https://retail-bucket.s3.amazonaws.com/template_headers/abc.png",
+        )
+
+        self.assertEqual(
+            body["header"],
+            {
+                "type": "image",
+                "image": {
+                    "link": "https://retail-bucket.s3.amazonaws.com/template_headers/abc.png"
+                },
+            },
+        )
+        self.assertNotIn("abc==", body["header"]["image"]["link"])
+
+    def test_footer_only_no_header_no_buttons_emits_extended_shape_1b(self):
+        dto = _dto(
+            template_body="Body",
+            template_footer="Equipe XYZ",
+        )
+
+        body = build_meta_sample_body(dto)
+
+        self.assertEqual(
+            body,
+            {
+                "type": "text",
+                "footer": {"text": "Equipe XYZ"},
+                "text": {"body": "Body"},
+            },
+        )
+        self.assertNotIn("header", body)
+
+    def test_text_header_with_footer_no_buttons_emits_extended_shape_1b(self):
+        dto = _dto(
+            template_body="Body",
+            template_header="Header",
+            template_footer="Footer",
+        )
+
+        body = build_meta_sample_body(dto)
+
+        self.assertEqual(
+            body,
+            {
+                "type": "text",
+                "header": {"type": "text", "text": "Header"},
+                "footer": {"text": "Footer"},
+                "text": {"body": "Body"},
+            },
+        )
+
+    def test_pure_body_only_payload_reduces_to_shape_1_bit_identically(self):
+        """REGRESSION — degenerate Shape 1b reduces to the pre-existing Shape 1.
+
+        No ``header`` / ``footer`` keys are emitted when the
+        corresponding inputs are missing — ensures pre-Phase-3c
+        body-only callers see no observable wire-shape drift.
+        """
+        dto = _dto(template_body="Olá João")
+
+        body = build_meta_sample_body(dto)
+
+        self.assertEqual(body, {"type": "text", "text": {"body": "Olá João"}})
+        self.assertNotIn("header", body)
+        self.assertNotIn("footer", body)
+
+    def test_substitution_fires_across_text_header_body_footer_in_extended_shape_1b(self):
+        dto = _dto(
+            template_body="Body {{1}}",
+            template_header="Header {{1}}",
+            template_footer="Footer {{1}}",
+            template_body_params=["VALUE"],
+        )
+
+        body = build_meta_sample_body(dto)
+
+        self.assertEqual(body["header"]["text"], "Header VALUE")
+        self.assertEqual(body["text"]["body"], "Body VALUE")
+        self.assertEqual(body["footer"]["text"], "Footer VALUE")
+
+    def test_missing_index_substitutes_to_empty_string_in_extended_shape_1b(self):
+        dto = _dto(
+            template_body="Hello {{1}} and {{2}}",
+            template_header="Hi {{1}}",
+            template_footer="Bye {{2}}",
+            template_body_params=["only-one"],
+        )
+
+        with self.assertLogs(
+            "retail.agents.domains.agent_webhook.services.direct_send_payload_builder",
+            level="WARNING",
+        ):
+            body = build_meta_sample_body(dto)
+
+        self.assertEqual(body["header"]["text"], "Hi only-one")
+        self.assertEqual(body["text"]["body"], "Hello only-one and ")
+        self.assertEqual(body["footer"]["text"], "Bye ")
