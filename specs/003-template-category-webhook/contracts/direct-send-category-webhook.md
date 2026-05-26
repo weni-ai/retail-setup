@@ -71,14 +71,19 @@ declare `extra_fields = "raise"` or equivalent.
   the category-value namespace (spec.md A3); Retail does not
   normalize and does not reject unknown values.
 - Concrete v1 examples observed in practice:
-  `"UTILITY"`, `"MARKETING"`, `"AUTHENTICATION"`. The literal
-  `"UTILITY"` (uppercase, no whitespace) is the only value for
-  which the second clause of the flagging condition is `False`
-  (FR-006a).
+  `"UTILITY"`, `"MARKETING"`, `"AUTHENTICATION"`. Under the
+  single-field flagging condition (FR-006 / FR-006a — pinned by
+  Clarifications session 2026-05-25 Q3), the literal `"UTILITY"`
+  (uppercase, no whitespace) on `template_correct_category` is the
+  only value for which the flagging condition is `False`. The
+  `template_category` value is captured verbatim for diagnostic
+  audit-log visibility (FR-009d) but does NOT participate in the
+  decision.
 - The webhook does NOT case-fold or whitespace-trim either field —
-  lowercase `"utility"` is NOT equal to the literal `"UTILITY"`
-  and therefore triggers the `category_not_utility` clause
-  (Edge Case row in spec.md).
+  lowercase `"utility"` on `template_correct_category` is NOT
+  equal to the literal `"UTILITY"` and therefore triggers the flag
+  branch with `reason=correct_category_not_utility` (Edge Case row
+  in spec.md).
 
 ---
 
@@ -219,14 +224,17 @@ The webhook is idempotent at the Version level (FR-008).
   the dispatcher routes to `flag_replay_noop` — no `Version.save`,
   audit line `flag_replay_noop`, response shape
   `templates_updated=0`, `detail="Already flagged."`.
-- **Corrected-category payload (`UTILITY/UTILITY`) against a Version
-  already `FLAGGED`** (FR-006c / FR-007d): the dispatcher routes to
-  the auto-demote branch — writes `status="APPROVED"`, audit line
-  `auto_demoted` with `previous_status=FLAGGED new_status=APPROVED`,
-  response shape `templates_updated=1`, `detail="Auto-demoted."`.
-  The dispatch gate from spec 002's `Broadcast.get_current_template`
-  re-admits the template on the next broadcast attempt with no
-  operator action required.
+- **Corrected-category payload (any payload whose
+  `template_correct_category == "UTILITY"`, regardless of
+  `template_category` — e.g. `UTILITY/UTILITY` OR `MARKETING/UTILITY`)
+  against a Version already `FLAGGED`** (FR-006c / FR-007d): the
+  dispatcher routes to the auto-demote branch — writes
+  `status="APPROVED"`, audit line `auto_demoted` with
+  `previous_status=FLAGGED new_status=APPROVED`, response shape
+  `templates_updated=1`, `detail="Auto-demoted."`. The dispatch
+  gate from spec 002's `Broadcast.get_current_template` re-admits
+  the template on the next broadcast attempt with no operator
+  action required.
 - **Corrected-category payload re-fired against a Version already
   `APPROVED`** (post-demote settling): the FR-006 flagging
   condition is false AND the Version is not `FLAGGED`, so the
@@ -303,7 +311,7 @@ spec.md Edge Cases row 9).
 
 ```text
 [DirectSendCategoryWebhook] received: project_uuid=11111111-... app_uuid=22222222-... template_name=weni_order_invoiced template_category=MARKETING template_correct_category=MARKETING
-[DirectSendCategoryWebhook] flagged: project_uuid=11111111-... app_uuid=22222222-... template_name=weni_order_invoiced template_category=MARKETING template_correct_category=MARKETING integrated_agent_uuid=33333333-... template_uuid=44444444-... version_uuid=55555555-... previous_status=APPROVED new_status=FLAGGED reason=category_not_utility
+[DirectSendCategoryWebhook] flagged: project_uuid=11111111-... app_uuid=22222222-... template_name=weni_order_invoiced template_category=MARKETING template_correct_category=MARKETING integrated_agent_uuid=33333333-... template_uuid=44444444-... version_uuid=55555555-... previous_status=APPROVED new_status=FLAGGED reason=correct_category_not_utility
 [DirectSendCategoryWebhook] completed: project_uuid=11111111-... app_uuid=22222222-... template_name=weni_order_invoiced templates_updated=1 integrated_agents_inspected=1
 ```
 
@@ -334,7 +342,12 @@ Same request as 6.1, fired a second time.
 After 6.1 has flipped the Version to `FLAGGED`, the operator fixes
 the template content on the Meta side so the category is now
 `UTILITY`. Integrations re-fires the webhook with the corrected
-payload:
+payload. Any payload whose `template_correct_category == "UTILITY"`
+triggers this branch — the canonical example below uses
+`UTILITY/UTILITY`, but `MARKETING/UTILITY` (and any other
+`<X>/UTILITY` shape) is functionally identical because
+`template_category` is captured for audit only and does NOT
+participate in the decision per FR-006a:
 
 **Request**:
 
@@ -371,7 +384,16 @@ against the post-demote `APPROVED` Version) routes through the
 `no_action_required` path: HTTP 200, `templates_updated=0`,
 `detail="No action required."`, audit line `no_action_required`.
 
-### 6.3 No-action — UTILITY/UTILITY (US1 scenario 3)
+### 6.3 No-action — corrected-category payload against an `APPROVED` Version (US1 scenario 3)
+
+Any payload whose `template_correct_category == "UTILITY"` (e.g.
+`MARKETING/UTILITY` OR the canonical `UTILITY/UTILITY` shown
+below — `template_category` is captured for audit only and does
+NOT participate in the decision per FR-006a) routes through the
+`no_action_required` branch when the matched Version is already
+`APPROVED`. The example below uses `UTILITY/UTILITY` as the
+canonical shape; substitute any other `template_category` value
+and the outcome is identical.
 
 **Request**:
 
@@ -447,8 +469,8 @@ named `weni_order_invoiced`.
 
 ```text
 [DirectSendCategoryWebhook] received: ...
-[DirectSendCategoryWebhook] flagged: ... integrated_agent_uuid=<IA-1> template_uuid=<T-IA1> version_uuid=<V-IA1> previous_status=APPROVED new_status=FLAGGED reason=category_not_utility
-[DirectSendCategoryWebhook] flagged: ... integrated_agent_uuid=<IA-2> template_uuid=<T-IA2> version_uuid=<V-IA2> previous_status=APPROVED new_status=FLAGGED reason=category_not_utility
+[DirectSendCategoryWebhook] flagged: ... integrated_agent_uuid=<IA-1> template_uuid=<T-IA1> version_uuid=<V-IA1> previous_status=APPROVED new_status=FLAGGED reason=correct_category_not_utility
+[DirectSendCategoryWebhook] flagged: ... integrated_agent_uuid=<IA-2> template_uuid=<T-IA2> version_uuid=<V-IA2> previous_status=APPROVED new_status=FLAGGED reason=correct_category_not_utility
 [DirectSendCategoryWebhook] completed: ... templates_updated=2 integrated_agents_inspected=2
 ```
 
@@ -472,7 +494,7 @@ delete cascade observed in production).
 
 ```text
 [DirectSendCategoryWebhook] received: ...
-[DirectSendCategoryWebhook] flagged: ... integrated_agent_uuid=<IA-1> template_uuid=<T-IA1> version_uuid=<V-IA1> previous_status=APPROVED new_status=FLAGGED reason=category_not_utility
+[DirectSendCategoryWebhook] flagged: ... integrated_agent_uuid=<IA-1> template_uuid=<T-IA1> version_uuid=<V-IA1> previous_status=APPROVED new_status=FLAGGED reason=correct_category_not_utility
 [DirectSendCategoryWebhook] template_not_found: project_uuid=... app_uuid=... template_name=weni_order_invoiced integrated_agent_uuid=<IA-2>
 [DirectSendCategoryWebhook] completed: ... templates_updated=1 integrated_agents_inspected=2
 ```

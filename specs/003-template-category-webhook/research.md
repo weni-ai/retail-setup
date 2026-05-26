@@ -263,10 +263,12 @@ if template.current_version.status == "FLAGGED":
 
 No dedup cache (Redis SETNX or LocMemCache wrapper) is introduced
 for this webhook. The demote write is itself idempotent: a re-fire
-of the `UTILITY/UTILITY` payload against the post-demote
-`APPROVED` Version short-circuits through `no_action_required`
-(FR-006 no-fire) because FR-006c requires `status == "FLAGGED"` to
-trigger the demote.
+of the corrected-category payload (any payload whose
+`template_correct_category == "UTILITY"`, regardless of
+`template_category` — e.g. `UTILITY/UTILITY` OR `MARKETING/UTILITY`)
+against the post-demote `APPROVED` Version short-circuits through
+`no_action_required` (FR-006 no-fire) because FR-006c requires
+`status == "FLAGGED"` to trigger the demote.
 
 **Rationale**:
 
@@ -361,11 +363,16 @@ This decision was pinned by the Clarifications session 2026-05-24
   lookup misses, ERROR with `exc_info=True` for `unexpected_error`
   only. This is the discipline operators expect from the existing
   2026-era audit-log surface.
-- The `reason=<sub_reason>` k=v on `flagged` events (closed
-  enumeration `{category_mismatch, category_not_utility,
-  category_mismatch_and_not_utility}` per FR-006b / FR-009a) gives
-  operator dashboards a single-token filter for "why was this
-  flagged" without parsing the category values.
+- The `reason=<sub_reason>` k=v on `flagged` events carries the
+  single token `correct_category_not_utility` per FR-006b / FR-009a
+  (collapsed from the prior three-value enumeration by Clarifications
+  session 2026-05-25 Q3 — under the single-field flag rule
+  `template_correct_category != "UTILITY"` there is only one reason
+  that can fire). The sub-enumeration remains additive-only —
+  future flag clauses MAY add new reason values but MUST NOT
+  rename or remove `correct_category_not_utility`. The fixed reason
+  still gives operator dashboards a single-token filter for "why
+  was this flagged" without parsing the category values.
 
 **Alternatives considered**:
 
@@ -658,10 +665,11 @@ own PR.
 - **Automated `FLAGGED → APPROVED` demote**: in scope as of the
   2026-05-25 spec clarification. FR-006c / FR-007d / FR-014 now
   define an auto-demote channel that fires on a corrected-category
-  payload (`template_category == template_correct_category == "UTILITY"`)
-  against a Version already in `"FLAGGED"`. Operator-driven recovery
-  via `UpdateTemplateUseCase` remains supported as a second,
-  manual channel (FR-014 documents the two as convergent).
+  payload (`template_correct_category == "UTILITY"`, regardless of
+  `template_category`) against a Version already in `"FLAGGED"`.
+  Operator-driven recovery via `UpdateTemplateUseCase` remains
+  supported as a second, manual channel (FR-014 documents the two
+  as convergent).
 - **A new dedup cache for this webhook**: rejected by Decision 5 —
   the early-return guard is the v1 idempotency mechanism.
 - **A new database migration**: rejected by spec.md A10 — the

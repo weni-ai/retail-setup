@@ -118,7 +118,7 @@ curl -X POST "$BASE_URL/webhook/templates-status/api/category-notification/" \
   `received` / `flagged` / `completed`):
   ```text
   [DirectSendCategoryWebhook] received: project_uuid=11111111-... app_uuid=22222222-... template_name=weni_order_invoiced template_category=MARKETING template_correct_category=MARKETING
-  [DirectSendCategoryWebhook] flagged: project_uuid=11111111-... app_uuid=22222222-... template_name=weni_order_invoiced template_category=MARKETING template_correct_category=MARKETING integrated_agent_uuid=33333333-... template_uuid=44444444-... version_uuid=55555555-... previous_status=APPROVED new_status=FLAGGED reason=category_not_utility
+  [DirectSendCategoryWebhook] flagged: project_uuid=11111111-... app_uuid=22222222-... template_name=weni_order_invoiced template_category=MARKETING template_correct_category=MARKETING integrated_agent_uuid=33333333-... template_uuid=44444444-... version_uuid=55555555-... previous_status=APPROVED new_status=FLAGGED reason=correct_category_not_utility
   [DirectSendCategoryWebhook] completed: project_uuid=11111111-... app_uuid=22222222-... template_name=weni_order_invoiced templates_updated=1 integrated_agents_inspected=1
   ```
 

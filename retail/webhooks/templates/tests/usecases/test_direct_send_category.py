@@ -217,21 +217,32 @@ class _VersionSaveSpy:
 
 
 class FlaggingPathTest(_UseCaseTestBase):
-    REASON_SCENARIOS = [
-        ("UTILITY", "MARKETING", FlaggingReason.CATEGORY_MISMATCH),
-        ("MARKETING", "MARKETING", FlaggingReason.CATEGORY_NOT_UTILITY),
-        (
-            "MARKETING",
-            "AUTHENTICATION",
-            FlaggingReason.CATEGORY_MISMATCH_AND_NOT_UTILITY,
-        ),
+    """FR-006 single-field flag rule (Clarifications session 2026-05-25 Q3).
+
+    ``template_correct_category != "UTILITY"`` is the only flag clause;
+    ``template_category`` is captured for audit visibility but never
+    participates in the rule. The single-field parametrization below
+    sweeps four representative ``(template_category,
+    template_correct_category)`` pairs that all share the same outcome
+    (flag fires with the single reason ``correct_category_not_utility``);
+    the inverted-category cell ``("UTILITY", "MARKETING")`` is the
+    diagnostic-only pin (C1) — ``template_category="UTILITY"`` does NOT
+    rescue the row from flagging when ``template_correct_category``
+    says otherwise.
+    """
+
+    FLAGGING_PAYLOADS = [
+        ("MARKETING", "MARKETING"),
+        ("UTILITY", "MARKETING"),
+        ("MARKETING", "AUTHENTICATION"),
+        ("AUTHENTICATION", "MARKETING"),
     ]
     PREVIOUS_STATUSES = ["APPROVED", "PAUSED", "PENDING", "REJECTED", "DELETED"]
 
-    def test_flagging_condition_writes_flagged_for_every_reason_and_previous_status(
+    def test_flagging_condition_writes_flagged_across_payloads_and_previous_statuses(
         self,
     ):
-        for category, correct, expected_reason in self.REASON_SCENARIOS:
+        for category, correct in self.FLAGGING_PAYLOADS:
             for previous_status in self.PREVIOUS_STATUSES:
                 with self.subTest(
                     category=category,
@@ -276,16 +287,57 @@ class FlaggingPathTest(_UseCaseTestBase):
                     flagged_records = _records_by_event(log_ctx.records)["flagged"]
                     self.assertEqual(len(flagged_records), 1)
                     self.assertEqual(
-                        flagged_records[0].args["reason"], expected_reason.value
+                        flagged_records[0].args["reason"],
+                        FlaggingReason.CORRECT_CATEGORY_NOT_UTILITY.value,
                     )
                     self.assertEqual(
                         flagged_records[0].args["previous_status"], previous_status
                     )
 
-    def test_utility_payload_skips_save_and_emits_no_action_required(self):
+    def test_correct_category_utility_skips_save_for_every_template_category(self):
+        """FR-006 no-fire (US1 AS3): when ``template_correct_category ==
+        "UTILITY"`` no flag fires regardless of ``template_category``.
+        The ``MARKETING/UTILITY`` cell is the AS3 pin — ``template_category``
+        carrying a non-UTILITY value does NOT trigger a flag because the
+        eligibility gate is the single field ``template_correct_category``."""
+        for template_category in ("UTILITY", "MARKETING"):
+            with self.subTest(template_category=template_category):
+                Version.objects.filter(pk=self.version.pk).update(status="APPROVED")
+                self.version.refresh_from_db()
+
+                with _VersionSaveSpy() as save_spy:
+                    dto = self._build_dto(
+                        template_category=template_category,
+                        template_correct_category="UTILITY",
+                    )
+                    with self.assertLogs(
+                        "retail.webhooks.templates.usecases.direct_send_category",
+                        level="INFO",
+                    ) as log_ctx:
+                        result = self.usecase.execute(dto)
+
+                self.assertEqual(save_spy.call_count, 0)
+                self.assertEqual(result.templates_updated, 0)
+                self.assertEqual(result.integrated_agents_inspected, 1)
+                self.assertEqual(result.detail, "No action required.")
+
+                events = _records_by_event(log_ctx.records)
+                self.assertIn("no_action_required", events)
+                self.assertNotIn("flagged", events)
+                self.assertEqual(
+                    events["no_action_required"][0].args["template_category"],
+                    template_category,
+                )
+
+    def test_lowercase_utility_in_correct_category_is_case_sensitive_and_flags(self):
+        """FR-006a (C4): the flag rule is strict string equality against
+        the literal ``"UTILITY"``. A lowercase ``"utility"`` is NOT equal
+        to ``"UTILITY"`` and therefore fires the flag branch with the
+        single reason ``correct_category_not_utility``."""
         with _VersionSaveSpy() as save_spy:
             dto = self._build_dto(
-                template_category="UTILITY", template_correct_category="UTILITY"
+                template_category="UTILITY",
+                template_correct_category="utility",
             )
             with self.assertLogs(
                 "retail.webhooks.templates.usecases.direct_send_category",
@@ -293,14 +345,18 @@ class FlaggingPathTest(_UseCaseTestBase):
             ) as log_ctx:
                 result = self.usecase.execute(dto)
 
-        self.assertEqual(save_spy.call_count, 0)
-        self.assertEqual(result.templates_updated, 0)
-        self.assertEqual(result.integrated_agents_inspected, 1)
-        self.assertEqual(result.detail, "No action required.")
+        self.version.refresh_from_db()
+        self.assertEqual(self.version.status, "FLAGGED")
+        self.assertEqual(save_spy.call_count, 1)
+        self.assertEqual(result.templates_updated, 1)
+        self.assertEqual(result.detail, "Templates flagged.")
 
-        events = _records_by_event(log_ctx.records)
-        self.assertIn("no_action_required", events)
-        self.assertNotIn("flagged", events)
+        flagged = _records_by_event(log_ctx.records)["flagged"][0]
+        self.assertEqual(
+            flagged.args["reason"],
+            FlaggingReason.CORRECT_CATEGORY_NOT_UTILITY.value,
+        )
+        self.assertEqual(flagged.args["template_correct_category"], "utility")
 
     def test_received_and_completed_lines_emitted_exactly_once_with_payload(self):
         dto = self._build_dto()
@@ -784,6 +840,177 @@ class TemplateHasNoCurrentVersionTest(_UseCaseTestBase):
         self.assertEqual(
             record.args["integrated_agent_uuid"], self.integrated_agent.uuid
         )
+
+
+class CategoryDeterminationOscillatesBetweenFlagAndDemoteTest(_UseCaseTestBase):
+    """spec.md Edge Cases "Multi-step flag-then-correct flow" + "Integrations
+    replays the same webhook hours/days later": when Meta re-categorizes a
+    template back and forth, every transition writes one row and emits one
+    audit line — there is no replay coalescing across an interleaved demote.
+    Under the single-field rule, ``MARKETING/MARKETING`` after a demote
+    fires the flag branch again (NOT ``flag_replay_noop``) because the
+    demote settled the Version into ``APPROVED``."""
+
+    def test_flag_demote_flag_demote_sequence_writes_each_transition_once(self):
+        flagging_dto = self._build_dto(
+            template_category="MARKETING",
+            template_correct_category="MARKETING",
+        )
+        demoting_dto = self._build_dto(
+            template_category="UTILITY",
+            template_correct_category="UTILITY",
+        )
+
+        with _VersionSaveSpy() as save_spy:
+            with self.assertLogs(
+                "retail.webhooks.templates.usecases.direct_send_category",
+                level="INFO",
+            ) as log_ctx:
+                self.usecase.execute(flagging_dto)
+                self.version.refresh_from_db()
+                self.assertEqual(self.version.status, "FLAGGED")
+
+                self.usecase.execute(demoting_dto)
+                self.version.refresh_from_db()
+                self.assertEqual(self.version.status, "APPROVED")
+
+                self.usecase.execute(flagging_dto)
+                self.version.refresh_from_db()
+                self.assertEqual(self.version.status, "FLAGGED")
+
+                self.usecase.execute(demoting_dto)
+                self.version.refresh_from_db()
+                self.assertEqual(self.version.status, "APPROVED")
+
+        self.assertEqual(save_spy.call_count, 4)
+        for call in save_spy.calls:
+            self.assertEqual(call["kwargs"].get("update_fields"), ["status"])
+
+        events = _records_by_event(log_ctx.records)
+        self.assertEqual(len(events["flagged"]), 2)
+        self.assertEqual(len(events["auto_demoted"]), 2)
+        self.assertNotIn("flag_replay_noop", events)
+        self.assertNotIn("no_action_required", events)
+
+        transition_sequence = [
+            _event_of(record)
+            for record in log_ctx.records
+            if _event_of(record) in ("flagged", "auto_demoted")
+        ]
+        self.assertEqual(
+            transition_sequence,
+            ["flagged", "auto_demoted", "flagged", "auto_demoted"],
+        )
+
+
+class HeterogeneousFanOutUnderCorrectedCategoryPayloadTest(_UseCaseTestBase):
+    """spec.md Edge Case "Heterogeneous-status fan-out under a
+    corrected-category payload": when the fan-out matches IntegratedAgents
+    whose Versions are in different starting states and the payload is a
+    corrected-category signal, each IA is processed independently — the
+    ``APPROVED`` row stays as ``no_action_required`` while the ``FLAGGED``
+    row is auto-demoted. ``templates_updated`` counts only the demote
+    write per FR-010's direction-agnostic counter rule."""
+
+    def setUp(self):
+        super().setUp()
+        self.second_ia = self._create_integrated_agent(self.project)
+        self.second_template = self._create_template(self.second_ia, self.TEMPLATE_NAME)
+        self.second_version = self._create_version(
+            self.second_template,
+            self.project,
+            self.APP_UUID,
+            status="FLAGGED",
+        )
+        self._link_current_version(self.second_template, self.second_version)
+
+    def test_corrected_category_payload_demotes_only_flagged_iAs(self):
+        dto = self._build_dto(
+            template_category="UTILITY",
+            template_correct_category="UTILITY",
+        )
+
+        with _VersionSaveSpy() as save_spy:
+            with self.assertLogs(
+                "retail.webhooks.templates.usecases.direct_send_category",
+                level="INFO",
+            ) as log_ctx:
+                result = self.usecase.execute(dto)
+
+        self.version.refresh_from_db()
+        self.second_version.refresh_from_db()
+        self.assertEqual(self.version.status, "APPROVED")
+        self.assertEqual(self.second_version.status, "APPROVED")
+
+        self.assertEqual(save_spy.call_count, 1)
+        demoted_save = save_spy.calls[0]
+        self.assertEqual(demoted_save["self"].pk, self.second_version.pk)
+        self.assertEqual(demoted_save["kwargs"].get("update_fields"), ["status"])
+
+        self.assertEqual(result.templates_updated, 1)
+        self.assertEqual(result.integrated_agents_inspected, 2)
+        self.assertEqual(result.detail, "Mixed outcomes.")
+
+        events = _records_by_event(log_ctx.records)
+        self.assertEqual(len(events["auto_demoted"]), 1)
+        self.assertEqual(len(events["no_action_required"]), 1)
+
+        demoted = events["auto_demoted"][0]
+        self.assertEqual(demoted.args["integrated_agent_uuid"], self.second_ia.uuid)
+        self.assertEqual(demoted.args["previous_status"], "FLAGGED")
+        self.assertEqual(demoted.args["new_status"], "APPROVED")
+
+        no_action = events["no_action_required"][0]
+        self.assertEqual(
+            no_action.args["integrated_agent_uuid"], self.integrated_agent.uuid
+        )
+        self.assertEqual(no_action.args["previous_status"], "APPROVED")
+
+
+class AutoDemoteBranchIsSilentAgainstNonFlaggedStartingStatesTest(_UseCaseTestBase):
+    """Assumption A11 last paragraph: the auto-demote branch never fires
+    against any non-``FLAGGED`` starting state. Parametrizing the
+    corrected-category payload (``template_correct_category="UTILITY"``)
+    against every non-``FLAGGED`` starting state pins the symmetric guard
+    that complements ``FlaggingPathTest``'s flag-branch parametrization
+    — every cell is a no-write ``no_action_required`` outcome."""
+
+    NON_FLAGGED_STATUSES = ["PAUSED", "PENDING", "REJECTED", "DELETED", "APPROVED"]
+
+    def test_corrected_category_against_non_flagged_starting_states_is_no_op(self):
+        for previous_status in self.NON_FLAGGED_STATUSES:
+            with self.subTest(previous_status=previous_status):
+                Version.objects.filter(pk=self.version.pk).update(
+                    status=previous_status
+                )
+                self.version.refresh_from_db()
+
+                with _VersionSaveSpy() as save_spy:
+                    dto = self._build_dto(
+                        template_category="UTILITY",
+                        template_correct_category="UTILITY",
+                    )
+                    with self.assertLogs(
+                        "retail.webhooks.templates.usecases.direct_send_category",
+                        level="INFO",
+                    ) as log_ctx:
+                        result = self.usecase.execute(dto)
+
+                self.version.refresh_from_db()
+                self.assertEqual(self.version.status, previous_status)
+                self.assertEqual(save_spy.call_count, 0)
+
+                self.assertEqual(result.templates_updated, 0)
+                self.assertEqual(result.integrated_agents_inspected, 1)
+                self.assertEqual(result.detail, "No action required.")
+
+                events = _records_by_event(log_ctx.records)
+                self.assertIn("no_action_required", events)
+                self.assertNotIn("auto_demoted", events)
+                self.assertEqual(
+                    events["no_action_required"][0].args["previous_status"],
+                    previous_status,
+                )
 
 
 class MixedOutcomesFanOutTest(_UseCaseTestBase):
