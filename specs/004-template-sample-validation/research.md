@@ -138,52 +138,137 @@ HTTP 400 with body
 
 ## Decision 3 — WABA-id resolution path
 
-**Decision**: The WABA id is resolved per-call from
-`ProjectOnboarding.config["channels"]["wpp-cloud"]["channel_data"]["waba_id"]`.
-The use case fetches the `ProjectOnboarding` row by
-`project__uuid=dto.project_uuid`. When the row is missing, the
-`channels.wpp-cloud` key is missing, the `channel_data.waba_id`
-field is missing, or the value is empty, the use case raises
-`WabaNotConfiguredError` which the view translates into HTTP 400
-with body
+> **Superseded by clarification Q3 (2026-05-26).** The original
+> resolution defended a local
+> `ProjectOnboarding.config["channels"]["wpp-cloud"]["channel_data"]["waba_id"]`
+> read. Operational review during clarification surfaced that the
+> `ProjectOnboarding.config` snapshot can drift from the live
+> integrations-engine state whenever a WABA is reconfigured outside
+> the onboarding flow (e.g. an operator re-binds the channel via
+> the Integrations UI without re-running onboarding), at which
+> point a sample submission would be routed against a stale WABA
+> id. The decision below records the **current** resolution; the
+> original rationale (and its rejected alternatives) is preserved
+> under "Superseded rationale" for auditability.
+
+**Decision**: The WABA id is resolved per-call by calling
+`IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)`
+(`retail/services/integrations/service.py:372-389`) and reading
+`app["config"]["waba"]["id"]` from the returned channel-app dict
+— the exact field path used today by
+`ConfigureOneClickPaymentUseCase._fetch_channel_info`
+(`retail/projects/usecases/configure_one_click_payment.py:192`).
+The `app_uuid` is the existing REQUIRED request body field per
+FR-003; no new request field is introduced.
+
+Per the FR-005a single-class collapse, ALL three failure modes —
+(a) integrations infra failure (HTTP 5xx / network timeout /
+connection error, which surfaces as
+`IntegrationsService.get_channel_app(...)` returning `None`
+because the service swallows `CustomAPIException`), (b)
+integrations returns no app for the supplied `app_uuid` (also
+surfaces as `None` under the swallow-to-None contract), and
+(c) integrations returns an app whose `config["waba"]["id"]` is
+missing / `None` / empty — collapse to one `WabaNotConfiguredError`
+raised by the use case. The view translates it into HTTP 400 with
+body
 `{"detail": "WABA not configured for this project", "error_code": "waba_not_configured"}`
-(FR-005a / FR-007d).
+(FR-005a / FR-007d). The audit log's `waba_not_configured` event
+carries `integrations_response_present: bool` to discriminate
+"service down / no app" (`False`) from "app exists but unconfigured"
+(`True`) without leaking the distinction into the operator-facing
+response per FR-008a.
+
+`IntegrationsService.get_channel_app` keeps its existing
+swallow-to-None on `CustomAPIException` behavior unchanged — no
+service-layer signature change is introduced (the use case treats
+`None` and "dict with no usable `waba_id`" identically; the
+discrimination happens only in the audit-log payload).
 
 **Rationale**:
 
-- This is the same lookup path
-  `retail/projects/usecases/configure_wpp_cloud.py:96-114` uses to
-  feed `create_wpp_cloud_channel` and the same path
-  `retail/projects/usecases/configure_one_click_payment.py:182-219`
-  uses to feed `MetaService.create_flow`. Reusing it keeps WABA-id
-  resolution in one place (spec.md A2).
-- There is no `Project.waba_id` shortcut and no
-  `IntegratedAgent.waba_id` column today — `IntegratedAgent.channel_uuid`
-  is a different identifier (the WhatsApp channel UUID, NOT the
-  WABA id). Denormalizing the WABA id onto `Project.config` is
-  out of scope for v1 (spec.md A2).
-- The lookup is O(1) (`ProjectOnboarding.project_id` is a unique
-  FK to `Project`) and adds at most one DB round-trip to the hot
-  path. The latency budget (SC-006 — p99 < 3s) absorbs it
-  comfortably (the outbound Meta call dominates).
+- The integrations engine is the **authoritative source** for
+  live channel-app state. `ProjectOnboarding.config["channels"]`
+  is a **write-time snapshot** populated by
+  `retail/projects/usecases/configure_wpp_cloud.py:96-114` and is
+  not re-synced when the channel is later reconfigured outside
+  the onboarding flow. Routing a Meta sample against a stale WABA
+  is an avoidable operator-visible failure mode.
+- The `app_uuid` is the same identifier the frontend already
+  supplies for every template-edit call via the existing
+  `UpdateTemplateContentSerializer` (FR-003). No new request
+  field is introduced; the legacy
+  `PATCH /api/v3/templates/<uuid>/` request shape is preserved
+  (FR-014).
+- The integrations call swaps a local single-row DB read for one
+  outbound Connect-side HTTP round-trip. SC-006's 3s p99 ceiling
+  comfortably absorbs the extra hop — the outbound Meta call
+  remains the dominant latency contributor and the integrations
+  call runs serially before it (worst case
+  `t_integrations + t_meta`).
+- `IntegrationsService.get_channel_app` is already the canonical
+  consumer for the same field path in
+  `ConfigureOneClickPaymentUseCase._fetch_channel_info`
+  (`retail/projects/usecases/configure_one_click_payment.py:174-202`),
+  so the new use case reuses an existing service-layer contract
+  rather than introducing a parallel resolution path. The
+  service's swallow-to-None on `CustomAPIException` is preserved
+  unchanged — other call sites stay untouched.
 
 **Alternatives considered**:
 
-- *Denormalize `waba_id` onto `Project.config["waba_id"]` at
-  channel-setup time*: rejected for v1 because it forces a
-  follow-up migration / consumer update on the
-  `ProjectUpdateConsumer` path and a backfill for existing
-  projects. If operational data later shows the per-call lookup
-  is the latency bottleneck (it won't — Meta's call dominates),
-  a denormalization is a small follow-up PR.
-- *Resolve `waba_id` from the IntegratedAgent's `channel_uuid`
-  via an outbound Integrations-engine call*: rejected because (a)
-  it adds an outbound HTTP round-trip on the hot path, (b) it
-  doubles the per-request quota cost (sample API + Integrations
-  API), and (c) `channel_uuid` ↔ `waba_id` resolution is
-  Integrations' internal concern that Retail shouldn't need to
-  re-derive when the value is already snapshot'd on
-  `ProjectOnboarding`.
+- *Denormalize `waba_id` onto `Project.config["waba_id"]` or
+  `IntegratedAgent.config["waba_id"]` at channel-setup time*:
+  rejected for v1 because (a) the denormalized snapshot would
+  inherit the same staleness problem as the `ProjectOnboarding`
+  snapshot — the very failure mode this decision moves away from
+  — and (b) it would force a follow-up migration / consumer
+  update on the channel-reconfiguration path and a backfill for
+  existing projects. If operational data later shows the per-call
+  integrations round-trip is the latency bottleneck, a TTL'd
+  cache on the integrations call is the natural follow-up — but
+  is out of scope for v1.
+- *Look up the WABA via the Template's `integrated_agent.channel_uuid`
+  with a separate integrations endpoint*: rejected because (a)
+  `channel_uuid` ↔ `waba_id` resolution would require a new
+  integrations endpoint that doesn't exist today, and (b) the
+  frontend already passes `app_uuid` in every call, so
+  `get_channel_app` is a drop-in fit with zero new contract
+  surface on either side.
+
+### Superseded rationale (read-only — for audit)
+
+The original Decision 3 defended a local
+`ProjectOnboarding.config["channels"]["wpp-cloud"]["channel_data"]["waba_id"]`
+read. The defense rested on three claims, each of which the
+clarification reweighed:
+
+1. *"Same lookup path
+   `retail/projects/usecases/configure_wpp_cloud.py:96-114` uses to
+   feed `create_wpp_cloud_channel`."* — True at write time, but
+   `configure_wpp_cloud` is the only writer of the snapshot; no
+   process re-reconciles it against post-onboarding reconfigurations
+   from the Integrations UI.
+2. *"The lookup is O(1) and adds at most one DB round-trip; SC-006
+   absorbs it comfortably."* — Still true; latency was never the
+   deciding factor. The cost shifts to one outbound HTTP round-trip
+   instead of one local DB read; SC-006's 3s p99 ceiling still
+   absorbs the move comfortably.
+3. *"Out-of-scope to denormalize onto `Project.config`."* —
+   Still true; the integrations-call path makes denormalization
+   unnecessary (the live integrations state is the authoritative
+   source by design).
+
+The original rejected alternative *"Resolve `waba_id` from the
+IntegratedAgent's `channel_uuid` via an outbound Integrations-engine
+call"* was rejected with the reasoning "doubles the per-request
+quota cost (sample API + Integrations API)" — that concern was
+reconsidered: the integrations call is internal Connect-side
+traffic (not metered against Meta's sample-API quota), so the
+"doubles the per-request quota cost" framing conflated two
+different quota envelopes. With the framing corrected, the
+integrations-call alternative is preferred for live-state
+correctness.
 
 ---
 

@@ -55,8 +55,13 @@ The technical approach (resolved in `./research.md`) is:
    the orchestration: load the Template by uuid with
    `select_related("integrated_agent")`, gate on the
    `config["direct_send"]` predicate (FR-002a), resolve the project's
-   WABA id from `ProjectOnboarding.config["channels"]["wpp-cloud"]["channel_data"]["waba_id"]`
-   (FR-005a), build the Meta wire-shape body via a new pure-function
+   WABA id via a live call to
+   `IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)`
+   and read `app["config"]["waba"]["id"]` from the returned channel
+   app (FR-005a / A2 — the same field path
+   `ConfigureOneClickPaymentUseCase._fetch_channel_info` consumes at
+   `retail/projects/usecases/configure_one_click_payment.py:192`),
+   build the Meta wire-shape body via a new pure-function
    translator (FR-004), call
    `MetaService.submit_template_sample(waba_id, body)` (FR-005), and
    branch on Meta's `category` verdict (FR-005b / FR-006). On
@@ -122,8 +127,12 @@ The technical approach (resolved in `./research.md`) is:
    HTTP 502 responses, which requires the raw error envelope.
 6. **No new model, no new column, no migration**. The
    `IntegratedAgent.config["direct_send"]` flag was added by spec
-   002. The `Project.uuid` and `ProjectOnboarding.config["channels"]["wpp-cloud"]["channel_data"]["waba_id"]`
-   paths are pre-existing (`retail/projects/usecases/configure_wpp_cloud.py:96-114`).
+   002. WABA-id resolution flows through the existing
+   `IntegrationsService.get_channel_app("wpp-cloud", app_uuid)`
+   plumbing (`retail/services/integrations/service.py:372-389`) —
+   no new model field is introduced on the Retail side; the
+   integrations engine remains the authoritative source of live
+   channel-app state (FR-005a / A2).
    `Version.status = "APPROVED"` is a long-standing enum member
    (`retail/templates/models.py:48-59`). The feature ships zero
    migrations across all apps.
@@ -162,7 +171,11 @@ single `INSERT` per UTILITY-classified request creates one
 single `UPDATE` advances `templates_template.current_version_id` to
 the new row's PK in the same transaction. The metadata rewrite is
 a single `UPDATE` on `templates_template.metadata` (JSONField,
-unchanged column shape).
+unchanged column shape). WABA-id resolution does NOT touch local
+storage at all — it flows through one outbound Connect-side HTTP
+call to `IntegrationsService.get_channel_app("wpp-cloud", app_uuid)`
+per FR-005a / A2, so `ProjectOnboarding` is NOT read by this
+endpoint.
 
 **Testing**: `django.test.TestCase` + `unittest.mock` (`MagicMock`,
 `patch`). New test files under
@@ -199,12 +212,21 @@ namespace).
   SC-006). The dominant contributor is the outbound Meta sample
   call (Retail does not control its latency); Retail's local hot
   path is bounded structurally by (a) one Template read with
-  `select_related("integrated_agent")`, (b) one `ProjectOnboarding`
-  read for the WABA id, (c) optional S3 upload for IMAGE headers
-  (FR-004a / A9), (d) the outbound `requests.post` to Meta, and
-  (e) on UTILITY only, two single-row writes (Version INSERT +
-  Template UPDATE for `metadata` + `current_version`). No Celery
-  enqueue is on the hot path (A10).
+  `select_related("integrated_agent")`, (b) one outbound
+  Connect-side HTTP call to
+  `IntegrationsService.get_channel_app("wpp-cloud", app_uuid)` for
+  the WABA id (FR-005a / A2 — runs serially before the Meta call,
+  so the worst-case is `t_integrations + t_meta`), (c) optional S3
+  upload for IMAGE headers (FR-004a / A9), (d) the outbound
+  `requests.post` to Meta, and (e) on UTILITY only, two single-row
+  writes (Version INSERT + Template UPDATE for `metadata` +
+  `current_version`). No Celery enqueue is on the hot path (A10).
+  The integrations call replaces what was previously a local
+  `ProjectOnboarding` DB read; the trade-off is documented in
+  research.md Decision 3 (a per-call HTTP round-trip absorbed by
+  SC-006's 3s headroom, in exchange for live channel-app state
+  that cannot drift from the integrations engine's authoritative
+  view).
 - Direct Send broadcast renders the new content on the NEXT
   dispatch attempt with NO additional latency budget (SC-004):
   `Template.current_version` is repointed in-line to the new
@@ -228,11 +250,20 @@ namespace).
   serializer-layer FR-002b check refuses any request whose
   `Project-Uuid` HTTP header does not equal the body's
   `project_uuid`. `HasProjectPermission` authorizes against the
-  header, and the use case's WABA resolution uses the body's
-  `project_uuid` — without the equality check, an operator
-  authorized for project A could route a Meta sample call to
-  project B's WABA. The check runs at the serializer layer (no DB
-  lookup, no Meta call), surfaces as HTTP 400 with
+  header; the body's `project_uuid` is the value that downstream
+  observability surfaces (audit log, error events) treat as the
+  authoritative tenant identifier. Pinning header ↔ body equality
+  at the serializer layer guarantees the two values the rest of
+  the stack treats as "the project" agree at the entry point and
+  closes the body-spoof vector for any future body field that may
+  become project-scoped. The WABA lookup itself flows through
+  `IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)`
+  (FR-005a / A2) — a global lookup by `app_uuid` with no project
+  scoping; the residual `app_uuid` spoof vector is explicitly
+  accepted as a known limitation in SC-008 pending a Connect-side
+  `app_uuid → project_uuid` scoping guarantee. The check runs at
+  the serializer layer (no DB lookup, no Meta call, no integrations
+  call), surfaces as HTTP 400 with
   `error_code = "project_uuid_mismatch"`, and emits a WARNING-level
   audit-log line `[TemplateSampleValidation] project_uuid_mismatch:
   header_project_uuid=<a> body_project_uuid=<b> ...`.
@@ -354,11 +385,14 @@ design. Reference: `.specify/memory/constitution.md` (v1.0.0).*
 - **Use Cases layer**: `ValidateTemplateSampleUseCase` holds every
   business rule (Direct-Send-eligibility gating, WABA-id
   resolution, conditional update on Meta's verdict, audit-log
-  emission), every ORM query (`Template.objects.select_related("integrated_agent").get(uuid=...)`,
-  `ProjectOnboarding.objects.filter(project__uuid=...).first()`,
-  the strategy-helper writes), and every domain-exception raise.
-  Framework-agnostic: no `rest_framework` imports, no
-  `Request` / `Response` use, no permission checks.
+  emission), every ORM query (`Template.objects.select_related("integrated_agent").get(uuid=...)`
+  and the strategy-helper writes), the outbound
+  `IntegrationsService.get_channel_app(...)` call for WABA-id
+  resolution (FR-005a / A2 — injected via `__init__` per
+  Constitution Principle I's DI rule, with `Optional[IntegrationsServiceInterface]`
+  fallback to the concrete `IntegrationsService`), and every
+  domain-exception raise. Framework-agnostic: no `rest_framework`
+  imports, no `Request` / `Response` use, no permission checks.
 - **Services layer**: `MetaService.submit_template_sample` is the
   new outbound boundary. Per FR-005c it PROPAGATES exceptions
   (rather than swallowing to `None`) — a documented deviation

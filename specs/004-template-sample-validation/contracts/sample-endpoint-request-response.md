@@ -253,10 +253,22 @@ project B's WABA.
 }
 ```
 
-Fires when:
-- No `ProjectOnboarding` row for the project, OR
-- The onboarding's `config["channels"]["wpp-cloud"]["channel_data"]["waba_id"]`
-  path is missing / empty.
+Fires when any of the following resolve to a missing / empty
+`waba_id` (per the 2026-05-26 clarification, all three collapse to
+this single user-facing response; the audit log's
+`integrations_response_present` field discriminates the underlying
+mode — see `data-model.md` §7):
+
+- The Connect-side `IntegrationsService.get_channel_app("wpp-cloud", app_uuid)`
+  call fails (HTTP 5xx / network timeout / connection error —
+  swallowed to `None` by the service), OR
+- The integrations call returns no app for the supplied
+  `app_uuid` (also surfaces as `None`), OR
+- The integrations call returns an app whose
+  `config["waba"]["id"]` is missing / `None` / empty.
+
+`ProjectOnboarding` is NOT consulted for WABA resolution by this
+endpoint; the integrations engine is the authoritative source.
 
 ---
 
@@ -296,8 +308,11 @@ network timeout, etc.):
   "detail": "Meta sample submission failed",
   "error_code": "meta_unavailable",
 
-  // Present when the upstream provided a parseable body.
-  // Schema mirrors Meta's error envelope.
+  // Present when the upstream provided ANY parseable body, including
+  // an empty object {}. Omitted only when the upstream provided no
+  // body at all (the view checks `exc.meta_response is not None`,
+  // not truthiness, so {} is surfaced verbatim). Schema mirrors
+  // Meta's error envelope.
   "meta_response": {
     "error": {
       "message": "Internal server error",

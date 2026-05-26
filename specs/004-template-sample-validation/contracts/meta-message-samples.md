@@ -26,9 +26,16 @@ POST https://graph.facebook.com/{API_VERSION}/{WABA_ID}/message_samples
 
 `API_VERSION` defaults to whatever `META_API_URL` is set to today
 (used by `MetaClient.create_flow`, `MetaClient.publish_flow`).
-`WABA_ID` is resolved per-call from
-`ProjectOnboarding.config["channels"]["wpp-cloud"]["channel_data"]["waba_id"]`
-per FR-005a / data-model.md §3.
+`WABA_ID` is resolved per-call by calling
+`IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)`
+and reading `app["config"]["waba"]["id"]` from the returned
+channel-app dict (per FR-005a / A2 / data-model.md §3 — the same
+field path
+`ConfigureOneClickPaymentUseCase._fetch_channel_info` consumes at
+`retail/projects/usecases/configure_one_click_payment.py:192`).
+`ProjectOnboarding` is NOT consulted by this endpoint; the
+integrations engine is the authoritative source for live channel-app
+state.
 
 ---
 

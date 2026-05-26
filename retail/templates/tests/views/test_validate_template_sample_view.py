@@ -4,6 +4,14 @@ Covers the HTTP boundary for the happy path (HTTP 200 UTILITY +
 MARKETING), the auth gates (401 / 403 / 404), serializer-level
 validation (400), and the FR-002b ``project_uuid_mismatch`` defense
 with the WARNING-level audit-log line emitted by the view per T016.
+
+Phase 3b (T037): the WABA-id resolution path was switched to call
+``IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)`` per
+FR-005a / A2. A class-level patch guards the
+``IntegrationsService`` symbol the use-case ``__init__`` resolves so
+that even if a future refactor drops the per-test
+``ValidateTemplateSampleUseCase`` mock, the integrations engine is
+never reached from a unit test (defense-in-depth — no live network).
 """
 
 from unittest.mock import patch
@@ -32,12 +40,25 @@ from retail.templates.usecases.validate_template_sample import (
 User = get_user_model()
 
 USECASE_PATCH_PATH = "retail.templates.views.ValidateTemplateSampleUseCase"
+INTEGRATIONS_SERVICE_PATCH_PATH = (
+    "retail.services.integrations.service.IntegrationsService"
+)
 VIEW_LOGGER = "retail.templates.views"
 
 
 @with_test_settings
+@patch(INTEGRATIONS_SERVICE_PATCH_PATH)
 class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
-    """HTTP boundary tests for the ``sample`` action on TemplateViewSet."""
+    """HTTP boundary tests for the ``sample`` action on TemplateViewSet.
+
+    The class-level ``IntegrationsService`` patch ensures the use-case
+    default-instantiation never reaches the live integrations engine
+    even when individual tests bypass the ``ValidateTemplateSampleUseCase``
+    mock (Phase 3b / T037). The patched mock is passed as the last
+    positional argument to every test method; tests that exercise the
+    happy path can configure it via
+    ``mock_integrations_service.return_value.get_channel_app.return_value = {...}``.
+    """
 
     def setUp(self):
         super().setUp()
@@ -119,7 +140,9 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
             permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
 
-    def test_utility_classification_returns_200_with_wrapper_fields(self):
+    def test_utility_classification_returns_200_with_wrapper_fields(
+        self, mock_integrations_service
+    ):
         self._set_up_authorized_request()
 
         result = ValidateTemplateSampleResult(
@@ -147,7 +170,9 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
         self.assertEqual(response.data["category"], "UTILITY")
         self.assertTrue(response.data["template_updated"])
 
-    def test_marketing_classification_returns_200_with_template_unchanged(self):
+    def test_marketing_classification_returns_200_with_template_unchanged(
+        self, mock_integrations_service
+    ):
         self._set_up_authorized_request()
 
         result = ValidateTemplateSampleResult(
@@ -171,14 +196,16 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
         self.assertFalse(response.data["template_updated"])
         self.assertEqual(response.data["category"], "MARKETING")
 
-    def test_unauthenticated_request_returns_403(self):
+    def test_unauthenticated_request_returns_403(self, mock_integrations_service):
         client = APIClient()
         response = client.post(
             self._sample_url(), self._default_payload(), format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_missing_project_uuid_header_returns_403(self):
+    def test_missing_project_uuid_header_returns_403(
+        self, mock_integrations_service
+    ):
         self.setup_internal_user_permissions(self.user)
         response = self.client.post(
             self._sample_url(),
@@ -187,7 +214,9 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_serializer_validation_error_returns_400(self):
+    def test_serializer_validation_error_returns_400(
+        self, mock_integrations_service
+    ):
         self._set_up_authorized_request()
         headers, _ = self._project_headers_and_params()
         payload = self._default_payload()
@@ -205,7 +234,9 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("template_body", response.data)
 
-    def test_project_uuid_mismatch_returns_400_and_emits_warning_log(self):
+    def test_project_uuid_mismatch_returns_400_and_emits_warning_log(
+        self, mock_integrations_service
+    ):
         self._set_up_authorized_request()
         headers, _ = self._project_headers_and_params()
         payload = self._default_payload(project_uuid=str(uuid4()))
@@ -228,7 +259,7 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
         )
         self.assertTrue(any_mismatch_log)
 
-    def test_template_uuid_not_found_returns_404(self):
+    def test_template_uuid_not_found_returns_404(self, mock_integrations_service):
         self._set_up_authorized_request()
         headers, _ = self._project_headers_and_params()
         non_existent_uuid = uuid4()
@@ -248,7 +279,9 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_view_passes_request_context_to_serializer(self):
+    def test_view_passes_request_context_to_serializer(
+        self, mock_integrations_service
+    ):
         """Pin that the view constructs the serializer with the request context.
 
         Re-uses the project_uuid_mismatch defense as a structural witness:
