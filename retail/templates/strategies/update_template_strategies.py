@@ -10,7 +10,7 @@ from django.conf import settings
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
-from retail.templates.models import Template
+from retail.templates.models import Template, Version
 from retail.templates.usecases import TemplateBuilderMixin
 from retail.templates.utils import get_agent_config, resolve_template_language
 from retail.services.rule_generator import RuleGenerator
@@ -220,7 +220,37 @@ class UpdateNormalTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
     ):
         super().__init__(template_adapter, template_metadata_handler)
 
-    def update_template(self, template: Template, payload: Dict[str, Any]) -> Template:
+    def _build_and_persist_metadata(
+        self, template: Template, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Build canonical metadata, persist it, and sync agent-side config.
+
+        Three sequential steps, each at the same level of abstraction:
+
+        1. ``_update_common_metadata`` builds the canonical metadata.
+        2. ``template.save(update_fields=["metadata"])`` persists it
+           (only the metadata column — the rest of the row is untouched,
+           which is correct for Normal templates that never edit
+           ``rule_code`` / ``start_condition`` / ``variables`` here).
+        3. ``_sync_abandoned_cart_image_config`` flips the abandoned-cart
+           agent's ``header_image_type`` when the template gains or
+           loses an image header.
+
+        Returns ``translation_payload`` so the caller can hand it to
+        ``_notify_integrations`` (the PATCH endpoint's update flow,
+        which pushes the new content to the Integrations engine) or
+        simply discard it (the sample-validation flow, which does not
+        notify per FR-006 / A10 because Direct Send dispatch reads
+        local ``metadata`` directly and the Integrations push would
+        race with the next Direct Send broadcast).
+
+        Both endpoints remain operational and serve different shapes
+        of update: PATCH is the canonical content-update path for
+        every template (Direct Send-eligible or not, normal or
+        custom); ``POST /sample/`` is an additive pre-validation path
+        that gates the local update on Meta's UTILITY verdict for
+        Direct Send-eligible templates only (FR-002a).
+        """
         updated_metadata, translation_payload = self._update_common_metadata(
             template, payload
         )
@@ -228,11 +258,49 @@ class UpdateNormalTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
         template.metadata = updated_metadata
         template.save(update_fields=["metadata"])
 
-        # Sync abandoned cart agent config if header image was added/removed
         self._sync_abandoned_cart_image_config(template, translation_payload)
 
-        self._create_version_and_notify(template, payload, translation_payload)
+        return translation_payload
 
+    def _create_approved_current_version(
+        self, template: Template, payload: Dict[str, Any]
+    ) -> Version:
+        """Create a Version with ``status=APPROVED`` and advance the template's pointer.
+
+        Sample-validation composition per Research Decision 4 / FR-006a /
+        FR-006d: the Meta sample verdict IS the approval signal, so the
+        new Version row is persisted with ``"APPROVED"`` directly
+        (instead of the model's default ``"PENDING"`` that the PATCH
+        endpoint relies on and that ``TemplatesStatusWebhook`` flips
+        asynchronously) and
+        ``Template.current_version`` is repointed inline — the very next
+        Direct Send dispatch reads the new content with no cache lag
+        (SC-004).
+
+        Three writes per call: INSERT the Version row, UPDATE its
+        ``status`` to APPROVED, UPDATE ``Template.current_version_id``.
+        Each is a single-row write under Django's default per-statement
+        transaction (Research Decision 8 — no ``@transaction.atomic``
+        wrap; partial-failure modes are operationally safe per
+        ``data-model.md`` §1).
+        """
+        version = self._create_version(
+            template=template,
+            app_uuid=payload["app_uuid"],
+            project_uuid=payload["project_uuid"],
+        )
+
+        version.status = "APPROVED"
+        version.save(update_fields=["status"])
+
+        template.current_version = version
+        template.save(update_fields=["current_version"])
+
+        return version
+
+    def update_template(self, template: Template, payload: Dict[str, Any]) -> Template:
+        translation_payload = self._build_and_persist_metadata(template, payload)
+        self._create_version_and_notify(template, payload, translation_payload)
         return template
 
 

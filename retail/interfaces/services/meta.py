@@ -29,3 +29,11 @@ class MetaServiceInterface(Protocol):
 
     def publish_flow(self, flow_id: str) -> Dict[str, Any]:
         ...
+
+    def submit_template_sample(
+        self, waba_id: str, sample_body: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Submit a Meta ``message_samples`` payload for a WABA.
+        """
+        ...

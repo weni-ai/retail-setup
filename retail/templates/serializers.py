@@ -1,5 +1,8 @@
 from rest_framework import serializers
 
+from retail.templates.adapters.template_library_to_custom_adapter import (
+    HeaderTransformer,
+)
 from retail.templates.models import Template
 from retail.services.aws_s3.service import S3Service
 
@@ -195,3 +198,121 @@ class TemplateMetricsRequestSerializer(serializers.Serializer):
     template_uuid = serializers.UUIDField(required=True)
     start = serializers.CharField(required=True)
     end = serializers.CharField(required=True)
+
+
+class ValidateTemplateSampleSerializer(UpdateTemplateContentSerializer):
+    """Serializer for ``POST /api/v3/templates/<uuid>/sample/``.
+
+    Field set is byte-for-byte compatible with
+    ``UpdateTemplateContentSerializer`` (FR-003 / FR-014). The subclass
+    layers on FR-003a length caps + button-mode disjointness and the
+    FR-002b ``Project-Uuid`` header ↔ body ``project_uuid`` equality
+    check. Domain-level gating (Direct-Send eligibility, WABA
+    resolution, Meta classification) lives in the use case.
+    """
+
+    _BODY_MAX_LENGTH = 1024
+    _HEADER_TEXT_MAX_LENGTH = 60
+    _FOOTER_MAX_LENGTH = 60
+    _BUTTON_TEXT_MAX_LENGTH = 20
+    _MAX_URL_BUTTONS = 1
+    _MAX_QUICK_REPLY_BUTTONS = 3
+
+    _URL_BUTTON_TYPE = "URL"
+    _QUICK_REPLY_BUTTON_TYPE = "QUICK_REPLY"
+
+    def validate_template_body(self, value: str) -> str:
+        if value and len(value) > self._BODY_MAX_LENGTH:
+            raise serializers.ValidationError(
+                f"Ensure this field has no more than {self._BODY_MAX_LENGTH} characters."
+            )
+        return value
+
+    def validate_template_header(self, value: str) -> str:
+        if value and self._is_plain_text_header(value):
+            if len(value) > self._HEADER_TEXT_MAX_LENGTH:
+                raise serializers.ValidationError(
+                    f"Ensure this field has no more than "
+                    f"{self._HEADER_TEXT_MAX_LENGTH} characters when the header is text."
+                )
+        return value
+
+    def validate_template_footer(self, value: str) -> str:
+        if value and len(value) > self._FOOTER_MAX_LENGTH:
+            raise serializers.ValidationError(
+                f"Ensure this field has no more than {self._FOOTER_MAX_LENGTH} characters."
+            )
+        return value
+
+    def validate_template_button(self, value: list) -> list:
+        if not value:
+            return value
+
+        url_buttons = [b for b in value if b.get("type") == self._URL_BUTTON_TYPE]
+        quick_replies = [
+            b for b in value if b.get("type") == self._QUICK_REPLY_BUTTON_TYPE
+        ]
+
+        if url_buttons and quick_replies:
+            raise serializers.ValidationError(
+                "Cannot mix URL and QUICK_REPLY buttons in a single sample."
+            )
+
+        if len(url_buttons) > self._MAX_URL_BUTTONS:
+            raise serializers.ValidationError(
+                f"At most {self._MAX_URL_BUTTONS} URL button is allowed."
+            )
+
+        if len(quick_replies) > self._MAX_QUICK_REPLY_BUTTONS:
+            raise serializers.ValidationError(
+                f"At most {self._MAX_QUICK_REPLY_BUTTONS} QUICK_REPLY buttons are allowed."
+            )
+
+        self._validate_button_text_lengths(value)
+
+        return value
+
+    def validate_project_uuid(self, value: str) -> str:
+        """FR-002b — refuse when ``Project-Uuid`` header diverges from body.
+
+        ``HasProjectPermission`` authorizes against the HTTP header; the
+        use case's WABA resolution uses the body's ``project_uuid``.
+        Without this equality check, an operator authorized for project A
+        could route a Meta sample call to project B's WABA (SC-008).
+        The check is permissive when the header is absent so unit tests
+        can be written without forging an HTTP request — ``HasProjectPermission``
+        is the front-line gate for missing-header requests.
+        """
+        request = self.context.get("request")
+        header_project_uuid = request.headers.get("Project-Uuid") if request else None
+        if header_project_uuid and header_project_uuid != value:
+            raise serializers.ValidationError(
+                "Project-Uuid header does not match body project_uuid",
+                code="project_uuid_mismatch",
+            )
+        return value
+
+    def _validate_button_text_lengths(self, buttons: list) -> None:
+        for button in buttons:
+            text = button.get("text", "")
+            if text and len(text) > self._BUTTON_TEXT_MAX_LENGTH:
+                raise serializers.ValidationError(
+                    f"Each button text must be at most "
+                    f"{self._BUTTON_TEXT_MAX_LENGTH} characters."
+                )
+
+    def _is_plain_text_header(self, header: str) -> bool:
+        """Return ``True`` only when the header is operator-typed text.
+
+        Image headers (HTTP(S) URLs, base64 data URIs, already-uploaded
+        S3 URLs) are exempt from the ``_HEADER_TEXT_MAX_LENGTH`` cap.
+        Reuses the existing ``HeaderTransformer`` heuristics so the
+        wire-shape dispatch (translator) and the validation gate stay
+        aligned.
+        """
+        transformer = HeaderTransformer()
+        if header.startswith(("http://", "https://")):
+            return False
+        if transformer._is_base_64(header):
+            return False
+        return True
