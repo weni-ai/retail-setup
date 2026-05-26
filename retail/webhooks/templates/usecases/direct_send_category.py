@@ -51,13 +51,15 @@ class DirectSendCategoryResult:
 class FlaggingReason(str, Enum):
     """Closed enumeration for the ``reason=`` k=v on ``flagged`` audit-log lines.
 
-    Pinned by FR-006b / FR-009a. Additive-only: new reasons MAY be
-    added; existing reasons MUST NOT be renamed or removed.
+    Pinned by FR-006b / FR-009a (Clarifications session 2026-05-25 Q3 —
+    single-field eligibility model). Under the single-clause flag rule
+    (``template_correct_category != "UTILITY"``) there is only one
+    reason that can fire. Additive-only: future flag clauses MAY add
+    new reason values but MUST NOT rename or remove
+    ``correct_category_not_utility``.
     """
 
-    CATEGORY_MISMATCH = "category_mismatch"
-    CATEGORY_NOT_UTILITY = "category_not_utility"
-    CATEGORY_MISMATCH_AND_NOT_UTILITY = "category_mismatch_and_not_utility"
+    CORRECT_CATEGORY_NOT_UTILITY = "correct_category_not_utility"
 
 
 class EventName(str, Enum):
@@ -84,9 +86,15 @@ class DirectSendCategoryWebhookUseCase:
 
     Fans out across every IntegratedAgent linked to ``(project_uuid, app_uuid)``
     and flips the matched Template's ``current_version.status`` to
-    ``"FLAGGED"`` when the FR-006 two-clause flagging condition fires.
-    Framework-agnostic: no rest_framework imports, no Response/Request
-    handling, no permission checks.
+    ``"FLAGGED"`` when the FR-006 single-field flagging condition fires
+    (``template_correct_category != "UTILITY"``). The symmetric inverse
+    (``template_correct_category == "UTILITY"`` against an already-
+    ``FLAGGED`` Version) auto-demotes the Version back to ``"APPROVED"``
+    per FR-006c / FR-007d. ``template_category`` is captured verbatim
+    on every audit-log ``k=v`` payload for diagnostic visibility but
+    does NOT participate in the flag-or-demote decision. Framework-
+    agnostic: no rest_framework imports, no Response/Request handling,
+    no permission checks.
     """
 
     _UTILITY_CATEGORY = "UTILITY"
@@ -151,8 +159,7 @@ class DirectSendCategoryWebhookUseCase:
                     continue
 
                 if flagging_condition_met:
-                    reason = self._determine_flagging_reason(dto)
-                    self._flag_version(version, template, integrated_agent, dto, reason)
+                    self._flag_version(version, template, integrated_agent, dto)
                     templates_updated += 1
                     outcomes.append("flagged")
                 else:
@@ -186,20 +193,16 @@ class DirectSendCategoryWebhookUseCase:
         )
 
     def _evaluate_flagging_condition(self, dto: DirectSendCategoryDTO) -> bool:
-        return (
-            dto.template_category != dto.template_correct_category
-            or dto.template_category != self._UTILITY_CATEGORY
-        )
+        """FR-006 single-field flag rule (Clarifications session 2026-05-25 Q3).
 
-    def _determine_flagging_reason(self, dto: DirectSendCategoryDTO) -> FlaggingReason:
-        category_mismatch = dto.template_category != dto.template_correct_category
-        not_utility = dto.template_category != self._UTILITY_CATEGORY
-
-        if category_mismatch and not_utility:
-            return FlaggingReason.CATEGORY_MISMATCH_AND_NOT_UTILITY
-        if category_mismatch:
-            return FlaggingReason.CATEGORY_MISMATCH
-        return FlaggingReason.CATEGORY_NOT_UTILITY
+        ``template_correct_category`` is the sole source of truth for
+        Direct-Send eligibility — Meta's content-determined "this
+        template should be UTILITY" determination. ``template_category``
+        is captured for audit visibility but never participates in the
+        rule. Strict string equality, case-sensitive, no normalization
+        (FR-006a).
+        """
+        return dto.template_correct_category != self._UTILITY_CATEGORY
 
     def _flag_version(
         self,
@@ -207,14 +210,11 @@ class DirectSendCategoryWebhookUseCase:
         template,
         integrated_agent: IntegratedAgent,
         dto: DirectSendCategoryDTO,
-        reason: FlaggingReason,
     ) -> None:
         previous_status = version.status
         version.status = self._FLAGGED_STATUS
         version.save(update_fields=["status"])
-        self._emit_flagged(
-            integrated_agent, template, version, dto, previous_status, reason
-        )
+        self._emit_flagged(integrated_agent, template, version, dto, previous_status)
 
     def _demote_version(
         self,
@@ -228,11 +228,12 @@ class DirectSendCategoryWebhookUseCase:
         FR-006c / FR-007c clause (b) / FR-007d: when the matched
         Version is already ``"FLAGGED"`` AND the FR-006 flagging
         condition is false (the corrected-category signal —
-        ``template_category == template_correct_category == "UTILITY"``),
-        the webhook writes ``status = "APPROVED"`` and emits
-        ``auto_demoted``. The Template's ``current_version`` pointer
-        is NOT changed (FR-007a applies symmetrically to the demote
-        branch — only the status string is updated).
+        ``template_correct_category == "UTILITY"``, regardless of
+        ``template_category``), the webhook writes ``status =
+        "APPROVED"`` and emits ``auto_demoted``. The Template's
+        ``current_version`` pointer is NOT changed (FR-007a applies
+        symmetrically to the demote branch — only the status string
+        is updated).
         """
         previous_status = version.status
         version.status = self._APPROVED_STATUS
@@ -289,7 +290,6 @@ class DirectSendCategoryWebhookUseCase:
         version,
         dto: DirectSendCategoryDTO,
         previous_status: str,
-        reason: FlaggingReason,
     ) -> None:
         self._emit(
             EventName.FLAGGED,
@@ -304,7 +304,7 @@ class DirectSendCategoryWebhookUseCase:
             version_uuid=version.uuid,
             previous_status=previous_status,
             new_status=self._FLAGGED_STATUS,
-            reason=reason.value,
+            reason=FlaggingReason.CORRECT_CATEGORY_NOT_UTILITY.value,
         )
 
     def _emit_no_action_required(
