@@ -13,6 +13,8 @@ description: "Task list for the Template Sample Validation Endpoint for Direct S
 
 **Organization**: Tasks are grouped by user story so each story can be implemented and tested independently. Foundational tasks (Phase 2) provide the building blocks every user story consumes; US1 (Phase 3) wires them into the happy path; US2 / US3 / US4 layer on schema-parity assertions, failure-path coverage, and response-shape verification respectively.
 
+> **2026-05-26 clarification update**: The WABA-resolution mechanism was switched from `ProjectOnboarding.config["channels"]["wpp-cloud"]["channel_data"]["waba_id"]` to a live call to `IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)` reading `app["config"]["waba"]["id"]` (per the updated FR-005a / A2 / SC-008 / SC-003 / FR-008a). Phase 1–3 tasks (T001–T018) were completed under the prior spec; the new **Phase 3b: Post-Clarification Refactor** (T034–T037) brings the implementation in line with the updated spec without re-opening already-checked tasks or appending pending work to already-checkpointed phases. Pending tasks in Phase 5 (T024, T026, T027b) have had their descriptions updated in place to target the new failure surface.
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependencies on incomplete tasks)
@@ -57,7 +59,11 @@ description: "Task list for the Template Sample Validation Endpoint for Direct S
 
 - [X] T012 [P] Add `ValidateTemplateSampleSerializer` to `retail/templates/serializers.py`. Subclass `UpdateTemplateContentSerializer` (so the field set is byte-for-byte compatible per FR-003 / FR-014). Add the FR-003a length-cap + button-mode disjointness validations: `template_body` max_length=1024; `template_footer` max_length=60; per-button `text` ≤ 20 chars; `template_button` MUST contain either ≤1 URL-type entries OR ≤3 QUICK_REPLY-type entries, never both; `template_header` ≤ 60 chars ONLY when the value looks like plain text (not an HTTP(S) URL, not a base64 data URI, not an existing S3 URL — apply the `_is_image_url` / `_is_base_64` / `_is_s3_url` heuristics already used by `HeaderTransformer` and `TemplateMetadataHandler`). Place validation logic in `validate_template_body`, `validate_template_header`, `validate_template_footer`, `validate_template_button` methods (DRF idiom). Additionally, add a `validate_project_uuid(self, value)` method per FR-002b / Research Decision 11: read `request = self.context.get("request")`, compare `request.headers.get("Project-Uuid")` against `value`, and raise `serializers.ValidationError("Project-Uuid header does not match body project_uuid", code="project_uuid_mismatch")` on mismatch. The view MUST instantiate this serializer with `context={"request": request}` for the read to work — T016 covers that wiring. Constitution Principle IV: prefer extracting helper functions over inline narrative comments.
 
+- [ ] T012b [P] [C-I11 from speckit-analyze — spec Edge Case "Sample carries a header but the header is missing required fields"] Extend `ValidateTemplateSampleSerializer.validate_template_header` in `retail/templates/serializers.py` to refuse IMAGE-typed headers whose value cannot be resolved to a fetchable URL. Per the spec Edge Case at `spec.md:91` and FR-004a, an IMAGE header without a usable `link` would otherwise produce a Meta sample body `{"type":"image","image":{"link":null}}` that Meta rejects after a burned sample-API call. The check fires at the serializer layer BEFORE the use case runs (no Meta call, no S3 upload, no DB lookup). Concretely: when `template_header` is detected as an IMAGE candidate (matches `_is_image_url` / `_is_base_64` / `_is_s3_url`), assert that the candidate is non-empty AND structurally well-formed (a base64-data-URI MUST include the `;base64,` separator and a non-empty payload; an HTTP(S) / S3 URL MUST be a parseable absolute URL). Failure surfaces as a field-level DRF error on `template_header`. Plain-text headers are unaffected and continue to be validated against the FR-003a 60-char cap from T012. Constitution Principle IV — helper names carry intent: extract `_looks_like_valid_image_header(value: str) -> bool` for the structural check. (Depends on T012.)
+
 - [X] T013 [P] Add serializer tests in `retail/templates/tests/serializers/test_template_serializers.py` (existing file, MOD). Test cases: (a) body at exactly 1024 chars passes, body at 1025 chars fails with field-level error; (b) TEXT header at exactly 60 chars passes, TEXT header at 61 chars fails; (c) IMAGE-URL header longer than 60 chars passes (cap applies only to TEXT); (d) base64-data-URI header longer than 60 chars passes; (e) footer at 60 chars passes, 61 chars fails; (f) one button with 20-char text passes; one button with 21-char text fails; (g) one URL button passes; two URL buttons fail; (h) three QUICK_REPLY buttons pass; four QUICK_REPLY buttons fail; (i) one URL + one QUICK_REPLY (mixed) fails with `"Cannot mix URL and QUICK_REPLY buttons in a single sample."`; (j) inherited validation — payload with no body / header / footer fails with the inherited error message; (k) FR-002b — `context={"request": <req_with_header>}` where `Project-Uuid` header equals `project_uuid` body: passes; (l) FR-002b — header differs from body: fails with field-level error `"Project-Uuid header does not match body project_uuid"` and code `project_uuid_mismatch`; (m) FR-002b — header is absent (no `Project-Uuid` provided): the serializer-layer check is skipped (the view's `HasProjectPermission` would have refused earlier; this test verifies the check is permissive when the header is absent so unit tests can be written without forging an HTTP request). (Depends on T012.)
+
+- [ ] T013b [P] [C-I11 from speckit-analyze] Add serializer tests for the T012b IMAGE-header structural check in `retail/templates/tests/serializers/test_template_serializers.py` (existing file, MOD). Four test cases: (a) a well-formed base64-data-URI header (`data:image/png;base64,<non-empty-payload>`) passes; (b) a malformed base64 header without the `;base64,` separator (e.g. `data:image/png,abc`) fails with a field-level error on `template_header`; (c) a base64-data-URI with an empty payload (e.g. `data:image/png;base64,`) fails; (d) a malformed HTTP URL (e.g. `https://`) fails. Pin that **no Meta call is fired** and **no S3 upload is attempted** for any of (b)/(c)/(d) — patch `MetaService.submit_template_sample` and `TemplateMetadataHandler._upload_header_image` to `MagicMock` and assert `.assert_not_called()` after `serializer.is_valid()` returns `False`. (Depends on T012b.)
 
 - [X] T014 [P] Define the in-memory data classes in `retail/templates/usecases/validate_template_sample.py` (NEW file). Add: `ValidateTemplateSampleDTO` as a frozen dataclass carrying the 9 validated input fields per `data-model.md` §7; `ValidateTemplateSampleResult` as a frozen dataclass with `category: str`, `template_updated: bool`, `template: Template`, `meta_sample_response: Dict[str, Any]` plus a `to_dict()` method that delegates to `ReadTemplateSerializer(self.template).data` for the `template` field; `EventName` enum subclassing `(str, Enum)` with the 11 tokens from FR-008a (`received`, `meta_sample_submitted`, `meta_sample_response`, `template_updated`, `update_skipped`, `meta_error`, `meta_invalid_response`, `waba_not_configured`, `not_direct_send_eligible`, `project_uuid_mismatch`, `local_update_failed_after_meta_approval`); `MetaSampleType` enum subclassing `(str, Enum)` with `TEXT`, `INTERACTIVE_CTA_URL`, `INTERACTIVE_BUTTON` per `data-model.md` §7. No `execute` logic yet — that lands in T015.
 
@@ -81,7 +87,45 @@ description: "Task list for the Template Sample Validation Endpoint for Direct S
 
 - [X] T018 [P] [US1] Add view tests in `retail/templates/tests/views/test_validate_template_sample_view.py` (NEW file). Cover the HTTP boundary per US1 + US4 acceptance scenarios + the auth surface: (a) HTTP 200 on UTILITY — response body has exactly four top-level keys `{category, template_updated, template, meta_sample_response}`; `template` conforms to `ReadTemplateSerializer.data` schema (every field present); `template.status == "APPROVED"` per FR-006d; (b) HTTP 200 on MARKETING — same wrapper shape with `template_updated:false` and the UNCHANGED template; (c) HTTP 401 for an unauthenticated request (no JWT); (d) HTTP 403 for a missing / wrong `Project-Uuid` header (no project permission); (e) HTTP 404 for a non-existent `template_uuid` path param (DRF default `NotFound`); (f) HTTP 400 for a serializer-level violation — submit `template_body` over 1024 chars and verify field-level error body per `contracts/sample-endpoint-request-response.md` §"Validation rules"; (g) HTTP 400 / `project_uuid_mismatch` (FR-002b / FR-007f) — submit with `Project-Uuid` header for project A but body `project_uuid` for project B; expect the wrapper `{"detail": "Project-Uuid header does not match body project_uuid", "error_code": "project_uuid_mismatch"}` AND a WARNING-level audit-log line `[TemplateSampleValidation] project_uuid_mismatch: header_project_uuid=... body_project_uuid=... template_uuid=...` was emitted (per T016); the use case MUST NOT be invoked (mocked `MetaService.submit_template_sample` is `assert_not_called()`) and no Meta call is made; (h) verify the view passes `context={"request": request}` correctly by asserting (g) above produces the mismatch error (would silently fail with a missing context — this assertion structurally pins the wiring). Use `BaseTestMixin.setup_internal_user_permissions` and the Connect-proxy mock pattern that the existing `retail/templates/tests/views/test_template_viewset.py` already uses (read it for the auth-setup precedent). (Depends on T015, T016.)
 
-**Checkpoint**: At this point, US1 is fully functional and testable independently. An operator can submit a sample and see UTILITY → local update applied with APPROVED status / MARKETING → no local update. This is the MVP slice; STOP and validate before moving to US2 / US3 / US4 which layer on additional assurances.
+**Checkpoint**: At this point, US1 is fully functional and testable independently. An operator can submit a sample and see UTILITY → local update applied with APPROVED status / MARKETING → no local update. This is the MVP slice; STOP and validate before moving to US2 / US3 / US4 which layer on additional assurances. **Phase 3b below MUST complete before US3** (it rewires the WABA resolver and changes the failure-event payload that US3's T024 will assert on).
+
+---
+
+## Phase 3b: Post-Clarification Refactor (US1 — Priority: P1) 🔁 BLOCKING
+
+**Purpose**: The 2026-05-26 clarification switched the WABA-resolution mechanism from `ProjectOnboarding` (local DB row) to `IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)` (live Connect-side call). T015 / T017 / T018 were completed under the prior spec and now need a targeted refactor to bring the implementation in line with FR-005a (new mechanism + new field path), A2 (new authoritative source), FR-008a (new `waba_not_configured` event payload — `app_uuid` + `integrations_response_present`), and SC-008 (narrowed enforcement surface — trust-the-frontend `app_uuid`).
+
+**Goal**: After this phase, `_resolve_waba_id` reads `app["config"]["waba"]["id"]` from `IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)` (no ProjectOnboarding read), the `waba_not_configured` audit-log event carries the new fields, and the use-case / view test fixtures swap their ProjectOnboarding-row creation for `IntegrationsService.get_channel_app` mocks.
+
+**Independent Test**: A unit test submits a UTILITY-mocked payload and asserts (a) `IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)` was called exactly once with the body-supplied `app_uuid`, (b) `_resolve_waba_id` returned the `config["waba"]["id"]` value verbatim, (c) ZERO `ProjectOnboarding.objects.*` queries fired during the request (assertable via `django.db.connection.queries` or a `Sentinel.objects.filter` patch). A second test asserts the `waba_not_configured` event carries the new `app_uuid` + `integrations_response_present` fields.
+
+### Implementation for Phase 3b
+
+- [ ] T034 [P] [US1] **Extend `IntegrationsServiceInterface`** at `retail/interfaces/services/integrations.py` with a `get_channel_app(self, apptype: str, app_uuid: str) -> Optional[Dict[str, Any]]: ...` method signature. The existing concrete `IntegrationsService.get_channel_app` already exists (`retail/services/integrations/service.py:372-389`) and conforms to the signature (returns `Optional[Dict]` because the service swallows `CustomAPIException` to `None`) — this task only adds the Protocol declaration so the new `ValidateTemplateSampleUseCase` can DI a typed `IntegrationsServiceInterface` instead of importing the concrete class. Follow the existing structural-subtyping convention (no `@runtime_checkable`). No behavior change to the concrete service. (This is the interface-extension prerequisite for T035; pulled into Phase 3b instead of Phase 2 because Phase 2 was already checkpointed as complete and the clarification-driven work should not retroactively reopen done phases.)
+
+- [ ] T035 [US1] **Refactor `_resolve_waba_id`** in `retail/templates/usecases/validate_template_sample.py` (existing file, MOD). Required changes:
+  1. **Constructor DI**: add `integrations_service: Optional[IntegrationsServiceInterface] = None` parameter to `__init__`; default-init to `IntegrationsService()` from `retail.services.integrations.service` (matches the existing DI pattern for `meta_service` / `strategy` / `metadata_handler`). Import `IntegrationsServiceInterface` from `retail.interfaces.services.integrations` (T034 adds the `get_channel_app` declaration on that Protocol).
+  2. **Rewrite `_resolve_waba_id(self, project_uuid, app_uuid)`** — note the new `app_uuid` parameter; update the single call site in `execute()` from `self._resolve_waba_id(dto.project_uuid)` to `self._resolve_waba_id(dto.project_uuid, dto.app_uuid)`. Body: call `app = self.integrations_service.get_channel_app("wpp-cloud", app_uuid)`; extract `waba_id = ((app or {}).get("config") or {}).get("waba", {}).get("id")` — the exact field path used today by `ConfigureOneClickPaymentUseCase._fetch_channel_info` (`retail/projects/usecases/configure_one_click_payment.py:192`); when `waba_id` is truthy return it; otherwise call `self._emit_waba_not_configured(project_uuid, app_uuid, integrations_response_present=bool(app))` and raise `WabaNotConfiguredError(f"WABA not configured for project {project_uuid}")`.
+  3. **Delete the now-dead helper** `_extract_waba_id_from_onboarding` and the in-line `from retail.projects.models import ProjectOnboarding` import (no longer used by this file).
+  4. **Define `_WPP_CLOUD_APPTYPE = "wpp-cloud"`** as a class constant alongside the existing `_UTILITY_CATEGORY` / `_DIRECT_SEND_CONFIG_KEY` constants so the apptype slug is not a magic string.
+  5. **Update `_emit_waba_not_configured`** to accept the new `app_uuid` and `integrations_response_present: bool` parameters and emit them in the `_emit(EventName.WABA_NOT_CONFIGURED, logging.WARNING, project_uuid=..., app_uuid=..., integrations_response_present=...)` call per FR-008a. The boolean discriminates "service down / no app" (`False` — `IntegrationsService.get_channel_app` returned `None`) from "app exists but config missing waba_id" (`True` — returned a dict but the path was missing/empty).
+  6. **Audit-log shape regression test stays valid**: the `received` / `meta_sample_submitted` / `meta_sample_response` / `template_updated` / `update_skipped` / `meta_error` / `meta_invalid_response` / `not_direct_send_eligible` / `project_uuid_mismatch` / `local_update_failed_after_meta_approval` event names are unchanged; only `waba_not_configured`'s payload grows two fields.
+  
+  Constitution Principle IV: helper names carry intent (`_resolve_waba_id`, `_emit_waba_not_configured`) — no inline comments narrating the change. Keep the docstring on `_resolve_waba_id` short and reference FR-005a + A2 + Q3-2026-05-26 (the "single failure class" clarification). (Depends on T034.)
+
+- [ ] T036 [US1] **Update the use-case happy-path tests** in `retail/templates/tests/usecases/test_validate_template_sample.py` (existing file, MOD). All tests that today create a `ProjectOnboarding` row to make WABA resolution succeed MUST switch to mocking `IntegrationsService.get_channel_app`. Required updates:
+  1. **Refactor the shared `setUp` / fixture builder** (whatever helper today seeds `ProjectOnboarding.objects.create(project=..., config={"channels": {"wpp-cloud": {"channel_data": {"waba_id": "..."}}}})`) to instead instantiate the use case with a `MagicMock(spec=IntegrationsServiceInterface)` whose `get_channel_app.return_value = {"config": {"waba": {"id": "<test_waba_id>"}}}` (the response shape per A2).
+  2. **Add an assertion in each happy-path test** that `mock_integrations_service.get_channel_app.assert_called_once_with("wpp-cloud", dto.app_uuid)`. This pins the FR-005a contract — the use case passes the body-supplied `app_uuid` verbatim (Q1-2026-05-26 / Q2-2026-05-26 trust-the-frontend decision; no cross-check against `template.integrated_agent.channel_uuid`).
+  3. **Add a zero-ProjectOnboarding-query regression test**: patch `ProjectOnboarding.objects` to a `MagicMock`, submit a UTILITY-classifying payload, assert `mock_objects.filter.assert_not_called()` and `mock_objects.get.assert_not_called()`. This structurally pins that `ProjectOnboarding` is never read by this endpoint (Key Entities update per the clarification — preserves the data-model.md §3 "no read" contract once data-model.md is regenerated by `/speckit-plan`).
+  4. **Keep the existing UTILITY / MARKETING / AUTHENTICATION / arbitrary-category / identical-resubmission / blocked-project happy-path assertions unchanged** — those scenarios test the post-WABA-resolution branch and are agnostic to where the WABA came from.
+  5. The TextHeader S3 upload assertion in test (c) is unchanged — the upload still happens BEFORE the Meta call, and is independent of the WABA source. (Depends on T035.)
+
+- [ ] T037 [US1] **Update the view-level tests** in `retail/templates/tests/views/test_validate_template_sample_view.py` (existing file, MOD). The view tests that today seed `ProjectOnboarding` rows for the happy path (HTTP 200 cases (a) and (b)) MUST switch to patching `IntegrationsService.get_channel_app`. Required updates:
+  1. **Add a class-level `@patch("retail.templates.usecases.validate_template_sample.IntegrationsService")`** (or the equivalent module-level patch — match the patch path that import-time resolves the `IntegrationsService()` default in `ValidateTemplateSampleUseCase.__init__`). Configure the mock's `return_value.get_channel_app.return_value = {"config": {"waba": {"id": "<test_waba_id>"}}}`.
+  2. **Remove the per-test `ProjectOnboarding.objects.create(...)` seeding** from the happy-path tests (HTTP 200 (a) / (b) on UTILITY and MARKETING) — no longer required.
+  3. **Keep the auth / 401 / 403 / 404 / serializer-validation / project_uuid_mismatch tests unchanged** — those tests short-circuit BEFORE the use case runs and never reach the WABA resolution step, so they are independent of the integrations mock. (Depends on T035.)
+
+**Checkpoint**: Phase 3b is complete. `_resolve_waba_id` reads the live integrations state per FR-005a + A2; the audit log carries the discriminating `integrations_response_present` field per FR-008a; tests no longer depend on `ProjectOnboarding` fixtures. Phase 5 (US3 failure-path tests) can now proceed against the correct failure surface.
 
 ---
 
@@ -115,17 +159,36 @@ description: "Task list for the Template Sample Validation Endpoint for Direct S
 
 - [ ] T023 [P] [US3] Add use-case tests for the Meta-invalid-response path. Four cases: (a) Meta returns HTTP 200 with body `{"success": false, "error": {...}}` → `MetaInvalidResponseError` raised; (b) Meta returns HTTP 200 with body `{"success": true}` (no `category` key) → `MetaInvalidResponseError` raised; (c) Meta returns HTTP 200 with body `{"success": true, "category": ""}` (empty `category`) → `MetaInvalidResponseError` raised; (d) [C4 from speckit-analyze] Meta returns HTTP 200 with body `{"success": false, "category": "UTILITY"}` (success:false wins over category present) → `MetaInvalidResponseError` raised. In all cases assert: no local mutation; `meta_response` on the exception carries the raw Meta body verbatim; `_emit META_INVALID_RESPONSE` was called at **WARNING** level per FR-008b (`with self.assertLogs(..., level="WARNING")`) with the raw body (truncated per FR-008c safety cap).
 
-- [ ] T024 [P] [US3] Add use-case tests for the WABA-not-configured path. Four cases per `data-model.md` §3: (a) no `ProjectOnboarding` row for the project → `WabaNotConfiguredError`; (b) `config = {}` (no `channels` key) → `WabaNotConfiguredError`; (c) `config = {"channels": {}}` (no `wpp-cloud` sub-key) → `WabaNotConfiguredError`; (d) `config["channels"]["wpp-cloud"]["channel_data"]["waba_id"] == ""` → `WabaNotConfiguredError`. Assert: no Meta call was made (`mocked_meta_service.submit_template_sample.assert_not_called()`); no local mutation; `_emit WABA_NOT_CONFIGURED` was called at **WARNING** level per FR-008b.
+- [ ] T024 [P] [US3] **(updated by 2026-05-26 clarification)** Add use-case tests for the WABA-not-configured path. The three failure modes from the new FR-005a all collapse to one user-facing `WabaNotConfiguredError` per the Q3-2026-05-26 single-class decision; the audit log discriminates via `integrations_response_present`.
+
+  **Five test cases** (each patches `IntegrationsService.get_channel_app` to a different return value and asserts `WabaNotConfiguredError` is raised):
+
+  - (a) `get_channel_app` returns `None` (infra failure — service swallowed `CustomAPIException`) → audit log carries `integrations_response_present=False`.
+  - (b) `get_channel_app` returns `None` (integrations returned HTTP 404 for the supplied `app_uuid` — also surfaces as `None` under the swallow-to-None contract) → audit log carries `integrations_response_present=False` (identical user-facing outcome to (a); distinguishable only by reading the swallowed-exception trail in Connect-side logs).
+  - (c) `get_channel_app` returns `{"config": {}}` (no `waba` sub-key) → audit log carries `integrations_response_present=True`.
+  - (d) `get_channel_app` returns `{"config": {"waba": {}}}` (`waba` exists but no `id`) → audit log carries `integrations_response_present=True`.
+  - (e) `get_channel_app` returns `{"config": {"waba": {"id": ""}}}` (empty `id`) → audit log carries `integrations_response_present=True`.
+
+  **Assertions in all five cases**:
+
+  - `mocked_integrations_service.get_channel_app.assert_called_once_with("wpp-cloud", dto.app_uuid)` — FR-005a's call input is `app_uuid`, NOT `project_uuid`.
+  - No Meta call was made: `mocked_meta_service.submit_template_sample.assert_not_called()` — the WABA gate runs BEFORE the Meta call per FR-005a's ordering rule.
+  - No local mutation: snapshot `Template.metadata` / `Template.current_version` / `Version.status` pre/post and assert byte-equality.
+  - `_emit WABA_NOT_CONFIGURED` was called at **WARNING** level per FR-008b with `project_uuid`, `app_uuid`, and the FR-008a-mandated `integrations_response_present` boolean.
+
+  **Regression assertion** across all five cases: `ProjectOnboarding.objects` is never touched — patch `retail.projects.models.ProjectOnboarding.objects` to a `MagicMock` and assert `.filter.assert_not_called()`. Pins the data-model.md §3 update (the integrations engine is the sole authoritative source for WABA-id resolution).
 
 - [ ] T025 [P] [US3] Add use-case tests for the not-Direct-Send-eligible path. Three cases per `data-model.md` §4: (a) `template.integrated_agent is None` (custom template never assigned) → `NotDirectSendEligibleError` with `integrated_agent_uuid=null`; (b) `template.integrated_agent.config == {}` → `NotDirectSendEligibleError` with `direct_send_flag=False`; (c) `template.integrated_agent.config == {"direct_send": False}` → `NotDirectSendEligibleError` with `direct_send_flag=False`. Assert: no `ProjectOnboarding` lookup was performed (gate runs BEFORE WABA resolution per `data-model.md` §9); no Meta call; no local mutation; `_emit NOT_DIRECT_SEND_ELIGIBLE` was called at **WARNING** level per FR-008b with the IntegratedAgent identifier (or `null`) and the resolved flag.
 
-- [ ] T026 [P] [US3] Add view tests for the error-path HTTP boundary in `retail/templates/tests/views/test_validate_template_sample_view.py`. Five cases, each patching the use case to raise the corresponding exception and asserting the response body + status per `contracts/sample-endpoint-request-response.md`: (a) `NotDirectSendEligibleError` → HTTP 400 with `{"detail": "Template is not Direct Send-eligible", "error_code": "not_direct_send_eligible"}` (no `meta_response` field); (b) `WabaNotConfiguredError` → HTTP 400 with `{"detail": "WABA not configured for this project", "error_code": "waba_not_configured"}`; (c) `MetaSampleUnavailableError(meta_response={...})` → HTTP 502 with `{"detail": "Meta sample submission failed", "error_code": "meta_unavailable", "meta_response": {...}}`; (d) `MetaSampleUnavailableError(meta_response=None)` → HTTP 502 WITHOUT the `meta_response` field; (e) `MetaInvalidResponseError` → HTTP 502 with `{"detail": "Meta did not return a category", "error_code": "meta_invalid_response", "meta_response": {...}}`.
+- [ ] T026 [P] [US3] **(updated by 2026-05-26 clarification)** Add view tests for the error-path HTTP boundary in `retail/templates/tests/views/test_validate_template_sample_view.py`. Five cases, each patching the use case to raise the corresponding exception and asserting the response body + status per `contracts/sample-endpoint-request-response.md`: (a) `NotDirectSendEligibleError` → HTTP 400 with `{"detail": "Template is not Direct Send-eligible", "error_code": "not_direct_send_eligible"}` (no `meta_response` field); (b) `WabaNotConfiguredError` → HTTP 400 with `{"detail": "WABA not configured for this project", "error_code": "waba_not_configured"}` (the SAME view-level response regardless of which of the three integrations-side failure modes the use case detected per FR-005a / FR-007d — the view does not need to distinguish them; root-cause analysis lives in the audit log per T024); (c) `MetaSampleUnavailableError(meta_response={...})` → HTTP 502 with `{"detail": "Meta sample submission failed", "error_code": "meta_unavailable", "meta_response": {...}}`; (d) `MetaSampleUnavailableError(meta_response=None)` → HTTP 502 WITHOUT the `meta_response` field; (e) `MetaInvalidResponseError` → HTTP 502 with `{"detail": "Meta did not return a category", "error_code": "meta_invalid_response", "meta_response": {...}}`.
 
 - [ ] T027 [P] [US3] Add a use-case test for the partial-failure-after-UTILITY path. Mock Meta to return UTILITY but cause the downstream `_apply_metadata_update` (or `_create_version_with_options`) to raise an exception. Assert: the original exception propagates (not wrapped); `_emit LOCAL_UPDATE_FAILED_AFTER_META_APPROVAL` was called at **ERROR** level with `exc_info=True` per FR-008b AND with the Meta sample id (when Meta returned one); the audit-log event fires regardless of how far the partial mutation got. This pins FR-006c — operator-retry is the documented recovery path; no rollback is attempted.
 
-- [ ] T027b [P] [US3] [C2 from speckit-analyze — SC-008 cross-tenant isolation] Add a view test in `retail/templates/tests/views/test_validate_template_sample_view.py` dedicated to SC-008. Two cases: (a) submit with `Project-Uuid` header = project A's UUID and body `project_uuid` = project B's UUID; expect HTTP 400 with `error_code = "project_uuid_mismatch"`, no use-case invocation (`MetaService.submit_template_sample.assert_not_called()`), no DB write (Template state byte-identical before/after), and a `[TemplateSampleValidation] project_uuid_mismatch: ...` WARNING-level audit log line; (b) submit with `Project-Uuid` header AND body `project_uuid` both equal to project A's UUID, but the `template_uuid` path param points at a Template whose `integrated_agent.project` is project B — expect the request to fail (either HTTP 404 via DRF default if the template lookup is project-scoped, OR a domain-level rejection that the audit log surfaces with the appropriate event name). The exact failure mode depends on whether the use case adds project-scoped Template filtering; document the chosen behavior in the test and reference SC-008. (Depends on T015, T016.)
+- [ ] T027c [P] [US3] [C-I12 from speckit-analyze — spec Edge Case "FLAGGED → APPROVED via sample endpoint"] Add a use-case unit test in `retail/templates/tests/usecases/test_validate_template_sample.py` (existing file, MOD) that pins the third-recovery-channel guarantee from the spec Edge Case at `spec.md:90`. Setup: create a Direct Send-eligible Template whose current `Version.status == "FLAGGED"` (the state spec 003's `template_correct_category_detection` webhook leaves a template in when Meta downgrades its category). Action: submit a UTILITY-classifying sample through `ValidateTemplateSampleUseCase.execute(dto)`. Assertions: (a) a new `Version` row is created with `status == "APPROVED"` (per FR-006d); (b) `Template.current_version` is advanced to the new row (verify via `template.refresh_from_db()` then compare `template.current_version.uuid` to the new Version's uuid); (c) the previously-FLAGGED Version is **retained** in `template.versions.all()` and its `status` remains `"FLAGGED"` (no in-place mutation of the prior row); (d) the `template_updated` audit-log line carries `previous_current_version_status="FLAGGED"` per FR-008a / `data-model.md` §1 — this is the operator-facing signal that the sample-validation channel un-flagged the template, captured before the `current_version` advance per the §1 read-site rule; (e) no `task_create_template.delay(...)` is fired (consistent with FR-006 / A10 — the same `mocked_delay.assert_not_called()` assertion from T021). The post-condition spec 002's dispatch gate would re-admit the template on the next broadcast attempt because the gate reads `template.current_version.status`, which is now `APPROVED` — this is not directly tested here (US2's T019 already pins the broadcast renderer) but is the operational consequence the test pins via assertion (b).
 
-**Checkpoint**: US3 is fully functional. Every failure path has a deterministic HTTP response shape, a zero-side-effects guarantee on local state, and an audit-log event at the correct level (per-event log-level assertions pin FR-008b in CI). The SC-008 cross-tenant isolation guarantee is pinned by T027b. The endpoint fails closed in every error mode.
+- [ ] T027b [P] [US3] [C2 from speckit-analyze — SC-008 cross-tenant isolation] **(updated by 2026-05-26 clarification — Q2 trust-the-frontend decision)** Add a view test in `retail/templates/tests/views/test_validate_template_sample_view.py` dedicated to SC-008. The clarified SC-008 enforces cross-tenant isolation via TWO structural checks ONLY: (a) `HasProjectPermission` on the view and (b) the serializer-layer FR-002b header ↔ body equality check. The frontend-supplied `app_uuid` is explicitly trusted; the use case does NOT cross-check it against `template.integrated_agent.channel_uuid` and does NOT verify the integrations response's `project_uuid`. The residual exposure (compromised frontend or token-holding bypass caller) is documented as a known limitation. Three test cases: (1) submit with `Project-Uuid` header = project A's UUID and body `project_uuid` = project B's UUID; expect HTTP 400 with `error_code = "project_uuid_mismatch"`, no use-case invocation (`MetaService.submit_template_sample.assert_not_called()` AND `IntegrationsService.get_channel_app.assert_not_called()` — neither upstream is called), no DB write (Template state byte-identical before/after), and a `[TemplateSampleValidation] project_uuid_mismatch: ...` WARNING-level audit log line; (2) submit with an unauthenticated request (no auth header) — expect HTTP 401 from DRF's default authentication failure; (3) submit with a valid auth token but a `Project-Uuid` header for a project the operator is NOT authorized for — expect HTTP 403 from `HasProjectPermission`, no use-case invocation. The trust-the-frontend `app_uuid` behavior is intentionally NOT tested as a "rejected" case here — case (1) above is the only structural test the spec mandates for SC-008. Document the residual exposure in a top-of-file test-class docstring referencing the clarification record. (Depends on T015, T016, T035.)
+
+**Checkpoint**: US3 is fully functional. Every failure path has a deterministic HTTP response shape, a zero-side-effects guarantee on local state, and an audit-log event at the correct level (per-event log-level assertions pin FR-008b in CI). The SC-008 cross-tenant isolation guarantee is pinned by T027b; the FLAGGED → APPROVED recovery channel is pinned by T027c. The endpoint fails closed in every error mode.
 
 ---
 
@@ -166,32 +229,35 @@ description: "Task list for the Template Sample Validation Endpoint for Direct S
 ### Phase Dependencies
 
 - **Setup (Phase 1)**: No dependencies; T001 can run immediately.
-- **Foundational (Phase 2)**: Depends on Setup. BLOCKS all user-story phases. Within Phase 2, the parallel groups are: {T002, T003, T004, T008, T010, T012, T014} can run fully in parallel (different files, no inter-dependencies); T005 → T006 → T007 are sequential within the Meta-side chain; T009 depends on T008; T011 depends on T010; T013 depends on T012.
+- **Foundational (Phase 2)**: Depends on Setup. BLOCKS all user-story phases. Within Phase 2, the parallel groups are: {T002, T003, T004, T008, T010, T012, T014} can run fully in parallel (different files, no inter-dependencies); T005 → T006 → T007 are sequential within the Meta-side chain; T009 depends on T008; T011 depends on T010; T013 depends on T012; T012b depends on T012; T013b depends on T012b.
 - **User Story 1 (Phase 3)**: Depends on Foundational (Phase 2). T015 → T016 are sequential (view depends on use case); T017 and T018 can run in parallel against each other and against T015 / T016 if developed concurrently.
-- **User Story 2 (Phase 4)**: Depends on US1 (Phase 3 — T015, T016 must be done; the integration tests load and exercise the use case). T019 / T020 / T021 can run in parallel.
-- **User Story 3 (Phase 5)**: Depends on US1 (Phase 3 — same reason; the failure-path tests load the use case). T022 / T023 / T024 / T025 / T026 / T027 / T027b can run in parallel.
-- **User Story 4 (Phase 6)**: Depends on US1 (Phase 3) + on the serializer (T012). T028 is a single task.
-- **Polish (Phase 7)**: Depends on the user-story phases the team chooses to deliver in this PR (US1 minimum for the MVP slice, all four for the full feature).
+- **Post-Clarification Refactor (Phase 3b)**: Depends on US1 (Phase 3) being complete. T034 (Protocol extension — leaf task, no dependents inside Phase 3b that need to run in parallel with it) → T035 (refactor uses the extended interface) → T036 / T037 (the test refactors verify behavior introduced by T035) is the sequential chain. T036 and T037 can run in parallel after T035. BLOCKS US3 (Phase 5) — T024 / T026 / T027b assert on the post-refactor failure surface and audit-log event payload, so running them before Phase 3b would produce false negatives.
+- **User Story 2 (Phase 4)**: Depends on US1 (Phase 3 — T015, T016 must be done; the integration tests load and exercise the use case). NOT dependent on Phase 3b — US2's lockstep tests are agnostic to the WABA source. T019 / T020 / T021 can run in parallel.
+- **User Story 3 (Phase 5)**: Depends on US1 (Phase 3) AND on Phase 3b (the WABA-resolution refactor must land before T024 / T026 / T027b assert on the new event payload + view-level error mapping). T022 / T023 / T024 / T025 / T026 / T027 / T027b / T027c can run in parallel within Phase 5. T027c (FLAGGED → APPROVED recovery) is independent of Phase 3b and can land any time after US1.
+- **User Story 4 (Phase 6)**: Depends on US1 (Phase 3) + on the serializer (T012). NOT dependent on Phase 3b — schema-parity tests do not exercise the WABA path. T028 is a single task.
+- **Polish (Phase 7)**: Depends on the user-story phases the team chooses to deliver in this PR (US1 minimum for the MVP slice, all four for the full feature). Phase 3b MUST be done before T030 (coverage check) and T032 (PII redaction grep) — both touch test runs that exercise the refactored `_resolve_waba_id`.
 
 ### User Story Dependencies
 
 - **US1 (P1)**: Foundational only — no inter-story dependencies.
+- **US1 Refactor (Phase 3b)**: US1 only.
 - **US2 (P1)**: US1 only (US2's tests load and exercise US1's use case + broadcast renderer).
-- **US3 (P2)**: US1 only.
+- **US3 (P2)**: US1 + Phase 3b (failure-path tests assert on the new WABA failure surface).
 - **US4 (P3)**: US1 only (US4's tests load the response of US1's view).
 
-US2 / US3 / US4 are INDEPENDENT of each other — they can be implemented in any order or in parallel after US1 is done.
+US2 / US3 / US4 are INDEPENDENT of each other — they can be implemented in any order or in parallel AFTER US1 is done AND Phase 3b is done (Phase 3b blocks US3 only; US2 / US4 can start in parallel with Phase 3b if staffed).
 
 ### Within Each User Story
 
 - US1: T015 (use case) → T016 (view) → T017 (use-case tests) + T018 (view tests) — tests can run in parallel after the implementation lands.
+- US1 Refactor: T034 (interface extension) → T035 (use-case refactor) → T036 / T037 (test refactors) in parallel.
 - US2 / US3 / US4: each task within the story is independent of the others (each is a self-contained test file or a sibling test method) — can all run in parallel.
 
 ### Parallel Opportunities
 
 - All [P]-marked Foundational tasks (T002, T003, T004, T008, T010, T012, T014) can run in parallel — 7-way parallelism in Phase 2.
-- All [P]-marked tests within a single user story can run in parallel — e.g. T017 + T018 in US1, T019 + T020 + T021 in US2, T022-T027 in US3.
-- Across user stories (after US1 lands): US2, US3, US4 can be developed in parallel by different team members. Each story's tests run independently.
+- All [P]-marked tests within a single user story can run in parallel — e.g. T017 + T018 in US1, T036 + T037 in Phase 3b, T019 + T020 + T021 in US2, T022-T027b in US3.
+- Across user stories (after US1 lands): US2 and US4 can be developed in parallel with Phase 3b; US3 must wait for Phase 3b. Each story's tests run independently.
 
 ---
 
@@ -208,6 +274,16 @@ Task: "T012 — Add ValidateTemplateSampleSerializer to retail/templates/seriali
 Task: "T014 — Define DTOs and Enums in retail/templates/usecases/validate_template_sample.py"
 ```
 
+## Parallel Example: Post-Clarification Refactor (Phase 3b)
+
+```bash
+# T034 (Protocol extension — leaf, no DB / runtime impact) lands first.
+# T035 imports the new Protocol so it must wait for T034.
+# After T035 commits, T036 and T037 can run in parallel:
+Task: "T036 — Update use-case happy-path tests to mock IntegrationsService.get_channel_app"
+Task: "T037 — Update view tests to patch IntegrationsService"
+```
+
 ## Parallel Example: User Story 3 Tests
 
 ```bash
@@ -220,6 +296,7 @@ Task: "T025 — Use-case tests for not-Direct-Send-eligible path"
 Task: "T026 — View tests for error-path HTTP boundary"
 Task: "T027 — Use-case test for partial-failure-after-UTILITY path"
 Task: "T027b — View test for SC-008 cross-tenant isolation"
+Task: "T027c — Use-case test for FLAGGED → APPROVED recovery channel"
 ```
 
 ---
@@ -231,28 +308,30 @@ Task: "T027b — View test for SC-008 cross-tenant isolation"
 1. Complete Phase 1: Setup (T001 — branch + test-suite verification).
 2. Complete Phase 2: Foundational (T002–T014 — the building blocks). CRITICAL — blocks every user-story phase.
 3. Complete Phase 3: User Story 1 (T015–T018 — the happy-path orchestration + view + tests).
-4. **STOP and VALIDATE**: Run the quickstart steps 3 and 5 manually. Confirm the endpoint accepts a UTILITY-classifying body edit and a MARKETING-classifying body edit and produces the expected HTTP 200 responses with correct local state. This is the MVP slice — operators can use the endpoint for the dominant case.
-5. Deploy / demo if the MVP is sufficient for the immediate operator need.
+4. Complete Phase 3b: Post-Clarification Refactor (T034–T037 — extend the integrations Protocol, switch the WABA resolver to IntegrationsService, and update fixtures). Required for the MVP slice to match the post-clarification spec; without it the implementation diverges from FR-005a + A2 + FR-008a.
+5. **STOP and VALIDATE**: Run the quickstart steps 3 and 5 manually. Confirm the endpoint accepts a UTILITY-classifying body edit and a MARKETING-classifying body edit and produces the expected HTTP 200 responses with correct local state AND that the integrations call is the only WABA-resolution channel exercised (verify by tailing the audit log and confirming `[TemplateSampleValidation] meta_sample_submitted: waba_id=...` resolves the value via the integrations call, not via any `ProjectOnboarding` read).
+6. Deploy / demo if the MVP is sufficient for the immediate operator need.
 
 ### Incremental Delivery
 
 1. Setup + Foundational → Foundation ready (no observable endpoint behavior).
-2. Add US1 → MVP — operators have the happy path. Test independently per Phase 3 checkpoint.
-3. Add US2 → lockstep guarantee proven by integration test. No new HTTP surface; deepens confidence.
-4. Add US3 → failure-path coverage. Operators see deterministic errors for Meta outages / WABA misconfiguration / non-eligible templates.
-5. Add US4 → schema-parity tests. Frontend integration is regression-proof.
-6. Polish → coverage report + lint + log redaction sanity + PR prep.
+2. Add US1 → MVP candidate (legacy ProjectOnboarding-based WABA resolution).
+3. Add Phase 3b → MVP under the 2026-05-26 clarified spec. Test independently per Phase 3b checkpoint.
+4. Add US2 → lockstep guarantee proven by integration test. No new HTTP surface; deepens confidence.
+5. Add US3 → failure-path coverage. Operators see deterministic errors for Meta outages / WABA misconfiguration (integrations-side, post-3b) / non-eligible templates.
+6. Add US4 → schema-parity tests. Frontend integration is regression-proof.
+7. Polish → coverage report + lint + log redaction sanity + PR prep.
 
 ### Parallel Team Strategy
 
 With multiple developers after Foundational completes:
 
-1. Developer A: US1 implementation (T015 → T016).
-2. Developer B: US1 + US2 tests (T017, T018, T019, T020, T021).
-3. Developer C: US3 tests (T022 → T027b).
+1. Developer A: US1 implementation (T015 → T016) → Phase 3b (T034 → T035).
+2. Developer B: US1 + US2 tests (T017, T018, T019, T020, T021) → Phase 3b test refactors (T036, T037) once T035 lands.
+3. Developer C: US3 tests (T022 → T027b) — but T024 / T026 / T027b BLOCK on Phase 3b. Developer C can productively start T022 / T023 / T025 / T027 immediately after US1 and pick up the Phase 3b-dependent tests after T035.
 4. Developer D: US4 test (T028) + Polish (T029 → T033 + T031b).
 
-Developers B / C / D can begin their test development as soon as Developer A finishes T015 (the use case execute body); T016 (the view) only blocks the view-level tests (T018, T026, T028).
+Developers B / C / D can begin their test development as soon as Developer A finishes T015 (the use case execute body); T016 (the view) only blocks the view-level tests (T018, T026, T028, T037).
 
 ---
 

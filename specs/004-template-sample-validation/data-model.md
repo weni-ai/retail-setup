@@ -31,10 +31,15 @@ INSERT + 3 UPDATEs) + **1 optional UPDATE** (abandoned-cart sync)
 also perform zero writes.
 
 The bulk of this document describes (a) the read interactions with
-the five existing models the feature consults (`Project`,
-`ProjectOnboarding`, `IntegratedAgent`, `Template`, `Version`),
-(b) the write sites, and (c) the four in-memory DTOs (one inbound
-DTO, one result DTO, two private helper enums).
+the four existing models the feature consults (`Project`,
+`IntegratedAgent`, `Template`, `Version`) plus the outbound
+integrations-engine call that resolves the WABA id, (b) the write
+sites, and (c) the four in-memory DTOs (one inbound DTO, one
+result DTO, two private helper enums). `ProjectOnboarding` is
+**not** read by this endpoint — the WABA-id resolution flows
+through `IntegrationsService.get_channel_app("wpp-cloud", app_uuid)`
+per the 2026-05-26 clarification (see research Decision 3 and §3
+below).
 
 ---
 
@@ -247,68 +252,75 @@ convergence window.
 
 ---
 
-## 3. `ProjectOnboarding.config["channels"]["wpp-cloud"]["channel_data"]["waba_id"]` — read-only WABA-id resolution
+## 3. WABA-id resolution via `IntegrationsService.get_channel_app` — outbound HTTP call
 
-**File**: `retail/projects/models.py` (read-only context — no
-schema change ships against this model).
+**File**: `retail/services/integrations/service.py:372-389`
+(read-only context — no schema change ships against this service).
 
 ### Schema change
 
-**None.** The `config` JSONField is pre-existing on
-`projects_projectonboarding`. The
-`channels.wpp-cloud.channel_data.waba_id` JSON path is populated by
-the existing onboarding flow
-(`retail/projects/usecases/configure_wpp_cloud.py:96-114` — the
-same path `create_wpp_cloud_channel` reads).
+**None.** The feature consumes the existing
+`IntegrationsService.get_channel_app(apptype, app_uuid)` method
+that already returns `Optional[Dict]` (the service swallows
+`CustomAPIException` to `None`); no service-layer signature change
+is introduced. **`ProjectOnboarding` is NOT read by this endpoint
+for WABA resolution** (per research Decision 3 — the local
+snapshot can drift from the live integrations state when a WABA
+is reconfigured outside the onboarding flow).
 
 ### Read site
 
-One read per request (the very first DB call after the FR-002a
-gating succeeds):
+One outbound HTTP call per request (the very first network call
+after the FR-002a gating succeeds, and before the Meta call):
 
 ```python
-onboarding = (
-    ProjectOnboarding.objects
-    .filter(project__uuid=dto.project_uuid)
-    .first()
+app = self.integrations_service.get_channel_app(
+    "wpp-cloud", dto.app_uuid
 )
-waba_id = (
-    (onboarding.config.get("channels") or {})
-    .get("wpp-cloud", {})
-    .get("channel_data", {})
-    .get("waba_id")
-    if onboarding
-    else None
-)
+waba_id = ((app or {}).get("config") or {}).get("waba", {}).get("id")
 if not waba_id:
+    self._emit_waba_not_configured(
+        project_uuid=dto.project_uuid,
+        app_uuid=dto.app_uuid,
+        integrations_response_present=bool(app),
+    )
     raise WabaNotConfiguredError(
         f"WABA not configured for project {dto.project_uuid}"
     )
 ```
 
-The `if not waba_id` guard handles four failure modes uniformly per
-FR-005a: (a) no `ProjectOnboarding` row, (b) missing
-`channels.wpp-cloud` sub-config, (c) missing
-`channel_data.waba_id` field, (d) empty-string value. All four
-surface as HTTP 400 with `error_code = "waba_not_configured"`.
+The `if not waba_id` guard handles three failure modes uniformly
+per FR-005a, all of which collapse to one user-facing response per
+the 2026-05-26 clarification:
 
-### `.first()` is safe under the current uniqueness contract
+| # | Failure mode                                                         | `app` value | `bool(app)` (audit flag) |
+| - | -------------------------------------------------------------------- | ----------- | ------------------------ |
+| a | Integrations infra failure (5xx / network / timeout — swallowed)     | `None`      | `False`                  |
+| b | Integrations returns no app for the supplied `app_uuid` (swallowed)  | `None`      | `False`                  |
+| c | Integrations returns a dict but `config["waba"]["id"]` is missing/empty | dict     | `True`                   |
 
-`.first()` is used (rather than `.get()`) because
-`ProjectOnboarding.project` is a `OneToOneField` (see
-`retail/projects/models.py` — the column is `project_id` UNIQUE),
-so at most one row exists per project. The `.first()` choice is
-defensive: if a future schema relaxation allowed multiple
-onboarding rows per project, ordering would become implicit; today
-that risk is zero because the schema enforces uniqueness. Switching
-to `.get()` would raise `MultipleObjectsReturned` in that
-(currently impossible) state instead of silently picking one;
-prefer `.first()` for forward-compatibility with the explicit
-`if not waba_id` guard handling the empty case uniformly.
+All three surface as HTTP 400 with `error_code = "waba_not_configured"`.
+The audit-log discriminator (`integrations_response_present`)
+distinguishes "service down / bad `app_uuid`" (`False`) from "app
+exists but unconfigured" (`True`) per FR-008a — see §7 for the
+full event payload.
+
+### Field-path source of truth
+
+The `app["config"]["waba"]["id"]` JSON path is the same one
+`ConfigureOneClickPaymentUseCase._fetch_channel_info` consumes at
+`retail/projects/usecases/configure_one_click_payment.py:192`. The
+new use case reuses an existing service-layer contract rather
+than introducing a parallel resolution path. The
+`IntegrationsService.get_channel_app` swallow-to-None on
+`CustomAPIException` is preserved unchanged — other call sites
+stay untouched.
 
 ### Write site
 
-**None.** The use case never mutates `ProjectOnboarding`.
+**None.** The use case never writes to the integrations engine,
+never writes to `ProjectOnboarding`, never writes to any
+WABA-related local state.
 
 ---
 
@@ -378,8 +390,8 @@ schema change ships against this model).
 
 ### Read sites
 
-The use case touches `Project` only transitively, via two
-relationships:
+The use case touches `Project` only transitively, via one
+relationship:
 
 - `template.integrated_agent.project` — read by
   `_apply_metadata_update`'s downstream call to
@@ -387,14 +399,13 @@ relationships:
   `integrated_agent.agent.uuid` against the abandoned-cart
   agent's UUID — no `Project` read in that path; mentioned for
   completeness).
-- `ProjectOnboarding.project_id` — joined implicitly by the
-  WABA-id query in §3 above.
 
 The use case never reads `Project` directly (no
-`Project.objects.get(uuid=...)` call). The
-`HasProjectPermission` permission class on the ViewSet reads
-`Project` indirectly via its Connect-service call, but that's
-upstream of the use case.
+`Project.objects.get(uuid=...)` call) and never reads
+`ProjectOnboarding` (the WABA-id resolution flows through the
+integrations engine per §3). The `HasProjectPermission`
+permission class on the ViewSet reads `Project` indirectly via
+its Connect-service call, but that's upstream of the use case.
 
 ### Write site
 
@@ -511,6 +522,35 @@ class EventName(str, Enum):
     )
 ```
 
+#### `waba_not_configured` event payload
+
+Per FR-008a (updated by the 2026-05-26 clarification), the
+`waba_not_configured` line carries the discriminator field that
+lets dashboards separate the integrations-side failure modes
+without leaking the distinction into the operator-facing response:
+
+```text
+[TemplateSampleValidation] waba_not_configured:
+  project_uuid=<uuid>
+  app_uuid=<uuid>
+  integrations_response_present=<true|false>
+```
+
+| Field                          | Type       | Meaning                                                                                                                                                       |
+| ------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `project_uuid`                 | UUID       | The authenticated project (taken from the verified body `project_uuid`, which equals the `Project-Uuid` header by FR-002b).                                   |
+| `app_uuid`                     | UUID       | The frontend-supplied `app_uuid` passed to `IntegrationsService.get_channel_app("wpp-cloud", app_uuid)`.                                                       |
+| `integrations_response_present` | bool      | `false` when the integrations call returned `None` (infra failure OR no app for the supplied `app_uuid`); `true` when it returned a dict but the dict's config had no usable `waba_id`. |
+
+Log level: **WARNING** per FR-008b. PII redaction: not applicable
+— all three fields are tenant identifiers per FR-008c's carve-out
+for UUIDs.
+
+The single user-facing HTTP 400 response
+(`error_code = "waba_not_configured"`) does NOT echo
+`integrations_response_present`; root-cause analysis lives in the
+audit log only per the FR-005a single-class collapse.
+
 ### `MetaSampleType` enumeration (private helper)
 
 ```python
@@ -540,9 +580,13 @@ class NotDirectSendEligibleError(Exception):
 
 
 class WabaNotConfiguredError(Exception):
-    """Raised when the project's ProjectOnboarding config does not
-    carry a wpp-cloud channel's waba_id per FR-005a. View translates
-    to HTTP 400 with error_code='waba_not_configured'."""
+    """Raised when IntegrationsService.get_channel_app("wpp-cloud",
+    app_uuid) returns None (infra failure or no app for app_uuid)
+    OR returns a dict whose config["waba"]["id"] is missing/empty
+    per FR-005a. View translates to HTTP 400 with
+    error_code='waba_not_configured' (a single user-facing class —
+    the audit log's integrations_response_present flag discriminates
+    the underlying mode per §7)."""
 
 
 class MetaSampleUnavailableError(Exception):
@@ -598,7 +642,9 @@ except WabaNotConfiguredError:
 except MetaSampleUnavailableError as exc:
     body = {"detail": "Meta sample submission failed",
             "error_code": "meta_unavailable"}
-    if exc.meta_response:
+    # `is not None` (not truthiness) so a parseable-but-empty
+    # Meta error envelope ({}) is still surfaced to the frontend.
+    if exc.meta_response is not None:
         body["meta_response"] = exc.meta_response
     return Response(body, status=502)
 except MetaInvalidResponseError as exc:
@@ -632,9 +678,12 @@ following sequence:
    → 1 DB read
 3. FR-002a gate check on integrated_agent.config["direct_send"]
    → no DB read (in-memory check)
-4. ProjectOnboarding.objects.filter(project__uuid=...).first()
-   → 1 DB read
-5. WABA-id resolution (in-memory JSONField traversal)
+4. IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)
+   → 1 outbound Connect-side HTTP call
+5. WABA-id resolution: read app["config"]["waba"]["id"] (in-memory
+   dict traversal); raise WabaNotConfiguredError if None / empty
+   (FR-005a — collapses 3 failure modes; audit log carries the
+   discriminating integrations_response_present flag per §7)
 6. _emit META_SAMPLE_SUBMITTED log line
 7. _build_meta_sample_body (translator, pure function)
    → If IMAGE header is base64, S3 upload happens here (1 S3 round-trip)
@@ -654,23 +703,26 @@ following sequence:
 13. Return ValidateTemplateSampleResult
 ```
 
-Total DB operations on the UTILITY happy path: **2 reads**
-(Template + ProjectOnboarding) + **4 mandatory writes**
-(Template.metadata, Version INSERT, Version.status,
-Template.current_version_id) + **1 optional write**
-(IntegratedAgent.config — only for the abandoned-cart agent's
-header-image flip) + **1 optional cache clear** (paired with the
-optional write) + **1 optional S3 upload** (only for new base64
-IMAGE headers) + **1 outbound HTTP call** (Meta). The latency
-budget of SC-006 (p99 < 3s) accommodates these with the Meta call
-dominating.
+Total operations on the UTILITY happy path: **1 DB read**
+(Template — `ProjectOnboarding` is NOT read by this endpoint per
+§3) + **4 mandatory DB writes** (Template.metadata, Version
+INSERT, Version.status, Template.current_version_id) + **1
+optional DB write** (IntegratedAgent.config — only for the
+abandoned-cart agent's header-image flip) + **1 optional cache
+clear** (paired with the optional write) + **1 optional S3 upload**
+(only for new base64 IMAGE headers) + **2 outbound HTTP calls**
+(integrations engine + Meta, serial — worst case
+`t_integrations + t_meta`). The latency budget of SC-006 (p99 < 3s)
+accommodates these with the Meta call dominating.
 
 For the non-UTILITY path the sequence stops at step 9 (no local
 writes); for the FR-002b-refused path the sequence stops at step 0
-(no use case invocation, no DB read, no Meta call); for the
-FR-002a-refused path the sequence stops at step 3 (no Meta call,
-no writes); for the FR-005a-refused path the sequence stops at
-step 5 (no Meta call, no writes).
+(no use case invocation, no DB read, no integrations call, no
+Meta call); for the FR-002a-refused path the sequence stops at
+step 3 (no integrations call, no Meta call, no writes); for the
+FR-005a-refused path the sequence stops at step 5 (no Meta call,
+no writes — the integrations call already fired and is what
+triggered the refusal).
 
 ---
 
@@ -730,7 +782,11 @@ verbatim per the FR-008c carve-out for UUIDs.
 
 ### Failure mode interaction with cross-tenant isolation (SC-008)
 
-Three structural defenses protect SC-008:
+Per the 2026-05-26 clarification (Q2 — trust-the-frontend
+`app_uuid`), SC-008 collapses to **two** structural defenses; the
+former third defense via `ProjectOnboarding.filter(project__uuid=...)`
+is gone because the WABA lookup is now a global call by `app_uuid`
+with no project scoping:
 
 1. `HasProjectPermission` (view layer) validates the `Project-Uuid`
    header against Connect's authorization API. An operator who is
@@ -739,12 +795,32 @@ Three structural defenses protect SC-008:
 2. `ValidateTemplateSampleSerializer.validate_project_uuid`
    (serializer layer, FR-002b) refuses any request whose body
    `project_uuid` does not equal the verified-trusted header. This
-   prevents the "authorize as A, target B's WABA" attack vector.
-3. `ProjectOnboarding.objects.filter(project__uuid=dto.project_uuid)`
-   (use case layer, FR-005a) scopes the WABA lookup to the body's
-   `project_uuid` — which is now guaranteed equal to the
-   header by check (2).
+   pins the body's `project_uuid` field to the authorized tenant
+   and closes the body-spoof vector for every project-scoped value
+   the downstream stack relies on (audit log, error envelope,
+   abandoned-cart sync side effect, etc.).
 
-Together, the three checks make a successful sample submission for
-project B impossible when the operator is authorized only for
-project A.
+The WABA lookup itself (FR-005a) flows through
+`IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)`
+— a global lookup by `app_uuid` with no project scoping. The
+frontend-supplied `app_uuid` is treated as trusted-and-authenticated;
+no use-case-level cross-check against
+`template.integrated_agent.channel_uuid` and no post-call check
+against the integrations response's `project_uuid` are performed.
+A compromised frontend (or a token-holding caller bypassing the
+Retail-provided UI) holding a valid Connect auth token for project
+A can therefore submit `app_uuid = <project B's wpp-cloud app uuid>`
+and route a Meta sample to project B's WABA. This residual
+exposure is explicitly accepted in SC-008 as a known limitation
+pending a Connect-side `app_uuid → project_uuid` scoping
+guarantee, and is bounded operationally by two facts: (i) the Meta
+sample API is read-only on Meta's side (no template gets created
+or modified at Meta from a sample call), and (ii) the local update
+gate downstream still keys off the `template_uuid` path param,
+which is project-scoped via FR-002a's IntegratedAgent eligibility
+check — so no Retail-side state of project B is mutated by such a
+cross-tenant call.
+
+Together, defenses (1) and (2) make project-uuid-body spoofing
+impossible for any authenticated caller; the residual `app_uuid`
+exposure is the documented known limitation.

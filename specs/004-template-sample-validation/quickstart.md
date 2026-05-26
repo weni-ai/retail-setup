@@ -20,7 +20,7 @@ scenarios from `spec.md`.
 | The OrderStatus agent has been pushed and assigned to the project (existing flow).              | `POST /api/v3/agents/push/` + `POST /api/v3/agents/{uuid}/assign/`                              |
 | The project has a WhatsApp Cloud channel created via the existing onboarding flow.              | Integrations Engine — `apptype=wpp-cloud`                                                       |
 | The channel has been opted into the Direct Send Beta and `IntegratedAgent.config["direct_send"] == True` was written at assignment time. | `AssignAgentUseCase` — `retail/agents/domains/agent_integration/usecases/assign.py:162`         |
-| The project's `ProjectOnboarding.config["channels"]["wpp-cloud"]["channel_data"]["waba_id"]` is populated. | Existing onboarding flow — `retail/projects/usecases/configure_wpp_cloud.py:96-114`             |
+| The project's wpp-cloud channel-app is reachable via `IntegrationsService.get_channel_app("wpp-cloud", app_uuid)` and the returned dict carries a non-empty `config["waba"]["id"]`. | Integrations Engine — same path `ConfigureOneClickPaymentUseCase._fetch_channel_info` consumes at `retail/projects/usecases/configure_one_click_payment.py:192`. |
 | At least one local `Template` exists on the assigned IntegratedAgent with                       | `retail/templates/models.py` — created at assignment time by                                    |
 | `current_version.status = "APPROVED"` and at least one `Version` carrying                       | `AssignAgentUseCase._create_library_templates`                                                  |
 | `integrations_app_uuid` equal to the channel's `app_uuid`.                                       |                                                                                                  |
@@ -345,26 +345,57 @@ This validates FR-002a + FR-007e + US3 AS4.
 
 ## 7. WABA-not-configured refusal (HTTP 400)
 
-Pick a project whose `ProjectOnboarding` has no
-`channels.wpp-cloud.channel_data.waba_id` field. This is rare in
-production but exercisable via direct DB manipulation in a test
-environment:
+Per the 2026-05-26 clarification, this endpoint resolves the WABA
+id via a live call to
+`IntegrationsService.get_channel_app("wpp-cloud", app_uuid)`. All
+three failure modes (integrations infra failure, no app for the
+supplied `app_uuid`, app exists but `config["waba"]["id"]` is
+missing / empty) collapse to one user-facing HTTP 400 response;
+the audit log discriminates via `integrations_response_present`.
+
+The cleanest way to exercise this path is to submit an `app_uuid`
+the integrations engine does not recognize:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${JWT}" \
+  -H "Project-Uuid: 11111111-2222-3333-4444-555566667777" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "template_body": "Hello {{1}}",
+    "app_uuid": "00000000-0000-0000-0000-000000000000",
+    "project_uuid": "11111111-2222-3333-4444-555566667777"
+  }' \
+  "https://retail.example.com/api/v3/templates/<uuid>/sample/"
+```
+
+To exercise the "app exists but config missing `waba_id`" mode in
+a test environment, mock `IntegrationsService.get_channel_app` to
+return a dict with no `waba` key:
 
 ```bash
 poetry run python manage.py shell <<'PY'
-from retail.projects.models import ProjectOnboarding
+from unittest.mock import patch
+from django.test import Client
 
-onboarding = ProjectOnboarding.objects.get(project__uuid="11111111-...")
-onboarding.config = {"channels": {}}   # strip the wpp-cloud sub-config
-onboarding.save()
+with patch(
+    "retail.templates.usecases.validate_template_sample"
+    ".IntegrationsService.get_channel_app",
+    return_value={"config": {}},   # no waba sub-key
+):
+    response = Client().post(
+        "/api/v3/templates/<uuid>/sample/",
+        data={
+            "template_body": "Hello {{1}}",
+            "app_uuid": "<any-uuid>",
+            "project_uuid": "11111111-...",
+        },
+        content_type="application/json",
+        HTTP_AUTHORIZATION="Bearer <JWT>",
+        HTTP_PROJECT_UUID="11111111-...",
+    )
+    print(response.status_code, response.json())
 PY
-```
-
-Then fire the endpoint:
-
-```bash
-curl -X POST -H "..." -d '{ "template_body": "...", ... }' \
-  "https://retail.example.com/api/v3/templates/<uuid>/sample/"
 ```
 
 Expected HTTP 400 response (US3 AS3):
@@ -376,14 +407,20 @@ Expected HTTP 400 response (US3 AS3):
 }
 ```
 
-The audit log shows:
+The audit log shows the new payload per FR-008a — the
+`integrations_response_present` flag separates "service down /
+unknown `app_uuid`" (`false`) from "app exists but unconfigured"
+(`true`):
 
 ```text
-[TemplateSampleValidation] received: project_uuid=11111111-... template_uuid=<uuid> ...
-[TemplateSampleValidation] waba_not_configured: project_uuid=11111111-... config_path=channels.wpp-cloud.channel_data.waba_id
+[TemplateSampleValidation] received: project_uuid=11111111-... app_uuid=00000000-... template_uuid=<uuid> ...
+[TemplateSampleValidation] waba_not_configured: project_uuid=11111111-... app_uuid=00000000-... integrations_response_present=false
 ```
 
-This validates FR-005a + FR-007d + US3 AS3.
+For the "app exists but unconfigured" path, expect
+`integrations_response_present=true` on the same event token.
+
+This validates FR-005a + FR-007d + FR-008a + US3 AS3.
 
 ---
 
@@ -489,38 +526,97 @@ This validates the FLAGGED-template Edge Case.
 
 ## 10. Cross-tenant isolation (SC-008)
 
-Two projects exist with the same `template_uuid` (impossible in
-practice given `Template.uuid` is `primary_key=True`, but the
-WABA-id resolution is per-project and could in theory route to
-the wrong WABA if cross-tenant isolation were broken). The
-permission layer (`HasProjectPermission`) gates project access;
-SC-008 verifies the WABA-id resolution is project-scoped.
+Per the 2026-05-26 clarification, SC-008 is enforced by two
+structural checks ONLY:
 
-Verify by setting up two projects with different WABA ids and
-attempting to fire the endpoint with one project's JWT but the
-other project's template uuid. The
-`HasProjectPermission` + `Project-Uuid` header gate refuses
-before the use case loads the template.
+1. `HasProjectPermission` on the view (the `Project-Uuid` header
+   is authorized against Connect's API), and
+2. The serializer-layer FR-002b check that refuses any request
+   whose `Project-Uuid` header does not equal the body's
+   `project_uuid`.
 
-Direct manipulation:
+WABA resolution itself flows through
+`IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)`,
+which is a **global** lookup by `app_uuid` with no project
+scoping. The frontend-supplied `app_uuid` is treated as trusted;
+the use case does NOT cross-check it against
+`template.integrated_agent.channel_uuid` and does NOT verify the
+integrations response's `project_uuid`. The residual exposure
+(compromised frontend / token-holding bypass caller) is accepted
+as a known limitation pending a Connect-side `app_uuid →
+project_uuid` scoping guarantee.
+
+### Verify check (1) — `HasProjectPermission` refuses unauthorized projects
+
+Fire the endpoint with a `Project-Uuid` header for a project the
+operator is NOT authorized for:
 
 ```bash
-poetry run python manage.py shell <<'PY'
-from retail.projects.models import ProjectOnboarding
-
-print("project A waba_id:",
-    ProjectOnboarding.objects.get(project__uuid="<A>")
-        .config["channels"]["wpp-cloud"]["channel_data"]["waba_id"])
-print("project B waba_id:",
-    ProjectOnboarding.objects.get(project__uuid="<B>")
-        .config["channels"]["wpp-cloud"]["channel_data"]["waba_id"])
-PY
+curl -X POST \
+  -H "Authorization: Bearer ${JWT_FOR_PROJECT_A}" \
+  -H "Project-Uuid: <PROJECT_B_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "template_body": "Hello",
+    "app_uuid": "<any>",
+    "project_uuid": "<PROJECT_B_UUID>"
+  }' \
+  "https://retail.example.com/api/v3/templates/<uuid>/sample/"
 ```
 
-When the endpoint is fired with project A's JWT, the WABA-id
-resolution reads project A's onboarding row — even if the request
-body's `project_uuid` field is malformed (the `Project-Uuid`
-header takes precedence at the permission layer).
+Expected HTTP 403 (DRF default from `HasProjectPermission`); no
+audit log line is emitted by this endpoint (the rejection is
+upstream of the view body).
+
+### Verify check (2) — FR-002b refuses header ↔ body mismatch
+
+Fire the endpoint with a `Project-Uuid` header for project A but
+a body `project_uuid` for project B:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${JWT_FOR_PROJECT_A}" \
+  -H "Project-Uuid: <PROJECT_A_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "template_body": "Hello",
+    "app_uuid": "<any>",
+    "project_uuid": "<PROJECT_B_UUID>"
+  }' \
+  "https://retail.example.com/api/v3/templates/<uuid>/sample/"
+```
+
+Expected HTTP 400 response:
+
+```jsonc
+{
+  "detail": "Project-Uuid header does not match body project_uuid",
+  "error_code": "project_uuid_mismatch"
+}
+```
+
+Audit log:
+
+```text
+[TemplateSampleValidation] project_uuid_mismatch: header_project_uuid=<A> body_project_uuid=<B> template_uuid=<uuid>
+```
+
+No Meta call and no integrations call are made (the serializer
+refuses upstream of the use case).
+
+### Residual `app_uuid` exposure (NOT enforced — documented known limitation)
+
+If a token-holding caller bypasses the Retail-provided UI, holds
+a valid Connect auth token for project A, and submits
+`Project-Uuid = <A>`, `body.project_uuid = <A>`, and
+`body.app_uuid = <project B's wpp-cloud app uuid>`, the Meta
+sample call is routed against project B's WABA. The Meta sample
+API is read-only on Meta's side (no template gets created or
+modified at Meta from a sample call), and the local update gate
+still keys off the `template_uuid` path param (which is
+project-scoped via FR-002a's IntegratedAgent eligibility check),
+so no Retail-side state of project B is mutated. This is
+accepted per the 2026-05-26 clarification.
 
 This validates SC-008.
 
