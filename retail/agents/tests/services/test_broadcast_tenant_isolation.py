@@ -1,24 +1,4 @@
-"""Tenant-isolation regression guard (T035c — US1 / US4 / FR-040 /
-FR-042 / FR-045 / SC-010 (a)).
-
-Materializes SC-010 (a)'s audit query — ``BroadcastMessage.project_id ==
-BroadcastMessage.integrated_agent.project_id`` — as a CI-runnable
-assertion. Seeds two projects (one Direct Send-enabled, one legacy),
-dispatches a broadcast in each, then asserts:
-
-(i)   ``BroadcastMessage.project_id == BroadcastMessage.integrated_agent.project_id``
-      holds for every persisted row across both projects;
-(ii)  the order-status dedup cache key carries ``project_id=<A.id>`` and
-      never ``B.id`` (FR-040);
-(iii) the datalake event payload carries ``project=str(A.uuid)`` and
-      never ``B.uuid`` (FR-042);
-(iv)  the per-IntegratedAgent template lookup
-      ``integrated_agent.templates.filter(name=...)`` returns only the
-      IntegratedAgent's own templates even when both projects' Templates
-      share the same ``name`` (FR-045).
-
-A regression here is a hard tenant-isolation failure.
-"""
+"""Tenant-isolation regression guard. Anchor: FR-040 / FR-042 / FR-045 / SC-010."""
 
 from typing import Any, Dict
 from unittest.mock import MagicMock
@@ -53,11 +33,10 @@ _LAMBDA_VARIABLES = {"1": "Maria"}
     }
 )
 class TenantIsolationRegressionTest(TestCase):
-    """FR-040 / FR-042 / FR-045 / SC-010 — cross-tenant invariants on
-    the dispatch boundary.
+    """Cross-tenant invariants on the dispatch boundary.
 
-    Two projects share the same Template ``name`` to surface any lookup
-    that would accidentally cross-tenant scope.
+    Two projects share the same Template ``name`` to surface any
+    lookup that would accidentally cross-tenant scope.
     """
 
     def setUp(self):
@@ -157,9 +136,7 @@ class TenantIsolationRegressionTest(TestCase):
         return message
 
     def test_broadcast_message_project_matches_integrated_agent_project(self):
-        """SC-010 (a) — every persisted ``BroadcastMessage.project_id``
-        matches its ``integrated_agent.project_id``.
-        """
+        """``BroadcastMessage.project_id == integrated_agent.project_id``."""
         self._dispatch(self.ia_a)
         self._dispatch(self.ia_b)
 
@@ -172,8 +149,8 @@ class TenantIsolationRegressionTest(TestCase):
                 row.project_id,
                 row.integrated_agent.project_id,
                 "BroadcastMessage.project_id MUST match "
-                "BroadcastMessage.integrated_agent.project_id (FR-040 / "
-                f"SC-010 (a)). Row: {row}",
+                "BroadcastMessage.integrated_agent.project_id. "
+                f"Row: {row}",
             )
 
         project_ids = sorted(row.project_id for row in rows)
@@ -182,9 +159,7 @@ class TenantIsolationRegressionTest(TestCase):
         )
 
     def test_order_status_dedup_cache_key_carries_owning_project_id(self):
-        """FR-040 — the dedup cache key MUST scope by the OWNING
-        project, never by a peer tenant's identifier.
-        """
+        """Dedup cache key scopes by owning project. Anchor: FR-040."""
         usecase = AgentOrderStatusUpdateUsecase()
 
         order_status_dto_a = OrderStatusDTO(
@@ -241,18 +216,16 @@ class TenantIsolationRegressionTest(TestCase):
         self.assertIsNone(
             cache.get(cross_tenant_key_a_to_b),
             "Dedup cache key MUST NOT be writable under a peer tenant's "
-            "project_id (FR-040).",
+            "project_id.",
         )
         self.assertIsNone(
             cache.get(cross_tenant_key_b_to_a),
             "Dedup cache key MUST NOT be writable under a peer tenant's "
-            "project_id (FR-040).",
+            "project_id.",
         )
 
     def test_datalake_event_payload_carries_owning_project_uuid(self):
-        """FR-042 — every datalake event MUST tag the OWNING project,
-        never a peer tenant's UUID.
-        """
+        """Datalake event tags owning project. Anchor: FR-042."""
         self._dispatch(self.ia_a)
         self._dispatch(self.ia_b)
 
@@ -274,10 +247,7 @@ class TenantIsolationRegressionTest(TestCase):
         )
 
     def test_per_integrated_agent_template_lookup_is_tenant_scoped(self):
-        """FR-045 — ``integrated_agent.templates.filter(name=...)`` MUST
-        return only the OWNING IntegratedAgent's templates even when
-        both projects share the same Template ``name``.
-        """
+        """Template lookup is per-IntegratedAgent. Anchor: FR-045."""
         self.assertEqual(self.template_a.name, self.template_b.name)
 
         templates_a = list(
@@ -299,6 +269,5 @@ class TenantIsolationRegressionTest(TestCase):
         self.assertEqual(
             cross_tenant_lookup_a.count(),
             0,
-            "Per-IntegratedAgent template lookup MUST NOT cross "
-            "tenants (FR-045).",
+            "Per-IntegratedAgent template lookup MUST NOT cross tenants.",
         )

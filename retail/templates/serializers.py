@@ -203,12 +203,10 @@ class TemplateMetricsRequestSerializer(serializers.Serializer):
 class ValidateTemplateSampleSerializer(UpdateTemplateContentSerializer):
     """Serializer for ``POST /api/v3/templates/<uuid>/sample/``.
 
-    Field set is byte-for-byte compatible with
-    ``UpdateTemplateContentSerializer`` (FR-003 / FR-014). The subclass
-    layers on FR-003a length caps + button-mode disjointness and the
-    FR-002b ``Project-Uuid`` header ↔ body ``project_uuid`` equality
-    check. Domain-level gating (Direct-Send eligibility, WABA
-    resolution, Meta classification) lives in the use case.
+    Schema-compatible with ``UpdateTemplateContentSerializer``; layers
+    on length caps, button-mode disjointness, and the ``Project-Uuid``
+    header / body equality check. Anchor: FR-002b / FR-003 / FR-003a /
+    FR-014 (see ``specs/004-template-sample-validation/spec.md``).
     """
 
     _BODY_MAX_LENGTH = 1024
@@ -273,15 +271,12 @@ class ValidateTemplateSampleSerializer(UpdateTemplateContentSerializer):
         return value
 
     def validate_project_uuid(self, value: str) -> str:
-        """FR-002b — refuse when ``Project-Uuid`` header diverges from body.
+        """Refuse on ``Project-Uuid`` header / body divergence.
 
-        ``HasProjectPermission`` authorizes against the HTTP header; the
-        use case's WABA resolution uses the body's ``project_uuid``.
-        Without this equality check, an operator authorized for project A
-        could route a Meta sample call to project B's WABA (SC-008).
-        The check is permissive when the header is absent so unit tests
-        can be written without forging an HTTP request — ``HasProjectPermission``
-        is the front-line gate for missing-header requests.
+        Without this check, an operator authorized for project A could
+        route a sample call to project B's WABA. Permissive when the
+        header is absent (``HasProjectPermission`` is the front-line
+        gate). Anchor: FR-002b / SC-008.
         """
         request = self.context.get("request")
         header_project_uuid = request.headers.get("Project-Uuid") if request else None
@@ -304,11 +299,9 @@ class ValidateTemplateSampleSerializer(UpdateTemplateContentSerializer):
     def _is_plain_text_header(self, header: str) -> bool:
         """Return ``True`` only when the header is operator-typed text.
 
-        Image headers (HTTP(S) URLs, base64 data URIs, already-uploaded
-        S3 URLs) are exempt from the ``_HEADER_TEXT_MAX_LENGTH`` cap.
-        Reuses the existing ``HeaderTransformer`` heuristics so the
-        wire-shape dispatch (translator) and the validation gate stay
-        aligned.
+        Image headers (HTTP(S) URLs, base64 data URIs, S3 URLs) are
+        exempt from the length cap. Reuses ``HeaderTransformer`` so
+        the validation gate and wire-shape dispatch stay aligned.
         """
         transformer = HeaderTransformer()
         if header.startswith(("http://", "https://")):

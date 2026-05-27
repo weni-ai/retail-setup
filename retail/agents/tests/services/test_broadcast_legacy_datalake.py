@@ -1,16 +1,4 @@
-"""Legacy datalake event snapshot tests (T035a — US4 / FR-020 / SC-008).
-
-Pins the EXACT key set, value types, and emission count of the
-``weni_datalake_sdk`` / ``CommerceWebhookPath`` event payload emitted by
-the legacy dispatch path (``Broadcast._register_broadcast_event``) for
-each template family pinned by T033 — body-only, image-header (s3-keyed)
-+ URL button, and image-header (direct URL) + PAYMENT_REQUEST buttons +
-``order_details``. Any drift in the datalake schema fails CI; consumers
-downstream depend on these field names and types.
-
-Mocks the SDK at the boundary with ``unittest.mock.patch`` so the test
-never hits real infra (Constitution Principle III).
-"""
+"""Legacy datalake event snapshot. Anchor: FR-020 / SC-008."""
 
 from datetime import datetime
 from typing import Any, Dict
@@ -44,16 +32,7 @@ _LEGACY_EVENT_ALLOWED_KEYS = _LEGACY_EVENT_REQUIRED_KEYS | _LEGACY_EVENT_OPTIONA
 
 
 def _assert_legacy_datalake_event_shape(test_case: TestCase, event_data: Dict[str, Any]):
-    """Assert the legacy datalake event matches the pre-feature baseline.
-
-    Pinned invariants:
-    - required keys (``_LEGACY_EVENT_REQUIRED_KEYS``) are always present,
-    - any additional key MUST belong to ``_LEGACY_EVENT_OPTIONAL_KEYS``
-      (``status`` is only emitted when ``lambda_data`` carries it),
-    - value types match the schema consumers depend on,
-    - the optional ``direct_send`` field MUST NOT appear on the legacy
-      path (FR-020 — the legacy emission stays byte-identical).
-    """
+    """Assert the legacy datalake event matches the pre-feature baseline."""
     keys = set(event_data.keys())
     missing = _LEGACY_EVENT_REQUIRED_KEYS - keys
     unexpected = keys - _LEGACY_EVENT_ALLOWED_KEYS
@@ -68,7 +47,7 @@ def _assert_legacy_datalake_event_shape(test_case: TestCase, event_data: Dict[st
     test_case.assertNotIn(
         "direct_send",
         event_data,
-        "Legacy datalake event MUST NOT carry a direct_send field (FR-020).",
+        "Legacy datalake event MUST NOT carry a direct_send field.",
     )
 
     test_case.assertIsInstance(event_data["template"], str)
@@ -96,9 +75,7 @@ def _assert_legacy_datalake_event_shape(test_case: TestCase, event_data: Dict[st
     }
 )
 class LegacyBroadcastDatalakeSnapshotTest(TestCase):
-    """FR-020 / SC-008 — legacy datalake event payload MUST stay
-    byte-identical (same keys, same value types, same emission count).
-    """
+    """Legacy datalake payload byte-identity. Anchor: FR-020 / SC-008."""
 
     def setUp(self):
         self.project = Project.objects.create(
@@ -158,7 +135,7 @@ class LegacyBroadcastDatalakeSnapshotTest(TestCase):
         self.assertNotIn(
             "direct_send",
             message.get("msg", {}),
-            "Legacy msg MUST NOT carry direct_send (FR-015 / SC-004).",
+            "Legacy msg MUST NOT carry direct_send.",
         )
         self.handler.send_message(message, self.integrated_agent, lambda_data)
         return message

@@ -223,33 +223,12 @@ class UpdateNormalTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
     def _build_and_persist_metadata(
         self, template: Template, payload: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Build canonical metadata, persist it, and sync agent-side config.
+        """Build canonical metadata, persist it, sync agent-side config.
 
-        Three sequential steps, each at the same level of abstraction:
-
-        1. ``_update_common_metadata`` builds the canonical metadata.
-        2. ``template.save(update_fields=["metadata"])`` persists it
-           (only the metadata column — the rest of the row is untouched,
-           which is correct for Normal templates that never edit
-           ``rule_code`` / ``start_condition`` / ``variables`` here).
-        3. ``_sync_abandoned_cart_image_config`` flips the abandoned-cart
-           agent's ``header_image_type`` when the template gains or
-           loses an image header.
-
-        Returns ``translation_payload`` so the caller can hand it to
-        ``_notify_integrations`` (the PATCH endpoint's update flow,
-        which pushes the new content to the Integrations engine) or
-        simply discard it (the sample-validation flow, which does not
-        notify per FR-006 / A10 because Direct Send dispatch reads
-        local ``metadata`` directly and the Integrations push would
-        race with the next Direct Send broadcast).
-
-        Both endpoints remain operational and serve different shapes
-        of update: PATCH is the canonical content-update path for
-        every template (Direct Send-eligible or not, normal or
-        custom); ``POST /sample/`` is an additive pre-validation path
-        that gates the local update on Meta's UTILITY verdict for
-        Direct Send-eligible templates only (FR-002a).
+        Returns ``translation_payload`` so PATCH callers can push to
+        Integrations; sample-validation discards it because pushing
+        would race with the next Direct Send broadcast. Anchor: FR-002a
+        / FR-006 (see ``specs/004-template-sample-validation/spec.md``).
         """
         updated_metadata, translation_payload = self._update_common_metadata(
             template, payload
@@ -265,24 +244,13 @@ class UpdateNormalTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
     def _create_approved_current_version(
         self, template: Template, payload: Dict[str, Any]
     ) -> Version:
-        """Create a Version with ``status=APPROVED`` and advance the template's pointer.
+        """Insert APPROVED Version row and repoint ``current_version``.
 
-        Sample-validation composition per Research Decision 4 / FR-006a /
-        FR-006d: the Meta sample verdict IS the approval signal, so the
-        new Version row is persisted with ``"APPROVED"`` directly
-        (instead of the model's default ``"PENDING"`` that the PATCH
-        endpoint relies on and that ``TemplatesStatusWebhook`` flips
-        asynchronously) and
-        ``Template.current_version`` is repointed inline — the very next
-        Direct Send dispatch reads the new content with no cache lag
-        (SC-004).
-
-        Three writes per call: INSERT the Version row, UPDATE its
-        ``status`` to APPROVED, UPDATE ``Template.current_version_id``.
-        Each is a single-row write under Django's default per-statement
-        transaction (Research Decision 8 — no ``@transaction.atomic``
-        wrap; partial-failure modes are operationally safe per
-        ``data-model.md`` §1).
+        Three single-row writes under Django's default per-statement
+        transaction; no ``@transaction.atomic`` wrap — partial-failure
+        modes are operationally safe (next Direct Send dispatch reads
+        the new content with no cache lag). Anchor: FR-006a / FR-006d
+        / Decision 4 / Decision 8.
         """
         version = self._create_version(
             template=template,

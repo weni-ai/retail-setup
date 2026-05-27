@@ -412,15 +412,11 @@ class Broadcast:
         """Send broadcast message via flows service.
 
         ``dispatch_context`` carries the commercial origin (order_form_id /
-        order_id) of the broadcast so the persisted BroadcastMessage row
-        can later be matched against an ``invoiced`` event for conversion
-        attribution. Defaults to ``None`` for non-commercial dispatches.
+        order_id) so the persisted BroadcastMessage row can later be
+        matched against an ``invoiced`` event for conversion attribution.
         """
         project_uuid = str(integrated_agent.project.uuid)
         vtex_account = integrated_agent.project.vtex_account
-        # FR-014c(d) / T116(h): path-aware accessor so the Direct Send
-        # dispatch log line continues to emit the template name after
-        # ``msg.template`` is dropped from the Direct Send wire shape.
         msg_payload = message.get("msg", {})
         template_name = msg_payload.get("direct_send_template_name") or msg_payload.get(
             "template", {}
@@ -620,25 +616,12 @@ class Broadcast:
     def get_current_template(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> Optional[Template]:
-        """
-        Get current template from integrated agent templates.
+        """Resolve the dispatchable ``Template`` by name, or ``None`` on skip.
 
-        Expectation: the agent/Lambda must return the stable template base
-        name (Template.name), e.g., "payment_confirmation_2" or
-        "payment_approved".
-
-        The lookup uses only ``Template.name`` and ensures the template is
-        active and has a non-null ``current_version``. The status
-        classification happens in Python so a single SQL query (with
-        ``current_version`` eagerly joined via ``select_related``) covers
-        every branch: ``APPROVED`` returns the Template; every other
-        outcome — including the no-row case — routes through the unified
-        ``_log_dispatch_skipped_due_to_status`` helper with the
-        ``version_status`` discriminator (``NOT_FOUND`` when no row matched,
-        the actual ``Version.status`` otherwise) and returns ``None``
-        (FR-012, FR-027 Exception clause, FR-039 "Dispatch-gate skip
-        (unified shape)", FR-044 ``project_uuid`` + ``vtex_account`` are
-        top-level keys).
+        ``APPROVED`` returns the Template; every other outcome (including
+        no-row) routes through ``_log_dispatch_skipped_due_to_status``.
+        Anchor: FR-012 / FR-039 (see
+        ``specs/002-direct-send-broadcasts/spec.md``).
         """
         template_name = data.get("template")
         project_uuid = str(integrated_agent.project.uuid)
@@ -683,21 +666,11 @@ class Broadcast:
         version_status: str,
         data: Dict[str, Any],
     ) -> None:
-        """Emit the unified FR-039 "Dispatch-gate skip" audit log line.
+        """Emit the unified "Dispatch-gate skip" audit log line.
 
-        Single observability shape for every non-``APPROVED`` skip class at
-        the dispatch gate: ``NOT_FOUND`` (no row matched the requested
-        name), ``PAUSED`` / ``FLAGGED`` (the US3 dispatch-disabling
-        states), and every other pre-existing non-``APPROVED``
-        ``Version.status`` value (``PENDING``, ``REJECTED``, ``IN_APPEAL``,
-        ``LOCKED``, ``DISABLED``, ``DELETED``, ``PENDING_DELETION``). The
-        ``version_status`` discriminator carries the skip class so log
-        consumers can route on each class independently without parser
-        changes (FR-027 Exception clause).
-
-        Both ``project_uuid`` and ``vtex_account`` are top-level
-        structured fields (FR-044) so operators can filter by either
-        tenant identifier.
+        Anchor: FR-039 (single shape for every non-``APPROVED`` skip
+        class) + FR-027 Exception clause + FR-044 (top-level tenant
+        keys).
         """
         logger.warning(
             f"[BroadcastDispatch] skipped_due_to_status: "
@@ -716,23 +689,13 @@ class Broadcast:
         template: Template,
         integrated_agent: IntegratedAgent,
     ) -> Optional[Dict[str, Any]]:
-        """Build the Direct Send broadcast payload.
+        """Build the Direct Send broadcast payload, or ``None`` on refusal.
 
-        Wire shape: ``contracts/messaging-gateway-payload.md`` §3 —
-        Retail substitutes every ``{{N}}`` placeholder server-side and
-        emits ``msg.direct_send=true`` + ``msg.category="utility"``.
-
-        Refuses to emit (returns ``None`` + WARNING audit-log entry with
-        the ``[BroadcastDispatch] skipped_due_to_direct_send_validation``
-        shape pinned by FR-039) when (a) the template name fails
-        ``is_valid_direct_send_template_name`` (FR-017 / Decision 7),
-        (b) ``template.metadata.body`` is missing or empty (Direct Send
-        Beta requires a body component), or (c) any post-substitution
-        component exceeds Meta's documented length limits — body ≤ 1024,
-        header.text ≤ 60, footer ≤ 60, button ``display_text`` / ``title``
-        ≤ 20 (constants in ``direct_send_constants``). Button ``url`` is
-        NOT length-checked here per contract §3.3 (URLs can be much
-        longer than the 20-char ``display_text`` ceiling).
+        Refusal reasons emit ``skipped_due_to_direct_send_validation``
+        WARNING and return ``None``. Anchor: FR-014a / FR-014b / FR-014c
+        / FR-014d / FR-017 / FR-039 (see
+        ``specs/002-direct-send-broadcasts/spec.md``;
+        ``contracts/messaging-gateway-payload.md`` §3).
         """
         template_variables = dict(data.get("template_variables") or {})
         contact_urn = data.get("contact_urn")
@@ -804,16 +767,6 @@ class Broadcast:
             )
             return None
 
-        # FR-014c: the local template name is emitted as a top-level
-        # sibling key (``direct_send_template_name``) — no nested
-        # ``msg.template`` block on the Direct Send path.
-        # FR-014c(f): ``language`` is resolved internally (above) so
-        # downstream persistence and datalake calls keep their locale
-        # context, but the wire MUST NOT carry locale on the Direct
-        # Send path — no ``msg.locale`` / ``msg.language``.
-        # FR-014d: the substituted body is emitted under ``msg.text``;
-        # the storage key ``Template.metadata["body"]`` and the local
-        # variable ``substituted_body`` stay unchanged (wire-only rename).
         msg: Dict[str, Any] = {
             "direct_send": True,
             "category": "utility",
@@ -876,13 +829,11 @@ class Broadcast:
         reason: str,
         data: Dict[str, Any],
     ) -> None:
-        """Emit the FR-039 Direct Send validation skip audit log line.
+        """Emit the Direct Send validation skip audit log line.
 
-        ``project_uuid`` is a top-level structured field (FR-044) so
-        operators can filter by tenant. The ``reason`` discriminator
-        pins the refusal class (``naming_rule`` / ``empty_body`` /
-        ``component_length_limit``) so log consumers can route on each
-        class independently (research Decision 7).
+        Anchor: FR-039 (refusal shape) + FR-044 (top-level
+        ``project_uuid``) + Research Decision 7 (``reason``
+        discriminator).
         """
         logger.warning(
             f"[BroadcastDispatch] skipped_due_to_direct_send_validation: "
@@ -897,12 +848,9 @@ class Broadcast:
     ) -> Optional[Dict[str, Any]]:
         """Build broadcast message from lambda response data.
 
-        Routes between the legacy ``build_broadcast_template_message``
-        and the new ``build_direct_send_message`` based on the
-        ``IntegratedAgent.config["direct_send"]`` snapshot taken at
-        assignment time (data-model.md §1; research Decision 11). The
-        flag lives inside the existing ``config`` JSONField; absence
-        is the canonical legacy marker per FR-001 / FR-005 / FR-025.
+        Routes between legacy and Direct Send paths based on
+        ``IntegratedAgent.config["direct_send"]``. Anchor: FR-001 /
+        FR-005 / FR-025 (absence is the canonical legacy marker).
         """
         project_uuid = str(integrated_agent.project.uuid)
         vtex_account = integrated_agent.project.vtex_account
@@ -978,9 +926,6 @@ class Broadcast:
         """
 
         # Extract template name from lambda data or message.
-        # FR-014c: the Direct Send wire shape carries the local
-        # template name on ``msg.direct_send_template_name``; the legacy
-        # shape continues to nest it under ``msg.template.name``.
         template_name = ""
         if lambda_data and "template" in lambda_data:
             template_name = lambda_data["template"]

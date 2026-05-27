@@ -15,9 +15,7 @@ LOG_TAG = "[DirectSendCategoryWebhook]"
 class DirectSendCategoryDTO:
     """Validated, immutable payload passed from the view to the use case.
 
-    Built by the view from the serializer's ``validated_data``;
-    consumed by ``DirectSendCategoryWebhookUseCase.execute(...)``.
-    Carries the five required fields pinned by FR-003.
+    Anchor: FR-003 (see ``specs/003-template-category-webhook/spec.md``).
     """
 
     project_uuid: UUID
@@ -29,11 +27,9 @@ class DirectSendCategoryDTO:
 
 @dataclass(frozen=True)
 class DirectSendCategoryResult:
-    """Use-case return value shaped for the HTTP 200 response body.
+    """HTTP 200 response body shape; counters must match audit ``completed`` line.
 
-    The view shapes the HTTP body as ``Response(result.to_dict(), 200)``.
-    The two counters MUST equal the same values emitted on the
-    FR-009c ``completed`` audit-log line (FR-010 last sentence).
+    Anchor: FR-009c / FR-010.
     """
 
     templates_updated: int
@@ -49,25 +45,18 @@ class DirectSendCategoryResult:
 
 
 class FlaggingReason(str, Enum):
-    """Closed enumeration for the ``reason=`` k=v on ``flagged`` audit-log lines.
+    """Closed enumeration for ``flagged`` audit lines.
 
-    Pinned by FR-006b / FR-009a (Clarifications session 2026-05-25 Q3 —
-    single-field eligibility model). Under the single-clause flag rule
-    (``template_correct_category != "UTILITY"``) there is only one
-    reason that can fire. Additive-only: future flag clauses MAY add
-    new reason values but MUST NOT rename or remove
-    ``correct_category_not_utility``.
+    Additive-only; existing values MUST NOT be renamed or removed.
+    Anchor: FR-006b / FR-009a (see
+    ``specs/003-template-category-webhook/spec.md``).
     """
 
     CORRECT_CATEGORY_NOT_UTILITY = "correct_category_not_utility"
 
 
 class EventName(str, Enum):
-    """Closed enumeration for the ``event_name`` discriminator immediately
-    after the ``[DirectSendCategoryWebhook]`` tag in every audit-log line.
-
-    Pinned by FR-009a. Additive-only.
-    """
+    """Closed audit-log ``event_name`` discriminator. Anchor: FR-009a (additive-only)."""
 
     RECEIVED = "received"
     FLAGGED = "flagged"
@@ -82,19 +71,13 @@ class EventName(str, Enum):
 
 
 class DirectSendCategoryWebhookUseCase:
-    """Handles incorrect-category notifications from Integrations.
+    """Handle incorrect-category notifications from Integrations.
 
-    Fans out across every IntegratedAgent linked to ``(project_uuid, app_uuid)``
-    and flips the matched Template's ``current_version.status`` to
-    ``"FLAGGED"`` when the FR-006 single-field flagging condition fires
-    (``template_correct_category != "UTILITY"``). The symmetric inverse
-    (``template_correct_category == "UTILITY"`` against an already-
-    ``FLAGGED`` Version) auto-demotes the Version back to ``"APPROVED"``
-    per FR-006c / FR-007d. ``template_category`` is captured verbatim
-    on every audit-log ``k=v`` payload for diagnostic visibility but
-    does NOT participate in the flag-or-demote decision. Framework-
-    agnostic: no rest_framework imports, no Response/Request handling,
-    no permission checks.
+    Fans out across every IntegratedAgent linked to ``(project_uuid,
+    app_uuid)``, flagging or auto-demoting the matched Template's
+    ``current_version.status``. Framework-agnostic. Anchor: FR-006 /
+    FR-006c / FR-007d (see
+    ``specs/003-template-category-webhook/spec.md``).
     """
 
     _UTILITY_CATEGORY = "UTILITY"
@@ -193,14 +176,10 @@ class DirectSendCategoryWebhookUseCase:
         )
 
     def _evaluate_flagging_condition(self, dto: DirectSendCategoryDTO) -> bool:
-        """FR-006 single-field flag rule (Clarifications session 2026-05-25 Q3).
+        """Single-field flag rule on ``template_correct_category``.
 
-        ``template_correct_category`` is the sole source of truth for
-        Direct-Send eligibility — Meta's content-determined "this
-        template should be UTILITY" determination. ``template_category``
-        is captured for audit visibility but never participates in the
-        rule. Strict string equality, case-sensitive, no normalization
-        (FR-006a).
+        Strict string equality, case-sensitive, no normalization.
+        Anchor: FR-006 / FR-006a.
         """
         return dto.template_correct_category != self._UTILITY_CATEGORY
 
@@ -223,17 +202,11 @@ class DirectSendCategoryWebhookUseCase:
         integrated_agent: IntegratedAgent,
         dto: DirectSendCategoryDTO,
     ) -> None:
-        """Write the corrected-category recovery transition.
+        """Write the corrected-category recovery (FLAGGED -> APPROVED).
 
-        FR-006c / FR-007c clause (b) / FR-007d: when the matched
-        Version is already ``"FLAGGED"`` AND the FR-006 flagging
-        condition is false (the corrected-category signal —
-        ``template_correct_category == "UTILITY"``, regardless of
-        ``template_category``), the webhook writes ``status =
-        "APPROVED"`` and emits ``auto_demoted``. The Template's
-        ``current_version`` pointer is NOT changed (FR-007a applies
-        symmetrically to the demote branch — only the status string
-        is updated).
+        Only ``Version.status`` is updated; the Template's
+        ``current_version`` pointer is unchanged. Anchor: FR-006c /
+        FR-007a / FR-007c / FR-007d.
         """
         previous_status = version.status
         version.status = self._APPROVED_STATUS
@@ -249,19 +222,11 @@ class DirectSendCategoryWebhookUseCase:
         return "Mixed outcomes."
 
     def _emit(self, event: EventName, level: int, **kv) -> None:
-        """Single emission point that knows the FR-009 log-line shape.
+        """Single emission point that knows the audit log-line shape.
 
-        Every audit-log entry for this webhook MUST route through this
-        method — the ``[DirectSendCategoryWebhook]`` tag, the
-        ``event_name: k=v ...`` shape, and the log-level discipline are
-        enforced structurally here so callers cannot drift from FR-009.
-
-        The fully-formatted message is built up front so the rendered log
-        line carries the FR-009 ``k=v`` pairs verbatim. The same payload
-        is also forwarded as a dict via the logging stdlib's ``args``
-        slot so operator dashboards (and FR-009e tests) can inspect the
-        structured payload via ``record.args.keys()`` without re-parsing
-        the rendered string.
+        Anchor: FR-009 / FR-009e — the dict is forwarded via the
+        logging stdlib's ``args`` slot so dashboards can inspect the
+        structured payload without re-parsing the rendered string.
         """
         payload = " ".join(f"{key}={value}" for key, value in kv.items())
         message = f"{LOG_TAG} {event.value}: {payload}".replace("%", "%%")

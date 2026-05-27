@@ -1,17 +1,7 @@
-"""View tests for ``POST /api/v3/templates/<uuid>/sample/`` (T018 / US1 + SC-008).
+"""View tests for ``POST /api/v3/templates/<uuid>/sample/``.
 
-Covers the HTTP boundary for the happy path (HTTP 200 UTILITY +
-MARKETING), the auth gates (401 / 403 / 404), serializer-level
-validation (400), and the FR-002b ``project_uuid_mismatch`` defense
-with the WARNING-level audit-log line emitted by the view per T016.
-
-Phase 3b (T037): the WABA-id resolution path was switched to call
-``IntegrationsService.get_channel_app("wpp-cloud", dto.app_uuid)`` per
-FR-005a / A2. A class-level patch guards the
-``IntegrationsService`` symbol the use-case ``__init__`` resolves so
-that even if a future refactor drops the per-test
-``ValidateTemplateSampleUseCase`` mock, the integrations engine is
-never reached from a unit test (defense-in-depth — no live network).
+Anchor: FR-002b / FR-005a / SC-008 (see
+``specs/004-template-sample-validation/spec.md``).
 """
 
 from unittest.mock import patch
@@ -319,19 +309,7 @@ _BUG_REPORT_WABA_ID = "100200300400500"
 class ValidateTemplateSampleViewExtendedShape1bIntegrationTest(
     BaseTestMixin, APITestCase
 ):
-    """T041 / Phase 3c — end-to-end integration test for the bug-report case.
-
-    Unlike the upstream ``ValidateTemplateSampleViewTest`` (which patches
-    the entire ``ValidateTemplateSampleUseCase`` to assert on the HTTP
-    boundary in isolation), this class lets the real use case execute
-    against patched ``IntegrationsService`` and ``MetaService`` so the
-    extended Shape 1b wire body is observed at the actual ``MetaService``
-    boundary (the only mock surface). This pins spec AS4 / FR-004
-    (post-clarification) end-to-end: the bug case reported 2026-05-26
-    (``{template_body, template_header: "Pedido recebido", template_button:
-    []}``) MUST emit ``{"type": "text", "header": {"type": "text", "text":
-    "Pedido recebido"}, "text": {"body": ...}}`` and update local state.
-    """
+    """End-to-end no-button-with-header wire body regression. Anchor: FR-004."""
 
     def setUp(self):
         super().setUp()
@@ -489,17 +467,7 @@ class ValidateTemplateSampleViewExtendedShape1bIntegrationTest(
 @with_test_settings
 @patch(INTEGRATIONS_SERVICE_PATCH_PATH)
 class ValidateTemplateSampleViewErrorPathTest(BaseTestMixin, APITestCase):
-    """T026 / US3 — view-level error-path HTTP boundary contract.
-
-    For each of the four use-case domain exceptions, patches
-    ``ValidateTemplateSampleUseCase.execute`` to raise it and asserts
-    the deterministic response shape pinned by
-    ``contracts/sample-endpoint-request-response.md`` (FR-007 / FR-007b /
-    FR-007d / FR-007e). The optional ``meta_response`` body field is
-    present only when the raised exception carries one (FR-007b — the
-    upstream Meta envelope is forwarded verbatim so the frontend can
-    surface Meta's error code without a second round-trip).
-    """
+    """View-level domain-exception HTTP boundary. Anchor: FR-007 / FR-007b."""
 
     def setUp(self):
         super().setUp()
@@ -656,29 +624,7 @@ META_SERVICE_PATCH_PATH_SC008 = "retail.services.meta.service.MetaService"
 @patch(META_SERVICE_PATCH_PATH_SC008)
 @patch(INTEGRATIONS_SERVICE_PATCH_PATH)
 class ValidateTemplateSampleViewCrossTenantIsolationTest(BaseTestMixin, APITestCase):
-    """T027b / US3 / SC-008 — cross-tenant isolation structural guarantee.
-
-    Per the 2026-05-26 Q2 trust-the-frontend clarification, the spec
-    pins SC-008 enforcement to exactly TWO structural checks:
-    (a) ``HasProjectPermission`` on the view rejects operators
-        unauthorized for the claimed project via Connect's
-        authorization API (HTTP 403 before any business logic runs);
-    (b) The serializer-layer FR-002b ``Project-Uuid`` header ↔ body
-        ``project_uuid`` equality check refuses cross-tenant routing
-        at the entry point (HTTP 400 with
-        ``error_code = "project_uuid_mismatch"``).
-
-    The frontend-supplied ``app_uuid`` is explicitly trusted and is
-    NOT cross-checked against the loaded template's
-    ``integrated_agent.channel_uuid`` or the integrations response's
-    ``project_uuid``. The residual exposure (compromised frontend or
-    token-holding bypass caller) is a documented known limitation —
-    see the clarification record at ``spec.md`` Q2-2026-05-26.
-
-    This test class pins case (1) of SC-008 by structurally asserting
-    that no upstream (MetaService / IntegrationsService) is reached
-    AND no DB write fires on a project_uuid mismatch.
-    """
+    """Cross-tenant isolation structural guarantee. Anchor: FR-002b / SC-008."""
 
     def setUp(self):
         super().setUp()

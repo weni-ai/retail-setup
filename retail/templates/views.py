@@ -181,19 +181,10 @@ class TemplateViewSet(ViewSet):
 
     @action(detail=True, methods=["post"])
     def sample(self, request: Request, pk: UUID) -> Response:
-        """``POST /api/v3/templates/<uuid>/sample/`` — pre-validate against Meta.
+        """Thin DRF action for the sample-validation endpoint.
 
-        Thin DRF action wiring (Constitution Principle I): validate input
-        via ``ValidateTemplateSampleSerializer``, build the frozen DTO,
-        delegate to the use case, and translate any domain exception via
-        ``_sample_domain_error_to_response`` per FR-007 / FR-007b–e.
-
-        The serializer is instantiated with ``context={"request": request}``
-        so its FR-002b ``validate_project_uuid`` method can read the
-        ``Project-Uuid`` header for the cross-tenant isolation check
-        (SC-008). A mismatch surfaces as HTTP 400 with
-        ``error_code = "project_uuid_mismatch"`` and the audit-log
-        WARNING line emitted by ``_warn_project_uuid_mismatch``.
+        Anchor: FR-002b / FR-007 / SC-008 (see
+        ``specs/004-template-sample-validation/spec.md``).
         """
         request_serializer = ValidateTemplateSampleSerializer(
             data=request.data, context={"request": request}
@@ -217,15 +208,12 @@ class TemplateViewSet(ViewSet):
 
     @staticmethod
     def _sample_domain_error_to_response(exc: Exception) -> Response:
-        """Translate a sample-validation domain exception into its HTTP response.
+        """Translate a domain exception into its HTTP response.
 
-        ``_SAMPLE_DOMAIN_ERROR_HTTP_TRANSLATIONS`` is the single source of
-        truth for the four ``(status, detail, error_code)`` triples pinned
-        by ``contracts/sample-endpoint-request-response.md`` (FR-007 /
-        FR-007b–e). The ``meta_response`` field is forwarded verbatim when
-        the exception carries one — ``MetaInvalidResponseError`` always
-        sets it, ``MetaSampleUnavailableError`` sets it only when the
-        upstream provided a parseable error envelope (FR-007b).
+        ``_SAMPLE_DOMAIN_ERROR_HTTP_TRANSLATIONS`` is the single source
+        of truth for the four ``(status, detail, error_code)`` triples.
+        ``meta_response`` is forwarded verbatim when present. Anchor:
+        FR-007 / FR-007b.
         """
         http_status, detail, error_code = _SAMPLE_DOMAIN_ERROR_HTTP_TRANSLATIONS[
             type(exc)
@@ -255,14 +243,9 @@ class TemplateViewSet(ViewSet):
     def _warn_project_uuid_mismatch_if_present(
         self, request: Request, template_uuid: UUID, exc: ValidationError
     ) -> None:
-        """Emit the FR-008a ``project_uuid_mismatch`` audit-log line on mismatch.
+        """Emit a ``project_uuid_mismatch`` WARNING when applicable.
 
-        Inspects the DRF ``ValidationError`` for the serializer-layer
-        ``project_uuid_mismatch`` code and, when present, emits a WARNING
-        line with the BOTH project UUIDs so dashboards can drill down on
-        cross-tenant misuse attempts (SC-008). The DRF default 400
-        response is re-raised by the caller in any case — this method
-        only handles the audit-log side effect.
+        Anchor: FR-008a / SC-008.
         """
         if not self._validation_error_has_project_uuid_mismatch(exc):
             return

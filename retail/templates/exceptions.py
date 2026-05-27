@@ -13,33 +13,15 @@ class CustomTemplateAlreadyExists(APIException):
 
 
 class NotDirectSendEligibleError(Exception):
-    """Raised when the template's IntegratedAgent does not have
-    ``direct_send`` enabled per FR-002a.
-
-    The view translates this exception to HTTP 400 with body
-    ``{"detail": "Template is not Direct Send-eligible",
-    "error_code": "not_direct_send_eligible"}`` per FR-007e.
-    """
+    """Template's IntegratedAgent has no ``direct_send``. Anchor: FR-002a."""
 
 
 class WabaNotConfiguredError(Exception):
-    """Raised when the project's ``ProjectOnboarding`` config does not
-    carry a ``wpp-cloud`` channel's ``waba_id`` per FR-005a.
-
-    The view translates this exception to HTTP 400 with body
-    ``{"detail": "WABA not configured for this project",
-    "error_code": "waba_not_configured"}`` per FR-007d.
-    """
+    """Project channel has no ``waba_id``. Anchor: FR-005a."""
 
 
 class MetaSampleUnavailableError(Exception):
-    """Raised when the outbound Meta ``message_samples`` call failed
-    (``CustomAPIException`` or an unexpected exception) per FR-005c.
-
-    Carries the original HTTP status code (when known) and the raw
-    Meta error envelope so the view can surface them on the HTTP 502
-    response body per FR-007b.
-    """
+    """Meta ``message_samples`` call failed. Anchor: FR-005c."""
 
     def __init__(
         self,
@@ -54,12 +36,7 @@ class MetaSampleUnavailableError(Exception):
 
 
 class MetaInvalidResponseError(Exception):
-    """Raised when Meta returned HTTP 200 but the body lacks a
-    ``category`` field or carries ``success: false`` per FR-005b.
-
-    Carries the raw Meta response body verbatim so the view can
-    surface it on the HTTP 502 response body per FR-007b.
-    """
+    """Meta returned 200 with no usable ``category``. Anchor: FR-005b."""
 
     def __init__(
         self,

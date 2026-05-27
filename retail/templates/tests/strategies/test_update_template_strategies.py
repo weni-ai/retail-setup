@@ -482,14 +482,10 @@ class UpdateNormalTemplateStrategyTest(TestCase):
     def test_update_template_composes_helpers_and_notifies_integrations(
         self, mock_task
     ):
-        """Regression — the PATCH endpoint's composition is preserved byte-for-byte.
+        """PATCH endpoint composition preserved byte-for-byte.
 
-        ``update_template`` delegates to ``_build_and_persist_metadata`` for the
-        metadata-rewrite half and to the existing ``_create_version_and_notify``
-        for the version-create + Integrations-push half. The PATCH endpoint
-        remains the canonical content-update path for every template (FR-014);
-        the sample-validation flow added by spec 004 is additive and shares
-        the metadata helper but skips the notify step (per FR-006 / A10).
+        Sample-validation flow shares the metadata helper but skips the
+        notify step. Anchor: FR-014 (spec 002) / FR-006 (spec 004).
         """
         self.metadata_handler.build_metadata.return_value = {
             "body": "Updated body",

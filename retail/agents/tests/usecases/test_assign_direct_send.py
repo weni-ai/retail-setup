@@ -1,18 +1,4 @@
-"""Direct Send assignment branch — Phase 4 (US2).
-
-Pins the contract for ``AssignAgentUseCase`` when the WhatsApp channel
-has Direct Send enabled (per
-``contracts/integrations-channel-app.md`` §4):
-
-- T018  — ``_resolve_direct_send_flag`` paths.
-- T018a — Story 2 AS1 happy path (FR-001, FR-002, FR-003, SC-003).
-- T018b — pt_BR per-template fallback (FR-003c, Story 2 AS4).
-- T018c — atomic rollback when both languages fail (FR-003d, AS5).
-- T018d — atomic rollback when Meta returns an unsupported component
-  (Decision 12).
-- T018e — re-assignment after ``is_active=False`` re-fetches every
-  template (FR-003a, "snapshot at assignment time").
-"""
+"""Direct Send assignment branch. Anchor: FR-001 / FR-002 / FR-003 (a/c/d)."""
 
 import logging
 
@@ -255,10 +241,6 @@ class AssignDirectSendHappyPathTest(AssignDirectSendBaseTest):
             self.assertIn("fetched_at", direct_send_meta)
             self.assertEqual(direct_send_meta.get("requested_language"), "pt_BR")
             self.assertEqual(direct_send_meta.get("actual_language"), "pt_BR")
-            # FR-014d(c) / T117(f): Meta's ``body`` field is persisted
-            # under ``Template.metadata["body"]`` verbatim; the FR-014d
-            # wire-key rename (``msg.body`` → ``msg.text``) does NOT
-            # leak into storage.
             self.assertIn("body", template.metadata)
             self.assertNotIn("text", template.metadata)
 
@@ -285,7 +267,7 @@ class AssignDirectSendHappyPathTest(AssignDirectSendBaseTest):
 
 
 class AssignDirectSendFallbackTest(AssignDirectSendBaseTest):
-    """T018b — pt_BR per-template fallback (FR-003c, Story 2 AS4)."""
+    """pt_BR per-template fallback. Anchor: FR-003c."""
 
     def setUp(self):
         super().setUp()
@@ -344,7 +326,7 @@ class AssignDirectSendFallbackTest(AssignDirectSendBaseTest):
 
 
 class AssignDirectSendAtomicRollbackBothLanguagesTest(AssignDirectSendBaseTest):
-    """T018c — both project locale AND pt_BR return None (FR-003d / AS5)."""
+    """Both locale fetches return None. Anchor: FR-003d."""
 
     def setUp(self):
         super().setUp()
@@ -392,7 +374,7 @@ class AssignDirectSendAtomicRollbackBothLanguagesTest(AssignDirectSendBaseTest):
 
 
 class AssignDirectSendAtomicRollbackUnsupportedComponentTest(AssignDirectSendBaseTest):
-    """T018d — adapter raises DirectSendUnsupportedComponentError (Decision 12)."""
+    """Adapter raises ``DirectSendUnsupportedComponentError``. Anchor: Decision 12."""
 
     def setUp(self):
         super().setUp()
@@ -445,15 +427,7 @@ class AssignDirectSendAtomicRollbackUnsupportedComponentTest(AssignDirectSendBas
 class AssignDirectSendAdapterRejectionRoutesThroughFallbackTest(
     AssignDirectSendBaseTest
 ):
-    """T108 routing — adapter rejection on first locale routes through pt_BR.
-
-    FR-003c (c) treats "HTTP 200 with malformed JSON or a schema the
-    local adapter rejects" identically to a missing translation: the
-    use case retries in ``pt_BR`` before failing atomically (FR-003d).
-    Pinned here at the use-case boundary so a future refactor that
-    propagates ``DirectSendUnsupportedComponentError`` directly to the
-    caller — skipping the FR-003c fallback — fails this regression.
-    """
+    """Adapter rejection on first locale routes through pt_BR. Anchor: FR-003c / FR-003d."""
 
     def setUp(self):
         super().setUp()
