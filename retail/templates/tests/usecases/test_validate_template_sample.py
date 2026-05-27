@@ -8,6 +8,11 @@ US1 acceptance properties:
 - Result wrapper shape (``category``, ``template_updated``).
 - Audit-log sequence with the FR-008b log-level discipline.
 - Wire-shape correctness on the outbound Meta call (for shape-specific cells).
+
+US2 lockstep tests (T020 / T021) also live here — they pin the
+metadata-shape parity between the sample endpoint and the legacy
+PATCH endpoint, and the FR-006 / A10 guarantee that the sample
+endpoint NEVER fires ``task_create_template.delay(...)``.
 """
 
 import logging
@@ -18,12 +23,19 @@ from django.test import TestCase, override_settings
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_management.models import Agent
+from retail.clients.exceptions import CustomAPIException
 from retail.interfaces.services.integrations import IntegrationsServiceInterface
 from retail.projects.models import Project
 from retail.templates.exceptions import (
+    MetaInvalidResponseError,
+    MetaSampleUnavailableError,
     NotDirectSendEligibleError,
+    WabaNotConfiguredError,
 )
 from retail.templates.models import Template, Version
+from retail.templates.usecases.update_template_body import (
+    UpdateTemplateContentUseCase,
+)
 from retail.templates.usecases.validate_template_sample import (
     ValidateTemplateSampleDTO,
     ValidateTemplateSampleUseCase,
@@ -31,6 +43,9 @@ from retail.templates.usecases.validate_template_sample import (
 
 
 USECASE_LOGGER = "retail.templates.usecases.validate_template_sample"
+TASK_CREATE_TEMPLATE_PATH = (
+    "retail.templates.strategies.update_template_strategies.task_create_template"
+)
 
 _DEFAULT_APP_UUID = "22222222-2222-2222-2222-222222222222"
 _WABA_ID = "987654321"
@@ -61,9 +76,7 @@ class _UseCaseTestBase(TestCase):
 
     def setUp(self):
         super().setUp()
-        self.project = Project.objects.create(
-            uuid=uuid4(), name="Test Project"
-        )
+        self.project = Project.objects.create(uuid=uuid4(), name="Test Project")
         self.agent = Agent.objects.create(
             project=self.project,
             name="OrderStatus",
@@ -317,8 +330,7 @@ class NonUtilityNoLocalUpdateTest(_UseCaseTestBase):
                 self.assertEqual(self.template.current_version, pre_current_version)
 
                 events = [
-                    record.getMessage().partition(":")[0]
-                    for record in log_ctx.records
+                    record.getMessage().partition(":")[0] for record in log_ctx.records
                 ]
                 self.assertTrue(events[-1].endswith("update_skipped"))
                 for record in log_ctx.records:
@@ -443,3 +455,554 @@ class ZeroProjectOnboardingQueryRegressionTest(_UseCaseTestBase):
         self.integrations_service.get_channel_app.assert_called_once_with(
             "wpp-cloud", dto.app_uuid
         )
+
+
+class LegacyPatchEndpointMetadataParityTest(_UseCaseTestBase):
+    """T020 / US2 — sample-endpoint metadata MUST equal legacy PATCH metadata.
+
+    Both endpoints write ``Template.metadata`` through the SAME
+    refactored helper ``UpdateNormalTemplateStrategy._build_and_persist_metadata``
+    (Phase 2 / T008). A regression that diverged the two paths would
+    silently break the SC-005 / US2 promise that the frontend can
+    swap the legacy PATCH and the new sample endpoint without ANY
+    rendering difference. This test submits byte-identical input
+    payloads through both paths against two sibling templates and
+    asserts the resulting ``metadata`` dicts are equal.
+    """
+
+    def _build_legacy_template(self) -> Template:
+        return Template.objects.create(
+            uuid=uuid4(),
+            name="order_invoiced_legacy",
+            integrated_agent=self.integrated_agent,
+            metadata={
+                "category": "UTILITY",
+                "body": "Original body {{1}}",
+                "language": "pt_BR",
+            },
+        )
+
+    def _common_payload_fields(self) -> dict:
+        return dict(
+            template_body="Olá {{1}}, seu pedido {{2}} foi pago.",
+            template_header="Pagamento confirmado",
+            template_footer="Equipe da loja",
+            template_button=[
+                {
+                    "type": "URL",
+                    "text": "Acompanhar pedido",
+                    "url": {
+                        "base_url": "https://loja.com/track/",
+                        "url_suffix_example": "abc123",
+                    },
+                }
+            ],
+            template_body_params=["Maria", "12345"],
+            app_uuid=_DEFAULT_APP_UUID,
+            project_uuid=str(self.project.uuid),
+            parameters=None,
+            language="pt_BR",
+        )
+
+    @patch(TASK_CREATE_TEMPLATE_PATH)
+    def test_sample_and_legacy_paths_produce_byte_identical_metadata(
+        self, _mock_task_create_template
+    ):
+        self.meta_service.submit_template_sample.return_value = {
+            "success": True,
+            "category": "UTILITY",
+        }
+        common = self._common_payload_fields()
+        sample_template = self.template
+        legacy_template = self._build_legacy_template()
+
+        sample_dto = ValidateTemplateSampleDTO(
+            template_uuid=str(sample_template.uuid),
+            **common,
+        )
+        legacy_payload = {
+            "template_uuid": str(legacy_template.uuid),
+            **common,
+        }
+
+        self.use_case.execute(sample_dto)
+        UpdateTemplateContentUseCase().execute(legacy_payload)
+
+        sample_template.refresh_from_db()
+        legacy_template.refresh_from_db()
+
+        self.assertEqual(sample_template.metadata, legacy_template.metadata)
+
+
+class TaskCreateTemplateNotFiredTest(_UseCaseTestBase):
+    """T021 / US2 — sample endpoint MUST NOT push to Integrations on UTILITY.
+
+    Per FR-006 / A10, ``task_create_template.delay(...)`` is structurally
+    absent from the sample-endpoint composition because Direct Send
+    dispatch reads local ``Template.metadata`` directly and an
+    Integrations push would race with the next Direct Send broadcast
+    (Meta error 132021 "A template with the same name already exists"
+    per ``docs/direct-send-api-beta-integration.md:976``). A regression
+    that re-introduced the push would silently break the next Direct
+    Send dispatch after every operator edit.
+    """
+
+    @patch(TASK_CREATE_TEMPLATE_PATH)
+    def test_utility_classification_does_not_enqueue_create_template_task(
+        self, mock_task_create_template
+    ):
+        self.meta_service.submit_template_sample.return_value = {
+            "success": True,
+            "category": "UTILITY",
+        }
+        dto = self._build_dto()
+
+        self.use_case.execute(dto)
+
+        mock_task_create_template.delay.assert_not_called()
+
+
+class _FailurePathAssertionMixin:
+    """Shared assertions for US3 failure-path tests (T022–T027c).
+
+    Centralizes the three structural guarantees every failure path
+    MUST honor per FR-005c / FR-006c / spec.md US3:
+
+    - The local template's ``metadata``, ``current_version``, and the
+      current Version's ``status`` are byte-identical pre/post (no
+      side-effects on a failure path).
+    - The audit log emits the FR-008a-mandated event at the
+      FR-008b-mandated log level.
+    - The Meta sample API is NOT called on pre-Meta failure paths
+      (callers opt in by passing ``meta_call_expected=False``).
+    """
+
+    def _snapshot_local_state(self, template: Template) -> dict:
+        return {
+            "metadata": dict(template.metadata or {}),
+            "current_version_id": template.current_version_id,
+            "current_version_status": (
+                template.current_version.status if template.current_version else None
+            ),
+        }
+
+    def _assert_local_state_unchanged(
+        self, template: Template, pre_snapshot: dict
+    ) -> None:
+        template.refresh_from_db()
+        post_snapshot = self._snapshot_local_state(template)
+        self.assertEqual(post_snapshot, pre_snapshot)
+
+    def _find_event_record(self, log_ctx, event_token: str) -> logging.LogRecord:
+        for record in log_ctx.records:
+            if f"[TemplateSampleValidation] {event_token}:" in record.getMessage():
+                return record
+        self.fail(f"Expected audit-log event '{event_token}' was not emitted")
+
+
+class MetaUnavailableErrorPathTest(_FailurePathAssertionMixin, _UseCaseTestBase):
+    """T022 / US3 — Meta-unavailable propagates as MetaSampleUnavailableError.
+
+    Two failure modes flow through ``_call_meta_sample_api`` and the
+    ``except`` blocks: (a) ``CustomAPIException`` raised by the Meta
+    client (HTTP 5xx, network timeout — carries a parseable error
+    envelope); (b) any other unexpected exception (carries no
+    envelope). Both surface as ``MetaSampleUnavailableError`` per
+    FR-005c, preserve the original ``status_code`` / ``meta_response``
+    when present, and emit ``meta_error`` at ERROR level with
+    ``exc_info=True`` per FR-008b.
+    """
+
+    def test_custom_api_exception_propagates_with_envelope_and_status_code(self):
+        upstream_envelope = {"error": {"message": "rate limited", "code": 130472}}
+        custom_exc = CustomAPIException(detail=upstream_envelope, status_code=429)
+        self.meta_service.submit_template_sample.side_effect = custom_exc
+        dto = self._build_dto()
+        pre_snapshot = self._snapshot_local_state(self.template)
+
+        with self.assertLogs(USECASE_LOGGER, level="ERROR") as log_ctx:
+            with self.assertRaises(MetaSampleUnavailableError) as raised:
+                self.use_case.execute(dto)
+
+        exc = raised.exception
+        self.assertEqual(exc.status_code, 429)
+        self.assertIsNotNone(exc.meta_response)
+        self.assertIn("error", exc.meta_response)
+
+        meta_error_record = self._find_event_record(log_ctx, "meta_error")
+        self.assertEqual(meta_error_record.levelno, logging.ERROR)
+        self.assertIsNotNone(meta_error_record.exc_info)
+
+        self._assert_local_state_unchanged(self.template, pre_snapshot)
+
+    def test_unexpected_exception_propagates_without_envelope(self):
+        self.meta_service.submit_template_sample.side_effect = RuntimeError(
+            "socket reset"
+        )
+        dto = self._build_dto()
+        pre_snapshot = self._snapshot_local_state(self.template)
+
+        with self.assertLogs(USECASE_LOGGER, level="ERROR") as log_ctx:
+            with self.assertRaises(MetaSampleUnavailableError) as raised:
+                self.use_case.execute(dto)
+
+        exc = raised.exception
+        self.assertIsNone(exc.status_code)
+        self.assertIsNone(exc.meta_response)
+
+        meta_error_record = self._find_event_record(log_ctx, "meta_error")
+        self.assertEqual(meta_error_record.levelno, logging.ERROR)
+        self.assertIsNotNone(meta_error_record.exc_info)
+
+        self._assert_local_state_unchanged(self.template, pre_snapshot)
+
+
+class MetaInvalidResponseErrorPathTest(_FailurePathAssertionMixin, _UseCaseTestBase):
+    """T023 / US3 — Meta returned HTTP 200 but the body is unusable.
+
+    Four invalid response shapes collapse to ``MetaInvalidResponseError``
+    per FR-005b / FR-005c: ``success: false`` (even when ``category``
+    is present — success-false wins), missing ``category`` key, empty
+    ``category`` string, and ``success: false`` together with a present
+    ``category``. The exception preserves the raw Meta body verbatim
+    so the view's HTTP 502 response can carry it (FR-007b). The
+    ``meta_invalid_response`` event fires at WARNING per FR-008b.
+    """
+
+    INVALID_META_BODIES = [
+        ("success_false_with_error_envelope", {"success": False, "error": {"code": 1}}),
+        ("missing_category_key", {"success": True}),
+        ("empty_category_string", {"success": True, "category": ""}),
+        (
+            "success_false_overrides_category_present",
+            {"success": False, "category": "UTILITY"},
+        ),
+    ]
+
+    def test_invalid_meta_response_shapes_collapse_to_meta_invalid_response_error(self):
+        dto = self._build_dto()
+        for label, body in self.INVALID_META_BODIES:
+            with self.subTest(case=label):
+                self.meta_service.reset_mock()
+                self.integrations_service.reset_mock()
+                self.integrations_service.get_channel_app.return_value = {
+                    "config": {"waba": {"id": _WABA_ID}}
+                }
+                self.meta_service.submit_template_sample.return_value = body
+                pre_snapshot = self._snapshot_local_state(self.template)
+
+                with self.assertLogs(USECASE_LOGGER, level="WARNING") as log_ctx:
+                    with self.assertRaises(MetaInvalidResponseError) as raised:
+                        self.use_case.execute(dto)
+
+                self.assertEqual(raised.exception.meta_response, body)
+
+                invalid_record = self._find_event_record(
+                    log_ctx, "meta_invalid_response"
+                )
+                self.assertEqual(invalid_record.levelno, logging.WARNING)
+
+                self._assert_local_state_unchanged(self.template, pre_snapshot)
+
+
+class WabaNotConfiguredErrorPathTest(_FailurePathAssertionMixin, _UseCaseTestBase):
+    """T024 / US3 — WABA-not-configured collapses three modes to one error.
+
+    Per the 2026-05-26 Q3 clarification, three integrations-side
+    failure modes — infra failure (``None``), no app for the supplied
+    ``app_uuid`` (also ``None``), and app exists but config has no
+    ``waba_id`` — all surface as ``WabaNotConfiguredError``. The
+    audit-log ``integrations_response_present`` discriminates infra /
+    missing-app (``False``) from app-exists-but-no-waba (``True``)
+    per FR-008a. The Meta API is NOT called on any of the five cases
+    (gate runs upstream of the Meta call per FR-005a ordering).
+
+    Also pins the data-model.md §3 regression: ``ProjectOnboarding``
+    is never read by this endpoint — the integrations engine is the
+    sole authoritative source for WABA-id resolution.
+    """
+
+    INFRA_FAILURE_CASE = (
+        "infra_failure_service_swallowed_custom_api_exception",
+        None,
+        False,
+    )
+    NOT_FOUND_CASE = (
+        "integrations_returned_404_for_app_uuid",
+        None,
+        False,
+    )
+    APP_EXISTS_NO_WABA_SUBKEY = (
+        "app_exists_no_waba_subkey",
+        {"config": {}},
+        True,
+    )
+    APP_EXISTS_WABA_NO_ID = (
+        "app_exists_waba_no_id_key",
+        {"config": {"waba": {}}},
+        True,
+    )
+    APP_EXISTS_EMPTY_ID = (
+        "app_exists_waba_id_empty_string",
+        {"config": {"waba": {"id": ""}}},
+        True,
+    )
+
+    INTEGRATIONS_FAILURE_CASES = [
+        INFRA_FAILURE_CASE,
+        NOT_FOUND_CASE,
+        APP_EXISTS_NO_WABA_SUBKEY,
+        APP_EXISTS_WABA_NO_ID,
+        APP_EXISTS_EMPTY_ID,
+    ]
+
+    def test_waba_resolution_failures_raise_waba_not_configured_error(self):
+        dto = self._build_dto()
+        for (
+            label,
+            get_channel_app_return,
+            expected_response_present,
+        ) in self.INTEGRATIONS_FAILURE_CASES:
+            with self.subTest(case=label):
+                self.meta_service.reset_mock()
+                self.integrations_service.reset_mock()
+                self.integrations_service.get_channel_app.return_value = (
+                    get_channel_app_return
+                )
+                pre_snapshot = self._snapshot_local_state(self.template)
+
+                with patch(
+                    "retail.projects.models.ProjectOnboarding.objects",
+                    new=MagicMock(),
+                ) as mock_onboarding_manager:
+                    with self.assertLogs(USECASE_LOGGER, level="WARNING") as log_ctx:
+                        with self.assertRaises(WabaNotConfiguredError):
+                            self.use_case.execute(dto)
+
+                self.integrations_service.get_channel_app.assert_called_once_with(
+                    "wpp-cloud", dto.app_uuid
+                )
+                self.meta_service.submit_template_sample.assert_not_called()
+                mock_onboarding_manager.filter.assert_not_called()
+                mock_onboarding_manager.get.assert_not_called()
+                mock_onboarding_manager.all.assert_not_called()
+
+                waba_record = self._find_event_record(log_ctx, "waba_not_configured")
+                self.assertEqual(waba_record.levelno, logging.WARNING)
+                self.assertIn(
+                    f"integrations_response_present={expected_response_present}",
+                    waba_record.getMessage(),
+                )
+                self.assertIn(f"app_uuid={dto.app_uuid}", waba_record.getMessage())
+
+                self._assert_local_state_unchanged(self.template, pre_snapshot)
+
+
+class NotDirectSendEligibleErrorPathTest(_FailurePathAssertionMixin, _UseCaseTestBase):
+    """T025 / US3 — non-eligible templates fail upstream of WABA + Meta.
+
+    Three eligibility-failure modes per data-model.md §4: (a) the
+    template has no ``IntegratedAgent`` FK (custom template never
+    assigned), (b) the agent's ``config`` is empty, (c) the agent's
+    ``config["direct_send"]`` is falsy. The gate runs BEFORE WABA
+    resolution and BEFORE the Meta call per data-model.md §9
+    sequencing — both upstreams MUST be untouched on any of the
+    three failure modes. The ``not_direct_send_eligible`` event
+    fires at WARNING level per FR-008b carrying the IntegratedAgent
+    UUID (or ``None``) and the resolved flag.
+    """
+
+    def test_orphan_template_without_integrated_agent_raises(self):
+        orphan_template = Template.objects.create(
+            uuid=uuid4(),
+            name="orphan_template",
+            metadata={"category": "UTILITY"},
+        )
+        dto = self._build_dto(template_uuid=str(orphan_template.uuid))
+        pre_snapshot = self._snapshot_local_state(orphan_template)
+
+        with self.assertLogs(USECASE_LOGGER, level="WARNING") as log_ctx:
+            with self.assertRaises(NotDirectSendEligibleError):
+                self.use_case.execute(dto)
+
+        self.meta_service.submit_template_sample.assert_not_called()
+        self.integrations_service.get_channel_app.assert_not_called()
+
+        eligibility_record = self._find_event_record(
+            log_ctx, "not_direct_send_eligible"
+        )
+        self.assertEqual(eligibility_record.levelno, logging.WARNING)
+        self.assertIn("integrated_agent_uuid=None", eligibility_record.getMessage())
+        self.assertIn("direct_send_flag=False", eligibility_record.getMessage())
+
+        self._assert_local_state_unchanged(orphan_template, pre_snapshot)
+
+    def test_empty_agent_config_raises_with_agent_uuid_logged(self):
+        self.integrated_agent.config = {}
+        self.integrated_agent.save(update_fields=["config"])
+        dto = self._build_dto()
+        pre_snapshot = self._snapshot_local_state(self.template)
+
+        with self.assertLogs(USECASE_LOGGER, level="WARNING") as log_ctx:
+            with self.assertRaises(NotDirectSendEligibleError):
+                self.use_case.execute(dto)
+
+        self.meta_service.submit_template_sample.assert_not_called()
+        self.integrations_service.get_channel_app.assert_not_called()
+
+        eligibility_record = self._find_event_record(
+            log_ctx, "not_direct_send_eligible"
+        )
+        self.assertEqual(eligibility_record.levelno, logging.WARNING)
+        self.assertIn(
+            f"integrated_agent_uuid={self.integrated_agent.uuid}",
+            eligibility_record.getMessage(),
+        )
+        self.assertIn("direct_send_flag=False", eligibility_record.getMessage())
+
+        self._assert_local_state_unchanged(self.template, pre_snapshot)
+
+    def test_direct_send_flag_false_raises_with_agent_uuid_logged(self):
+        self.integrated_agent.config = {"direct_send": False}
+        self.integrated_agent.save(update_fields=["config"])
+        dto = self._build_dto()
+        pre_snapshot = self._snapshot_local_state(self.template)
+
+        with self.assertLogs(USECASE_LOGGER, level="WARNING") as log_ctx:
+            with self.assertRaises(NotDirectSendEligibleError):
+                self.use_case.execute(dto)
+
+        self.meta_service.submit_template_sample.assert_not_called()
+        self.integrations_service.get_channel_app.assert_not_called()
+
+        eligibility_record = self._find_event_record(
+            log_ctx, "not_direct_send_eligible"
+        )
+        self.assertEqual(eligibility_record.levelno, logging.WARNING)
+        self.assertIn(
+            f"integrated_agent_uuid={self.integrated_agent.uuid}",
+            eligibility_record.getMessage(),
+        )
+        self.assertIn("direct_send_flag=False", eligibility_record.getMessage())
+
+        self._assert_local_state_unchanged(self.template, pre_snapshot)
+
+
+class PartialFailureAfterUtilityPathTest(_FailurePathAssertionMixin, _UseCaseTestBase):
+    """T027 / US3 — local update fails AFTER Meta classified as UTILITY.
+
+    When Meta has already classified the sample as UTILITY but the
+    local update raises (DB write fails, S3 upload fails), the use
+    case re-raises the original exception unmodified — there is no
+    rollback of the Meta sample because Meta's sample API is
+    fire-and-forget per FR-006c. The
+    ``local_update_failed_after_meta_approval`` event fires at ERROR
+    level with ``exc_info=True`` AND carries the Meta sample id when
+    Meta returned one — that id is the only thread an operator can
+    grep against the Meta-side log trail.
+    """
+
+    def test_strategy_failure_after_utility_propagates_and_emits_error_event(self):
+        mock_strategy = MagicMock()
+        mock_strategy._build_and_persist_metadata.return_value = {}
+        original_exc = RuntimeError("DB write failed mid-version-create")
+        mock_strategy._create_approved_current_version.side_effect = original_exc
+
+        use_case = ValidateTemplateSampleUseCase(
+            meta_service=self.meta_service,
+            strategy=mock_strategy,
+            metadata_handler=self.metadata_handler,
+            integrations_service=self.integrations_service,
+        )
+
+        meta_sample_id = "meta-sample-id-abc123"
+        self.meta_service.submit_template_sample.return_value = {
+            "success": True,
+            "category": "UTILITY",
+            "id": meta_sample_id,
+        }
+        dto = self._build_dto()
+
+        with self.assertLogs(USECASE_LOGGER, level="ERROR") as log_ctx:
+            with self.assertRaises(RuntimeError) as raised:
+                use_case.execute(dto)
+
+        self.assertIs(raised.exception, original_exc)
+
+        failure_record = self._find_event_record(
+            log_ctx, "local_update_failed_after_meta_approval"
+        )
+        self.assertEqual(failure_record.levelno, logging.ERROR)
+        self.assertIsNotNone(failure_record.exc_info)
+        self.assertIn(f"meta_sample_id={meta_sample_id}", failure_record.getMessage())
+
+
+class FlaggedToApprovedRecoveryChannelTest(_UseCaseTestBase):
+    """T027c / US3 — sample endpoint is the third FLAGGED → APPROVED channel.
+
+    Spec.md Edge Case "FLAGGED → APPROVED via sample endpoint":
+    when spec 003's ``template_correct_category_detection`` webhook
+    flags a template (Meta downgraded its category), the operator
+    can recover by re-submitting through the sample endpoint with a
+    UTILITY-classifying payload. A new APPROVED Version is created
+    and ``current_version`` advances to it; the prior FLAGGED Version
+    is retained verbatim in ``template.versions`` so the audit trail
+    survives. The ``template_updated`` audit-log line carries
+    ``previous_current_version_status=FLAGGED`` per FR-008a /
+    data-model.md §1 — this is the operator-facing signal that the
+    sample-validation channel un-flagged the template.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.flagged_version = Version.objects.create(
+            template=self.template,
+            template_name="weni_order_invoiced_flagged",
+            integrations_app_uuid=_DEFAULT_APP_UUID,
+            project=self.project,
+            status="FLAGGED",
+        )
+        self.template.current_version = self.flagged_version
+        self.template.save(update_fields=["current_version"])
+
+    @patch(TASK_CREATE_TEMPLATE_PATH)
+    def test_flagged_template_recovers_to_approved_via_sample_endpoint(
+        self, mock_task_create_template
+    ):
+        self.meta_service.submit_template_sample.return_value = {
+            "success": True,
+            "category": "UTILITY",
+        }
+        dto = self._build_dto()
+
+        with self.assertLogs(USECASE_LOGGER, level="INFO") as log_ctx:
+            result = self.use_case.execute(dto)
+
+        self.template.refresh_from_db()
+        new_version = self.template.current_version
+        self.flagged_version.refresh_from_db()
+
+        self.assertTrue(result.template_updated)
+        self.assertEqual(new_version.status, "APPROVED")
+        self.assertNotEqual(new_version.uuid, self.flagged_version.uuid)
+        self.assertEqual(self.flagged_version.status, "FLAGGED")
+        self.assertIn(
+            self.flagged_version,
+            list(self.template.versions.all()),
+        )
+
+        template_updated_record = next(
+            record
+            for record in log_ctx.records
+            if "[TemplateSampleValidation] template_updated:" in record.getMessage()
+        )
+        self.assertIn(
+            "previous_current_version_status=FLAGGED",
+            template_updated_record.getMessage(),
+        )
+        self.assertIn(
+            f"previous_current_version_uuid={self.flagged_version.uuid}",
+            template_updated_record.getMessage(),
+        )
+
+        mock_task_create_template.delay.assert_not_called()

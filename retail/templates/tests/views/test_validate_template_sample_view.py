@@ -31,6 +31,12 @@ from retail.internal.test_mixins import (
     with_test_settings,
 )
 from retail.projects.models import Project
+from retail.templates.exceptions import (
+    MetaInvalidResponseError,
+    MetaSampleUnavailableError,
+    NotDirectSendEligibleError,
+    WabaNotConfiguredError,
+)
 from retail.templates.models import Template, Version
 from retail.templates.usecases.validate_template_sample import (
     ValidateTemplateSampleResult,
@@ -203,9 +209,7 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_missing_project_uuid_header_returns_403(
-        self, mock_integrations_service
-    ):
+    def test_missing_project_uuid_header_returns_403(self, mock_integrations_service):
         self.setup_internal_user_permissions(self.user)
         response = self.client.post(
             self._sample_url(),
@@ -214,9 +218,7 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_serializer_validation_error_returns_400(
-        self, mock_integrations_service
-    ):
+    def test_serializer_validation_error_returns_400(self, mock_integrations_service):
         self._set_up_authorized_request()
         headers, _ = self._project_headers_and_params()
         payload = self._default_payload()
@@ -279,9 +281,7 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_view_passes_request_context_to_serializer(
-        self, mock_integrations_service
-    ):
+    def test_view_passes_request_context_to_serializer(self, mock_integrations_service):
         """Pin that the view constructs the serializer with the request context.
 
         Re-uses the project_uuid_mismatch defense as a structural witness:
@@ -457,9 +457,7 @@ class ValidateTemplateSampleViewExtendedShape1bIntegrationTest(
         self.assertEqual(self.template.metadata["header"]["text"], "Pedido recebido")
         self.assertIn("{{1}}", self.template.metadata["body"])
         self.assertIn("{{2}}", self.template.metadata["body"])
-        self.assertEqual(
-            self.template.versions.count(), baseline_version_count + 1
-        )
+        self.assertEqual(self.template.versions.count(), baseline_version_count + 1)
         new_version = self.template.current_version
         self.assertNotEqual(new_version.uuid, self.version.uuid)
         self.assertEqual(new_version.status, "APPROVED")
@@ -477,9 +475,7 @@ class ValidateTemplateSampleViewExtendedShape1bIntegrationTest(
         self.assertIn("buttons_count=0", received_message)
 
         submitted_record = next(
-            r
-            for r in log_ctx.records
-            if "meta_sample_submitted:" in r.getMessage()
+            r for r in log_ctx.records if "meta_sample_submitted:" in r.getMessage()
         )
         self.assertIn("sample_type=text", submitted_record.getMessage())
 
@@ -488,3 +484,330 @@ class ValidateTemplateSampleViewExtendedShape1bIntegrationTest(
         message = record.getMessage()
         prefix, _, _ = message.partition(":")
         return prefix.replace("[TemplateSampleValidation] ", "")
+
+
+@with_test_settings
+@patch(INTEGRATIONS_SERVICE_PATCH_PATH)
+class ValidateTemplateSampleViewErrorPathTest(BaseTestMixin, APITestCase):
+    """T026 / US3 — view-level error-path HTTP boundary contract.
+
+    For each of the four use-case domain exceptions, patches
+    ``ValidateTemplateSampleUseCase.execute`` to raise it and asserts
+    the deterministic response shape pinned by
+    ``contracts/sample-endpoint-request-response.md`` (FR-007 / FR-007b /
+    FR-007d / FR-007e). The optional ``meta_response`` body field is
+    present only when the raised exception carries one (FR-007b — the
+    upstream Meta envelope is forwarded verbatim so the frontend can
+    surface Meta's error code without a second round-trip).
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.user = User.objects.create_user(
+            username="testuser-error-path",
+            password="testpass",
+            email="error-path@example.com",
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+        self.project = Project.objects.create(uuid=uuid4(), name="Project")
+        self.agent = Agent.objects.create(
+            uuid=uuid4(),
+            name="Agent",
+            slug="agent-error-path",
+            description="desc",
+            project=self.project,
+        )
+        self.parent = PreApprovedTemplate.objects.create(
+            agent=self.agent,
+            uuid=uuid4(),
+            name="parent",
+            display_name="Parent",
+            content="content",
+            is_valid=True,
+            start_condition="always",
+            metadata={},
+        )
+        self.integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(),
+            agent=self.agent,
+            project=self.project,
+            is_active=True,
+            config={"direct_send": True},
+        )
+        self.template = Template.objects.create(
+            uuid=uuid4(),
+            name="error_path_template",
+            integrated_agent=self.integrated_agent,
+            parent=self.parent,
+            metadata={"category": "UTILITY", "body": "Original"},
+        )
+
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
+        )
+
+    def _sample_url(self):
+        return (
+            reverse("template-sample", args=[str(self.template.uuid)])
+            + f"?user_email={self.user.email}"
+        )
+
+    def _default_payload(self):
+        return {
+            "template_body": "Updated body",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(self.project.uuid),
+        }
+
+    def _post_with_use_case_raising(self, exception_instance):
+        with patch(USECASE_PATCH_PATH) as mock_use_case_class:
+            mock_use_case_class.return_value.execute.side_effect = exception_instance
+            return self.client.post(
+                self._sample_url(),
+                self._default_payload(),
+                format="json",
+                HTTP_PROJECT_UUID=str(self.project.uuid),
+            )
+
+    def test_not_direct_send_eligible_translates_to_400_without_meta_response(
+        self, mock_integrations_service
+    ):
+        response = self._post_with_use_case_raising(
+            NotDirectSendEligibleError("not eligible")
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["detail"], "Template is not Direct Send-eligible"
+        )
+        self.assertEqual(response.data["error_code"], "not_direct_send_eligible")
+        self.assertNotIn("meta_response", response.data)
+
+    def test_waba_not_configured_translates_to_400_without_meta_response(
+        self, mock_integrations_service
+    ):
+        response = self._post_with_use_case_raising(
+            WabaNotConfiguredError("waba missing")
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["detail"], "WABA not configured for this project"
+        )
+        self.assertEqual(response.data["error_code"], "waba_not_configured")
+        self.assertNotIn("meta_response", response.data)
+
+    def test_meta_sample_unavailable_with_envelope_includes_meta_response(
+        self, mock_integrations_service
+    ):
+        upstream_envelope = {"error": {"message": "rate limited", "code": 130472}}
+        response = self._post_with_use_case_raising(
+            MetaSampleUnavailableError(
+                "Meta unavailable",
+                status_code=429,
+                meta_response=upstream_envelope,
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.data["detail"], "Meta sample submission failed")
+        self.assertEqual(response.data["error_code"], "meta_unavailable")
+        self.assertEqual(response.data["meta_response"], upstream_envelope)
+
+    def test_meta_sample_unavailable_without_envelope_omits_meta_response(
+        self, mock_integrations_service
+    ):
+        response = self._post_with_use_case_raising(
+            MetaSampleUnavailableError(
+                "Meta unavailable",
+                status_code=None,
+                meta_response=None,
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.data["detail"], "Meta sample submission failed")
+        self.assertEqual(response.data["error_code"], "meta_unavailable")
+        self.assertNotIn("meta_response", response.data)
+
+    def test_meta_invalid_response_includes_raw_meta_body(
+        self, mock_integrations_service
+    ):
+        raw_meta_body = {"success": True}
+        response = self._post_with_use_case_raising(
+            MetaInvalidResponseError("no category", meta_response=raw_meta_body)
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.data["detail"], "Meta did not return a category")
+        self.assertEqual(response.data["error_code"], "meta_invalid_response")
+        self.assertEqual(response.data["meta_response"], raw_meta_body)
+
+
+META_SERVICE_PATCH_PATH_SC008 = "retail.services.meta.service.MetaService"
+
+
+@with_test_settings
+@patch(META_SERVICE_PATCH_PATH_SC008)
+@patch(INTEGRATIONS_SERVICE_PATCH_PATH)
+class ValidateTemplateSampleViewCrossTenantIsolationTest(BaseTestMixin, APITestCase):
+    """T027b / US3 / SC-008 — cross-tenant isolation structural guarantee.
+
+    Per the 2026-05-26 Q2 trust-the-frontend clarification, the spec
+    pins SC-008 enforcement to exactly TWO structural checks:
+    (a) ``HasProjectPermission`` on the view rejects operators
+        unauthorized for the claimed project via Connect's
+        authorization API (HTTP 403 before any business logic runs);
+    (b) The serializer-layer FR-002b ``Project-Uuid`` header ↔ body
+        ``project_uuid`` equality check refuses cross-tenant routing
+        at the entry point (HTTP 400 with
+        ``error_code = "project_uuid_mismatch"``).
+
+    The frontend-supplied ``app_uuid`` is explicitly trusted and is
+    NOT cross-checked against the loaded template's
+    ``integrated_agent.channel_uuid`` or the integrations response's
+    ``project_uuid``. The residual exposure (compromised frontend or
+    token-holding bypass caller) is a documented known limitation —
+    see the clarification record at ``spec.md`` Q2-2026-05-26.
+
+    This test class pins case (1) of SC-008 by structurally asserting
+    that no upstream (MetaService / IntegrationsService) is reached
+    AND no DB write fires on a project_uuid mismatch.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.user = User.objects.create_user(
+            username="testuser-sc008",
+            password="testpass",
+            email="sc008@example.com",
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+        self.project = Project.objects.create(uuid=uuid4(), name="Project")
+        self.agent = Agent.objects.create(
+            uuid=uuid4(),
+            name="Agent",
+            slug="agent-sc008",
+            description="desc",
+            project=self.project,
+        )
+        self.parent = PreApprovedTemplate.objects.create(
+            agent=self.agent,
+            uuid=uuid4(),
+            name="parent",
+            display_name="Parent",
+            content="content",
+            is_valid=True,
+            start_condition="always",
+            metadata={},
+        )
+        self.integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(),
+            agent=self.agent,
+            project=self.project,
+            is_active=True,
+            config={"direct_send": True},
+        )
+        self.template = Template.objects.create(
+            uuid=uuid4(),
+            name="sc008_template",
+            integrated_agent=self.integrated_agent,
+            parent=self.parent,
+            metadata={"category": "UTILITY", "body": "Original SC008"},
+        )
+
+    def _sample_url(self):
+        return (
+            reverse("template-sample", args=[str(self.template.uuid)])
+            + f"?user_email={self.user.email}"
+        )
+
+    def _default_payload(self, project_uuid):
+        return {
+            "template_body": "Updated body",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(project_uuid),
+        }
+
+    def _snapshot_template_state(self) -> dict:
+        self.template.refresh_from_db()
+        return {
+            "metadata": dict(self.template.metadata or {}),
+            "current_version_id": self.template.current_version_id,
+        }
+
+    def test_project_uuid_mismatch_blocks_request_and_emits_audit_log(
+        self, mock_integrations_service, mock_meta_service
+    ):
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
+        )
+        other_project_uuid = uuid4()
+        pre_snapshot = self._snapshot_template_state()
+
+        with self.assertLogs(VIEW_LOGGER, level="WARNING") as log_ctx:
+            response = self.client.post(
+                self._sample_url(),
+                self._default_payload(project_uuid=other_project_uuid),
+                format="json",
+                HTTP_PROJECT_UUID=str(self.project.uuid),
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("project_uuid", response.data)
+
+        mock_meta_service.return_value.submit_template_sample.assert_not_called()
+        mock_integrations_service.return_value.get_channel_app.assert_not_called()
+
+        self.assertEqual(self._snapshot_template_state(), pre_snapshot)
+
+        any_mismatch_log = any(
+            "[TemplateSampleValidation] project_uuid_mismatch:" in record.getMessage()
+            for record in log_ctx.records
+        )
+        self.assertTrue(any_mismatch_log)
+
+    def test_unauthenticated_request_is_rejected_before_use_case(
+        self, mock_integrations_service, mock_meta_service
+    ):
+        anonymous_client = APIClient()
+        response = anonymous_client.post(
+            self._sample_url(),
+            self._default_payload(project_uuid=self.project.uuid),
+            format="json",
+            HTTP_PROJECT_UUID=str(self.project.uuid),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_meta_service.return_value.submit_template_sample.assert_not_called()
+        mock_integrations_service.return_value.get_channel_app.assert_not_called()
+
+    def test_authorized_user_for_wrong_project_is_rejected_by_has_project_permission(
+        self, mock_integrations_service, mock_meta_service
+    ):
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.NO_PERMISSIONS,
+        )
+
+        response = self.client.post(
+            self._sample_url(),
+            self._default_payload(project_uuid=self.project.uuid),
+            format="json",
+            HTTP_PROJECT_UUID=str(self.project.uuid),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_meta_service.return_value.submit_template_sample.assert_not_called()
+        mock_integrations_service.return_value.get_channel_app.assert_not_called()
