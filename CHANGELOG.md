@@ -1,3 +1,9 @@
+# 5.25.0
+- feat: add WhatsApp Direct Send dispatch path for OrderStatus
+- feat: add Direct Send incorrect-category webhook
+- feat: add Direct Send template sample validation endpoint
+- refactor: streamline exception messages and improve documentation
+
 # 5.24.1
 - fix: Make One-Click Payment Meta Flow name unique per channel
 
