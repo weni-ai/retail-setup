@@ -1,16 +1,4 @@
-"""End-to-end Direct Send persistence parity (T011e — FR-016 / SC-005).
-
-Drives ``Broadcast.build_message`` → ``Broadcast.send_message`` against
-a Direct Send-enabled fixture and asserts:
-
-- the happy path persists exactly one ``BroadcastMessage`` row with
-  the expected fields,
-- each Direct Send refusal class (naming-rule, empty body, length
-  limit) skips persistence entirely (no row written).
-
-``flows_service.send_whatsapp_broadcast`` is mocked at the boundary
-so the test captures the outbound payload without hitting Flows.
-"""
+"""End-to-end Direct Send persistence parity. Anchor: FR-016."""
 
 import logging
 
@@ -299,14 +287,7 @@ class BroadcastDirectSendPersistenceTest(TestCase):
         )
 
     def test_template_metadata_body_storage_key_is_preserved(self):
-        """T117(f) / FR-014d(c) — internal storage MUST keep ``body``.
-
-        The FR-014d rename only relocates the OUTBOUND wire key
-        (``msg.body`` → ``msg.text``). ``Template.metadata["body"]``
-        is internal storage written from Meta's library catalog response
-        and is preserved unchanged so persisted rows, log consumers,
-        and downstream tooling do not require migration.
-        """
+        """``Template.metadata["body"]`` is wire-rename-immune. Anchor: FR-014d(c)."""
         self.assertEqual(
             self.template.metadata["body"],
             "Olá {{1}}, seu pedido {{2}} foi enviado.",
@@ -314,11 +295,7 @@ class BroadcastDirectSendPersistenceTest(TestCase):
         self.assertNotIn("text", self.template.metadata)
 
     def test_send_message_log_line_carries_direct_send_template_name(self):
-        """T116(h) — ``Broadcast.send_message`` logging accessor MUST
-        be path-aware so the Direct Send dispatch log line continues to
-        emit the resolved template name after FR-014c drops
-        ``msg.template`` from the wire.
-        """
+        """Path-aware logging accessor after wire-shape change. Anchor: FR-014c."""
         message = self.handler.build_message(self.integrated_agent, self.lambda_data)
         self.assertIsNotNone(message)
 

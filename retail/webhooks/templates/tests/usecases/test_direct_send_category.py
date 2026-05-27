@@ -217,19 +217,7 @@ class _VersionSaveSpy:
 
 
 class FlaggingPathTest(_UseCaseTestBase):
-    """FR-006 single-field flag rule (Clarifications session 2026-05-25 Q3).
-
-    ``template_correct_category != "UTILITY"`` is the only flag clause;
-    ``template_category`` is captured for audit visibility but never
-    participates in the rule. The single-field parametrization below
-    sweeps four representative ``(template_category,
-    template_correct_category)`` pairs that all share the same outcome
-    (flag fires with the single reason ``correct_category_not_utility``);
-    the inverted-category cell ``("UTILITY", "MARKETING")`` is the
-    diagnostic-only pin (C1) — ``template_category="UTILITY"`` does NOT
-    rescue the row from flagging when ``template_correct_category``
-    says otherwise.
-    """
+    """Single-field flag rule. Anchor: FR-006 / FR-006a."""
 
     FLAGGING_PAYLOADS = [
         ("MARKETING", "MARKETING"),
@@ -295,11 +283,7 @@ class FlaggingPathTest(_UseCaseTestBase):
                     )
 
     def test_correct_category_utility_skips_save_for_every_template_category(self):
-        """FR-006 no-fire (US1 AS3): when ``template_correct_category ==
-        "UTILITY"`` no flag fires regardless of ``template_category``.
-        The ``MARKETING/UTILITY`` cell is the AS3 pin — ``template_category``
-        carrying a non-UTILITY value does NOT trigger a flag because the
-        eligibility gate is the single field ``template_correct_category``."""
+        """``template_correct_category == "UTILITY"`` skips save. Anchor: FR-006."""
         for template_category in ("UTILITY", "MARKETING"):
             with self.subTest(template_category=template_category):
                 Version.objects.filter(pk=self.version.pk).update(status="APPROVED")
@@ -330,10 +314,7 @@ class FlaggingPathTest(_UseCaseTestBase):
                 )
 
     def test_lowercase_utility_in_correct_category_is_case_sensitive_and_flags(self):
-        """FR-006a (C4): the flag rule is strict string equality against
-        the literal ``"UTILITY"``. A lowercase ``"utility"`` is NOT equal
-        to ``"UTILITY"`` and therefore fires the flag branch with the
-        single reason ``correct_category_not_utility``."""
+        """Strict case-sensitive equality. Anchor: FR-006a."""
         with _VersionSaveSpy() as save_spy:
             dto = self._build_dto(
                 template_category="UTILITY",
@@ -560,10 +541,7 @@ class IdempotentReplayWithFlaggingPayloadTest(_AlreadyFlaggedTestBase):
 
 
 class AutoDemoteOnCorrectedCategoryTest(_AlreadyFlaggedTestBase):
-    """FR-006c / FR-007c clause (b) / FR-007d: when the Version is
-    already ``FLAGGED`` AND the FR-006 flagging condition is false
-    (the corrected-category signal — ``UTILITY/UTILITY``), the webhook
-    writes ``status="APPROVED"`` and emits ``auto_demoted``."""
+    """FLAGGED + UTILITY/UTILITY -> APPROVED. Anchor: FR-006c / FR-007d."""
 
     def test_corrected_category_payload_demotes_flagged_version_to_approved(self):
         with _VersionSaveSpy() as save_spy:
@@ -615,9 +593,7 @@ class AutoDemoteOnCorrectedCategoryTest(_AlreadyFlaggedTestBase):
 
 
 class AutoDemoteSettlesIntoNoActionRequiredTest(_AlreadyFlaggedTestBase):
-    """FR-008 last clause: after a corrected-category payload demotes a
-    ``FLAGGED`` Version to ``APPROVED``, re-firing the same payload
-    settles into ``no_action_required`` instead of writing again."""
+    """Re-fire after auto-demote settles in no_action_required. Anchor: FR-008."""
 
     def test_consecutive_corrected_category_calls_converge_to_no_action_required(self):
         dto = self._build_dto(
@@ -718,11 +694,7 @@ class ReplayWithChangedCorrectCategoryTest(_UseCaseTestBase):
 
 
 class NoMatchingIntegratedAgentTest(_UseCaseTestBase):
-    """FR-004b — when the lookup returns zero IntegratedAgents, the
-    response is HTTP 200 with zero counters and the audit log records
-    a single WARNING-level ``no_matching_integrated_agent`` line that
-    carries only the five payload values (no IA / Template / Version
-    identifiers because none were resolved)."""
+    """Zero IntegratedAgents -> 200 + WARNING log. Anchor: FR-004b."""
 
     def test_no_match_emits_warning_and_returns_zero_counters(self):
         unrelated_app_uuid = uuid4()
@@ -761,10 +733,7 @@ class NoMatchingIntegratedAgentTest(_UseCaseTestBase):
 
 
 class TemplateNotFoundTest(_UseCaseTestBase):
-    """FR-005 — when a matched IntegratedAgent has no Template with the
-    requested name, the use case emits a WARNING-level
-    ``template_not_found`` line, skips the write, and reports
-    ``"Template not found."``."""
+    """No matching Template -> WARNING + skip save. Anchor: FR-005."""
 
     def test_template_not_found_emits_warning_and_skips_save(self):
         unknown_template_name = "weni_unknown_template"
@@ -801,11 +770,7 @@ class TemplateNotFoundTest(_UseCaseTestBase):
 
 
 class TemplateHasNoCurrentVersionTest(_UseCaseTestBase):
-    """FR-005a — when a matched Template has ``current_version=None``
-    (an inconsistent local state — defensively guarded), the use case
-    emits a WARNING-level ``template_has_no_current_version`` line,
-    skips the write, and the response ``detail`` collapses to
-    ``"Template not found."`` per data-model §5.2 footnote *."""
+    """Null ``current_version`` -> WARNING + skip save. Anchor: FR-005a."""
 
     def test_null_current_version_emits_warning_and_skips_save(self):
         self.template.current_version = None
@@ -904,13 +869,7 @@ class CategoryDeterminationOscillatesBetweenFlagAndDemoteTest(_UseCaseTestBase):
 
 
 class HeterogeneousFanOutUnderCorrectedCategoryPayloadTest(_UseCaseTestBase):
-    """spec.md Edge Case "Heterogeneous-status fan-out under a
-    corrected-category payload": when the fan-out matches IntegratedAgents
-    whose Versions are in different starting states and the payload is a
-    corrected-category signal, each IA is processed independently — the
-    ``APPROVED`` row stays as ``no_action_required`` while the ``FLAGGED``
-    row is auto-demoted. ``templates_updated`` counts only the demote
-    write per FR-010's direction-agnostic counter rule."""
+    """Heterogeneous-status fan-out under corrected-category. Anchor: FR-010."""
 
     def setUp(self):
         super().setUp()

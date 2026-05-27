@@ -1,30 +1,12 @@
 """Direct Send sample-validation translator.
 
-Pure-function module that turns a ``ValidateTemplateSampleDTO`` into the
-Meta ``message_samples`` wire-shape dict pinned by
-``specs/004-template-sample-validation/contracts/meta-message-samples.md``.
-
-Four discriminated shapes are produced:
-
-- **Shape 1** ``text`` — non-interactive payload (no buttons). Reduces
-  to the bare ``{"type": "text", "text": {"body": ...}}`` for pure
-  body-only payloads, OR widens to the extended Shape 1b super-shape
-  ``{"type": "text", "header": {...}?, "footer": {...}?, "text": {...}}``
-  when the no-button payload also carries a ``template_header`` and / or
-  ``template_footer`` (per FR-004 post-clarification 2026-05-26 round 2 /
-  A13). Empirically validated against the live ``message_samples`` API.
-- **Shape 2** ``interactive.cta_url`` — exactly one ``URL``-type button.
-- **Shape 3** ``interactive.button`` — 1–3 ``QUICK_REPLY`` buttons.
-
-The function is pure: no DB access, no I/O, no Django imports. Callers
-MUST resolve any base64 → S3 URL for IMAGE headers BEFORE invoking the
-translator (the upload happens upstream in the use case per A9 /
-Research Decision 6) and pass the resolved URL via ``resolved_header_url``.
-
-The ``{{N}}`` placeholder substitution reuses
-``substitute_template_variables`` from the Direct Send broadcast
-renderer so the outbound sample matches what the eventual broadcast
-will render (US2's lockstep guarantee per A7 / FR-004e).
+Pure-function module that turns a ``ValidateTemplateSampleDTO`` into
+the Meta ``message_samples`` wire-shape dict. Reuses the Direct Send
+broadcast renderer's ``substitute_template_variables`` so the outbound
+sample matches what the eventual broadcast will render (US2 lockstep
+guarantee). Anchor: FR-004 / FR-004a / FR-004b / FR-004c / FR-004e
+(see ``specs/004-template-sample-validation/spec.md`` and
+``contracts/meta-message-samples.md``).
 """
 
 from __future__ import annotations
@@ -63,22 +45,12 @@ def build_meta_sample_body(
     *,
     resolved_header_url: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Convert a validated sample-validation DTO to Meta's ``message_samples`` wire shape.
+    """Convert the DTO to the Meta ``message_samples`` wire shape.
 
-    Dispatches on the payload shape (body-only / URL button / reply
-    buttons) per FR-004 / FR-004b / FR-004c, substitutes ``{{N}}``
-    placeholders using ``dto.template_body_params`` as the positional
-    substitution source (FR-004e / Research Decision 9 — ``dto.parameters``
-    is NOT consulted), and emits the discriminated-union wire shape.
-
-    Args:
-        dto: Validated DTO with the operator-supplied content.
-        resolved_header_url: For IMAGE-header payloads, the S3 URL the
-            use case obtained by uploading the base64 blob upstream.
-            Ignored on TEXT headers and on payloads without a header.
-
-    Returns:
-        Dict in the Meta ``message_samples`` wire shape (Shape 1, 2, or 3).
+    Substitution source is ``dto.template_body_params`` only;
+    ``dto.parameters`` is intentionally not consulted (the rule-engine
+    code-gen input is the wrong source for the outbound sample).
+    Anchor: FR-004 / FR-004e / Decision 9.
     """
     template_name = dto.template_uuid
     variables = _variables_from_body_params(dto.template_body_params)
@@ -125,14 +97,10 @@ def build_meta_sample_body(
 def _variables_from_body_params(
     template_body_params: Optional[List[Any]],
 ) -> Dict[str, str]:
-    """Build the positional-index → value dict consumed by ``substitute_template_variables``.
+    """Build the positional-index -> value dict.
 
-    Maps ``template_body_params[0]`` → ``"1"``, ``[1]`` → ``"2"``, ...
-    Research Decision 9 pins this as the SOLE substitution source for
-    the outbound sample (the request body's ``parameters`` field —
-    used by custom templates to feed the rule-engine code generator
-    on the PATCH path — is a different input shape and is not
-    consulted here).
+    Maps ``template_body_params[0]`` to ``"1"``, ``[1]`` to ``"2"``,
+    etc. Anchor: Decision 9.
     """
     if not template_body_params:
         return {}
@@ -157,16 +125,7 @@ def _build_header_subobject(
     resolved_header_url: Optional[str],
     template_name: str,
 ) -> Optional[Dict[str, Any]]:
-    """Build the ``interactive.header`` discriminated-union value.
-
-    Three modes per the header-shape table in ``contracts/meta-message-samples.md``:
-
-    - TEXT header → ``{"type": "text", "text": "<substituted>"}``.
-    - IMAGE header whose source was base64 → ``{"type": "image", "image": {"link": resolved_header_url}}``.
-    - IMAGE header whose source was already an HTTP(S) URL → ``{"type": "image", "image": {"link": header}}``.
-
-    Returns ``None`` for absent headers so callers can omit the key.
-    """
+    """Build the ``interactive.header`` value, or ``None`` when absent."""
     if not header:
         return None
 
@@ -181,12 +140,7 @@ def _build_header_subobject(
 
 
 def _looks_like_image_header(header: str) -> bool:
-    """Return ``True`` when ``header`` is an HTTP(S) URL or a base64 data URI.
-
-    Mirrors the heuristic used by the existing ``HeaderTransformer`` /
-    ``TemplateMetadataHandler`` so the wire-shape dispatch agrees with
-    the local metadata persistence path.
-    """
+    """Return ``True`` when ``header`` is an HTTP(S) URL or base64 data URI."""
     if header.startswith(_IMAGE_HEADER_PROTOCOLS):
         return True
     if header.startswith(_BASE64_DATA_URI_PREFIX):
@@ -203,18 +157,10 @@ def _build_text_shape(
     resolved_header_url: Optional[str],
     template_name: str,
 ) -> Dict[str, Any]:
-    """Assemble the Shape 1 / extended Shape 1b (``text``) wire body.
+    """Assemble the ``text`` wire body (Shape 1 / extended Shape 1b).
 
-    The bare Shape 1 (no header AND no footer) reduces bit-identically
-    to ``{"type": "text", "text": {"body": <substituted>}}``. The
-    extended Shape 1b widens this with optional ``header`` and / or
-    ``footer`` top-level keys when the no-button payload carries them
-    — an empirically-validated super-shape pinned by spec A13 /
-    FR-004 post-clarification 2026-05-26 round 2.
-
-    Optional keys are ABSENT (not ``null``) when the corresponding
-    input field is missing — degenerate Shape 1b reduces to Shape 1
-    so legacy body-only callers see no observable change.
+    Optional ``header`` / ``footer`` keys are absent (not ``null``) so
+    the bare body-only case is byte-identical to Shape 1. Anchor: FR-004.
     """
     body: Dict[str, Any] = {"type": "text", "text": {"body": substituted_body}}
 
@@ -278,23 +224,13 @@ def _build_cta_url_action_parameters(
     variables: Dict[str, str],
     template_name: str,
 ) -> Dict[str, str]:
-    """Resolve the CTA URL button's ``{display_text, url}`` pair per FR-004b.
+    """Resolve the CTA URL button's ``{display_text, url}`` pair.
 
-    The URL field is accepted in three shapes (mirroring the existing
-    ``UpdateLibraryTemplateButtonSerializer`` contract and the
-    broadcast renderer's URL normalization at dispatch time, so the
-    sample submitted to Meta stays in lockstep with what the eventual
-    broadcast will render — see US2):
-
-    - Already-flat string with the placeholder embedded
-      (``"https://x/{{1}}"``) — preserved verbatim.
-    - Nested ``{base_url, url_suffix_example}`` — normalized via
-      ``ensure_protocol`` + ``append_placeholder_if_needed``.
-    - Nested ``{base_url}`` only — ``ensure_protocol`` only, no
-      placeholder appended.
-
-    The placeholder substitution always fires last so the wire body
-    carries the fully-resolved URL.
+    Three accepted URL shapes (flat string, nested
+    ``{base_url, url_suffix_example}``, nested ``{base_url}``) collapse
+    to a canonical flat string before substitution, mirroring the
+    broadcast renderer so sample and broadcast stay in lockstep.
+    Anchor: FR-004b.
     """
     raw_url = url_button.get("url")
     resolved_url = _normalize_cta_url(raw_url)
@@ -369,12 +305,7 @@ def _build_reply_button_entries(
     variables: Dict[str, str],
     template_name: str,
 ) -> List[Dict[str, Any]]:
-    """Render each reply button as ``{"type": "reply", "reply": {"id", "title"}}``.
-
-    The ``reply.id`` is derived deterministically from the button text
-    per FR-004c (see ``_derive_reply_id``) and tiebroken on
-    duplicate-within-payload with a ``_2`` / ``_3`` positional suffix.
-    """
+    """Render reply buttons; duplicates get a ``_2``/``_3`` suffix. Anchor: FR-004c."""
     entries: List[Dict[str, Any]] = []
     seen_ids: Dict[str, int] = {}
 
@@ -389,19 +320,7 @@ def _build_reply_button_entries(
 
 
 def _derive_reply_id(text: str) -> str:
-    """Derive a deterministic ``reply.id`` from a button label per FR-004c.
-
-    Pipeline (matches ``contracts/meta-message-samples.md`` "Deterministic
-    reply.id derivation"):
-
-    1. Lowercase.
-    2. Replace every non-alphanumeric run with a single underscore.
-    3. Strip leading and trailing underscores.
-    4. Truncate to ``_REPLY_ID_MAX_LENGTH`` (64) characters — well under
-       WhatsApp's documented 256-char cap for ``reply.id``, leaving
-       headroom for the duplicate-tiebreaker suffix and keeping
-       audit-log lines tidy.
-    """
+    """Lowercase, non-alnum to ``_``, strip ``_``, truncate. Anchor: FR-004c."""
     if not text:
         return ""
 
@@ -413,7 +332,7 @@ def _derive_reply_id(text: str) -> str:
 
 
 def _disambiguate_reply_id(base_id: str, seen_ids: Dict[str, int]) -> str:
-    """Append ``_2`` / ``_3`` suffix on duplicate-within-payload per FR-004c."""
+    """Append ``_2`` / ``_3`` suffix on duplicate-within-payload."""
     if base_id not in seen_ids:
         seen_ids[base_id] = 1
         return base_id

@@ -144,10 +144,9 @@ class BroadcastHandlerTest(TestCase):
         self.assertIsNone(result)
 
     def _stub_template_lookup(self, template) -> MagicMock:
-        """Wire ``templates.filter(...).select_related(...).first()`` to
-        return ``template`` (or ``None``) in a single chain. The
-        implementation issues exactly one ``filter()`` call per
-        ``get_current_template`` invocation and classifies the version
+        """Stub the single ``filter().select_related().first()`` lookup
+        chain that ``get_current_template`` exercises per invocation.
+        The actual ``Version.status`` value is classified
         status in Python (US3 / T031).
         """
         mock_filter = MagicMock()
@@ -158,10 +157,9 @@ class BroadcastHandlerTest(TestCase):
     def _assert_dispatch_skip_audit(
         self, audit_line: str, *, expected_version_status: str
     ) -> None:
-        """Assert the unified ``[BroadcastDispatch] skipped_due_to_status``
-        audit log shape per FR-039 + FR-044 (US3 / T029):
-        prefix, top-level ``project_uuid`` + ``vtex_account``, ``agent``,
-        ``template``, ``version_status``, and the ``event`` payload.
+        """Assert the unified Dispatch-gate skip audit shape.
+
+        Anchor: FR-039 + FR-044 (top-level tenant keys).
         """
         self.assertIn("[BroadcastDispatch] skipped_due_to_status:", audit_line)
         self.assertIn(f"project_uuid={self.mock_agent.project.uuid}", audit_line)
@@ -174,7 +172,7 @@ class BroadcastHandlerTest(TestCase):
         self.assertIn("event=", audit_line)
 
     def test_get_current_template_paused_returns_none_and_logs_audit(self):
-        """Story 3 AS1 + FR-039 unified Dispatch-gate skip shape (T029)."""
+        """PAUSED returns None and logs unified shape. Anchor: FR-039."""
         data = {
             "template": "order_update",
             "contact_urn": "whatsapp:5511",
@@ -211,7 +209,7 @@ class BroadcastHandlerTest(TestCase):
         self.assertIn("ORDER-1", audit_lines[0])
 
     def test_get_current_template_flagged_returns_none_and_logs_audit(self):
-        """Story 3 AS2 — same assertion for FLAGGED (T029)."""
+        """FLAGGED returns None and logs unified shape. Anchor: FR-039."""
         data = {
             "template": "order_update",
             "contact_urn": "whatsapp:5511",
@@ -244,12 +242,7 @@ class BroadcastHandlerTest(TestCase):
         self.assertIn("ORDER-2", audit_lines[0])
 
     def test_get_current_template_not_found_emits_unified_audit_shape(self):
-        """T029 — when no Template row matches the requested name,
-        ``get_current_template`` emits the unified audit shape with
-        ``version_status=NOT_FOUND`` (FR-027 Exception clause / FR-039
-        "Dispatch-gate skip (unified shape)"). Replaces the per-name miss
-        legacy line previously emitted at this gate.
-        """
+        """No row matched emits NOT_FOUND. Anchor: FR-027 Exception / FR-039."""
         data = {
             "template": "order_update",
             "contact_urn": "whatsapp:5511",
@@ -277,8 +270,6 @@ class BroadcastHandlerTest(TestCase):
         )
         self.assertIn("ORDER-3", audit_lines[0])
 
-        # The previously-legacy per-name miss line MUST NOT be emitted at
-        # this gate anymore (FR-027 Exception clause).
         self.assertEqual(
             [
                 msg
@@ -289,10 +280,7 @@ class BroadcastHandlerTest(TestCase):
         )
 
     def test_get_current_template_returns_template_after_resume_to_approved(self):
-        """Story 3 AS3 / SC-006 — after the version flips back to
-        APPROVED the next call returns the Template and emits no new
-        audit log entry (T029).
-        """
+        """APPROVED resume returns the Template and emits no new audit line."""
         data = {"template": "order_update", "contact_urn": "whatsapp:5511"}
         approved_template = MagicMock()
         approved_template.current_version.template_name = "order_update_v3"
@@ -319,16 +307,7 @@ class BroadcastHandlerTest(TestCase):
     def test_get_current_template_non_approved_other_states_emit_unified_audit_shape(
         self,
     ):
-        """T029 — pre-existing non-APPROVED states (PENDING, REJECTED,
-        IN_APPEAL, LOCKED, DISABLED, DELETED, PENDING_DELETION) emit the
-        SAME unified ``[BroadcastDispatch] skipped_due_to_status`` audit
-        shape as PAUSED/FLAGGED, with the actual status as the
-        ``version_status`` discriminator (FR-027 Exception clause /
-        FR-039 "Dispatch-gate skip (unified shape)"). Replaces the prior
-        regression that asserted these states KEPT the legacy
-        ``"Template not found ..."`` line — that line is now consolidated
-        into the audit shape at this gate.
-        """
+        """Pre-existing non-APPROVED states emit unified shape. Anchor: FR-027 / FR-039."""
         legacy_states = [
             "PENDING",
             "REJECTED",
@@ -382,17 +361,11 @@ class BroadcastHandlerTest(TestCase):
                         in msg
                     ],
                     [],
-                    f"state={state} must NOT emit the legacy per-name miss line "
-                    "(consolidated by FR-027 Exception clause)",
+                    f"state={state} must NOT emit the legacy per-name miss line",
                 )
 
     def test_get_current_template_paused_emits_audit_on_each_call(self):
-        """Spec edge case 'concurrent broadcasts targeting the same
-        paused template' — two sequential ``get_current_template``
-        calls against the same PAUSED template both return ``None`` and
-        both emit the audit log entry (proves the gate is per-event
-        and stateless) (T029).
-        """
+        """Two PAUSED calls each emit one audit line (per-event, stateless)."""
         data = {"template": "order_update", "contact_urn": "whatsapp:5511"}
         paused_template = MagicMock()
         paused_template.name = "order_update"
@@ -421,11 +394,7 @@ class BroadcastHandlerTest(TestCase):
             )
 
     def test_get_current_template_issues_single_filter_call(self):
-        """T031 strategy pin — ``get_current_template`` MUST issue
-        exactly one ``templates.filter(...)`` call per invocation. A
-        regression that re-introduced a sibling fallback query would
-        fail this test even on the happy path.
-        """
+        """Single-query strategy pin: exactly one ``templates.filter()`` per call."""
         data = {"template": "order_update", "contact_urn": "whatsapp:5511"}
         approved_template = MagicMock()
         approved_template.current_version.status = "APPROVED"
@@ -1057,29 +1026,10 @@ class BroadcastRecordingTest(TestCase):
 
 
 class LegacyBuildMessageSkippedOnNonApprovedStateTest(TestCase):
-    """T035 (US4 / Story 4 AS2 — FR-008 / FR-027 / FR-039 / FR-046).
+    """Legacy cohort path-independent dispatch gate.
 
-    For a Direct Send-DISABLED ``IntegratedAgent``, when the named
-    template's ``current_version.status`` is one of the pre-existing
-    non-``APPROVED`` states (PENDING, REJECTED, IN_APPEAL, LOCKED,
-    DISABLED, DELETED, PENDING_DELETION), ``Broadcast.build_message``
-    MUST:
-
-    - return ``None`` (no payload built, no Flows call follows),
-    - emit the **unified** ``[BroadcastDispatch] skipped_due_to_status:``
-      audit log via ``get_current_template`` (FR-027 Exception clause +
-      FR-039 "Dispatch-gate skip (unified shape)"),
-    - emit the legacy downstream ``"Template not found or has no
-      approved current version"`` warning UNCHANGED (FR-027 + FR-039
-      "Legacy downstream miss"),
-    - NOT invoke either ``build_broadcast_template_message`` or
-      ``build_direct_send_message``.
-
-    The dispatch gate is path-independent — same shape, same behavior on
-    the Direct Send and legacy cohorts. This test pins the assertion for
-    the legacy cohort specifically; the Direct Send cohort is covered by
-    the unified-shape regression in
-    ``test_get_current_template_non_approved_other_states_emit_unified_audit_shape``.
+    Anchor: FR-027 + FR-039 + FR-046 (the Direct Send cohort regression
+    lives in ``test_get_current_template_non_approved_other_states_emit_unified_audit_shape``).
     """
 
     _LEGACY_NON_APPROVED_STATES = [
@@ -1103,8 +1053,6 @@ class LegacyBuildMessageSkippedOnNonApprovedStateTest(TestCase):
         self.integrated_agent.channel_uuid = uuid4()
         self.integrated_agent.project.uuid = uuid4()
         self.integrated_agent.project.vtex_account = "legacy-store"
-        # Direct Send DISABLED — key absent from config (FR-001 / FR-005:
-        # absence is the canonical legacy marker).
         self.integrated_agent.config = {}
 
     def _stub_template_lookup(self, template):
@@ -1152,7 +1100,7 @@ class LegacyBuildMessageSkippedOnNonApprovedStateTest(TestCase):
                 self.assertEqual(
                     len(unified_audit_lines),
                     1,
-                    f"state={state} must emit the unified FR-039 audit line; "
+                    f"state={state} must emit one unified audit line; "
                     f"got: {captured.output}",
                 )
 
@@ -1164,7 +1112,6 @@ class LegacyBuildMessageSkippedOnNonApprovedStateTest(TestCase):
                 self.assertEqual(
                     len(downstream_miss_lines),
                     1,
-                    f"state={state} must keep the legacy downstream miss line "
-                    f"per FR-027 + FR-039 'Legacy downstream miss'; "
+                    f"state={state} must keep the legacy downstream miss line; "
                     f"got: {captured.output}",
                 )

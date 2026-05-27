@@ -1,15 +1,7 @@
-"""Tests for ``Broadcast.build_direct_send_message`` (T011 cluster).
+"""Regression guards for ``Broadcast.build_direct_send_message``.
 
-Covers Story 1 acceptance scenarios — happy-path wire shape (AS1 /
-AS2 / AS3), quick-reply buttons (T011a), and the three Direct Send
-refusal classes — naming-rule (T011b), empty-body /
-component-length-limit (T011c), and the no-local-template edge case
-that routes through ``Broadcast.build_message`` (T011d).
-
-The audit-log shape pinned by these tests matches FR-039's
-``[BroadcastDispatch] skipped_due_to_direct_send_validation: ...``
-catalogue: ``project_uuid`` is the top-level key (FR-044), ``reason``
-is one of ``{naming_rule, empty_body, component_length_limit}``.
+Anchor: FR-014a / FR-014b / FR-014c / FR-014d / FR-017 / FR-039 /
+FR-044 (enforced at ``retail.agents.domains.agent_webhook.services.broadcast``).
 """
 
 import logging
@@ -62,23 +54,14 @@ def _make_integrated_agent(*, project_uuid=None, agent_uuid=None, direct_send=Tr
 
 
 class BuildDirectSendMessageHappyPathTest(TestCase):
-    """Story 1 AS1 / AS2 / AS3 — happy-path wire shape (T011)."""
+    """Happy-path Direct Send wire shape. Anchor: FR-014a / FR-014c / FR-014d."""
 
     def setUp(self):
         self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
         self.integrated_agent = _make_integrated_agent()
 
     def test_as1_body_with_two_variables_substituted_and_direct_send_flag(self):
-        """AS1 — canonical Direct Send wire shape (FR-014c / FR-014d).
-
-        On the Direct Send dispatch path the substituted body is carried
-        under ``msg.text`` (FR-014d) and the local template name under
-        ``msg.direct_send_template_name`` (FR-014c). The wire MUST NOT
-        carry ``msg.template`` or ``msg.locale`` / ``msg.language``
-        (FR-014c(a) / FR-014c(f)) — locale is computed internally for
-        ``BroadcastMessage`` persistence and datalake events but is
-        intentionally omitted from the outbound payload.
-        """
+        """Canonical Direct Send wire shape. Anchor: FR-014c / FR-014d."""
         template = _make_template(
             body="Olá {{1}}, seu pedido {{2}} foi enviado.",
         )
@@ -114,10 +97,7 @@ class BuildDirectSendMessageHappyPathTest(TestCase):
         self.assertNotIn("attachments", result["msg"])
 
     def test_as2_image_header_and_cta_url_button(self):
-        """AS2 with FR-014a wire shape: CTA URL is emitted via
-        ``msg.interaction_type`` + ``msg.cta_message`` siblings, NOT
-        inside ``msg.buttons`` (which is LEGACY-ONLY).
-        """
+        """CTA URL is emitted via ``msg.cta_message``. Anchor: FR-014a."""
         template = _make_template(
             body="Olá {{1}}, seu pedido {{2}} chegou.",
             header={"header_type": "IMAGE", "text": "image-placeholder"},
@@ -236,21 +216,7 @@ class BuildDirectSendMessageHappyPathTest(TestCase):
 
 
 class BuildDirectSendMessageQuickReplyWireShapeTest(TestCase):
-    """T114 / FR-014b — QUICK_REPLY wire shape relocation.
-
-    On the Direct Send dispatch path, Quick Reply buttons MUST be
-    emitted as a top-level flat array of post-substitution title strings
-    on ``msg``: ``msg.quick_replies = ["title 1", ...]`` (no wrapping
-    object, no ``sub_type`` / ``id`` field). The QUICK_REPLY entries
-    MUST NOT appear inside ``msg.buttons`` — combined with FR-014a,
-    the Direct Send path NEVER emits a ``msg.buttons`` key.
-
-    SUPERSEDES the previous ``BuildDirectSendMessageQuickReplyButtonsTest``
-    class which asserted the pre-FR-014b ``msg.buttons[*].sub_type=reply``
-    shape (T011a). The original assertions were dropped from the
-    coverage floor when T011a was marked ``[~] SUPERSEDED by T114``;
-    this class restores coverage on the canonical wire shape.
-    """
+    """QUICK_REPLY wire shape on Direct Send. Anchor: FR-014b."""
 
     def setUp(self):
         self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
@@ -299,10 +265,7 @@ class BuildDirectSendMessageQuickReplyWireShapeTest(TestCase):
         self.assertEqual(result["msg"]["quick_replies"], ["Sim", "Não", "Cancelar"])
 
     def test_id_field_is_not_carried_on_the_wire(self):
-        """Meta's library catalog ``id`` field is intentionally NOT
-        propagated to the Direct Send wire shape. Each element of
-        ``msg.quick_replies`` MUST be a plain string, not a dict.
-        """
+        """Meta's catalog ``id`` is dropped at the wire. Anchor: FR-014b."""
         template = _make_template(
             body="Body",
             buttons=[{"type": "QUICK_REPLY", "id": "yes_track", "text": "Acompanhar"}],
@@ -348,9 +311,7 @@ class BuildDirectSendMessageQuickReplyWireShapeTest(TestCase):
         )
 
     def test_combined_url_and_quick_replies_emit_parallel_siblings(self):
-        """FR-014b(f) — combined-case regression guard. Both surfaces
-        are independent on the wire and neither suppresses the other.
-        """
+        """URL + QUICK_REPLY surfaces are independent. Anchor: FR-014b(f)."""
         template = _make_template(
             body="Olá.",
             buttons=[
@@ -391,7 +352,7 @@ class BuildDirectSendMessageQuickReplyWireShapeTest(TestCase):
 
 
 class BuildDirectSendMessageNamingRuleRefusalTest(TestCase):
-    """FR-017 / Decision 7 — naming-rule refusal (T011b)."""
+    """Naming-rule refusal path. Anchor: FR-017 / Research Decision 7."""
 
     def setUp(self):
         self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
@@ -437,12 +398,7 @@ class BuildDirectSendMessageNamingRuleRefusalTest(TestCase):
 
 
 class BuildDirectSendMessageMissingContactUrnTest(TestCase):
-    """Defensive guard — caller did not provide ``contact_urn``.
-
-    The rule engine MUST hand the recipient URN to dispatch; when it
-    doesn't, ``build_direct_send_message`` logs an ERROR and returns
-    ``None`` so no payload is emitted to Flows.
-    """
+    """Defensive guard against missing ``contact_urn``."""
 
     def setUp(self):
         self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
@@ -590,10 +546,7 @@ class BuildDirectSendMessageLengthAndEmptyBodyRefusalTest(TestCase):
         self._assert_refusal_reason(captured.output, "component_length_limit")
 
     def test_cta_button_url_over_20_chars_is_allowed(self):
-        """``url`` is NOT length-checked at this gate (contract §3.3 —
-        URLs can be much longer than the 20-char ``display_text`` ceiling).
-        With FR-014a the URL is read from ``msg.cta_message.url``.
-        """
+        """``url`` bypasses the 20-char gate per contract §3.3."""
         long_url = "https://loja.com/track/" + "x" * 100
         template = _make_template(
             body="Olá.",
@@ -616,22 +569,7 @@ class BuildDirectSendMessageLengthAndEmptyBodyRefusalTest(TestCase):
 
 
 class BuildDirectSendMessageCtaUrlWireShapeTest(TestCase):
-    """T113 / FR-014a — CTA URL wire shape relocation.
-
-    On the Direct Send dispatch path, a CTA URL button (sourced from a
-    Meta library template ``buttons`` entry of ``type: "URL"``) MUST be
-    emitted on the wire as a top-level discriminator + sibling
-    sub-object on ``msg``: ``msg.interaction_type = "cta_url"`` +
-    ``msg.cta_message = {display_text: <substituted>, url: <substituted>}``.
-    The CTA URL entry MUST NOT appear inside ``msg.buttons``.
-
-    Variable substitution (FR-013) applies to BOTH
-    ``cta_message.display_text`` and ``cta_message.url``. The 20-char
-    post-substitution length validation continues to be enforced —
-    relocated from ``msg.buttons[*].display_text`` to
-    ``msg.cta_message.display_text``. The URL itself is NOT length-checked
-    here (contract §3.3 — URLs can be up to 2000 chars).
-    """
+    """CTA URL wire shape on Direct Send. Anchor: FR-013 / FR-014a."""
 
     def setUp(self):
         self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
@@ -755,14 +693,7 @@ class BuildDirectSendMessageCtaUrlWireShapeTest(TestCase):
 
 
 class BuildMessageNoLocalTemplateEdgeCaseTest(TestCase):
-    """Spec edge case — Direct Send-enabled agent with no local template (T011d).
-
-    The dispatch must converge on the existing "template not found"
-    skip path: ``build_direct_send_message`` is NOT invoked, no
-    payload is built, no ``BroadcastMessage`` is persisted, and the
-    legacy WARNING shape (preserved bit-for-bit per FR-027 / FR-039)
-    is the only log line emitted.
-    """
+    """Direct Send-enabled agent with no local template. Anchor: FR-027 / FR-039."""
 
     def setUp(self):
         self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
@@ -793,19 +724,7 @@ class BuildMessageNoLocalTemplateEdgeCaseTest(TestCase):
 
 
 class BuildDirectSendMessageTemplateNameWireShapeTest(TestCase):
-    """T116 / FR-014c — drop ``msg.template``, add
-    ``msg.direct_send_template_name``, drop wire locale.
-
-    On the Direct Send dispatch path the canonical wire shape carries
-    the local template name on the top-level sibling key
-    ``msg.direct_send_template_name``; the nested ``msg.template``
-    block emitted by earlier revisions is forbidden (FR-014c(a)).
-    Locale is computed internally for ``BroadcastMessage`` persistence
-    and datalake events but is NOT emitted on the wire — neither under
-    ``msg.template.locale`` (forbidden by FR-014c(a)) nor under
-    sibling keys ``msg.locale`` / ``msg.language`` (forbidden by
-    FR-014c(f)).
-    """
+    """Template-name wire shape on Direct Send. Anchor: FR-014c."""
 
     def setUp(self):
         self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
@@ -844,13 +763,7 @@ class BuildDirectSendMessageTemplateNameWireShapeTest(TestCase):
             result["msg"]["direct_send_template_name"]["name"]  # noqa: B018
 
     def test_locale_is_dropped_from_the_wire(self):
-        """FR-014c(f) — no language hint on the wire.
-
-        The internal locale resolution helper (``_resolve_language``)
-        MUST still be invoked for persistence / datalake purposes; we
-        capture that side via ``_resolve_language`` being callable on
-        the handler (it remains a method, never deleted).
-        """
+        """No language hint on the wire. Anchor: FR-014c(f)."""
         template = _make_template(
             name="weni_order_shipped", body="Olá.", language="es_MX"
         )
@@ -867,10 +780,7 @@ class BuildDirectSendMessageTemplateNameWireShapeTest(TestCase):
         self.assertTrue(callable(getattr(self.handler, "_resolve_language", None)))
 
     def test_naming_rule_refusal_still_gates_the_wire_identifier(self):
-        """FR-014c(b) + FR-017 — invalid template names MUST be refused
-        BEFORE any wire emission so an invalid identifier never lands
-        in ``msg.direct_send_template_name``.
-        """
+        """Naming-rule gate runs before wire emission. Anchor: FR-014c(b) / FR-017."""
         template = _make_template(name="Weni-Order-Invoiced", body="Olá.")
         data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
         with self.assertLogs(_BUILDER_LOGGER, level=logging.WARNING) as captured:
@@ -887,12 +797,7 @@ class BuildDirectSendMessageTemplateNameWireShapeTest(TestCase):
         )
 
     def test_audit_log_keeps_template_field_unchanged(self):
-        """FR-014c(d) — the audit-log ``template={...}`` field is
-        INTERNAL observability and MUST NOT be renamed alongside the
-        wire-shape relocation. Log consumers continue to filter on
-        ``template=<template_name>`` regardless of the wire-emission
-        location of the same value.
-        """
+        """Audit-log ``template=`` field is not renamed. Anchor: FR-014c(d)."""
         template = _make_template(name="weni_order_empty", body="")
         data = {"template_variables": {}, "contact_urn": "whatsapp:55"}
         with self.assertLogs(_BUILDER_LOGGER, level=logging.WARNING) as captured:
@@ -911,14 +816,7 @@ class BuildDirectSendMessageTemplateNameWireShapeTest(TestCase):
 
 
 class BuildDirectSendMessageBodyTextRenameWireShapeTest(TestCase):
-    """T117 / FR-014d — rename wire key ``msg.body`` → ``msg.text``.
-
-    Wire-only rename: ``Template.metadata["body"]`` storage,
-    ``MAX_BODY_LENGTH`` constant, the ``reason=empty_body`` audit-log
-    discriminator, and local variable identifiers are preserved
-    unchanged (FR-014d(c)). Only the outbound JSON-key spelling
-    changes on the Direct Send path.
-    """
+    """Wire-only ``msg.body`` -> ``msg.text`` rename. Anchor: FR-014d."""
 
     def setUp(self):
         self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
@@ -987,12 +885,7 @@ class BuildDirectSendMessageBodyTextRenameWireShapeTest(TestCase):
         )
 
     def test_length_check_runs_against_substituted_body_not_wire_key(self):
-        """FR-014d(e) — the gate reads from the local
-        ``substituted_body`` variable, NOT from ``msg["body"]`` or
-        ``msg["text"]``. Refusal happens BEFORE ``msg`` is assembled,
-        so the wire-key rename cannot change where the limit reads
-        from.
-        """
+        """Length gate reads ``substituted_body`` pre-assembly. Anchor: FR-014d(e)."""
         long_body = "x" * 2048
         template = _make_template(body=long_body)
         data = {"template_variables": {}, "contact_urn": "whatsapp:55"}

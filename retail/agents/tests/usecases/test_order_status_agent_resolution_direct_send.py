@@ -1,13 +1,4 @@
-"""FR-031 official-agent precedence regression on the Direct Send
-cohort (T014b).
-
-When the order-status resolution finds BOTH an official agent
-(matched on ``settings.ORDER_STATUS_AGENT_UUID``) AND a custom agent
-with ``parent_agent_uuid`` for the same project, the official agent
-MUST take precedence — a single event MUST NEVER dispatch through
-both agents simultaneously. This regression test pins that contract
-specifically for the Direct Send cohort.
-"""
+"""Direct Send official-agent precedence regression. Anchor: FR-031."""
 
 import logging
 

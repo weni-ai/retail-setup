@@ -1,19 +1,4 @@
-"""Unit tests for ``ValidateTemplateSampleUseCase`` happy paths (T017 / US1).
-
-Mocks the ``MetaService`` boundary so no live external provider is
-involved (Constitution Principle III). Each test asserts the four
-US1 acceptance properties:
-
-- Local state outcome (Version + Template.current_version + metadata).
-- Result wrapper shape (``category``, ``template_updated``).
-- Audit-log sequence with the FR-008b log-level discipline.
-- Wire-shape correctness on the outbound Meta call (for shape-specific cells).
-
-US2 lockstep tests (T020 / T021) also live here — they pin the
-metadata-shape parity between the sample endpoint and the legacy
-PATCH endpoint, and the FR-006 / A10 guarantee that the sample
-endpoint NEVER fires ``task_create_template.delay(...)``.
-"""
+"""Tests for ``ValidateTemplateSampleUseCase``. Anchor: FR-006 / FR-008b."""
 
 import logging
 from unittest.mock import MagicMock, patch
@@ -64,15 +49,7 @@ _WABA_ID = "987654321"
     META_SYSTEM_USER_ACCESS_TOKEN="test-token",
 )
 class _UseCaseTestBase(TestCase):
-    """Shared fixtures: Direct Send-eligible Template + mocked integrations.
-
-    Per the 2026-05-26 clarification (FR-005a / A2), the use case now
-    resolves the WABA id via ``IntegrationsService.get_channel_app(
-    "wpp-cloud", app_uuid)`` instead of reading a local ``ProjectOnboarding``
-    row. Tests inject a ``MagicMock(spec=IntegrationsServiceInterface)``
-    whose ``get_channel_app`` returns the canonical
-    ``{"config": {"waba": {"id": _WABA_ID}}}`` shape (Phase 3b).
-    """
+    """Shared fixtures: Direct Send-eligible Template + mocked integrations."""
 
     def setUp(self):
         super().setUp()
@@ -399,7 +376,7 @@ class BlockedProjectStillProcessesTest(_UseCaseTestBase):
 
 
 class DirectSendEligibilityGateTest(_UseCaseTestBase):
-    """Pre-condition gate (FR-002a) — verify gating happens BEFORE Meta call."""
+    """Eligibility gate runs before the Meta call. Anchor: FR-002a."""
 
     def test_template_without_integrated_agent_raises_not_eligible(self):
         non_eligible_template = Template.objects.create(
@@ -426,15 +403,7 @@ class DirectSendEligibilityGateTest(_UseCaseTestBase):
 
 
 class ZeroProjectOnboardingQueryRegressionTest(_UseCaseTestBase):
-    """T036 step 3 — pin that ``ProjectOnboarding`` is never read.
-
-    Per the 2026-05-26 clarification + data-model.md §3, the WABA-id
-    resolution flows exclusively through
-    ``IntegrationsService.get_channel_app(...)``. A regression that
-    re-introduces a ``ProjectOnboarding.objects.*`` read would silently
-    degrade the SC-008 / FR-005a guarantee that the integrations engine
-    is the sole authoritative source for channel-app state.
-    """
+    """WABA resolution never reads ``ProjectOnboarding``. Anchor: FR-005a / SC-008."""
 
     def test_utility_request_never_reads_project_onboarding(self):
         self.meta_service.submit_template_sample.return_value = {
@@ -458,17 +427,7 @@ class ZeroProjectOnboardingQueryRegressionTest(_UseCaseTestBase):
 
 
 class LegacyPatchEndpointMetadataParityTest(_UseCaseTestBase):
-    """T020 / US2 — sample-endpoint metadata MUST equal legacy PATCH metadata.
-
-    Both endpoints write ``Template.metadata`` through the SAME
-    refactored helper ``UpdateNormalTemplateStrategy._build_and_persist_metadata``
-    (Phase 2 / T008). A regression that diverged the two paths would
-    silently break the SC-005 / US2 promise that the frontend can
-    swap the legacy PATCH and the new sample endpoint without ANY
-    rendering difference. This test submits byte-identical input
-    payloads through both paths against two sibling templates and
-    asserts the resulting ``metadata`` dicts are equal.
-    """
+    """Sample / legacy PATCH metadata parity. Anchor: SC-005."""
 
     def _build_legacy_template(self) -> Template:
         return Template.objects.create(
@@ -535,17 +494,7 @@ class LegacyPatchEndpointMetadataParityTest(_UseCaseTestBase):
 
 
 class TaskCreateTemplateNotFiredTest(_UseCaseTestBase):
-    """T021 / US2 — sample endpoint MUST NOT push to Integrations on UTILITY.
-
-    Per FR-006 / A10, ``task_create_template.delay(...)`` is structurally
-    absent from the sample-endpoint composition because Direct Send
-    dispatch reads local ``Template.metadata`` directly and an
-    Integrations push would race with the next Direct Send broadcast
-    (Meta error 132021 "A template with the same name already exists"
-    per ``docs/direct-send-api-beta-integration.md:976``). A regression
-    that re-introduced the push would silently break the next Direct
-    Send dispatch after every operator edit.
-    """
+    """Sample endpoint MUST NOT push to Integrations. Anchor: FR-006."""
 
     @patch(TASK_CREATE_TEMPLATE_PATH)
     def test_utility_classification_does_not_enqueue_create_template_task(
@@ -563,19 +512,7 @@ class TaskCreateTemplateNotFiredTest(_UseCaseTestBase):
 
 
 class _FailurePathAssertionMixin:
-    """Shared assertions for US3 failure-path tests (T022–T027c).
-
-    Centralizes the three structural guarantees every failure path
-    MUST honor per FR-005c / FR-006c / spec.md US3:
-
-    - The local template's ``metadata``, ``current_version``, and the
-      current Version's ``status`` are byte-identical pre/post (no
-      side-effects on a failure path).
-    - The audit log emits the FR-008a-mandated event at the
-      FR-008b-mandated log level.
-    - The Meta sample API is NOT called on pre-Meta failure paths
-      (callers opt in by passing ``meta_call_expected=False``).
-    """
+    """Shared failure-path assertions. Anchor: FR-005c / FR-006c / FR-008a / FR-008b."""
 
     def _snapshot_local_state(self, template: Template) -> dict:
         return {
@@ -601,17 +538,7 @@ class _FailurePathAssertionMixin:
 
 
 class MetaUnavailableErrorPathTest(_FailurePathAssertionMixin, _UseCaseTestBase):
-    """T022 / US3 — Meta-unavailable propagates as MetaSampleUnavailableError.
-
-    Two failure modes flow through ``_call_meta_sample_api`` and the
-    ``except`` blocks: (a) ``CustomAPIException`` raised by the Meta
-    client (HTTP 5xx, network timeout — carries a parseable error
-    envelope); (b) any other unexpected exception (carries no
-    envelope). Both surface as ``MetaSampleUnavailableError`` per
-    FR-005c, preserve the original ``status_code`` / ``meta_response``
-    when present, and emit ``meta_error`` at ERROR level with
-    ``exc_info=True`` per FR-008b.
-    """
+    """Meta-unavailable -> ``MetaSampleUnavailableError``. Anchor: FR-005c."""
 
     def test_custom_api_exception_propagates_with_envelope_and_status_code(self):
         upstream_envelope = {"error": {"message": "rate limited", "code": 130472}}
@@ -658,16 +585,7 @@ class MetaUnavailableErrorPathTest(_FailurePathAssertionMixin, _UseCaseTestBase)
 
 
 class MetaInvalidResponseErrorPathTest(_FailurePathAssertionMixin, _UseCaseTestBase):
-    """T023 / US3 — Meta returned HTTP 200 but the body is unusable.
-
-    Four invalid response shapes collapse to ``MetaInvalidResponseError``
-    per FR-005b / FR-005c: ``success: false`` (even when ``category``
-    is present — success-false wins), missing ``category`` key, empty
-    ``category`` string, and ``success: false`` together with a present
-    ``category``. The exception preserves the raw Meta body verbatim
-    so the view's HTTP 502 response can carry it (FR-007b). The
-    ``meta_invalid_response`` event fires at WARNING per FR-008b.
-    """
+    """Meta 200 with unusable body -> ``MetaInvalidResponseError``. Anchor: FR-005b."""
 
     INVALID_META_BODIES = [
         ("success_false_with_error_envelope", {"success": False, "error": {"code": 1}}),
@@ -706,21 +624,7 @@ class MetaInvalidResponseErrorPathTest(_FailurePathAssertionMixin, _UseCaseTestB
 
 
 class WabaNotConfiguredErrorPathTest(_FailurePathAssertionMixin, _UseCaseTestBase):
-    """T024 / US3 — WABA-not-configured collapses three modes to one error.
-
-    Per the 2026-05-26 Q3 clarification, three integrations-side
-    failure modes — infra failure (``None``), no app for the supplied
-    ``app_uuid`` (also ``None``), and app exists but config has no
-    ``waba_id`` — all surface as ``WabaNotConfiguredError``. The
-    audit-log ``integrations_response_present`` discriminates infra /
-    missing-app (``False``) from app-exists-but-no-waba (``True``)
-    per FR-008a. The Meta API is NOT called on any of the five cases
-    (gate runs upstream of the Meta call per FR-005a ordering).
-
-    Also pins the data-model.md §3 regression: ``ProjectOnboarding``
-    is never read by this endpoint — the integrations engine is the
-    sole authoritative source for WABA-id resolution.
-    """
+    """WABA resolution failures collapse to one error. Anchor: FR-005a / FR-008a."""
 
     INFRA_FAILURE_CASE = (
         "infra_failure_service_swallowed_custom_api_exception",
@@ -799,18 +703,7 @@ class WabaNotConfiguredErrorPathTest(_FailurePathAssertionMixin, _UseCaseTestBas
 
 
 class NotDirectSendEligibleErrorPathTest(_FailurePathAssertionMixin, _UseCaseTestBase):
-    """T025 / US3 — non-eligible templates fail upstream of WABA + Meta.
-
-    Three eligibility-failure modes per data-model.md §4: (a) the
-    template has no ``IntegratedAgent`` FK (custom template never
-    assigned), (b) the agent's ``config`` is empty, (c) the agent's
-    ``config["direct_send"]`` is falsy. The gate runs BEFORE WABA
-    resolution and BEFORE the Meta call per data-model.md §9
-    sequencing — both upstreams MUST be untouched on any of the
-    three failure modes. The ``not_direct_send_eligible`` event
-    fires at WARNING level per FR-008b carrying the IntegratedAgent
-    UUID (or ``None``) and the resolved flag.
-    """
+    """Eligibility gate runs upstream of WABA + Meta. Anchor: FR-002a / FR-008b."""
 
     def test_orphan_template_without_integrated_agent_raises(self):
         orphan_template = Template.objects.create(
@@ -889,18 +782,7 @@ class NotDirectSendEligibleErrorPathTest(_FailurePathAssertionMixin, _UseCaseTes
 
 
 class PartialFailureAfterUtilityPathTest(_FailurePathAssertionMixin, _UseCaseTestBase):
-    """T027 / US3 — local update fails AFTER Meta classified as UTILITY.
-
-    When Meta has already classified the sample as UTILITY but the
-    local update raises (DB write fails, S3 upload fails), the use
-    case re-raises the original exception unmodified — there is no
-    rollback of the Meta sample because Meta's sample API is
-    fire-and-forget per FR-006c. The
-    ``local_update_failed_after_meta_approval`` event fires at ERROR
-    level with ``exc_info=True`` AND carries the Meta sample id when
-    Meta returned one — that id is the only thread an operator can
-    grep against the Meta-side log trail.
-    """
+    """Local update failure after Meta UTILITY. Anchor: FR-006c."""
 
     def test_strategy_failure_after_utility_propagates_and_emits_error_event(self):
         mock_strategy = MagicMock()
@@ -938,20 +820,7 @@ class PartialFailureAfterUtilityPathTest(_FailurePathAssertionMixin, _UseCaseTes
 
 
 class FlaggedToApprovedRecoveryChannelTest(_UseCaseTestBase):
-    """T027c / US3 — sample endpoint is the third FLAGGED → APPROVED channel.
-
-    Spec.md Edge Case "FLAGGED → APPROVED via sample endpoint":
-    when spec 003's ``template_correct_category_detection`` webhook
-    flags a template (Meta downgraded its category), the operator
-    can recover by re-submitting through the sample endpoint with a
-    UTILITY-classifying payload. A new APPROVED Version is created
-    and ``current_version`` advances to it; the prior FLAGGED Version
-    is retained verbatim in ``template.versions`` so the audit trail
-    survives. The ``template_updated`` audit-log line carries
-    ``previous_current_version_status=FLAGGED`` per FR-008a /
-    data-model.md §1 — this is the operator-facing signal that the
-    sample-validation channel un-flagged the template.
-    """
+    """Sample endpoint as FLAGGED -> APPROVED recovery channel. Anchor: FR-008a."""
 
     def setUp(self):
         super().setUp()

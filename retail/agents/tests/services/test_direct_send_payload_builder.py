@@ -1,11 +1,4 @@
-"""Tests for the Direct Send payload-builder helpers (T010).
-
-Covers ``substitute_template_variables`` (regex-based ``{{N}}``
-substitution with whitespace tolerance, missing-index warning,
-extra-index silent ignore) and ``is_valid_direct_send_template_name``
-(Meta's snake_case + ≤ 512 chars rule — research Decision 7 /
-FR-017).
-"""
+"""Tests for the Direct Send payload-builder helpers. Anchor: FR-013 / FR-017."""
 
 import logging
 
@@ -151,13 +144,7 @@ class BuildDirectSendHeaderEdgeCasesTest(TestCase):
 
 
 class BuildDirectSendCtaMessageTest(TestCase):
-    """T113 / FR-014a — pure helper for the ``cta_message`` sub-object.
-
-    Returns ``None`` when no ``URL`` button is present (the dispatch
-    path skips ``msg.interaction_type`` / ``msg.cta_message``); returns
-    ``{display_text, url}`` for the single URL button per template
-    (FR-003f caps URL count at ≤1 at fetch time).
-    """
+    """Helper for the ``cta_message`` sub-object. Anchor: FR-014a."""
 
     def test_returns_none_when_metadata_has_no_buttons(self):
         result = build_direct_send_cta_message(
@@ -196,12 +183,7 @@ class BuildDirectSendCtaMessageTest(TestCase):
 
 
 class BuildDirectSendQuickRepliesTest(TestCase):
-    """T114 / FR-014b — pure helper for the ``quick_replies`` flat array.
-
-    Returns ``None`` when no ``QUICK_REPLY`` button is present; returns
-    a list of substituted title strings otherwise. The list length is
-    capped at ≤3 by FR-003f's fetch-time guard.
-    """
+    """Helper for the ``quick_replies`` flat array. Anchor: FR-014b."""
 
     def test_returns_none_when_metadata_has_no_buttons(self):
         result = build_direct_send_quick_replies(

@@ -1,30 +1,4 @@
-"""FR-028 / FR-029 / FR-030 / FR-039 dedup regression on the Direct
-Send cohort (T014a + T014c + T014d).
-
-Pins the canonical idempotency tuple
-``(project, integrated_agent.uuid, order_id, current_state)`` on the
-Direct Send path:
-
-- Two invocations with the same tuple collapse into ONE outbound
-  Flows POST and ONE ``BroadcastMessage`` row (T014a).
-- The second invocation emits the documented ``duplicate_skipped``
-  INFO log shape (FR-039, T014a).
-- The cache key matches the five-segment shape pinned by FR-029
-  (T014a).
-- Two invocations sharing ``(project, agent, order_id)`` but differing
-  in ``current_state`` MUST dispatch as TWO distinct logical broadcasts
-  (FR-030, T014c). Direct counter-evidence that the dedup gate keys on
-  ``current_state`` — a refactor dropping that component from the key
-  would silently merge two distinct logical broadcasts into one and
-  fail this test.
-- The unpause race (PAUSED → APPROVED flip during the dedup window of
-  an in-flight broadcast for the same template) MUST NOT auto-replay —
-  the dedup cache key was populated by the original PAUSED-skip
-  attempt, and the subsequent webhook (within the dedup window) skips
-  via the FR-028 duplicate-skip gate even though the version status is
-  now APPROVED (T014d). Pins the spec Edge Case "an event that arrived
-  during the dedup window of an earlier PAUSED-skip will NOT
-  auto-replay; the next webhook is the trigger".
+"""Direct Send dedup regression guards. Anchor: FR-028 / FR-029 / FR-030 / FR-039.
 
 The legacy cohort is already covered by the pre-feature dedup tests
 in ``test_order_status_update.py``; this file is the Direct
@@ -221,19 +195,7 @@ class OrderStatusDedupOnDirectSendTest(TestCase):
         self.assertEqual(segments[4], "shipped")
 
     def test_different_current_state_dispatches_as_distinct_logical_broadcasts(self):
-        """FR-030 (T014c): two events differing ONLY in ``current_state``
-        MUST both dispatch as separate logical broadcasts.
-
-        Same ``(project, integrated_agent.uuid, order_id)`` triple,
-        different ``current_state`` values → distinct dedup cache keys
-        → both pass the dedup gate → two outbound Flows POSTs → two
-        ``BroadcastMessage`` rows. ``BroadcastMessage`` does not store
-        ``current_state`` directly (the column is absent on the model,
-        see ``retail/broadcasts/models.py``); the two rows are matched
-        to their originating invocations via the distinct ``broadcast_id``
-        values returned by the Flows mock. The shared ``order_id``
-        confirms both rows belong to the same physical order.
-        """
+        """Different ``current_state`` -> distinct logical broadcasts. Anchor: FR-030."""
         self.flows_service.send_whatsapp_broadcast.side_effect = [
             {
                 "id": 9001,
@@ -300,29 +262,7 @@ class OrderStatusDedupOnDirectSendTest(TestCase):
         self.assertEqual(second_segments[4], "shipped")
 
     def test_unpause_race_within_dedup_window_does_not_auto_replay(self):
-        """T014d / spec Edge Case — PAUSED → APPROVED flip during the
-        dedup window of an in-flight broadcast for the same template
-        MUST NOT auto-replay.
-
-        Steps:
-        1. Template ``current_version.status`` starts at ``PAUSED``.
-        2. Invoke ``execute(...)`` once → dispatch is skipped via the
-           FR-039 unified ``[BroadcastDispatch] skipped_due_to_status``
-           audit shape; the dedup cache key IS populated (the dedup
-           gate accepted the event BEFORE the version-status read).
-        3. Flip the version status to ``APPROVED`` (simulating the
-           unpause race).
-        4. Invoke ``execute(...)`` again with the SAME canonical
-           idempotency tuple — the dedup gate now skips the event
-           via the FR-028 ``[ORDER_STATUS] duplicate_skipped`` audit
-           shape; no Flows POST and no ``BroadcastMessage`` row.
-
-        Pins the spec edge case "an event that arrived during the
-        dedup window of an earlier PAUSED-skip will NOT auto-replay;
-        the next webhook is the trigger" against a future refactor
-        that moved the version-status read BEFORE the dedup cache
-        write (which would silently re-fire the dispatch on unpause).
-        """
+        """Unpause race within dedup window does not auto-replay. Anchor: FR-028."""
         version = Version.objects.get(template__name="weni_order_shipped")
         version.status = "PAUSED"
         version.save(update_fields=["status"])

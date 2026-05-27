@@ -1,13 +1,6 @@
 """Validate-template-sample use case for the Direct Send pre-flight endpoint.
 
-This module hosts both the in-memory data classes and the orchestration
-behind ``POST /api/v3/templates/<uuid>/sample/`` (the feature pinned by
-``specs/004-template-sample-validation/``).
-
-The DTO is built by the view from
-``ValidateTemplateSampleSerializer.validated_data``; the result is
-shaped for ``Response(result.to_dict(), 200)`` per
-``contracts/sample-endpoint-request-response.md``.
+Anchor: ``specs/004-template-sample-validation/spec.md``.
 """
 
 import logging
@@ -45,14 +38,9 @@ LOG_TAG = "[TemplateSampleValidation]"
 class ValidateTemplateSampleDTO:
     """Validated, immutable payload passed from the view to the use case.
 
-    Built by the view from ``ValidateTemplateSampleSerializer.validated_data``;
-    consumed by ``ValidateTemplateSampleUseCase.execute(...)``. Carries the
-    nine validated input fields enumerated in ``data-model.md`` §7 — the
-    same field set the PATCH endpoint's ``UpdateTemplateContentSerializer``
-    accepts today (FR-003 / FR-014 — schema parity is a hard guarantee
-    so the frontend can call either endpoint with the same form state),
-    plus the ``template_uuid`` path-param the sample endpoint receives
-    on the URL.
+    Field set is schema-parallel with the PATCH endpoint's
+    ``UpdateTemplateContentSerializer`` plus the ``template_uuid``
+    path-param. Anchor: FR-003 / FR-014.
     """
 
     template_uuid: str
@@ -69,14 +57,8 @@ class ValidateTemplateSampleDTO:
 
 @dataclass(frozen=True)
 class ValidateTemplateSampleResult:
-    """Use-case return value shaped for the HTTP 200 response body.
-
-    The view shapes the HTTP body as ``Response(result.to_dict(), 200)``.
-    The wrapper exposes four top-level keys ``{category, template_updated,
-    template, meta_sample_response}`` per FR-007 / FR-007a, with the
-    ``template`` field serialized via the existing ``ReadTemplateSerializer``
-    so the frontend can substitute it directly into its display state
-    without re-fetching (SC-005).
+    """HTTP 200 response body shape ``{category, template_updated,
+    template, meta_sample_response}``. Anchor: FR-007 / FR-007a / SC-005.
     """
 
     category: str
@@ -96,14 +78,7 @@ class ValidateTemplateSampleResult:
 
 
 class EventName(str, Enum):
-    """Closed enumeration for the FR-008a ``event_name`` audit-log discriminator.
-
-    Every audit-log entry from the sample-validation endpoint MUST carry
-    exactly one of these tokens immediately after the
-    ``[TemplateSampleValidation]`` tag. Additive-only — future PRs MAY
-    add tokens but MUST NOT rename or remove existing ones (operator
-    dashboards filter on these literal strings).
-    """
+    """Closed audit-log ``event_name`` discriminator. Anchor: FR-008a (additive-only)."""
 
     RECEIVED = "received"
     META_SAMPLE_SUBMITTED = "meta_sample_submitted"
@@ -119,13 +94,7 @@ class EventName(str, Enum):
 
 
 class MetaSampleType(str, Enum):
-    """The Meta ``message_samples`` interactive sub-type, for audit logging.
-
-    Logged on the ``meta_sample_submitted`` event so dashboards can
-    compute the per-template-type sample-mix (text vs CTA URL vs reply
-    buttons) without re-parsing the request body. Pinned by
-    ``data-model.md`` §7.
-    """
+    """Meta ``message_samples`` interactive sub-type for audit logging."""
 
     TEXT = "text"
     INTERACTIVE_CTA_URL = "interactive.cta_url"
@@ -133,33 +102,14 @@ class MetaSampleType(str, Enum):
 
 
 class ValidateTemplateSampleUseCase:
-    """Orchestrate the ``POST /api/v3/templates/<uuid>/sample/`` happy path.
+    """Orchestrate the ``POST /api/v3/templates/<uuid>/sample/`` flow.
 
-    Loads the Template, gates on Direct-Send eligibility (FR-002a),
-    resolves the project's WABA id (FR-005a), translates the validated
-    DTO into Meta's ``message_samples`` wire shape (FR-004), submits the
-    sample to Meta (FR-005), and conditionally writes a new APPROVED
-    ``Version`` row + advances ``Template.current_version`` when Meta
-    classifies the sample as ``UTILITY`` (FR-006 / FR-006a / FR-006d).
-    Every observable step routes through ``_emit`` so the
-    ``[TemplateSampleValidation]`` audit-log shape is enforced
-    structurally (FR-008).
-
-    The use case is framework-agnostic per Constitution Principle I —
-    no rest_framework imports beyond the canonical ``NotFound`` raised
-    by the template-load step, which DRF translates into HTTP 404 (per
-    the legacy PATCH endpoint's precedent at
-    ``retail/templates/usecases/update_template_body.py``). All other
-    failure modes raise domain exceptions
-    (``NotDirectSendEligibleError`` / ``WabaNotConfiguredError`` /
-    ``MetaSampleUnavailableError`` / ``MetaInvalidResponseError``)
-    that the view translates into HTTP 400 / 502 responses per FR-007.
-
-    The serializer's FR-002b ``Project-Uuid`` header ↔ body
-    ``project_uuid`` equality check runs upstream; the use case treats
-    ``dto.project_uuid`` as the verified-trusted tenant identifier and
-    does not re-check the header (single point of enforcement on the
-    serializer layer per ``data-model.md`` §10).
+    Framework-agnostic except for DRF's ``NotFound`` on the
+    template-load miss (HTTP 404 parity with the legacy PATCH
+    endpoint). Domain failures raise dedicated exceptions translated
+    to HTTP 400/502 by the view. Anchor: FR-002a / FR-004 / FR-005
+    / FR-005a / FR-006 / FR-007 / FR-008 (see
+    ``specs/004-template-sample-validation/spec.md``).
     """
 
     _UTILITY_CATEGORY = "UTILITY"
@@ -212,12 +162,9 @@ class ValidateTemplateSampleUseCase:
         )
 
     def _load_template(self, template_uuid: str) -> Template:
-        """Load the template by UUID with the integrated agent prefetched.
+        """Load the template with the integrated agent prefetched.
 
-        ``select_related("integrated_agent")`` keeps the FR-002a gating
-        predicate a pure in-memory check after this single read. Raises
-        DRF's ``NotFound`` on miss so the view returns HTTP 404 (parity
-        with the legacy PATCH endpoint per FR-011).
+        Raises ``NotFound`` on miss -> HTTP 404. Anchor: FR-011.
         """
         try:
             return Template.objects.select_related("integrated_agent").get(
@@ -227,15 +174,7 @@ class ValidateTemplateSampleUseCase:
             raise NotFound(f"Template not found: {template_uuid}")
 
     def _gate_on_direct_send_eligibility(self, template: Template) -> None:
-        """FR-002a — refuse non-Direct-Send-eligible templates.
-
-        Two failure modes (``data-model.md`` §4): the template has no
-        ``IntegratedAgent`` FK (custom template never assigned), or the
-        agent's ``config["direct_send"]`` flag is falsy. Both surface as
-        a single ``NotDirectSendEligibleError`` distinguished only by
-        the audit-log ``direct_send_flag`` / ``integrated_agent_uuid``
-        fields so dashboards can split them at query time.
-        """
+        """Refuse non-Direct-Send-eligible templates. Anchor: FR-002a."""
         integrated_agent = template.integrated_agent
         direct_send_flag = (
             bool(integrated_agent.config.get(self._DIRECT_SEND_CONFIG_KEY))
@@ -254,19 +193,11 @@ class ValidateTemplateSampleUseCase:
         )
 
     def _resolve_waba_id(self, project_uuid: str, app_uuid: str) -> str:
-        """FR-005a / A2 — resolve the project's WABA id via integrations.
+        """Resolve the project's WABA id via integrations.
 
-        Calls ``IntegrationsService.get_channel_app("wpp-cloud", app_uuid)``
-        and reads ``app["config"]["waba"]["id"]`` — the same field path
-        ``ConfigureOneClickPaymentUseCase._fetch_channel_info`` consumes
-        at ``retail/projects/usecases/configure_one_click_payment.py:192``.
-        Three failure modes collapse to a single ``WabaNotConfiguredError``
-        per Q3-2026-05-26: (a) integrations infra failure (service returns
-        ``None`` after swallowing ``CustomAPIException``), (b) no app for
-        the supplied ``app_uuid`` (also ``None`` under the swallow
-        contract), (c) app exists but ``config["waba"]["id"]`` is missing
-        / empty. The audit-log ``integrations_response_present`` boolean
-        discriminates (a) / (b) from (c).
+        Three failure modes collapse to ``WabaNotConfiguredError``,
+        distinguishable via the ``integrations_response_present``
+        audit-log flag. Anchor: FR-005a.
         """
         app = self.integrations_service.get_channel_app(
             self._WPP_CLOUD_APPTYPE, app_uuid
@@ -285,13 +216,11 @@ class ValidateTemplateSampleUseCase:
     def _build_sample_body(
         self, dto: ValidateTemplateSampleDTO
     ) -> tuple[Dict[str, Any], MetaSampleType]:
-        """Translate the DTO into Meta's wire shape, uploading IMAGE base64 first.
+        """Translate the DTO into Meta's wire shape.
 
-        FR-004a / A9 — base64 IMAGE headers MUST be uploaded to S3
-        before the Meta call so the wire body carries a public URL and
-        the downstream metadata persistence (which calls
-        ``post_process_translation``) sees an already-resolved S3 URL
-        and skips a redundant re-upload (per ``TemplateMetadataHandler._is_s3_url``).
+        Base64 IMAGE headers are uploaded to S3 upfront so the
+        downstream metadata persistence sees an already-resolved S3
+        URL and skips a redundant re-upload. Anchor: FR-004a.
         """
         resolved_header_url = self._resolve_header_image_url(dto.template_header)
         sample_body = build_meta_sample_body(
@@ -325,11 +254,8 @@ class ValidateTemplateSampleUseCase:
     ) -> Dict[str, Any]:
         """Call Meta's ``message_samples`` endpoint and translate failures.
 
-        ``MetaService.submit_template_sample`` propagates exceptions
-        unmodified per FR-005c / Research Decision 5; this method is
-        the single point that catches them and raises the domain
-        ``MetaSampleUnavailableError`` so the view's exception-translation
-        block stays clean.
+        Single point that maps upstream exceptions to
+        ``MetaSampleUnavailableError``. Anchor: FR-005c / Decision 5.
         """
         try:
             return self.meta_service.submit_template_sample(waba_id, sample_body)
@@ -355,13 +281,11 @@ class ValidateTemplateSampleUseCase:
         return None
 
     def _extract_category(self, meta_response: Dict[str, Any]) -> str:
-        """Validate Meta's response carries a usable ``category`` field.
+        """Validate Meta returned a usable string ``category``.
 
-        Four invalid shapes collapse to ``MetaInvalidResponseError``
-        (FR-005b / FR-005c): ``success`` is explicitly ``false``; the
-        ``category`` key is missing; the ``category`` value is empty;
-        the value is non-string. The exception carries the raw Meta
-        body so the view surfaces it on the HTTP 502 response.
+        Four invalid shapes (false success, missing/empty/non-string
+        category) collapse to ``MetaInvalidResponseError``. Anchor:
+        FR-005b / FR-005c.
         """
         success = meta_response.get("success", True)
         category = meta_response.get("category")
@@ -387,16 +311,9 @@ class ValidateTemplateSampleUseCase:
         category: str,
         meta_response: Dict[str, Any],
     ) -> bool:
-        """Conditionally rewrite local state when Meta classifies as UTILITY.
+        """Rewrite local state only on Meta UTILITY classification.
 
-        On non-UTILITY (FR-005b / FR-006b) the local template is
-        untouched and ``update_skipped`` is emitted. On UTILITY
-        (FR-006 / FR-006a / FR-006d) the strategy's metadata helper
-        is composed with the APPROVED-version helper to perform the
-        four mandatory writes (data-model.md §9). Any exception in
-        the local-update half re-raises after emitting
-        ``local_update_failed_after_meta_approval`` at ERROR level
-        with ``exc_info=True`` (FR-006c / FR-008b).
+        Anchor: FR-006 / FR-006a / FR-006c / FR-006d / FR-008b.
         """
         if category != self._UTILITY_CATEGORY:
             self._emit_update_skipped(dto, template, category)
@@ -435,13 +352,7 @@ class ValidateTemplateSampleUseCase:
     def _strategy_payload(
         self, dto: ValidateTemplateSampleDTO
     ) -> Dict[str, Any]:
-        """Materialize the strategy's dict-style payload from the DTO.
-
-        The strategy interface predates the DTO (it is shared with the
-        legacy PATCH path) and expects a plain dict; this adapter keeps
-        the strategy layer unchanged and isolated from the new endpoint's
-        DTO shape.
-        """
+        """Materialize the legacy strategy's dict-style payload from the DTO."""
         return {
             "template_body": dto.template_body,
             "template_header": dto.template_header,
@@ -455,17 +366,10 @@ class ValidateTemplateSampleUseCase:
         }
 
     def _emit(self, event: EventName, level: int, **kv) -> None:
-        """Single emission point that knows the FR-008 log-line shape.
+        """Single emission point for the audit log-line shape.
 
-        Every audit-log entry for this endpoint MUST route through this
-        method — the ``[TemplateSampleValidation]`` tag, the
-        ``event_name: k=v ...`` shape, and the log-level discipline are
-        enforced structurally here so callers cannot drift from FR-008.
-
-        Customer-facing content (body, header, footer, button text) is
-        PII-redacted by callers BEFORE invocation per FR-008c — they
-        pass length / presence flags. Identifiers (UUIDs) are passed
-        verbatim per the same FR's carve-out.
+        Callers MUST pass length / presence flags for customer-facing
+        content (PII redaction). Anchor: FR-008 / FR-008c.
         """
         payload = " ".join(f"{key}={value}" for key, value in kv.items())
         message = f"{LOG_TAG} {event.value}: {payload}".replace("%", "%%")

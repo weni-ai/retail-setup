@@ -1,18 +1,7 @@
 """Tests for the Direct Send sample-validation translator.
 
-Pure-function tests covering the four discriminated wire shapes
-(non-interactive ``text`` — pure body-only Shape 1 and extended Shape
-1b with optional ``header`` and / or ``footer``; ``interactive.cta_url``;
-``interactive.button``), variable substitution, deterministic
-``reply.id`` derivation, header sub-object dispatch, and the
-``parameters`` exclusion rule (Research Decision 9).
-
-The Phase 3c clarification (2026-05-26 round 2 / A13) widened Shape 1
-into a super-shape that carries optional ``header`` and / or ``footer``
-top-level keys for no-button payloads. The
-``BuildMetaSampleBodyExtendedShape1bTest`` class below pins the four
-no-button-with-extras combinations end-to-end at the translator
-boundary.
+Anchor: FR-004 / Decision 9 (see
+``specs/004-template-sample-validation/spec.md``).
 """
 
 from unittest import TestCase
@@ -341,19 +330,7 @@ class BuildMetaSampleBodyHeaderDispatchTest(TestCase):
 
 
 class BuildMetaSampleBodyExtendedShape1bTest(TestCase):
-    """Extended Shape 1b — no-button payloads with optional header / footer.
-
-    Pins FR-004 (post-clarification 2026-05-26 round 2) / FR-004a / A13:
-    no-button payloads emit a four-key super-shape ``{"type": "text",
-    "header": {...}?, "footer": {...}?, "text": {"body": ...}}``. The
-    optional keys are ABSENT (not ``null``) when the input field is
-    missing — degenerate Shape 1b reduces bit-identically to Shape 1.
-
-    The bug case (test (a) below) reproduces the literal payload
-    reported 2026-05-26: ``{template_body, template_header: "Pedido
-    recebido", template_button: []}`` was producing ``{"type": "text",
-    "text": {"body": ...}}`` with the header silently dropped.
-    """
+    """No-button payloads emit extended Shape 1b. Anchor: FR-004 / FR-004a."""
 
     def test_text_header_no_footer_no_buttons_emits_extended_shape_1b(self):
         dto = _dto(

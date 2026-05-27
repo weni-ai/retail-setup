@@ -1,26 +1,4 @@
-"""Schema-parity tests for ``POST /api/v3/templates/<uuid>/sample/`` (T028 / US4).
-
-Pins the structural contract the frontend depends on:
-
-- **Request schema parity (FR-014)**: ``ValidateTemplateSampleSerializer``
-  exposes exactly the same field set as ``UpdateTemplateContentSerializer``
-  so the frontend can serialize the same form state it sends to the
-  legacy ``PATCH /api/v3/templates/<uuid>/`` endpoint. The subclass
-  only layers on additional ``validate_*`` methods (FR-003a / FR-002b);
-  it does NOT add, remove, or rename any field. A drift here would
-  silently break the frontend integration.
-
-- **Response schema parity (SC-005)**: the HTTP 200 response wrapper
-  has exactly four top-level keys ``{category, template_updated,
-  template, meta_sample_response}`` and the ``template`` field is
-  byte-for-byte equal to ``ReadTemplateSerializer(template).data`` —
-  the same shape the legacy ``GET /api/v3/templates/<uuid>/`` returns.
-  The frontend can substitute the response's ``template`` field
-  directly into its display state without a second round-trip.
-
-Both tests break loudly if anyone renames a serializer field or drops
-a key from the wrapper, which is the structural guarantee US4 owns.
-"""
+"""Schema-parity tests for the sample endpoint. Anchor: FR-014 / SC-005."""
 
 from unittest.mock import patch
 from uuid import uuid4
@@ -67,12 +45,7 @@ _EXPECTED_WRAPPER_KEYS = {
 
 
 class ValidateTemplateSampleRequestSchemaParityTest(TestCase):
-    """T028 (a) — request field set equals ``UpdateTemplateContentSerializer``'s.
-
-    Pure structural test — no DB rows, no HTTP roundtrip. Compares the
-    declared serializer field sets so the assertion breaks the moment
-    anyone adds, removes, or renames a field in either class.
-    """
+    """Request field set parity with the legacy PATCH serializer."""
 
     def test_field_set_matches_update_template_content_serializer(self):
         legacy_fields = set(UpdateTemplateContentSerializer().fields.keys())
@@ -81,13 +54,7 @@ class ValidateTemplateSampleRequestSchemaParityTest(TestCase):
         self.assertEqual(sample_fields, legacy_fields)
 
     def test_sample_serializer_inherits_from_update_template_content_serializer(self):
-        """Structural guard: the subclass relationship is the source of parity.
-
-        If a future refactor breaks the inheritance link (e.g. copies
-        fields by hand instead of extending), the first test above could
-        still pass but would no longer benefit from automatic propagation
-        of upstream field additions. This test pins the inheritance.
-        """
+        """Inheritance link is the source of parity."""
         self.assertTrue(
             issubclass(
                 ValidateTemplateSampleSerializer, UpdateTemplateContentSerializer
@@ -98,15 +65,7 @@ class ValidateTemplateSampleRequestSchemaParityTest(TestCase):
 @with_test_settings
 @patch(INTEGRATIONS_SERVICE_PATCH_PATH)
 class ValidateTemplateSampleResponseSchemaParityTest(BaseTestMixin, APITestCase):
-    """T028 (b) — HTTP 200 ``template`` field equals ``ReadTemplateSerializer``'s.
-
-    Submits a UTILITY-mocked sample request and verifies (1) the wrapper
-    has exactly four top-level keys (FR-007 / FR-007a) and (2) the
-    ``template`` field is byte-for-byte equal to the data
-    ``ReadTemplateSerializer(template).data`` produces independently on
-    the same template instance. Pins SC-005 — the frontend renders the
-    response without a follow-up GET.
-    """
+    """HTTP 200 ``template`` equals ``ReadTemplateSerializer``. Anchor: FR-007 / SC-005."""
 
     def setUp(self):
         super().setUp()

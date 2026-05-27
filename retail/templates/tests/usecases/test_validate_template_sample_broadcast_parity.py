@@ -1,26 +1,4 @@
-"""Lockstep parity tests for sample validation / Direct Send broadcast (T019 / US2).
-
-Pins SC-004: a UTILITY-classifying sample submission produces local
-template state that ``Broadcast.build_direct_send_message`` renders
-on the very next dispatch attempt with dispatch-time variables
-substituted into the NEW content.
-
-There is no cache lag and no asynchronous convergence window —
-``Template.current_version`` is advanced in-line by the sample
-endpoint, and the dispatcher reads the new
-``current_version.template_name`` plus ``Template.metadata`` directly
-on its next call. A regression that broke this lockstep guarantee
-(asynchronous Integrations push, write-behind cache, divergence
-between the sample-time and dispatch-time renderers) would let the
-operator believe the broadcast carries the new content while it
-still carries the prior one.
-
-The test exercises the REAL ``ValidateTemplateSampleUseCase`` against
-a database-backed Template + Version stack and the REAL
-``Broadcast`` renderer. Only the external boundaries are mocked
-(MetaService, IntegrationsService, S3 metadata handler) per
-Constitution Principle III.
-"""
+"""Sample-validation / Direct Send broadcast lockstep. Anchor: SC-004."""
 
 from unittest.mock import MagicMock, patch
 from uuid import uuid4

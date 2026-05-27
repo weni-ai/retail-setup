@@ -1,36 +1,11 @@
-"""Direct Send library-catalog fetch helpers.
+"""Direct Send library-catalog fetch + adaptation helpers.
 
-Two helpers split per research Decision 9 / data-model.md §5:
-
-- :func:`adapt_meta_library_template_response` — pure adapter shared
-  between the legacy push-time validation flow
-  (``ValidatePreApprovedTemplatesUseCase._get_template_info``) and the
-  Direct Send-enabled assignment branch
-  (``AssignAgentUseCase._create_library_templates``). Validates the
-  raw library-catalog response against the Direct Send Beta supported
-  set per ``contracts/meta-library-catalog.md`` §5 and raises
-  :class:`DirectSendUnsupportedComponentError` on any violation
-  (Decision 12).
-- :func:`fetch_meta_library_template_metadata` — Direct-Send-only HTTP
-  wrapper. Calls the service's exact-match fetch and delegates the
-  response to :func:`adapt_meta_library_template_response`.
-
-The split preserves Decision 4's "push-time keeps fuzzy semantics"
-guarantee while extracting the response-shaping drift risk.
-
-The four rejection branches (header shape, button type, length/count
-overflow, malformed JSON) collapse to a single exception class
-(``DirectSendUnsupportedComponentError``) so the use case keeps a
-single FR-003c → FR-003d routing path. ``component_type`` carries a
-stable discriminator:
-
-- ``"header"`` — header shape OR header length issues (FR-003e)
-- ``"<button.type>"`` — specific button type outside ``{URL, QUICK_REPLY}``
-  (FR-003f); e.g. ``"PHONE_NUMBER"``, ``"PAYMENT_REQUEST"``,
-  ``"ORDER_DETAILS"``, ``"COPY_CODE"``, ``"FLOW"``
-- ``"body"`` / ``"footer"`` / ``"buttons"`` — length or count overflow
-  on a known component
-- ``"malformed"`` — missing required keys, structural violations
+Validates raw library-catalog responses against the Direct Send Beta
+supported set and shapes them into the local ``Template.metadata``
+form. Anchor: FR-003c / FR-003d / FR-003e / FR-003f / FR-003g /
+Research Decision 9 / Decision 12 (see
+``specs/002-direct-send-broadcasts/spec.md`` and
+``contracts/meta-library-catalog.md`` §5).
 """
 
 import logging
@@ -75,21 +50,11 @@ def adapt_meta_library_template_response(
 ) -> Optional[TemplateInfo]:
     """Validate and shape a library-catalog response into ``TemplateInfo``.
 
-    Returns ``None`` when ``raw is None``. Otherwise validates the
-    components against the Direct Send Beta supported set
-    (``contracts/meta-library-catalog.md`` §5) and shapes the response
-    into the local ``Template.metadata`` form consumed by
-    ``Broadcast.build_direct_send_message`` (data-model.md §3).
-    Raises :class:`DirectSendUnsupportedComponentError` on any
-    violation so the assignment use case routes through FR-003c →
-    FR-003d (Decision 12).
-
-    ``language`` is the locale the Direct Send fetch is occurring in
-    (project locale or ``pt_BR`` fallback). When provided AND a URL
-    button's text would overflow ``MAX_BUTTON_LABEL_LENGTH``, the
-    per-``(template_name, language)`` override map is consulted to
-    remediate the overflow (FR-003g). Defaults to ``None`` so the
-    legacy push-time validation flow remains source-compatible.
+    Returns ``None`` when ``raw is None``; raises
+    :class:`DirectSendUnsupportedComponentError` on any unsupported
+    component. ``language`` is consulted for the FR-003g URL-button
+    label override; ``None`` keeps the legacy push-path source-compat.
+    Anchor: FR-003c / FR-003d / FR-003g / Decision 12.
     """
     if raw is None:
         return None
@@ -123,15 +88,10 @@ def fetch_meta_library_template_metadata(
     template_name: str,
     language: str,
 ) -> Optional[TemplateInfo]:
-    """Fetch and adapt a library template via the Direct Send path.
+    """Exact-match Direct Send library fetch + adapt.
 
-    Calls
-    :py:meth:`MetaServiceInterface.fetch_library_template_by_name_and_language`
-    (exact-match) and delegates the response to
-    :func:`adapt_meta_library_template_response`. The service swallows
-    HTTP failures and returns ``None``; the adapter raises
-    :class:`DirectSendUnsupportedComponentError` on validation
-    violations.
+    HTTP failures surface as ``None``; adapter rejections raise
+    :class:`DirectSendUnsupportedComponentError`.
     """
     raw = meta_service.fetch_library_template_by_name_and_language(
         template_name, language
@@ -157,17 +117,9 @@ def _validate_body(raw: Dict[str, Any], *, template_name: str) -> str:
 def _validate_and_normalize_header(
     raw: Dict[str, Any], *, template_name: str
 ) -> Optional[Dict[str, Any]]:
-    """Normalize Meta's plain-string ``header`` to the canonical shape.
+    """Normalize Meta's plain-string ``header`` to ``{header_type, text}``.
 
-    FR-003e: Meta's library catalog ALWAYS returns ``header`` either
-    absent or as a plain text string. Any non-string, non-null shape
-    (including the pre-FR-003e dict ``{type, text}``) is treated as
-    malformed and raises ``DirectSendUnsupportedComponentError(
-    component_type="header")`` so the use case routes through
-    FR-003c → FR-003d. Plain-string headers are length-validated
-    against ``MAX_HEADER_TEXT_LENGTH`` and normalized to the
-    canonical Retail-internal shape ``{header_type: "TEXT",
-    text: <string>}`` (data-model.md §3).
+    Anchor: FR-003e (any non-null, non-string shape is malformed).
     """
     header = raw.get("header")
     if header is None:
@@ -205,19 +157,9 @@ def _validate_and_normalize_buttons(
 ) -> Optional[List[Dict[str, Any]]]:
     """Validate types and normalize URL-button shapes.
 
-    FR-003f: ``buttons[*].type`` outside ``{URL, QUICK_REPLY}`` raises
-    ``DirectSendUnsupportedComponentError(component_type=<type>)``;
-    URL-button entries accept either a flat ``url`` string OR the
-    legacy nested ``{base_url, url_suffix_example}`` shape and are
-    normalized to a single flat-string canonical form via the shared
-    ``ensure_protocol`` + ``append_placeholder_if_needed`` helpers
-    (push-path ``ButtonTransformer`` agrees on the same heuristic).
-
-    FR-003g: when a URL button's text would otherwise overflow
-    ``MAX_BUTTON_LABEL_LENGTH`` AND a ``(template_name, language)``
-    entry exists in ``DIRECT_SEND_BUTTON_LABEL_OVERRIDES``, the
-    override value replaces the upstream label and the length check
-    is re-run. QUICK_REPLY overflows continue to raise.
+    Anchor: FR-003f (type allowlist + dual URL-shape normalization
+    shared with the push-path ``ButtonTransformer``) / FR-003g
+    (URL-button label override on overflow).
     """
     raw_buttons = raw.get("buttons")
     if raw_buttons is None:
@@ -283,14 +225,11 @@ def _resolve_url_button_label_override(
     template_name: str,
     language: Optional[str],
 ) -> str:
-    """Look up the URL button label override for ``(template_name, language)``.
+    """Look up the URL-button label override for ``(template_name, language)``.
 
-    The override is applied ONLY when the upstream label overflowed
-    ``MAX_BUTTON_LABEL_LENGTH`` (the caller has already confirmed the
-    overflow). Per FR-003g(h) the override value itself MUST satisfy
-    the same length ceiling; an override that overflows raises
-    ``DirectSendUnsupportedComponentError`` (the map is a remediation,
-    not a length-check bypass). Per FR-003g(f) audit is INFO-log-only.
+    Caller has already confirmed the upstream overflow. An override
+    that itself overflows raises (the map is a remediation, not a
+    length-check bypass). Anchor: FR-003g(f) / FR-003g(h).
     """
     override_key = (template_name, language)
     override_map = direct_send_button_overrides.DIRECT_SEND_BUTTON_LABEL_OVERRIDES
@@ -317,13 +256,7 @@ def _resolve_url_button_label_override(
 
 
 def _flatten_url(url: Any, *, template_name: str) -> str:
-    """Collapse the two upstream URL shapes onto a flat string.
-
-    - Flat string: ensure protocol, preserve placeholders verbatim.
-    - Nested ``{base_url, url_suffix_example}``: ensure protocol on
-      ``base_url`` and append ``{{1}}`` when ``url_suffix_example``
-      signals a parameterizable suffix.
-    """
+    """Collapse flat-string and nested-dict URL shapes onto a flat string."""
     if isinstance(url, str):
         return ensure_protocol(url)
     if isinstance(url, dict) and isinstance(url.get("base_url"), str):

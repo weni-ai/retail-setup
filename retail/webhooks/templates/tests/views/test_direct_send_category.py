@@ -190,13 +190,7 @@ class DirectSendCategoryWebhookViewTest(BaseTestMixin, APITestCase):
 
 @with_test_settings
 class DirectSendCategoryWebhookReplayTest(BaseTestMixin, APITestCase):
-    """Pins the bidirectional FR-008 idempotency contract via the HTTP
-    boundary: (a) firing the same flagging payload twice converges on
-    ``FLAGGED`` with exactly one underlying write and an
-    ``"Already flagged."`` response on the replay (SC-004);
-    (b) firing a corrected-category payload against an already
-    ``FLAGGED`` Version auto-demotes to ``APPROVED`` per FR-006c /
-    FR-007d."""
+    """Bidirectional idempotency via HTTP. Anchor: FR-008 / FR-006c / FR-007d."""
 
     URL_NAME = "direct-send-category-webhook"
     TEMPLATE_NAME = "weni_order_invoiced"
@@ -339,10 +333,7 @@ class DirectSendCategoryWebhookDispatchIntegrationTest(BaseTestMixin, TestCase):
 
 @with_test_settings
 class DirectSendCategoryWebhookFailClosedTest(BaseTestMixin, APITestCase):
-    """Pins FR-004b / FR-005 / FR-005a — the three negative scenarios
-    enumerated in ``quickstart.md`` §7. Every well-formed payload
-    returns HTTP 200 (so the upstream courier does not retry) and no
-    Version row is mutated when the lookup misses."""
+    """Negative scenarios fail closed with HTTP 200. Anchor: FR-004b / FR-005 / FR-005a."""
 
     URL_NAME = "direct-send-category-webhook"
     TEMPLATE_NAME = "weni_order_invoiced"
