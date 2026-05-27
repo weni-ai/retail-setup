@@ -925,23 +925,7 @@ class AssignAgentUseCaseTest(TestCase):
     def test_legacy_assignment_preserves_direct_send_absent_and_integrations_calls(
         self, mock_create_library_use_case
     ):
-        """T034 (US4 / Story 2 AS2) — legacy assignment (Direct Send DISABLED).
-
-        Verifies the byte-shape of the legacy assignment branch when
-        ``IntegrationsService.get_channel_app`` reports the channel
-        does NOT have Direct Send enabled. Asserts:
-
-        - ``IntegratedAgent.config`` does NOT carry the ``direct_send``
-          key (FR-001 / FR-005 / SC-004 / SC-007 — absence is the
-          canonical legacy marker; writing ``False`` would expand the
-          persisted config shape and break byte-identical preservation
-          per T026's conditional-write contract).
-        - ``CreateLibraryTemplateUseCase.execute`` and ``notify_integrations``
-          fire on the library-sourced spec (matches today).
-        - ``IntegrationsService.fetch_templates_from_user`` fires for
-          the customer-sourced spec (matches today).
-        - Zero new calls, zero removed calls on ``integrations_service``.
-        """
+        """Legacy assignment preserves config + integrations calls. Anchor: FR-001 / FR-005."""
         mock_integrations_service = MagicMock()
         mock_integrations_service.get_channel_app.return_value = {
             "config": {"direct_send": False}

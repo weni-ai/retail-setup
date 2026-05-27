@@ -15,10 +15,9 @@ class GlobalRuleInternalServerError(APIException):
 
 
 class DirectSendTemplateUnavailableError(APIException):
-    """Raised at agent-assignment time when neither the project-resolved
-    language nor the pt_BR fallback returns usable content for a
-    required template (FR-003d).
-    """
+    """Raised when neither the project locale nor the ``pt_BR`` fallback
+    returns usable content. Anchor: FR-003d (see
+    ``specs/002-direct-send-broadcasts/spec.md``)."""
 
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
     default_code = "direct_send_template_unavailable"
@@ -43,10 +42,9 @@ class DirectSendTemplateUnavailableError(APIException):
 
 
 class DirectSendUnsupportedComponentError(APIException):
-    """Raised at agent-assignment time when Meta's library catalog
-    returns a template whose components are outside the Direct Send
-    supported set (Decision 12 — defensive).
-    """
+    """Raised when a library-catalog template carries components outside
+    the Direct Send supported set. Anchor: Decision 12 (see
+    ``specs/002-direct-send-broadcasts/spec.md``)."""
 
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
     default_code = "direct_send_unsupported_component"

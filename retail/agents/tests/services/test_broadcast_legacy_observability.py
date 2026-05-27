@@ -1,17 +1,4 @@
-"""Legacy Sentry / Elastic APM dispatch tag snapshot tests (T035b — US4 /
-FR-027 / SC-008).
-
-Pins the observability instrumentation on ``Broadcast.send_message``
-against a Direct Send-DISABLED fixture. The pre-feature baseline is
-empty — ``Broadcast.send_message`` does not emit any Sentry tags / APM
-contexts of its own; tenant identifiers are carried only through
-structured log lines and the datalake event payload (covered by T035a).
-
-The legacy observability snapshot pins this baseline so a future change
-that adds Sentry tags / APM contexts on the legacy path triggers a
-review (FR-027: legacy observability surface is preserved unchanged;
-the optional ``direct_send`` tag is absent or ``False``).
-"""
+"""Legacy Sentry / APM dispatch tag snapshot. Anchor: FR-027 / SC-008."""
 
 from typing import Dict
 from unittest.mock import MagicMock, call, patch
@@ -40,11 +27,8 @@ _APM_TAG_FUNCS = (
 )
 # Tracing primitives (``start_span`` / ``start_transaction``) are
 # deliberately NOT patched here — they are auto-instrumented by Sentry's
-# Django integration on every ORM call and would generate noise unrelated
-# to user-facing instrumentation. FR-027's "no Sentry / APM tag is
-# renamed or removed" rule scopes to the EXPLICIT tag/context setters
-# pinned above; automatic DB spans carry no tenant identifier in their
-# arguments and are outside the legacy observability surface.
+# Django integration on every ORM call. The legacy observability surface
+# is scoped to the EXPLICIT tag/context setters pinned above.
 
 
 @override_settings(
@@ -56,11 +40,7 @@ _APM_TAG_FUNCS = (
     }
 )
 class LegacyBroadcastObservabilitySnapshotTest(TestCase):
-    """FR-027 / SC-008 — legacy dispatch observability surface MUST NOT
-    drift. Concretely: no Sentry tag / APM context is emitted by
-    ``Broadcast.send_message`` on a Direct Send-DISABLED fixture, and no
-    ``direct_send`` tag is set on this path.
-    """
+    """Legacy dispatch observability surface non-drift. Anchor: FR-027 / SC-008."""
 
     def setUp(self):
         self.project = Project.objects.create(
@@ -111,12 +91,7 @@ class LegacyBroadcastObservabilitySnapshotTest(TestCase):
         }
 
     def _make_tag_captures(self) -> Dict[str, MagicMock]:
-        """Patch every Sentry / APM tag-setting boundary the broadcast
-        layer COULD call. The current baseline emits nothing — any
-        captured call would mean an observability instrumentation has
-        been added on the legacy path without going through the FR-027
-        review gate.
-        """
+        """Patch every Sentry/APM tag-setting boundary the broadcast layer could call."""
         captures: Dict[str, MagicMock] = {}
         for target in _SENTRY_TAG_FUNCS + _APM_TAG_FUNCS:
             patcher = patch(target, create=True)
@@ -132,7 +107,7 @@ class LegacyBroadcastObservabilitySnapshotTest(TestCase):
         self.assertNotIn(
             "direct_send",
             message.get("msg", {}),
-            "Legacy msg MUST NOT carry direct_send key (FR-015 / SC-004).",
+            "Legacy msg MUST NOT carry direct_send key.",
         )
 
         self.handler.send_message(message, self.integrated_agent, self.lambda_data)
@@ -151,11 +126,7 @@ class LegacyBroadcastObservabilitySnapshotTest(TestCase):
         )
 
     def test_legacy_dispatch_does_not_set_direct_send_tag(self):
-        """Even if a future PR introduces ANY Sentry/APM instrumentation,
-        the ``direct_send`` tag/context key MUST NOT be set with a truthy
-        value on the legacy path (FR-027: optional ``direct_send`` tag
-        is absent or ``False``).
-        """
+        """No truthy ``direct_send`` tag on the legacy path. Anchor: FR-027."""
         captures = self._make_tag_captures()
 
         message = self.handler.build_message(self.integrated_agent, self.lambda_data)
@@ -171,24 +142,13 @@ class LegacyBroadcastObservabilitySnapshotTest(TestCase):
             offending_calls,
             [],
             "Legacy path must not set direct_send=True on any Sentry/APM "
-            f"boundary (FR-027). Offending calls: {offending_calls}",
+            f"boundary. Offending calls: {offending_calls}",
         )
 
 
 def _call_sets_direct_send_true_tag(captured_call) -> bool:
     """Return True iff ``captured_call`` sets a truthy ``direct_send``
-    tag/context value.
-
-    Two surface shapes are accepted (the union of Sentry's and APM's
-    public signatures):
-
-    - ``f("direct_send", True)`` or ``f(key="direct_send", value=True)``
-      — the tag-name / tag-value positional or keyword form;
-    - ``f("context", {"direct_send": True, ...})`` — a context dict
-      where ``direct_send`` is one of the keys.
-
-    Either shape with a falsy value (``False`` / ``None`` / ``0``) is
-    spec-compliant per FR-027's "absent or ``False``" clause.
+    tag/context value (positional/keyword tag-name+value, or context dict).
     """
     args = captured_call.args
     kwargs = captured_call.kwargs
@@ -203,13 +163,7 @@ def _call_sets_direct_send_true_tag(captured_call) -> bool:
 
 
 class CallSetsDirectSendTrueTagHelperTest(TestCase):
-    """Unit-tests the pure helper used by the snapshot's assertion arm.
-
-    The helper is the contract by which ``test_legacy_dispatch_does_not_set_direct_send_tag``
-    classifies a captured Sentry/APM call as FR-027-compliant or
-    offending. Exercising every branch here guarantees the snapshot
-    guard itself is sound when drift eventually surfaces.
-    """
+    """Branch coverage for ``_call_sets_direct_send_true_tag``."""
 
     def test_positional_direct_send_true_is_offending(self):
         self.assertTrue(_call_sets_direct_send_true_tag(call("direct_send", True)))

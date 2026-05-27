@@ -199,3 +199,32 @@ class MetaClient(MetaClientInterface, RequestClient):
         )
 
         return response.json()
+
+    def submit_template_sample(
+        self, waba_id: str, sample_body: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Submit a ``message_samples`` payload for a WABA to classify.
+
+        POSTs ``sample_body`` to ``{META_API_URL}/{waba_id}/message_samples``.
+
+        Args:
+            waba_id: WhatsApp Business Account id whose quota the sample
+                charges against. Resolved per-call from
+                ``ProjectOnboarding.config["channels"]["wpp-cloud"]["channel_data"]["waba_id"]``.
+            sample_body: Wire-shape dict produced by
+                ``retail.templates.adapters.direct_send_sample_translator.build_meta_sample_body``.
+
+        Returns:
+            Dict with Meta's response body verbatim. The happy-path
+            shape is ``{"success": true, "category": "<UTILITY|MARKETING|AUTHENTICATION>"}``.
+        """
+        url = f"{self.url}/{waba_id}/message_samples"
+
+        response = self.make_request(
+            url=url,
+            method="POST",
+            json=sample_body,
+            headers=self._json_headers,
+        )
+
+        return response.json()

@@ -73,3 +73,12 @@ class MetaService(MetaServiceInterface):
 
     def publish_flow(self, flow_id: str) -> Dict[str, Any]:
         return self.client.publish_flow(flow_id)
+
+    def submit_template_sample(
+        self, waba_id: str, sample_body: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Delegate the ``message_samples`` call to the client and
+        PROPAGATE every exception unmodified.
+        """
+        return self.client.submit_template_sample(waba_id, sample_body)

@@ -1,33 +1,12 @@
-"""Tests for the Direct Send library-catalog fetch helpers (T017 / T107–T111).
+"""Tests for the Direct Send library-catalog fetch helpers.
 
-Covers:
+Anchor: FR-003c / FR-003d / FR-003e / FR-003f / FR-003g / Decision 9
+/ Decision 12 (see ``specs/002-direct-send-broadcasts/spec.md``).
 
-- ``adapt_meta_library_template_response`` — pure adapter shared
-  between push-time validation (legacy) and the Direct Send
-  assignment branch. Validates components against the supported set
-  per ``contracts/meta-library-catalog.md`` §5 and raises
-  ``DirectSendUnsupportedComponentError`` on any violation
-  (Decision 12).
-- ``fetch_meta_library_template_metadata`` — Direct-Send-only HTTP
-  wrapper. Calls the service's exact-match fetch and delegates the
-  response to the adapter above (research Decision 9).
-
-Phase 8 fold-in (Session 2026-05-22 — T107–T111) extends the adapter's
-contract with:
-
-- FR-003e — ``header`` is a plain text string at fetch time; any
-  non-string, non-null ``header`` is treated as a malformed response
-  and raises ``DirectSendUnsupportedComponentError(component_type="header")``.
-- FR-003f — ``buttons[*].type`` outside ``{URL, QUICK_REPLY}`` raises
-  ``DirectSendUnsupportedComponentError`` with ``component_type`` set
-  to the rejected type string. URL-button entries are normalized from
-  EITHER a flat ``url`` string OR the legacy nested
-  ``{base_url, url_suffix_example}`` shape to a single canonical flat
-  string via ``_ensure_protocol`` + ``_append_placeholder_if_needed``.
-- Q3 drop-rule — auxiliary curation fields (``body_param_types``,
-  ``attributes``, ``topic``, ``usecase``, ``industry``, ``id``) MUST
-  be dropped at fetch time; only the dispatch-relevant subset
-  ``{header, body, body_params, footer, buttons, category, language}``
+Q3 drop-rule — auxiliary curation fields (``body_param_types``,
+``attributes``, ``topic``, ``usecase``, ``industry``, ``id``) MUST
+be dropped at fetch time; only the dispatch-relevant subset
+``{header, body, body_params, footer, buttons, category, language}``
   is propagated to ``TemplateInfo.metadata``.
 """
 
@@ -239,15 +218,7 @@ class FetchMetaLibraryTemplateMetadataTest(TestCase):
 
 
 class HeaderPlainStringNormalizationTest(TestCase):
-    """T107 — FR-003e header plain-string canonical normalization.
-
-    Meta's library catalog ALWAYS returns ``header`` either absent or as
-    a plain text string. The adapter MUST normalize it to the canonical
-    Retail-internal shape ``{header_type: "TEXT", text: <string>}``
-    (``data-model.md §3``) that ``Broadcast.build_direct_send_message``
-    and the legacy ``Broadcast.build_broadcast_template_message`` both
-    consume via ``header["header_type"]``.
-    """
+    """Plain-string header -> ``{header_type, text}``. Anchor: FR-003e."""
 
     def test_normalizes_plain_string_header_to_canonical_shape(self):
         raw = _typical_response(header="Pedido enviado")
@@ -271,16 +242,7 @@ class HeaderPlainStringNormalizationTest(TestCase):
 
 
 class HeaderDictShapeRejectionTest(TestCase):
-    """T108 — FR-003e: dict-shape header is malformed at fetch time.
-
-    Any non-string, non-null ``header`` raises
-    ``DirectSendUnsupportedComponentError(component_type="header")``
-    so the use case routes through FR-003c (pt_BR retry) and then
-    FR-003d (atomic rollback). The pre-FR-003e dict ``{type, text}``
-    shape is REJECTED — image / media headers on Direct Send-path
-    Templates arise EXCLUSIVELY from post-assignment edits via the
-    ``update_template`` endpoint (FR-026), never from the fetch path.
-    """
+    """Dict-shape header is malformed at fetch. Anchor: FR-003e."""
 
     def test_rejects_dict_header_with_type_text(self):
         raw = _typical_response(header={"type": "TEXT", "text": "Pedido"})
@@ -319,16 +281,7 @@ class HeaderDictShapeRejectionTest(TestCase):
 
 
 class ButtonStrictPerTypeRejectionTest(TestCase):
-    """T109 — FR-003f: strict per-type rejection at fetch time.
-
-    Any ``buttons[*].type`` outside ``{URL, QUICK_REPLY}`` — including
-    ``PHONE_NUMBER``, ``PAYMENT_REQUEST``, ``ORDER_DETAILS``,
-    ``COPY_CODE``, ``FLOW``, or any future Meta-curated value — raises
-    ``DirectSendUnsupportedComponentError(component_type=<type>)`` so
-    the use case routes through FR-003c → FR-003d. Pinned per-type so
-    a future refactor that adds a generic catch-all branch is still
-    observable as the spec-intended behaviour rather than a coincidence.
-    """
+    """Strict per-type button rejection. Anchor: FR-003f."""
 
     def _raw_with_button_type(self, btn_type: str, **extra) -> dict:
         return _typical_response(
@@ -384,16 +337,7 @@ class ButtonStrictPerTypeRejectionTest(TestCase):
 
 
 class ButtonUrlShapeNormalizationTest(TestCase):
-    """T110 — FR-003f: dual URL-button shape normalization.
-
-    URL-button entries arrive in EITHER (a) flat ``url`` string OR
-    (b) legacy nested ``{base_url, url_suffix_example}`` shape; both
-    MUST normalize to a flat ``url`` string at persist time via the
-    same ``_ensure_protocol`` + ``_append_placeholder_if_needed``
-    heuristic the push-path ``ButtonTransformer`` already applies, so
-    ``metadata.buttons`` stores a single canonical shape regardless of
-    upstream variance.
-    """
+    """Dual URL-button shape normalization. Anchor: FR-003f."""
 
     def test_flat_url_string_is_preserved_with_placeholder(self):
         raw = _typical_response(
@@ -488,18 +432,7 @@ class ButtonUrlShapeNormalizationTest(TestCase):
 
 
 class AuxiliaryFieldDropTest(TestCase):
-    """T111 — Session 2026-05-22 Q3: auxiliary curation fields are dropped.
-
-    Meta's library catalog may carry auxiliary curation fields
-    (``body_param_types``, ``attributes``, ``topic``, ``usecase``,
-    ``industry``, ``id``). The adapter MUST drop all of them — only the
-    dispatch-relevant subset ``{header, body, body_params, footer,
-    buttons, category, language}`` propagates to
-    ``TemplateInfo.metadata``. The ``direct_send`` audit sub-object is
-    added by ``AssignAgentUseCase._create_library_templates`` at write
-    time, NOT by the adapter, so this test MUST NOT expect it on the
-    adapter return value.
-    """
+    """Auxiliary curation fields are dropped at fetch."""
 
     _FORBIDDEN_AUXILIARY_KEYS = (
         "body_param_types",
@@ -540,7 +473,7 @@ class AuxiliaryFieldDropTest(TestCase):
                 metadata,
                 msg=(
                     f"auxiliary curation field {key!r} must be dropped from "
-                    f"metadata at fetch time per Session 2026-05-22 Q3"
+                    f"metadata at fetch time"
                 ),
             )
 
@@ -572,21 +505,7 @@ class AuxiliaryFieldDropTest(TestCase):
 
 
 class ButtonLabelOverrideMapTest(TestCase):
-    """T112 — FR-003g per-(template_name, language) button-label override map.
-
-    The override map is consulted ONLY when an upstream URL button's
-    ``text`` would otherwise overflow ``MAX_BUTTON_LABEL_LENGTH``. The
-    map is a remediation for Meta's library catalog occasionally
-    publishing button labels longer than the 20-char ceiling on
-    locale-translated variants (the canonical real-world example is
-    ``order_canceled_3``'s ``"Ver detalhes do pedido"`` in ``pt_BR``
-    and ``"Ver detalles del pedido"`` in ``es``).
-
-    Per FR-003g(a) the override applies only at the URL button surface;
-    QUICK_REPLY overflows still raise. Per FR-003g(h) an override value
-    that itself overflows MUST raise (override is a remediation, not
-    a length-check bypass).
-    """
+    """Per-(template_name, language) URL-button label override map. Anchor: FR-003g."""
 
     _OVERLONG_PT = "Ver detalhes do pedido"
     _OVERRIDE_PT = "Detalhes do pedido"
@@ -759,9 +678,7 @@ class ButtonLabelOverrideMapTest(TestCase):
 
 
 class FetchMetaLibraryTemplateMetadataLanguagePropagationTest(TestCase):
-    """T112 — language argument MUST be propagated to the adapter so the
-    override map can be consulted on overflow per FR-003g.
-    """
+    """``language`` is forwarded to the adapter. Anchor: FR-003g."""
 
     def test_language_is_forwarded_to_adapter_for_override_lookup(self):
         meta_service = MagicMock()

@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from django.test import TestCase, override_settings
 
-from retail.templates.models import Template
+from retail.templates.models import Template, Version
 from retail.templates.strategies.update_template_strategies import (
     UpdateTemplateStrategy,
     UpdateNormalTemplateStrategy,
@@ -382,6 +382,132 @@ class UpdateNormalTemplateStrategyTest(TestCase):
 
         self.assertIsInstance(self.strategy, UpdateTemplateStrategy)
         self.assertIsInstance(self.strategy, TemplateBuilderMixin)
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.task_create_template"
+    )
+    def test_build_and_persist_metadata_persists_metadata_and_returns_translation(
+        self, mock_task
+    ):
+        self.metadata_handler.build_metadata.return_value = {
+            "body": "Updated body",
+            "category": "UTILITY",
+        }
+        mock_adapter = Mock()
+        mock_adapter.adapt.return_value = {"body": "Updated body", "language": "pt_BR"}
+        self.strategy.template_adapter = mock_adapter
+        self.metadata_handler.post_process_translation.side_effect = lambda m, t: m
+
+        translation_payload = self.strategy._build_and_persist_metadata(
+            self.template, self.payload
+        )
+
+        self.template.refresh_from_db()
+        self.assertEqual(self.template.metadata["body"], "Updated body")
+        self.assertEqual(
+            translation_payload, {"body": "Updated body", "language": "pt_BR"}
+        )
+        mock_task.delay.assert_not_called()
+
+    @override_settings(ABANDONED_CART_AGENT_UUID="abandoned-cart-uuid")
+    def test_build_and_persist_metadata_fires_abandoned_cart_sync(self):
+        with patch.object(
+            UpdateNormalTemplateStrategy,
+            "_sync_abandoned_cart_image_config",
+        ) as mock_sync:
+            self.metadata_handler.build_metadata.return_value = {
+                "body": "Updated body",
+                "category": "UTILITY",
+            }
+            mock_adapter = Mock()
+            mock_adapter.adapt.return_value = {"body": "Updated body"}
+            self.strategy.template_adapter = mock_adapter
+            self.metadata_handler.post_process_translation.side_effect = lambda m, t: m
+
+            template = Mock(spec=Template)
+            template.metadata = {"category": "UTILITY"}
+            template.integrated_agent = None
+
+            self.strategy._build_and_persist_metadata(template, self.payload)
+
+            template.save.assert_called_once_with(update_fields=["metadata"])
+            mock_sync.assert_called_once()
+
+    def test_create_approved_current_version_writes_approved_status_and_advances_pointer(
+        self,
+    ):
+        mock_version = Mock(spec=Version)
+        mock_version.status = "PENDING"
+
+        with patch.object(
+            self.strategy, "_create_version", return_value=mock_version
+        ) as mock_create:
+            template = Mock(spec=Template)
+
+            result = self.strategy._create_approved_current_version(
+                template, self.payload
+            )
+
+            mock_create.assert_called_once_with(
+                template=template,
+                app_uuid=self.payload["app_uuid"],
+                project_uuid=self.payload["project_uuid"],
+            )
+            self.assertEqual(mock_version.status, "APPROVED")
+            mock_version.save.assert_called_once_with(update_fields=["status"])
+            self.assertIs(template.current_version, mock_version)
+            template.save.assert_called_once_with(update_fields=["current_version"])
+            self.assertIs(result, mock_version)
+
+    def test_create_approved_current_version_uses_update_fields_for_both_writes(self):
+        """Pin ``update_fields=`` on both saves so accidental column rewrites are caught."""
+        mock_version = Mock(spec=Version)
+        mock_version.status = "PENDING"
+
+        with patch.object(self.strategy, "_create_version", return_value=mock_version):
+            template = Mock(spec=Template)
+
+            self.strategy._create_approved_current_version(template, self.payload)
+
+            version_save_kwargs = mock_version.save.call_args.kwargs
+            template_save_kwargs = template.save.call_args.kwargs
+            self.assertEqual(version_save_kwargs, {"update_fields": ["status"]})
+            self.assertEqual(
+                template_save_kwargs, {"update_fields": ["current_version"]}
+            )
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.task_create_template"
+    )
+    def test_update_template_composes_helpers_and_notifies_integrations(
+        self, mock_task
+    ):
+        """PATCH endpoint composition preserved byte-for-byte.
+
+        Sample-validation flow shares the metadata helper but skips the
+        notify step. Anchor: FR-014 (spec 002) / FR-006 (spec 004).
+        """
+        self.metadata_handler.build_metadata.return_value = {
+            "body": "Updated body",
+            "category": "UTILITY",
+        }
+        mock_adapter = Mock()
+        mock_adapter.adapt.return_value = {"body": "Updated body"}
+        self.strategy.template_adapter = mock_adapter
+        self.metadata_handler.post_process_translation.side_effect = lambda m, t: m
+
+        mock_version = Mock(spec=Version)
+        mock_version.status = "PENDING"
+        mock_version.template_name = "weni_test_template_123"
+        mock_version.uuid = uuid4()
+
+        with patch.object(self.strategy, "_create_version", return_value=mock_version):
+            self.strategy.update_template(self.template, self.payload)
+
+            self.template.refresh_from_db()
+            mock_task.delay.assert_called_once()
+            mock_version.save.assert_not_called()
+            self.assertIsNone(self.template.current_version)
 
     @patch(
         "retail.templates.strategies.update_template_strategies.task_create_template"

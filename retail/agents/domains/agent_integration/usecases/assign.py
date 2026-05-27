@@ -96,16 +96,11 @@ class AssignAgentUseCase:
 
     @property
     def meta_service(self) -> MetaServiceInterface:
-        """Lazily construct ``MetaService`` only when the Direct Send branch
-        actually needs it.
+        """Lazily construct ``MetaService`` only when Direct Send needs it.
 
-        ``MetaClient.__init__`` reads ``settings.META_SYSTEM_USER_ACCESS_TOKEN``,
-        which is only configured under ``USE_LAMBDA=True``. Eager
-        construction in ``__init__`` would break every legacy-cohort
-        assignment whose tests don't inject a meta_service mock — the
-        Direct Send fetch is the ONLY consumer (`_create_library_templates`
-        Direct Send branch), so deferring construction also avoids
-        instantiating an unused HTTP client on every legacy assignment.
+        Eager construction breaks legacy-cohort tests because
+        ``MetaClient.__init__`` reads ``META_SYSTEM_USER_ACCESS_TOKEN``,
+        which is only configured under ``USE_LAMBDA=True``.
         """
         if self._meta_service is None:
             self._meta_service = MetaService()
@@ -114,14 +109,8 @@ class AssignAgentUseCase:
     def _resolve_direct_send_flag(self, agent: Agent, app_uuid: UUID) -> bool:
         """Decide whether the assignment should take the Direct Send path.
 
-        Two signals must both be true (FR-019, contract
-        ``integrations-channel-app.md`` §4):
-
-        - the agent is the OrderStatus agent
-          (``settings.ORDER_STATUS_AGENT_UUID``);
-        - the channel-app reports ``config.direct_send=True``.
-
-        On any failure the conservative default is ``False`` (FR-005).
+        Anchor: FR-019 (two-signal AND: OrderStatus agent + channel-app
+        flag) / FR-005 (conservative ``False`` on any failure).
         """
         order_status_agent_uuid = getattr(settings, "ORDER_STATUS_AGENT_UUID", "")
         if not order_status_agent_uuid or str(agent.uuid) != order_status_agent_uuid:
@@ -155,9 +144,6 @@ class AssignAgentUseCase:
         ignore_templates_slugs = self._get_ignore_templates_slugs(ignore_templates)
 
         initial_config = self._build_initial_config(agent, project)
-        # FR-001 / SC-004: write the key only when True; absence is the
-        # canonical legacy marker and writing False on the legacy cohort
-        # would expand the persisted config shape and break SC-004 / SC-007.
         if direct_send:
             initial_config["direct_send"] = True
 
@@ -385,14 +371,8 @@ class AssignAgentUseCase:
     ) -> None:
         """Persist library-catalog templates locally for the Direct Send path.
 
-        For every pre-approved spec, fetches the template content from
-        Meta's library catalog in the project-resolved language. If the
-        project locale is missing AND it is not already ``pt_BR``,
-        retries in ``pt_BR`` (FR-003c). If both attempts fail, raises
-        :class:`DirectSendTemplateUnavailableError` so the surrounding
-        ``@transaction.atomic`` block rolls back the whole assignment
-        (FR-003d). Skips every Integrations Engine template-creation
-        call (Decision 5).
+        Anchor: FR-003c (pt_BR fallback) / FR-003d (atomic rollback) /
+        Research Decision 5 (skip Integrations Engine).
         """
         template_builder = TemplateBuilderMixin()
         project_language = integrated_agent.config.get(
@@ -454,15 +434,11 @@ class AssignAgentUseCase:
         integrated_agent: IntegratedAgent,
         project_language: str,
     ):
-        """Fetch the template content with a ``pt_BR`` per-template fallback.
+        """Fetch template content with a ``pt_BR`` per-template fallback.
 
-        Returns ``(content, actual_language)`` on success. Raises
-        :class:`DirectSendTemplateUnavailableError` when neither the
-        project locale nor ``pt_BR`` returns content (FR-003d). The
-        first-locale fetch swallows adapter rejections so the ``pt_BR``
-        retry can fire per FR-003c (c); the retry itself propagates
-        adapter rejections so the surrounding ``@transaction.atomic``
-        rolls back.
+        Returns ``(content, actual_language)`` on success; raises
+        :class:`DirectSendTemplateUnavailableError` when both fail.
+        Anchor: FR-003c / FR-003d.
         """
         content = self._safely_fetch_direct_send_metadata(
             pre_approved.name, project_language
@@ -504,16 +480,12 @@ class AssignAgentUseCase:
     def _safely_fetch_direct_send_metadata(
         self, template_name: str, language: str
     ) -> Optional[Dict[str, Any]]:
-        """First-locale fetch with FR-003c routing for adapter rejections.
+        """First-locale fetch that translates adapter rejections to ``None``.
 
-        Translates ``DirectSendUnsupportedComponentError`` into "no
-        usable content" (returns ``None``) so the caller's ``pt_BR``
-        retry can fire per FR-003c (c) — but ONLY when a retry is
-        actually available (``language`` is non-``pt_BR``). When the
-        first-locale fetch IS already ``pt_BR``, no retry is possible,
-        so the exception propagates and the operator sees the specific
-        ``direct_send_unsupported_component`` code instead of the more
-        generic ``direct_send_template_unavailable`` (FR-003d).
+        When ``language`` is already ``pt_BR`` no retry is available,
+        so the exception propagates verbatim so operators see the
+        specific ``direct_send_unsupported_component`` code rather
+        than the generic unavailable code. Anchor: FR-003c / FR-003d.
         """
         try:
             return fetch_meta_library_template_metadata(

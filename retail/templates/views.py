@@ -1,3 +1,5 @@
+import logging
+
 from typing import cast
 
 from uuid import UUID
@@ -8,9 +10,16 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 
 from retail.internal.permissions import CanCommunicateInternally, HasProjectPermission
+from retail.templates.exceptions import (
+    MetaInvalidResponseError,
+    MetaSampleUnavailableError,
+    NotDirectSendEligibleError,
+    WabaNotConfiguredError,
+)
 from retail.templates.usecases import (
     CreateTemplateUseCase,
     ReadTemplateUseCase,
@@ -25,6 +34,10 @@ from retail.templates.usecases import (
     CreateCustomTemplateUseCase,
     CreateCustomTemplateData,
 )
+from retail.templates.usecases.validate_template_sample import (
+    ValidateTemplateSampleDTO,
+    ValidateTemplateSampleUseCase,
+)
 
 from retail.templates.serializers import (
     CreateTemplateSerializer,
@@ -34,9 +47,37 @@ from retail.templates.serializers import (
     UpdateTemplateSerializer,
     UpdateLibraryTemplateSerializer,
     CreateCustomTemplateSerializer,
+    ValidateTemplateSampleSerializer,
 )
 
 from retail.templates.usecases.template_metrics import FetchTemplateMetricsUseCase
+
+
+logger = logging.getLogger(__name__)
+
+
+_SAMPLE_DOMAIN_ERROR_HTTP_TRANSLATIONS = {
+    NotDirectSendEligibleError: (
+        status.HTTP_400_BAD_REQUEST,
+        "Template is not Direct Send-eligible",
+        "not_direct_send_eligible",
+    ),
+    WabaNotConfiguredError: (
+        status.HTTP_400_BAD_REQUEST,
+        "WABA not configured for this project",
+        "waba_not_configured",
+    ),
+    MetaSampleUnavailableError: (
+        status.HTTP_502_BAD_GATEWAY,
+        "Meta sample submission failed",
+        "meta_unavailable",
+    ),
+    MetaInvalidResponseError: (
+        status.HTTP_502_BAD_GATEWAY,
+        "Meta did not return a category",
+        "meta_invalid_response",
+    ),
+}
 
 
 class TemplateViewSet(ViewSet):
@@ -137,6 +178,95 @@ class TemplateViewSet(ViewSet):
 
         response_serializer = ReadTemplateSerializer(template)
         return Response(data=response_serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def sample(self, request: Request, pk: UUID) -> Response:
+        """Thin DRF action for the sample-validation endpoint.
+
+        Anchor: FR-002b / FR-007 / SC-008 (see
+        ``specs/004-template-sample-validation/spec.md``).
+        """
+        request_serializer = ValidateTemplateSampleSerializer(
+            data=request.data, context={"request": request}
+        )
+        try:
+            request_serializer.is_valid(raise_exception=True)
+        except ValidationError as exc:
+            self._warn_project_uuid_mismatch_if_present(request, pk, exc)
+            raise
+
+        dto = self._build_validate_sample_dto(
+            request_serializer.validated_data, str(pk)
+        )
+        use_case = ValidateTemplateSampleUseCase()
+        try:
+            result = use_case.execute(dto)
+        except tuple(_SAMPLE_DOMAIN_ERROR_HTTP_TRANSLATIONS) as exc:
+            return self._sample_domain_error_to_response(exc)
+
+        return Response(result.to_dict(), status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _sample_domain_error_to_response(exc: Exception) -> Response:
+        """Translate a domain exception into its HTTP response.
+
+        ``_SAMPLE_DOMAIN_ERROR_HTTP_TRANSLATIONS`` is the single source
+        of truth for the four ``(status, detail, error_code)`` triples.
+        ``meta_response`` is forwarded verbatim when present. Anchor:
+        FR-007 / FR-007b.
+        """
+        http_status, detail, error_code = _SAMPLE_DOMAIN_ERROR_HTTP_TRANSLATIONS[
+            type(exc)
+        ]
+        body = {"detail": detail, "error_code": error_code}
+        meta_response = getattr(exc, "meta_response", None)
+        if meta_response is not None:
+            body["meta_response"] = meta_response
+        return Response(body, status=http_status)
+
+    def _build_validate_sample_dto(
+        self, validated_data: dict, template_uuid: str
+    ) -> ValidateTemplateSampleDTO:
+        return ValidateTemplateSampleDTO(
+            template_uuid=template_uuid,
+            template_body=validated_data.get("template_body"),
+            template_header=validated_data.get("template_header"),
+            template_footer=validated_data.get("template_footer"),
+            template_button=validated_data.get("template_button"),
+            template_body_params=validated_data.get("template_body_params"),
+            app_uuid=validated_data["app_uuid"],
+            project_uuid=validated_data["project_uuid"],
+            parameters=validated_data.get("parameters"),
+            language=validated_data.get("language"),
+        )
+
+    def _warn_project_uuid_mismatch_if_present(
+        self, request: Request, template_uuid: UUID, exc: ValidationError
+    ) -> None:
+        """Emit a ``project_uuid_mismatch`` WARNING when applicable.
+
+        Anchor: FR-008a / SC-008.
+        """
+        if not self._validation_error_has_project_uuid_mismatch(exc):
+            return
+
+        logger.warning(
+            "[TemplateSampleValidation] project_uuid_mismatch: "
+            f"header_project_uuid={request.headers.get('Project-Uuid')} "
+            f"body_project_uuid={request.data.get('project_uuid')} "
+            f"template_uuid={template_uuid}"
+        )
+
+    @staticmethod
+    def _validation_error_has_project_uuid_mismatch(exc: ValidationError) -> bool:
+        detail = exc.detail
+        if not isinstance(detail, dict):
+            return False
+        project_uuid_errors = detail.get("project_uuid") or []
+        return any(
+            getattr(err, "code", None) == "project_uuid_mismatch"
+            for err in project_uuid_errors
+        )
 
 
 class TemplateLibraryViewSet(ViewSet):
