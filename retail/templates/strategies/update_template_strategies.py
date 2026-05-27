@@ -10,7 +10,7 @@ from django.conf import settings
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
-from retail.templates.models import Template
+from retail.templates.models import Template, Version
 from retail.templates.usecases import TemplateBuilderMixin
 from retail.templates.utils import get_agent_config, resolve_template_language
 from retail.services.rule_generator import RuleGenerator
@@ -220,7 +220,16 @@ class UpdateNormalTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
     ):
         super().__init__(template_adapter, template_metadata_handler)
 
-    def update_template(self, template: Template, payload: Dict[str, Any]) -> Template:
+    def _build_and_persist_metadata(
+        self, template: Template, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Build canonical metadata, persist it, sync agent-side config.
+
+        Returns ``translation_payload`` so PATCH callers can push to
+        Integrations; sample-validation discards it because pushing
+        would race with the next Direct Send broadcast. Anchor: FR-002a
+        / FR-006 (see ``specs/004-template-sample-validation/spec.md``).
+        """
         updated_metadata, translation_payload = self._update_common_metadata(
             template, payload
         )
@@ -228,11 +237,38 @@ class UpdateNormalTemplateStrategy(UpdateTemplateStrategy, TemplateBuilderMixin)
         template.metadata = updated_metadata
         template.save(update_fields=["metadata"])
 
-        # Sync abandoned cart agent config if header image was added/removed
         self._sync_abandoned_cart_image_config(template, translation_payload)
 
-        self._create_version_and_notify(template, payload, translation_payload)
+        return translation_payload
 
+    def _create_approved_current_version(
+        self, template: Template, payload: Dict[str, Any]
+    ) -> Version:
+        """Insert APPROVED Version row and repoint ``current_version``.
+
+        Three single-row writes under Django's default per-statement
+        transaction; no ``@transaction.atomic`` wrap — partial-failure
+        modes are operationally safe (next Direct Send dispatch reads
+        the new content with no cache lag). Anchor: FR-006a / FR-006d
+        / Decision 4 / Decision 8.
+        """
+        version = self._create_version(
+            template=template,
+            app_uuid=payload["app_uuid"],
+            project_uuid=payload["project_uuid"],
+        )
+
+        version.status = "APPROVED"
+        version.save(update_fields=["status"])
+
+        template.current_version = version
+        template.save(update_fields=["current_version"])
+
+        return version
+
+    def update_template(self, template: Template, payload: Dict[str, Any]) -> Template:
+        translation_payload = self._build_and_persist_metadata(template, payload)
+        self._create_version_and_notify(template, payload, translation_payload)
         return template
 
 

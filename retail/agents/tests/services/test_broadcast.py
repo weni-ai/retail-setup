@@ -1,3 +1,5 @@
+import logging
+
 from django.test import TestCase
 
 from unittest.mock import MagicMock, patch
@@ -20,7 +22,7 @@ class BroadcastHandlerTest(TestCase):
         self.mock_agent.uuid = uuid4()
         self.mock_agent.channel_uuid = uuid4()
         self.mock_agent.project.uuid = uuid4()
-        self.mock_agent.config = None
+        self.mock_agent.config = {}
 
     def test_can_send_to_contact_no_config(self):
         self.mock_agent.config = None
@@ -112,7 +114,7 @@ class BroadcastHandlerTest(TestCase):
         mock_template.current_version.status = "APPROVED"
 
         mock_filter = MagicMock()
-        mock_filter.first.return_value = mock_template
+        mock_filter.select_related.return_value.first.return_value = mock_template
         self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         result = self.handler.get_current_template(self.mock_agent, data)
@@ -123,7 +125,7 @@ class BroadcastHandlerTest(TestCase):
     def test_get_current_template_name_not_found(self):
         data = {"template": "non_existent_template"}
         mock_filter = MagicMock()
-        mock_filter.first.return_value = None
+        mock_filter.select_related.return_value.first.return_value = None
         self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         result = self.handler.get_current_template(self.mock_agent, data)
@@ -134,12 +136,274 @@ class BroadcastHandlerTest(TestCase):
         data = {"template": "order_update"}
         # Filter returns None when no template matches (because current_version__isnull=False filter)
         mock_filter = MagicMock()
-        mock_filter.first.return_value = None
+        mock_filter.select_related.return_value.first.return_value = None
         self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         result = self.handler.get_current_template(self.mock_agent, data)
 
         self.assertIsNone(result)
+
+    def _stub_template_lookup(self, template) -> MagicMock:
+        """Stub the single ``filter().select_related().first()`` lookup
+        chain that ``get_current_template`` exercises per invocation.
+        The actual ``Version.status`` value is classified
+        status in Python (US3 / T031).
+        """
+        mock_filter = MagicMock()
+        mock_filter.select_related.return_value.first.return_value = template
+        self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
+        return mock_filter
+
+    def _assert_dispatch_skip_audit(
+        self, audit_line: str, *, expected_version_status: str
+    ) -> None:
+        """Assert the unified Dispatch-gate skip audit shape.
+
+        Anchor: FR-039 + FR-044 (top-level tenant keys).
+        """
+        self.assertIn("[BroadcastDispatch] skipped_due_to_status:", audit_line)
+        self.assertIn(f"project_uuid={self.mock_agent.project.uuid}", audit_line)
+        self.assertIn(
+            f"vtex_account={self.mock_agent.project.vtex_account}", audit_line
+        )
+        self.assertIn(f"agent={self.mock_agent.uuid}", audit_line)
+        self.assertIn("template=order_update", audit_line)
+        self.assertIn(f"version_status={expected_version_status}", audit_line)
+        self.assertIn("event=", audit_line)
+
+    def test_get_current_template_paused_returns_none_and_logs_audit(self):
+        """PAUSED returns None and logs unified shape. Anchor: FR-039."""
+        data = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:5511",
+            "orderId": "ORDER-1",
+            "currentState": "invoiced",
+        }
+        paused_template = MagicMock()
+        paused_template.name = "order_update"
+        paused_template.current_version.status = "PAUSED"
+
+        self._stub_template_lookup(paused_template)
+
+        logger_name = (
+            "retail.agents.domains.agent_webhook.services.broadcast"
+        )
+        with self.assertLogs(logger_name, level="WARNING") as captured:
+            result = self.handler.get_current_template(self.mock_agent, data)
+
+        self.assertIsNone(result)
+
+        audit_lines = [
+            msg
+            for msg in captured.output
+            if "skipped_due_to_status" in msg
+        ]
+        self.assertEqual(
+            len(audit_lines),
+            1,
+            f"expected exactly one PAUSED audit log line, got: {captured.output}",
+        )
+        self._assert_dispatch_skip_audit(
+            audit_lines[0], expected_version_status="PAUSED"
+        )
+        self.assertIn("ORDER-1", audit_lines[0])
+
+    def test_get_current_template_flagged_returns_none_and_logs_audit(self):
+        """FLAGGED returns None and logs unified shape. Anchor: FR-039."""
+        data = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:5511",
+            "orderId": "ORDER-2",
+            "currentState": "shipped",
+        }
+        flagged_template = MagicMock()
+        flagged_template.name = "order_update"
+        flagged_template.current_version.status = "FLAGGED"
+
+        self._stub_template_lookup(flagged_template)
+
+        logger_name = (
+            "retail.agents.domains.agent_webhook.services.broadcast"
+        )
+        with self.assertLogs(logger_name, level="WARNING") as captured:
+            result = self.handler.get_current_template(self.mock_agent, data)
+
+        self.assertIsNone(result)
+
+        audit_lines = [
+            msg
+            for msg in captured.output
+            if "skipped_due_to_status" in msg
+        ]
+        self.assertEqual(len(audit_lines), 1)
+        self._assert_dispatch_skip_audit(
+            audit_lines[0], expected_version_status="FLAGGED"
+        )
+        self.assertIn("ORDER-2", audit_lines[0])
+
+    def test_get_current_template_not_found_emits_unified_audit_shape(self):
+        """No row matched emits NOT_FOUND. Anchor: FR-027 Exception / FR-039."""
+        data = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:5511",
+            "orderId": "ORDER-3",
+            "currentState": "invoiced",
+        }
+        self._stub_template_lookup(None)
+
+        logger_name = (
+            "retail.agents.domains.agent_webhook.services.broadcast"
+        )
+        with self.assertLogs(logger_name, level="WARNING") as captured:
+            result = self.handler.get_current_template(self.mock_agent, data)
+
+        self.assertIsNone(result)
+
+        audit_lines = [
+            msg
+            for msg in captured.output
+            if "skipped_due_to_status" in msg
+        ]
+        self.assertEqual(len(audit_lines), 1)
+        self._assert_dispatch_skip_audit(
+            audit_lines[0], expected_version_status="NOT_FOUND"
+        )
+        self.assertIn("ORDER-3", audit_lines[0])
+
+        self.assertEqual(
+            [
+                msg
+                for msg in captured.output
+                if "does not exist in database or has no approved version" in msg
+            ],
+            [],
+        )
+
+    def test_get_current_template_returns_template_after_resume_to_approved(self):
+        """APPROVED resume returns the Template and emits no new audit line."""
+        data = {"template": "order_update", "contact_urn": "whatsapp:5511"}
+        approved_template = MagicMock()
+        approved_template.current_version.template_name = "order_update_v3"
+        approved_template.current_version.status = "APPROVED"
+
+        self._stub_template_lookup(approved_template)
+
+        logger_name = (
+            "retail.agents.domains.agent_webhook.services.broadcast"
+        )
+        with self.assertLogs(logger_name, level="WARNING") as captured:
+            # assertLogs requires at least one record at the requested level
+            # — emit a sentinel so the context can exit cleanly when the
+            # implementation correctly produces no warning of its own.
+            logging.getLogger(logger_name).warning("sentinel")
+            result = self.handler.get_current_template(self.mock_agent, data)
+
+        self.assertIs(result, approved_template)
+        self.assertEqual(
+            [msg for msg in captured.output if "skipped_due_to_status" in msg],
+            [],
+        )
+
+    def test_get_current_template_non_approved_other_states_emit_unified_audit_shape(
+        self,
+    ):
+        """Pre-existing non-APPROVED states emit unified shape. Anchor: FR-027 / FR-039."""
+        legacy_states = [
+            "PENDING",
+            "REJECTED",
+            "IN_APPEAL",
+            "LOCKED",
+            "DISABLED",
+            "DELETED",
+            "PENDING_DELETION",
+        ]
+        logger_name = (
+            "retail.agents.domains.agent_webhook.services.broadcast"
+        )
+
+        for state in legacy_states:
+            with self.subTest(version_status=state):
+                data = {
+                    "template": "order_update",
+                    "contact_urn": "whatsapp:5511",
+                }
+                non_approved_template = MagicMock()
+                non_approved_template.name = "order_update"
+                non_approved_template.current_version.status = state
+
+                self._stub_template_lookup(non_approved_template)
+
+                with self.assertLogs(logger_name, level="WARNING") as captured:
+                    result = self.handler.get_current_template(
+                        self.mock_agent, data
+                    )
+
+                self.assertIsNone(result)
+                audit_lines = [
+                    msg
+                    for msg in captured.output
+                    if "skipped_due_to_status" in msg
+                ]
+                self.assertEqual(
+                    len(audit_lines),
+                    1,
+                    f"state={state} must emit exactly one unified audit line, "
+                    f"got: {captured.output}",
+                )
+                self._assert_dispatch_skip_audit(
+                    audit_lines[0], expected_version_status=state
+                )
+                self.assertEqual(
+                    [
+                        msg
+                        for msg in captured.output
+                        if "does not exist in database or has no approved version"
+                        in msg
+                    ],
+                    [],
+                    f"state={state} must NOT emit the legacy per-name miss line",
+                )
+
+    def test_get_current_template_paused_emits_audit_on_each_call(self):
+        """Two PAUSED calls each emit one audit line (per-event, stateless)."""
+        data = {"template": "order_update", "contact_urn": "whatsapp:5511"}
+        paused_template = MagicMock()
+        paused_template.name = "order_update"
+        paused_template.current_version.status = "PAUSED"
+
+        self._stub_template_lookup(paused_template)
+
+        logger_name = (
+            "retail.agents.domains.agent_webhook.services.broadcast"
+        )
+        with self.assertLogs(logger_name, level="WARNING") as captured:
+            first = self.handler.get_current_template(self.mock_agent, data)
+            second = self.handler.get_current_template(self.mock_agent, data)
+
+        self.assertIsNone(first)
+        self.assertIsNone(second)
+        audit_lines = [
+            msg
+            for msg in captured.output
+            if "skipped_due_to_status" in msg
+        ]
+        self.assertEqual(len(audit_lines), 2)
+        for line in audit_lines:
+            self._assert_dispatch_skip_audit(
+                line, expected_version_status="PAUSED"
+            )
+
+    def test_get_current_template_issues_single_filter_call(self):
+        """Single-query strategy pin: exactly one ``templates.filter()`` per call."""
+        data = {"template": "order_update", "contact_urn": "whatsapp:5511"}
+        approved_template = MagicMock()
+        approved_template.current_version.status = "APPROVED"
+
+        self._stub_template_lookup(approved_template)
+
+        self.handler.get_current_template(self.mock_agent, data)
+
+        self.assertEqual(self.mock_agent.templates.filter.call_count, 1)
 
     def test_send_message(self):
         message = {"template": "test", "contact": "whatsapp:123"}
@@ -162,7 +426,7 @@ class BroadcastHandlerTest(TestCase):
         mock_template.current_version.status = "APPROVED"
 
         mock_filter = MagicMock()
-        mock_filter.first.return_value = mock_template
+        mock_filter.select_related.return_value.first.return_value = mock_template
         self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         with patch.object(
@@ -183,7 +447,7 @@ class BroadcastHandlerTest(TestCase):
     def test_build_message_template_not_found(self):
         data = {"template": "non_existent_template"}
         mock_filter = MagicMock()
-        mock_filter.first.return_value = None
+        mock_filter.select_related.return_value.first.return_value = None
         self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
 
         result = self.handler.build_message(self.mock_agent, data)
@@ -759,3 +1023,95 @@ class BroadcastRecordingTest(TestCase):
             lambda_data=None,
             exc=CustomAPIException(detail="boom", status_code=500),
         )
+
+
+class LegacyBuildMessageSkippedOnNonApprovedStateTest(TestCase):
+    """Legacy cohort path-independent dispatch gate.
+
+    Anchor: FR-027 + FR-039 + FR-046 (the Direct Send cohort regression
+    lives in ``test_get_current_template_non_approved_other_states_emit_unified_audit_shape``).
+    """
+
+    _LEGACY_NON_APPROVED_STATES = [
+        "PENDING",
+        "REJECTED",
+        "IN_APPEAL",
+        "LOCKED",
+        "DISABLED",
+        "DELETED",
+        "PENDING_DELETION",
+    ]
+
+    def setUp(self):
+        self.mock_flows_service = MagicMock()
+        self.mock_audit = MagicMock()
+        self.handler = Broadcast(
+            flows_service=self.mock_flows_service, audit_func=self.mock_audit
+        )
+        self.integrated_agent = MagicMock()
+        self.integrated_agent.uuid = uuid4()
+        self.integrated_agent.channel_uuid = uuid4()
+        self.integrated_agent.project.uuid = uuid4()
+        self.integrated_agent.project.vtex_account = "legacy-store"
+        self.integrated_agent.config = {}
+
+    def _stub_template_lookup(self, template):
+        mock_filter = MagicMock()
+        mock_filter.select_related.return_value.first.return_value = template
+        self.integrated_agent.templates.filter = MagicMock(return_value=mock_filter)
+        return mock_filter
+
+    def test_legacy_path_skips_dispatch_on_each_non_approved_state(self):
+        logger_name = "retail.agents.domains.agent_webhook.services.broadcast"
+
+        for state in self._LEGACY_NON_APPROVED_STATES:
+            with self.subTest(version_status=state):
+                template = MagicMock()
+                template.name = "order_update"
+                template.current_version.status = state
+                self._stub_template_lookup(template)
+
+                data = {
+                    "template": "order_update",
+                    "contact_urn": "whatsapp:5511",
+                    "template_variables": {"1": "Maria"},
+                }
+
+                with patch.object(
+                    self.handler, "build_broadcast_template_message"
+                ) as mock_legacy_builder, patch.object(
+                    self.handler, "build_direct_send_message"
+                ) as mock_direct_send_builder, self.assertLogs(
+                    logger_name, level="WARNING"
+                ) as captured:
+                    result = self.handler.build_message(self.integrated_agent, data)
+
+                self.assertIsNone(result)
+                mock_legacy_builder.assert_not_called()
+                mock_direct_send_builder.assert_not_called()
+                self.mock_flows_service.send_whatsapp_broadcast.assert_not_called()
+
+                unified_audit_lines = [
+                    msg
+                    for msg in captured.output
+                    if "skipped_due_to_status" in msg
+                    and f"version_status={state}" in msg
+                ]
+                self.assertEqual(
+                    len(unified_audit_lines),
+                    1,
+                    f"state={state} must emit one unified audit line; "
+                    f"got: {captured.output}",
+                )
+
+                downstream_miss_lines = [
+                    msg
+                    for msg in captured.output
+                    if "Template not found or has no approved current version" in msg
+                ]
+                self.assertEqual(
+                    len(downstream_miss_lines),
+                    1,
+                    f"state={state} must keep the legacy downstream miss line; "
+                    f"got: {captured.output}",
+                )

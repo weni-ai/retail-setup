@@ -52,23 +52,24 @@ class SendTestTemplateUseCase:
             integrated_agent.templates.filter(
                 is_active=True,
                 current_version__isnull=False,
-                current_version__status="APPROVED",
             )
             .select_related("current_version")
             .first()
         )
 
-        if not template:
-            raise ValidationError(
-                {
-                    "template": (
-                        "No active approved template found "
-                        f"for integrated agent {integrated_agent.uuid}."
-                    )
-                }
-            )
+        status = template.current_version.status if template else "NOT_FOUND"
 
-        return template
+        if status == "APPROVED":
+            return template
+
+        raise ValidationError(
+            {
+                "template": (
+                    f"No active approved template for integrated agent "
+                    f"{integrated_agent.uuid} (version_status={status})."
+                )
+            }
+        )
 
     def _build_message(
         self,

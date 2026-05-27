@@ -71,6 +71,39 @@ class MetaClient(MetaClientInterface, RequestClient):
 
         return response.json()
 
+    def fetch_library_template_by_name_and_language(
+        self, template_name: str, language: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Returns the exact ``(name, language)`` match from Meta's library catalog.
+
+        Meta's ``message_template_library`` endpoint takes ``search`` as a
+        fuzzy match, so the response may include items whose name only
+        partially matches and the cross-language variant when the
+        requested locale is missing. The Direct Send path requires an
+        EXACT match on both name and language; this method post-filters
+        the fuzzy response from :meth:`get_pre_approved_template` per
+        ``contracts/meta-library-catalog.md`` §3:
+
+        - Returns the first item whose ``name == template_name``
+          (case-sensitive) AND, when the item carries a ``language``
+          field, whose ``language == language`` (case-sensitive).
+        - Items without a ``language`` field fall through the language
+          guard and are matched on name alone.
+        - Returns ``None`` when no item satisfies both filters.
+        """
+        response = self.get_pre_approved_template(template_name, language)
+        data = response.get("data") or []
+
+        for item in data:
+            if item.get("name") != template_name:
+                continue
+            item_language = item.get("language")
+            if item_language is None or item_language == language:
+                return item
+
+        return None
+
     def create_flow(
         self,
         waba_id: str,
@@ -162,6 +195,35 @@ class MetaClient(MetaClientInterface, RequestClient):
         response = self.make_request(
             url=url,
             method="POST",
+            headers=self._json_headers,
+        )
+
+        return response.json()
+
+    def submit_template_sample(
+        self, waba_id: str, sample_body: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Submit a ``message_samples`` payload for a WABA to classify.
+
+        POSTs ``sample_body`` to ``{META_API_URL}/{waba_id}/message_samples``.
+
+        Args:
+            waba_id: WhatsApp Business Account id whose quota the sample
+                charges against. Resolved per-call from
+                ``ProjectOnboarding.config["channels"]["wpp-cloud"]["channel_data"]["waba_id"]``.
+            sample_body: Wire-shape dict produced by
+                ``retail.templates.adapters.direct_send_sample_translator.build_meta_sample_body``.
+
+        Returns:
+            Dict with Meta's response body verbatim. The happy-path
+            shape is ``{"success": true, "category": "<UTILITY|MARKETING|AUTHENTICATION>"}``.
+        """
+        url = f"{self.url}/{waba_id}/message_samples"
+
+        response = self.make_request(
+            url=url,
+            method="POST",
+            json=sample_body,
             headers=self._json_headers,
         )
 

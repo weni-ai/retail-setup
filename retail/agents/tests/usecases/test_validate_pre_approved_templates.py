@@ -38,7 +38,7 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
                         {
                             "name": "valid_template",
                             "body": "new content",
-                            "header": {"type": "TEXT", "text": "Header"},
+                            "header": "Header",
                             "body_params": ["param1", "param2"],
                             "footer": "Footer text",
                             "buttons": [{"type": "QUICK_REPLY", "text": "Button"}],
@@ -52,15 +52,8 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
             )
         )
 
-        self.template_adapter_mock = Mock()
-        self.template_adapter_mock.header_transformer.transform.return_value = {
-            "type": "TEXT",
-            "text": "Header",
-        }
-
         self.usecase = ValidatePreApprovedTemplatesUseCase(
             meta_service=self.meta_service_mock,
-            template_adapter=self.template_adapter_mock,
         )
 
     def test_get_template_info_returns_info_when_exists(self):
@@ -69,24 +62,12 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
         self.meta_service_mock.get_pre_approved_template.assert_called_with(
             "valid_template", "pt_BR"
         )
-        self.template_adapter_mock.header_transformer.transform.assert_called_with(
-            {
-                "name": "valid_template",
-                "body": "new content",
-                "header": {"type": "TEXT", "text": "Header"},
-                "body_params": ["param1", "param2"],
-                "footer": "Footer text",
-                "buttons": [{"type": "QUICK_REPLY", "text": "Button"}],
-                "category": "MARKETING",
-                "language": "pt_BR",
-            }
-        )
 
         expected_info = {
             "name": "valid_template",
             "content": "new content",
             "metadata": {
-                "header": {"type": "TEXT", "text": "Header"},
+                "header": {"header_type": "TEXT", "text": "Header"},
                 "body": "new content",
                 "body_params": ["param1", "param2"],
                 "footer": "Footer text",
@@ -117,7 +98,7 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
         self.assertEqual(self.template_valid.content, "new content")
 
         expected_metadata = {
-            "header": {"type": "TEXT", "text": "Header"},
+            "header": {"header_type": "TEXT", "text": "Header"},
             "body": "new content",
             "body_params": ["param1", "param2"],
             "footer": "Footer text",
@@ -135,19 +116,3 @@ class ValidatePreApprovedTemplatesUseCaseTest(TestCase):
         self.usecase.execute(self.agent)
 
         self.meta_service_mock.get_pre_approved_template.assert_not_called()
-        self.template_adapter_mock.header_transformer.transform.assert_not_called()
-
-    def test_template_adapter_is_called_correctly(self):
-        self.usecase._get_template_info("valid_template", "pt_BR")
-        self.template_adapter_mock.header_transformer.transform.assert_called_once_with(
-            {
-                "name": "valid_template",
-                "body": "new content",
-                "header": {"type": "TEXT", "text": "Header"},
-                "body_params": ["param1", "param2"],
-                "footer": "Footer text",
-                "buttons": [{"type": "QUICK_REPLY", "text": "Button"}],
-                "category": "MARKETING",
-                "language": "pt_BR",
-            }
-        )

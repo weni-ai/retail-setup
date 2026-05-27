@@ -54,6 +54,8 @@ class Version(models.Model):
         ("DELETED", "Deleted"),
         ("DISABLED", "Disabled"),
         ("LOCKED", "Locked"),
+        ("PAUSED", "Paused"),
+        ("FLAGGED", "Flagged"),
     )
 
     template = models.ForeignKey(

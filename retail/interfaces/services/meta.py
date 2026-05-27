@@ -1,10 +1,15 @@
-from typing import Any, Dict, List, Protocol
+from typing import Any, Dict, List, Optional, Protocol
 
 
 class MetaServiceInterface(Protocol):
     def get_pre_approved_template(
         self, template_name: str, language: str
     ) -> Dict[str, Any]:
+        ...
+
+    def fetch_library_template_by_name_and_language(
+        self, template_name: str, language: str
+    ) -> Optional[Dict[str, Any]]:
         ...
 
     def create_flow(
@@ -23,4 +28,12 @@ class MetaServiceInterface(Protocol):
         ...
 
     def publish_flow(self, flow_id: str) -> Dict[str, Any]:
+        ...
+
+    def submit_template_sample(
+        self, waba_id: str, sample_body: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Submit a Meta ``message_samples`` payload for a WABA.
+        """
         ...
