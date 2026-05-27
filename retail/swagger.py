@@ -6,7 +6,7 @@ from rest_framework import permissions
 view = get_schema_view(
     openapi.Info(
         title="Gallery API Documentation",
-        default_version="v5.24.1",
+        default_version="v5.25.0",
         description="Documentation of the Gallery APIs",
     ),
     public=True,
