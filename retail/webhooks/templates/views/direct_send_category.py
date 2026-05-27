@@ -13,14 +13,10 @@ from retail.webhooks.templates.usecases.direct_send_category import (
 
 
 class DirectSendCategoryWebhook(APIView):
-    """Inbound webhook called by Integrations when Meta-side
-    category-detection determines a Direct Send template's category is
-    wrong (FR-001 / FR-002).
+    """Inbound Integrations webhook for incorrect-category notifications.
 
-    The view is thin: payload validation lives in the serializer, every
-    business rule (lookup, fan-out, flagging, audit log) lives in the
-    use case, authorization is expressed exclusively via
-    ``permission_classes``.
+    Anchor: FR-001 / FR-002 (see
+    ``specs/003-template-category-webhook/spec.md``).
     """
 
     permission_classes = [CanCommunicateInternally]

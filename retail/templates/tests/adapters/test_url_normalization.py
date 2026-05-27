@@ -1,11 +1,4 @@
-"""Unit tests for the shared URL normalization helpers.
-
-Pins the contract of the pure functions in
-``retail/templates/adapters/url_normalization.py``. Both the push-path
-``ButtonTransformer`` and the fetch-path Direct Send adapter depend on
-this contract; any drift here is a FR-003f regression that affects
-``metadata.buttons[*].url`` shape on both paths.
-"""
+"""Unit tests for the shared URL normalization helpers. Anchor: FR-003f."""
 
 from django.test import TestCase
 

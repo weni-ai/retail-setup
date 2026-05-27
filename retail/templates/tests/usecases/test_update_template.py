@@ -84,10 +84,7 @@ class UpdateTemplateUseCaseTest(TestCase):
     def test_execute_persists_paused_as_is_and_does_not_promote_current_version(
         self,
     ):
-        """US3 / T030a — FR-026: PAUSED is accepted and persisted as-is
-        on the named ``Version``; the template's ``current_version`` FK
-        is unchanged (APPROVED-only promotion logic does not fire).
-        """
+        """PAUSED is persisted as-is, no promotion. Anchor: FR-026."""
         previous_current_version = self.template.current_version
 
         payload = {"version_uuid": str(self.version_uuid), "status": "PAUSED"}
@@ -103,7 +100,7 @@ class UpdateTemplateUseCaseTest(TestCase):
     def test_execute_persists_flagged_as_is_and_does_not_promote_current_version(
         self,
     ):
-        """US3 / T030a — FR-026: same contract as PAUSED for FLAGGED."""
+        """FLAGGED same contract as PAUSED. Anchor: FR-026."""
         previous_current_version = self.template.current_version
 
         payload = {"version_uuid": str(self.version_uuid), "status": "FLAGGED"}
@@ -119,10 +116,7 @@ class UpdateTemplateUseCaseTest(TestCase):
     def test_execute_persists_pending_as_is_and_does_not_promote_current_version(
         self,
     ):
-        """US3 / T030a regression — existing PENDING contract unchanged
-        (defensive check so the FR-026 substitution rule cannot
-        accidentally widen the promotion branch).
-        """
+        """PENDING contract regression. Anchor: FR-026."""
         previous_current_version = self.template.current_version
 
         payload = {"version_uuid": str(self.version_uuid), "status": "PENDING"}

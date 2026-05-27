@@ -1,14 +1,4 @@
-"""Legacy broadcast payload snapshot tests (T033 — US4 / FR-015 / SC-004).
-
-Pins the EXACT byte-shape of the Flows broadcast payload emitted today by
-``Broadcast.build_broadcast_template_message`` for the three template
-families exercised by the OrderStatus fleet — body-only with positional
-variables, image-header (s3-keyed) plus URL button, and image-header
-(direct URL) plus PAYMENT_REQUEST buttons with ``order_details``. The
-Direct Send feature MUST NOT alter any of these shapes; any byte drift
-fails the snapshot and is treated as a regression
-(``contracts/messaging-gateway-payload.md`` §2).
-"""
+"""Legacy broadcast payload byte-shape snapshot. Anchor: FR-015."""
 
 from unittest.mock import MagicMock
 
@@ -23,18 +13,7 @@ _CONTACT_URN = "whatsapp:5598123456789"
 
 
 class LegacyBroadcastPayloadSnapshotTest(TestCase):
-    """FR-015 / SC-004 — legacy ``msg`` body MUST stay byte-identical.
-
-    The three scenarios below cover the OrderStatus template families
-    in production today: body-only with positional variables, image
-    header (s3-keyed) plus URL button, and image header (direct URL)
-    plus PAYMENT_REQUEST buttons combined with ``order_details``.
-
-    Each snapshot is the FULL expected message dict — keys, values,
-    types and array order are pinned (key ordering MAY differ per the
-    spec's "byte-identical" definition). A future change that adds or
-    removes any field on the legacy path will fail one of these tests.
-    """
+    """Legacy ``msg`` body byte-identity regression. Anchor: FR-015 / SC-004."""
 
     def setUp(self):
         self.handler = Broadcast(flows_service=MagicMock(), audit_func=MagicMock())
@@ -46,14 +25,7 @@ class LegacyBroadcastPayloadSnapshotTest(TestCase):
         return template
 
     def test_body_only_with_positional_variables(self):
-        """Scenario (a) — body + positional variables, no header / no buttons.
-
-        T116(g) / T117(g) — the FR-014c / FR-014d wire-shape rules are
-        Direct-Send-only. The legacy payload MUST continue to carry
-        ``msg.template = {name, locale, variables}`` byte-for-byte and
-        MUST NOT leak ``msg.direct_send_template_name`` or ``msg.text``
-        onto the legacy cohort.
-        """
+        """Body + variables, no header / buttons, no Direct-Send leakage."""
         template = self._make_template(template_name="weni_order_invoiced_1700000000")
         data = {
             "template_variables": {"1": "Maria", "2": "12345"},
