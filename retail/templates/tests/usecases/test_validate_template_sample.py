@@ -526,7 +526,7 @@ class LegacyPatchEndpointMetadataParityTest(_UseCaseTestBase):
         }
 
         self.use_case.execute(sample_dto)
-        UpdateTemplateContentUseCase().execute(legacy_payload)
+        UpdateTemplateContentUseCase(rule_generator=MagicMock()).execute(legacy_payload)
 
         sample_template.refresh_from_db()
         legacy_template.refresh_from_db()
