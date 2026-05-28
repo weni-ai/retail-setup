@@ -1,5 +1,5 @@
 from datetime import timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from django.core.cache import cache
@@ -281,3 +281,62 @@ class HandleAbandonedCartConversionUseCaseTest(TestCase):
         self.assertIsInstance(usecase.flows_service, FlowsService)
         self.assertIsInstance(usecase.cart_repository, CartRepository)
         self.assertIsInstance(usecase.vtex_io_service, VtexIOService)
+
+    def test_execute_uses_cached_project(self):
+        """Cache hit short-circuits the DB lookup and still proceeds."""
+        cache.set(f"project_by_uuid_{self.project.uuid}", self.project, timeout=60)
+        self.mock_cart_repository.find_abandoned_cart_for_conversion.return_value = (
+            self.mock_cart
+        )
+
+        with patch(
+            "retail.vtex.usecases.handle_abandoned_cart_conversion.Project.objects.get"
+        ) as mock_get:
+            result = self._execute(self._create_usecase())
+            mock_get.assert_not_called()
+
+        self.assertTrue(result)
+
+    def test_execute_handles_multiple_projects_returned(self):
+        """``Project.MultipleObjectsReturned`` aborts the workflow gracefully."""
+        with patch(
+            "retail.vtex.usecases.handle_abandoned_cart_conversion.Project.objects.get",
+            side_effect=Project.MultipleObjectsReturned,
+        ):
+            result = self._create_usecase().execute(
+                order_id=self.order_id, project_uuid=str(uuid4())
+            )
+
+        self.assertFalse(result)
+        self.mock_vtex_io_service.get_order_details_by_id.assert_not_called()
+
+    def test_execute_handles_vtex_io_exception(self):
+        """Exceptions raised by VTEX I/O are caught and treated as no order."""
+        self.mock_vtex_io_service.get_order_details_by_id.side_effect = RuntimeError(
+            "vtex-io-down"
+        )
+
+        result = self._execute(self._create_usecase())
+
+        self.assertFalse(result)
+        self.mock_cart_repository.find_abandoned_cart_for_conversion.assert_not_called()
+
+    def test_execute_makes_naive_notification_sent_at_aware(self):
+        """Naive ``notification_sent_at`` values are coerced to aware before
+        being compared against the order ``creationDate``.
+        """
+        from datetime import datetime
+
+        naive_notification = datetime(2026, 5, 1, 10, 0, 0)
+        self.mock_cart.notification_sent_at = naive_notification
+        self.mock_order_details["creationDate"] = (
+            timezone.make_aware(naive_notification) + timedelta(hours=1)
+        ).isoformat()
+        self.mock_cart_repository.find_abandoned_cart_for_conversion.return_value = (
+            self.mock_cart
+        )
+
+        result = self._execute(self._create_usecase())
+
+        self.assertTrue(result)
+        self.mock_flows_service.send_purchase_event.assert_called_once()
