@@ -396,8 +396,11 @@ class AssignAgentUseCase:
                 integrated_agent=integrated_agent,
             )
 
+            content_metadata = dict(content["metadata"])
+            self._drop_non_interactive_header_footer(content_metadata)
+
             template.metadata = {
-                **content["metadata"],
+                **content_metadata,
                 "direct_send": {
                     "fetched_from_meta_library": True,
                     "fetched_at": datetime.now(timezone.utc).isoformat(),
@@ -476,6 +479,22 @@ class AssignAgentUseCase:
             )
 
         return content, actual_language
+
+    def _drop_non_interactive_header_footer(self, metadata: Dict[str, Any]) -> None:
+        """Strip components Meta can't render without an interactive type.
+
+        Meta only accepts header/footer when the message carries a URL CTA
+        or quick replies. A button-less template would dispatch as a plain
+        text message, which Meta rejects if it has a text header/footer, so
+        we never persist those. Image headers survive (they travel as a
+        media attachment).
+        """
+        if metadata.get("buttons"):
+            return
+        metadata.pop("footer", None)
+        header = metadata.get("header")
+        if header and header.get("header_type") == "TEXT":
+            metadata.pop("header", None)
 
     def _safely_fetch_direct_send_metadata(
         self, template_name: str, language: str
