@@ -16,6 +16,9 @@ from retail.broadcasts.usecases.mark_broadcast_converted import (
 from retail.interfaces.clients.aws_lambda.client import RequestData
 from retail.vtex.models import Cart
 from retail.vtex.usecases.cart_abandonment import CartAbandonmentUseCase
+from retail.vtex.usecases.handle_abandoned_cart_conversion import (
+    HandleAbandonedCartConversionUseCase,
+)
 from retail.vtex.usecases.handle_purchase_event import HandlePurchaseEventUseCase
 from retail.webhooks.vtex.usecases.order_status import OrderStatusUseCase
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
@@ -124,12 +127,32 @@ def task_order_status_update(order_update_data: dict):
             return
 
         if is_payment_approved(current_state):
+            # TODO(refactor): every payment-approved event currently fans out
+            # into N independent tasks, and each one performs its own
+            # ``VtexIOService.get_order_details_by_id`` call. As long as we
+            # have just two consumers (CAPI + abandoned-cart conversion) the
+            # extra HTTP call is acceptable, but adding a third consumer
+            # multiplies the cost linearly. The original PR #376 design
+            # solved this with a single orchestrator that fetched the order
+            # once and shared an ``OrderContext`` with all handlers; revisit
+            # that approach (or memoize ``get_order_details_by_id`` per
+            # order_id) once a third consumer is on the table.
             logger.info(
                 f"[ORDER_STATUS] dispatching_purchase_event: "
                 f"vtex_account={vtex_account} current_state={current_state} "
                 f"order_id={order_id}"
             )
             handle_purchase_event_task.apply_async(
+                args=[order_id, str(project.uuid)],
+                queue="vtex-io-orders-update-events",
+            )
+
+            logger.info(
+                f"[ABANDONED_CART_CONVERSION] dispatching_conversion_check: "
+                f"vtex_account={vtex_account} current_state={current_state} "
+                f"order_id={order_id}"
+            )
+            task_handle_abandoned_cart_conversion.apply_async(
                 args=[order_id, str(project.uuid)],
                 queue="vtex-io-orders-update-events",
             )
@@ -232,6 +255,18 @@ def task_mark_broadcast_converted(order_id: str, project_uuid: str):
     re-triggering the agent webhook flow that already ran.
     """
     use_case = MarkBroadcastConvertedUseCase()
+    use_case.execute(order_id=order_id, project_uuid=project_uuid)
+
+
+@shared_task
+def task_handle_abandoned_cart_conversion(order_id: str, project_uuid: str):
+    """Detect and report abandoned-cart-driven conversions to Flows datalake.
+
+    Isolated from ``handle_purchase_event_task`` so a transient VTEX I/O
+    failure on the conversion lookup retries on its own without
+    re-triggering the purchase-event flow that already ran.
+    """
+    use_case = HandleAbandonedCartConversionUseCase()
     use_case.execute(order_id=order_id, project_uuid=project_uuid)
 
 
