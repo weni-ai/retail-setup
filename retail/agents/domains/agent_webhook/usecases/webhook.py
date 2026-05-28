@@ -113,10 +113,14 @@ class AgentWebhookUseCase:
         dispatch_context: Optional[BroadcastDispatchContext] = None,
     ) -> Optional[Dict[str, Any]]:
         """Process lambda response and build broadcast message."""
+        vtex_account = integrated_agent.project.vtex_account
         data = self.active_agent.parse_response(response)
 
         if not data:
-            logger.info("Error in parsing lambda response.")
+            logger.info(
+                f"Error in parsing lambda response. "
+                f"vtex_account={vtex_account} agent={integrated_agent.uuid}"
+            )
             return None
 
         response["payload"] = data
@@ -125,14 +129,19 @@ class AgentWebhookUseCase:
             return None
 
         if not self.broadcast_handler.can_send_to_contact(integrated_agent, data):
-            logger.info("Contact is not allowed to receive the broadcast.")
+            logger.info(
+                f"Contact is not allowed to receive the broadcast. "
+                f"vtex_account={vtex_account} agent={integrated_agent.uuid}"
+            )
             return None
 
         try:
             message = self.broadcast_handler.build_message(integrated_agent, data)
             if not message:
                 logger.info(
-                    f"Failed to build broadcast message from payload data: {data}"
+                    f"Failed to build broadcast message from payload data: "
+                    f"vtex_account={vtex_account} agent={integrated_agent.uuid} "
+                    f"data={data}"
                 )
                 return None
 
