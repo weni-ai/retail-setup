@@ -119,8 +119,8 @@ class LoggerCallsBufferUpdateStatusOnSuccessTests(TestCase):
         )
 
         buffer.add_trace.assert_called_once()
-        buffer.update_status.assert_called_once()
-        ((), kwargs) = buffer.update_status.call_args
+        buffer.update_metadata.assert_called_once()
+        ((), kwargs) = buffer.update_metadata.call_args
         self.assertEqual(kwargs["execution_uuid"], execution_uuid)
         self.assertEqual(kwargs["template_uuid"], template_uuid)
         self.assertEqual(kwargs["broadcast_id"], 42)

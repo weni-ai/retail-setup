@@ -26,7 +26,7 @@ class TaskPaymentRecoveryWebhookTest(TestCase):
         }
 
     @patch("retail.agents.tasks.PaymentRecoveryWebhookUseCase")
-    @patch("retail.agents.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_task_processes_webhook_successfully(
         self, mock_logger_factory, mock_usecase_cls
     ):
@@ -49,7 +49,7 @@ class TaskPaymentRecoveryWebhookTest(TestCase):
         mock_logger.log_execution_error.assert_not_called()
 
     @patch("retail.agents.tasks.PaymentRecoveryWebhookUseCase")
-    @patch("retail.agents.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_log_webhook_received_carries_order_id_and_agent(
         self, mock_logger_factory, mock_usecase_cls
     ):
@@ -74,7 +74,7 @@ class TaskPaymentRecoveryWebhookTest(TestCase):
         self.assertEqual(kwargs.get("order_id"), self.webhook_data["OrderId"])
 
     @patch("retail.agents.tasks.PaymentRecoveryWebhookUseCase")
-    @patch("retail.agents.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_task_handles_exception_gracefully(
         self, mock_logger_factory, mock_usecase_cls
     ):
@@ -96,16 +96,22 @@ class TaskPaymentRecoveryWebhookTest(TestCase):
         mock_usecase.process_webhook_notification.assert_not_called()
 
     @patch("retail.agents.tasks.PaymentRecoveryWebhookUseCase")
-    @patch("retail.agents.tasks.ExecutionLoggerService")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
     def test_task_handles_process_exception_gracefully(
         self, mock_logger_factory, mock_usecase_cls
     ):
         """An exception inside processing must close
         the previously-opened execution row as ``error`` rather than
         leaving it to time out at the ZSET deadline."""
+        from retail.agents.domains.agent_execution.context import (
+            set_current_execution_uuid,
+        )
+
         execution_uuid = uuid4()
         mock_logger = MagicMock()
-        mock_logger.log_webhook_received.return_value = execution_uuid
+        mock_logger.log_webhook_received.side_effect = (
+            lambda *a, **kw: (set_current_execution_uuid(execution_uuid), execution_uuid)[1]
+        )
         mock_logger_factory.return_value = mock_logger
 
         mock_usecase = MagicMock()
@@ -123,4 +129,10 @@ class TaskPaymentRecoveryWebhookTest(TestCase):
         kwargs = mock_logger.log_execution_error.call_args.kwargs
         self.assertEqual(kwargs.get("execution_uuid"), execution_uuid)
         self.assertEqual(kwargs.get("error_message"), "Processing error")
-        self.assertEqual(kwargs.get("error_data"), {"webhook_data": self.webhook_data})
+        self.assertEqual(
+            kwargs.get("error_data"),
+            {
+                "integrated_agent_uuid": self.agent_uuid,
+                "webhook_data": self.webhook_data,
+            },
+        )

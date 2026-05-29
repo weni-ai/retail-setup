@@ -76,6 +76,7 @@ class IntegrateAgentsUseCase:
             vtex_account=vtex_account,
             app_uuid=channel_config.get("app_uuid"),
             channel_uuid=channel_config.get("flow_object_uuid"),
+            flow_id=(channel_config.get("payment") or {}).get("flow_id"),
         )
 
         self._integrate_agents(onboarding, context, agents, integrated_uuids)

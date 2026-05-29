@@ -8,7 +8,10 @@ from retail.projects.usecases.initiate_crawl import InitiateCrawlUseCase
 from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.projects.usecases.onboarding_orchestrator import OnboardingOrchestrator
 from retail.projects.usecases.pre_crawl_channel import PreCrawlChannelUseCase
-from retail.projects.usecases.start_crawl import CrawlerStartError
+from retail.projects.usecases.save_background_failure import (
+    SaveBackgroundFailureUseCase,
+)
+from retail.projects.usecases.upload_nexus_contents import UploadNexusContentsUseCase
 from retail.services.vtex_io.service import VtexIOService
 
 logger = logging.getLogger(__name__)
@@ -45,12 +48,21 @@ def release_task_lock(task_name: str, vtex_account: str) -> None:
 
 def _run_setup_channel_and_start_crawl(task, vtex_account: str, crawl_url: str) -> None:
     """
-    Shared implementation for the pre-crawl pipeline.
+    Shared implementation for the pre-crawl + post-crawl pipeline.
 
     Both ``task_setup_channel_and_start_crawl`` (new name) and the
     legacy alias ``task_wait_and_start_crawl`` delegate here so the
     same retry/cleanup logic runs regardless of how the task was
     enqueued.
+
+    Pipeline order (single Celery task, sequential):
+      1. Wait until the project is linked (retries up to ~10 minutes).
+      2. Pre-crawl channel setup (WWC or WPP Cloud).
+      3. Kick off the crawl (fire-and-forget; soft-fails internally).
+      4. Run the post-crawl orchestrator inline (manager + payment +
+         agents -- no content upload). The wizard completes here; the
+         content upload happens in background later when the crawler
+         webhook arrives.
 
     Args:
         task: The bound Celery task instance (provides ``retry`` /
@@ -99,11 +111,9 @@ def _run_setup_channel_and_start_crawl(task, vtex_account: str, crawl_url: str) 
         mark_onboarding_failed(vtex_account, f"Channel creation failed: {exc}")
         raise
 
-    try:
-        InitiateCrawlUseCase().execute(onboarding.project, vtex_account, crawl_url)
-    except CrawlerStartError as e:
-        logger.error(f"Crawl start failed for vtex_account={vtex_account}: {e}")
-        raise
+    InitiateCrawlUseCase().execute(onboarding.project, vtex_account, crawl_url)
+
+    OnboardingOrchestrator().execute(vtex_account)
 
 
 @shared_task(
@@ -113,16 +123,19 @@ def _run_setup_channel_and_start_crawl(task, vtex_account: str, crawl_url: str) 
 )
 def task_setup_channel_and_start_crawl(self, vtex_account: str, crawl_url: str) -> None:
     """
-    Pre-crawl orchestration: wait for project link, create channel, start crawl.
+    Pre-crawl + post-crawl orchestration: wait for project link, create
+    channel, kick off the crawl, then run the post-crawl orchestrator
+    inline so the wizard completes without waiting for the crawl.
 
     The Facebook ``auth_code`` from Embedded Signup is short-lived, so the
     channel must be created (and the code exchanged on the
     integrations-engine side) before the long-running crawl can expire it.
 
-    Retries while the project is not linked. Once linked, runs the channel
-    use case (resolves wwc or wpp-cloud) and then starts the crawl. If
-    channel creation fails, the onboarding is marked failed and the crawl
-    is not started — the user must redo Embedded Signup.
+    Retries while the project is not linked. Once linked, runs the
+    channel use case (resolves wwc or wpp-cloud), kicks off the crawl
+    (background), and runs the orchestrator. If channel creation fails,
+    the onboarding is marked failed and the orchestrator is not invoked
+    -- the user must redo Embedded Signup.
     """
     return _run_setup_channel_and_start_crawl(self, vtex_account, crawl_url)
 
@@ -157,14 +170,56 @@ def task_activate_agentic_cx_script(vtex_account: str) -> None:
     logger.info(f"Agentic CX script activated for vtex_account={vtex_account}")
 
 
+UPLOAD_NEXUS_LOCK_NAME = "upload_nexus_contents"
+
+
+def _run_upload_nexus_contents(vtex_account: str, contents: list) -> None:
+    """
+    Shared implementation for the background Nexus content upload.
+
+    Both ``task_upload_nexus_contents`` (new canonical name) and the
+    deprecated alias ``task_configure_nexus`` delegate here so the same
+    soft-failure + lock-release semantics run regardless of which task
+    name was used to enqueue the job.
+
+    Soft-fails on any exception: the post-crawl orchestrator (manager +
+    payment + agents) has already run inline as part of
+    ``task_setup_channel_and_start_crawl`` and the wizard may already
+    be complete from the user's perspective -- so a failure here lands
+    in ``config["background_error"]`` and does NOT flip
+    ``onboarding.failed``.
+    """
+    try:
+        UploadNexusContentsUseCase().execute(vtex_account, contents)
+    except Exception as exc:
+        logger.exception(
+            f"Background nexus upload failed for vtex_account={vtex_account}"
+        )
+        SaveBackgroundFailureUseCase.execute(vtex_account, "nexus_upload", str(exc))
+    finally:
+        release_task_lock(UPLOAD_NEXUS_LOCK_NAME, vtex_account)
+
+
+@shared_task(name="task_upload_nexus_contents")
+def task_upload_nexus_contents(vtex_account: str, contents: list) -> None:
+    """
+    Background-only: uploads crawled contents to Nexus.
+
+    Dispatched by ``UpdateOnboardingProgressUseCase`` when the
+    ``crawl.completed`` webhook arrives.
+    """
+    return _run_upload_nexus_contents(vtex_account, contents)
+
+
 @shared_task(name="task_configure_nexus")
 def task_configure_nexus(vtex_account: str, contents: list) -> None:
     """
-    Thin wrapper that delegates post-crawl configuration to the orchestrator.
+    Deprecated alias for ``task_upload_nexus_contents``.
 
-    Ensures the task lock is released in all code paths.
+    Kept registered under the original Celery task name so any jobs
+    queued before the rename keep executing the new upload pipeline.
+    All new dispatches MUST use ``task_upload_nexus_contents`` directly;
+    this alias can be removed once no more in-flight ``task_configure_nexus``
+    messages exist in the broker.
     """
-    try:
-        OnboardingOrchestrator().execute(vtex_account, contents)
-    finally:
-        release_task_lock("configure_nexus", vtex_account)
+    return _run_upload_nexus_contents(vtex_account, contents)

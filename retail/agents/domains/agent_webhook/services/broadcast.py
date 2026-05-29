@@ -4,12 +4,26 @@ import mimetypes
 from urllib.parse import urlparse
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 from uuid import UUID
 
 from datetime import datetime
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.agents.domains.agent_webhook.services.direct_send_constants import (
+    MAX_BODY_LENGTH,
+    MAX_BUTTON_LABEL_LENGTH,
+    MAX_FOOTER_LENGTH,
+    MAX_HEADER_TEXT_LENGTH,
+)
+from retail.agents.domains.agent_webhook.services.direct_send_payload_builder import (
+    build_direct_send_cta_message,
+    build_direct_send_footer,
+    build_direct_send_header,
+    build_direct_send_quick_replies,
+    is_valid_direct_send_template_name,
+    substitute_template_variables,
+)
 from retail.broadcasts.models import BroadcastMessage
 from retail.broadcasts.usecases.record_broadcast_sent import (
     BroadcastDispatchContext,
@@ -432,15 +446,15 @@ class Broadcast:
         out-of-band before re-raising.
 
         ``dispatch_context`` carries the commercial origin (order_form_id /
-        order_id) of the broadcast so the persisted BroadcastMessage row
-        can later be matched against an ``invoiced`` event for conversion
-        attribution. Defaults to ``None`` for non-commercial dispatches.
+        order_id) so the persisted BroadcastMessage row can later be
+        matched against an ``invoiced`` event for conversion attribution.
         """
         project_uuid = str(integrated_agent.project.uuid)
         vtex_account = integrated_agent.project.vtex_account
-        template_name = (
-            message.get("msg", {}).get("template", {}).get("name", "unknown")
-        )
+        msg_payload = message.get("msg", {})
+        template_name = msg_payload.get("direct_send_template_name") or msg_payload.get(
+            "template", {}
+        ).get("name", "unknown")
 
         try:
             response = self.flows_service.send_whatsapp_broadcast(message)
@@ -648,15 +662,12 @@ class Broadcast:
     def get_current_template(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> Optional[Template]:
-        """
-        Get current template from integrated agent templates.
+        """Resolve the dispatchable ``Template`` by name, or ``None`` on skip.
 
-        Expectation: the agent/Lambda must return the stable template base name
-        (Template.name), e.g., "payment_confirmation_2" or "payment_approved".
-
-        The lookup uses only Template.name and ensures the template is active and
-        has an APPROVED current_version. Version.template_name is no longer used
-        for matching.
+        ``APPROVED`` returns the Template; every other outcome (including
+        no-row) routes through ``_log_dispatch_skipped_due_to_status``.
+        Anchor: FR-012 / FR-039 (see
+        ``specs/002-direct-send-broadcasts/spec.md``).
         """
         template_name = data.get("template")
         project_uuid = str(integrated_agent.project.uuid)
@@ -670,29 +681,223 @@ class Broadcast:
             )
             return None
 
-        # Single query: search by Template.name only
-        # Only consider templates with approved current_version
-        template = integrated_agent.templates.filter(
-            name=template_name,
-            is_active=True,
-            current_version__isnull=False,
-            current_version__status="APPROVED",
-        ).first()
+        template = (
+            integrated_agent.templates.filter(
+                name=template_name,
+                is_active=True,
+                current_version__isnull=False,
+            )
+            .select_related("current_version")
+            .first()
+        )
 
-        if template is None:
-            logger.warning(
-                f"Template {template_name} does not exist in database or has no approved version. "
-                f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
-                f"Data: {data}"
+        status = template.current_version.status if template else "NOT_FOUND"
+
+        if status == "APPROVED":
+            return template
+
+        self._log_dispatch_skipped_due_to_status(
+            integrated_agent=integrated_agent,
+            template_name=template_name,
+            version_status=status,
+            data=data,
+        )
+        return None
+
+    @staticmethod
+    def _log_dispatch_skipped_due_to_status(
+        *,
+        integrated_agent: IntegratedAgent,
+        template_name: str,
+        version_status: str,
+        data: Dict[str, Any],
+    ) -> None:
+        """Emit the unified "Dispatch-gate skip" audit log line.
+
+        Anchor: FR-039 (single shape for every non-``APPROVED`` skip
+        class) + FR-027 Exception clause + FR-044 (top-level tenant
+        keys).
+        """
+        logger.warning(
+            f"[BroadcastDispatch] skipped_due_to_status: "
+            f"project_uuid={integrated_agent.project.uuid} "
+            f"vtex_account={integrated_agent.project.vtex_account} "
+            f"agent={integrated_agent.uuid} "
+            f"template={template_name} "
+            f"version_status={version_status} event={data}"
+        )
+
+    def build_direct_send_message(
+        self,
+        data: Dict[str, Any],
+        channel_uuid: str,
+        project_uuid: str,
+        template: Template,
+        integrated_agent: IntegratedAgent,
+    ) -> Optional[Dict[str, Any]]:
+        """Build the Direct Send broadcast payload, or ``None`` on refusal.
+
+        Refusal reasons emit ``skipped_due_to_direct_send_validation``
+        WARNING and return ``None``. Anchor: FR-014a / FR-014b / FR-014c
+        / FR-014d / FR-017 / FR-039 (see
+        ``specs/002-direct-send-broadcasts/spec.md``;
+        ``contracts/messaging-gateway-payload.md`` §3).
+        """
+        template_variables = dict(data.get("template_variables") or {})
+        contact_urn = data.get("contact_urn")
+        template_name = template.current_version.template_name
+        metadata = template.metadata or {}
+
+        image_url = template_variables.pop("image_url", None)
+        template_variables.pop("button", None)
+        template_variables.pop("order_details", None)
+        template_variables.pop("payment_buttons", None)
+
+        if not contact_urn:
+            logger.error(
+                f"Incomplete Direct Send message data. "
+                f"Template: {template_name}, URN: {contact_urn}"
             )
             return None
 
-        return template
+        if not is_valid_direct_send_template_name(template_name):
+            self._log_direct_send_refusal(
+                integrated_agent=integrated_agent,
+                template_name=template_name,
+                reason="naming_rule",
+                data=data,
+            )
+            return None
+
+        body = metadata.get("body")
+        if not body:
+            self._log_direct_send_refusal(
+                integrated_agent=integrated_agent,
+                template_name=template_name,
+                reason="empty_body",
+                data=data,
+            )
+            return None
+
+        substituted_body = substitute_template_variables(
+            body, template_variables, template_name=template_name
+        )
+        header = build_direct_send_header(
+            metadata,
+            template_variables,
+            template_name=template_name,
+            image_url=image_url,
+        )
+        footer = build_direct_send_footer(
+            metadata, template_variables, template_name=template_name
+        )
+        cta_message = build_direct_send_cta_message(
+            metadata, template_variables, template_name=template_name
+        )
+        quick_replies = build_direct_send_quick_replies(
+            metadata, template_variables, template_name=template_name
+        )
+
+        if self._exceeds_direct_send_length_limits(
+            body=substituted_body,
+            header=header,
+            footer=footer,
+            cta_message=cta_message,
+            quick_replies=quick_replies,
+        ):
+            self._log_direct_send_refusal(
+                integrated_agent=integrated_agent,
+                template_name=template_name,
+                reason="component_length_limit",
+                data=data,
+            )
+            return None
+
+        msg: Dict[str, Any] = {
+            "direct_send": True,
+            "category": "utility",
+            "direct_send_template_name": template_name,
+            "text": substituted_body,
+        }
+        if header is not None:
+            msg["header"] = header
+        if footer is not None:
+            msg["footer"] = footer
+        if cta_message is not None:
+            msg["interaction_type"] = "cta_url"
+            msg["cta_message"] = cta_message
+        if quick_replies:
+            msg["quick_replies"] = quick_replies
+        if header is not None and header.get("type") == "image":
+            msg["attachments"] = [f"image/jpeg:{header['image_url']}"]
+
+        return {
+            "project": project_uuid,
+            "urns": [contact_urn],
+            "channel": channel_uuid,
+            "msg": msg,
+        }
+
+    @staticmethod
+    def _exceeds_direct_send_length_limits(
+        *,
+        body: str,
+        header: Optional[Dict[str, Any]],
+        footer: Optional[str],
+        cta_message: Optional[Dict[str, Any]],
+        quick_replies: Optional[List[str]],
+    ) -> bool:
+        if len(body) > MAX_BODY_LENGTH:
+            return True
+        if (
+            header is not None
+            and header.get("type") == "text"
+            and len(header.get("text", "")) > MAX_HEADER_TEXT_LENGTH
+        ):
+            return True
+        if footer is not None and len(footer) > MAX_FOOTER_LENGTH:
+            return True
+        if (
+            cta_message is not None
+            and len(cta_message.get("display_text", "")) > MAX_BUTTON_LABEL_LENGTH
+        ):
+            return True
+        for title in quick_replies or []:
+            if len(title) > MAX_BUTTON_LABEL_LENGTH:
+                return True
+        return False
+
+    @staticmethod
+    def _log_direct_send_refusal(
+        *,
+        integrated_agent: IntegratedAgent,
+        template_name: str,
+        reason: str,
+        data: Dict[str, Any],
+    ) -> None:
+        """Emit the Direct Send validation skip audit log line.
+
+        Anchor: FR-039 (refusal shape) + FR-044 (top-level
+        ``project_uuid``) + Research Decision 7 (``reason``
+        discriminator).
+        """
+        logger.warning(
+            f"[BroadcastDispatch] skipped_due_to_direct_send_validation: "
+            f"project_uuid={integrated_agent.project.uuid} "
+            f"agent={integrated_agent.uuid} "
+            f"template={template_name} "
+            f"reason={reason} event={data}"
+        )
 
     def build_message(
         self, integrated_agent: IntegratedAgent, data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """Build broadcast message from lambda response data."""
+        """Build broadcast message from lambda response data.
+
+        Routes between legacy and Direct Send paths based on
+        ``IntegratedAgent.config["direct_send"]``. Anchor: FR-001 /
+        FR-005 / FR-025 (absence is the canonical legacy marker).
+        """
         project_uuid = str(integrated_agent.project.uuid)
         vtex_account = integrated_agent.project.vtex_account
         template_name = data.get("template", "unknown")
@@ -717,12 +922,23 @@ class Broadcast:
             f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
             f"Template: {template_name}, Data: {data}"
         )
-        message = self.build_broadcast_template_message(
-            data=data,
-            channel_uuid=str(integrated_agent.channel_uuid),
-            project_uuid=project_uuid,
-            template=template,
-        )
+
+        if integrated_agent.config.get("direct_send", False):
+            message = self.build_direct_send_message(
+                data=data,
+                channel_uuid=str(integrated_agent.channel_uuid),
+                project_uuid=project_uuid,
+                template=template,
+                integrated_agent=integrated_agent,
+            )
+        else:
+            message = self.build_broadcast_template_message(
+                data=data,
+                channel_uuid=str(integrated_agent.channel_uuid),
+                project_uuid=project_uuid,
+                template=template,
+            )
+
         logger.info(
             f"Broadcast template message built. "
             f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
@@ -755,12 +971,15 @@ class Broadcast:
             lambda_data: Lambda response data containing status, template, template_variables, contact_urn
         """
 
-        # Extract template name from lambda data or message
+        # Extract template name from lambda data or message.
         template_name = ""
         if lambda_data and "template" in lambda_data:
             template_name = lambda_data["template"]
-        elif message and "msg" in message and "template" in message["msg"]:
-            template_name = message["msg"]["template"].get("name")
+        elif message and "msg" in message:
+            msg_payload = message["msg"]
+            template_name = msg_payload.get(
+                "direct_send_template_name"
+            ) or msg_payload.get("template", {}).get("name", "")
 
         # Extract contact_urn from lambda data or message
         contact_urn = ""

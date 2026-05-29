@@ -15,6 +15,8 @@ class UpdateTemplateData(TypedDict):
         "DELETED",
         "DISABLED",
         "LOCKED",
+        "PAUSED",
+        "FLAGGED",
     ]
     version_uuid: str
 
@@ -47,6 +49,9 @@ class UpdateTemplateUseCase:
 
         status = payload.get("status")
 
+        # No full_clean() here: it would re-validate against historical
+        # choices and silently break the PAUSED/FLAGGED dispatch-time
+        # gating. Anchor: FR-026.
         if status == "APPROVED":
             template = self._update_template_current_version(version, template)
 

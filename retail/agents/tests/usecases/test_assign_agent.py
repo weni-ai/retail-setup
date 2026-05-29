@@ -922,6 +922,91 @@ class AssignAgentUseCaseTest(TestCase):
     @patch(
         "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
     )
+    def test_legacy_assignment_preserves_direct_send_absent_and_integrations_calls(
+        self, mock_create_library_use_case
+    ):
+        """Legacy assignment preserves config + integrations calls. Anchor: FR-001 / FR-005."""
+        mock_integrations_service = MagicMock()
+        mock_integrations_service.get_channel_app.return_value = {
+            "config": {"direct_send": False}
+        }
+        mock_integrations_service.fetch_templates_from_user.return_value = {}
+
+        order_status_agent_uuid = uuid.uuid4()
+        order_status_agent = Agent.objects.create(
+            uuid=order_status_agent_uuid,
+            name="OrderStatus",
+            lambda_arn="arn:aws:lambda:order-status",
+            project=self.project,
+            language="pt_BR",
+            credentials={},
+        )
+
+        library_template = PreApprovedTemplate.objects.create(
+            agent=order_status_agent,
+            uuid=uuid.uuid4(),
+            slug="weni-order-invoiced",
+            name="weni_order_invoiced",
+            display_name="Order Invoiced",
+            is_valid=True,
+            start_condition="invoiced",
+            metadata={"category": "UTILITY", "language": "pt_BR"},
+        )
+        customer_template = PreApprovedTemplate.objects.create(
+            agent=order_status_agent,
+            uuid=uuid.uuid4(),
+            slug="weni-customer-template",
+            name="weni_customer_template",
+            display_name="Customer Template",
+            is_valid=False,
+            start_condition="custom",
+            metadata={"category": "UTILITY"},
+        )
+
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
+
+        mock_template = MagicMock()
+        mock_version = MagicMock()
+        mock_version.template_name = "weni_order_invoiced"
+        mock_version.uuid = uuid.uuid4()
+        mock_use_case_instance = mock_create_library_use_case.return_value
+        mock_use_case_instance.execute.return_value = (mock_template, mock_version)
+
+        app_uuid = uuid.uuid4()
+        channel_uuid = uuid.uuid4()
+
+        with self.settings(ORDER_STATUS_AGENT_UUID=str(order_status_agent_uuid)):
+            integrated_agent = use_case.execute(
+                agent=order_status_agent,
+                project_uuid=self.project.uuid,
+                app_uuid=app_uuid,
+                channel_uuid=channel_uuid,
+                credentials={},
+                include_templates=[
+                    str(library_template.uuid),
+                    str(customer_template.uuid),
+                ],
+            )
+
+        self.assertIsInstance(integrated_agent, IntegratedAgent)
+        self.assertNotIn("direct_send", integrated_agent.config)
+        self.assertFalse(integrated_agent.config.get("direct_send", False))
+
+        mock_use_case_instance.execute.assert_called_once()
+        mock_use_case_instance.notify_integrations.assert_called_once()
+        mock_integrations_service.fetch_templates_from_user.assert_called_once_with(
+            app_uuid,
+            str(self.project.uuid),
+            ["weni_customer_template"],
+            order_status_agent.language,
+        )
+
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
+    )
     def test_execute_integration_with_only_invalid_templates_no_translations(
         self, mock_create_library_use_case
     ):

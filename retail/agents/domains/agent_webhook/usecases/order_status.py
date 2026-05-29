@@ -17,11 +17,18 @@ from retail.agents.shared.cache import (
     IntegratedAgentCacheHandlerRedis,
 )
 from retail.interfaces.clients.aws_lambda.client import RequestData
+from retail.interfaces.services.execution_logger import (
+    ExecutionLoggerServiceInterface,
+)
 from retail.projects.models import Project
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
 
 logger = logging.getLogger(__name__)
+
+# Dropped before dedup so it does not register the key and discard the
+# equivalent "Marketplace" event the agent actually needs.
+FULFILLMENT_DOMAIN = "Fulfillment"
 
 
 def adapt_order_status_to_webhook_payload(
@@ -52,10 +59,12 @@ class AgentOrderStatusUpdateUsecase:
     def __init__(
         self,
         cache_handler: Optional[IntegratedAgentCacheHandler] = None,
-        exec_logger: Optional[ExecutionLoggerService] = None,
+        exec_logger: Optional[ExecutionLoggerServiceInterface] = None,
     ) -> None:
         self.cache_handler = cache_handler or IntegratedAgentCacheHandlerRedis()
-        self.exec_logger = exec_logger or ExecutionLoggerService()
+        self.exec_logger: ExecutionLoggerServiceInterface = (
+            exec_logger or ExecutionLoggerService()
+        )
 
     def get_integrated_agent_if_exists(
         self, project: Project
@@ -181,6 +190,21 @@ class AgentOrderStatusUpdateUsecase:
             )
             return None
 
+    def _is_fulfillment_domain(self, order_status_dto: OrderStatusDTO) -> bool:
+        """Check whether the event belongs to the VTEX ``Fulfillment`` domain.
+
+        The ``Fulfillment`` event mirrors the ``Marketplace`` one the agent
+        already handles, so it must neither be processed nor counted for
+        deduplication.
+
+        Args:
+            order_status_dto (OrderStatusDTO): The order status event payload.
+
+        Returns:
+            bool: True when the event domain is ``Fulfillment``, otherwise False.
+        """
+        return order_status_dto.domain == FULFILLMENT_DOMAIN
+
     def _is_duplicate_event(
         self,
         integrated_agent: IntegratedAgent,
@@ -222,6 +246,14 @@ class AgentOrderStatusUpdateUsecase:
         current_state = order_status_dto.currentState
         order_id = order_status_dto.orderId
         agent_uuid = integrated_agent.uuid
+
+        if self._is_fulfillment_domain(order_status_dto):
+            logger.info(
+                f"[ORDER_STATUS] fulfillment_domain_skipped: "
+                f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
+                f"current_state={current_state} order_id={order_id}"
+            )
+            return
 
         if self._is_duplicate_event(integrated_agent, order_status_dto):
             logger.info(

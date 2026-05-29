@@ -115,6 +115,11 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
     abandoned_cart_config = serializers.SerializerMethodField(
         "get_abandoned_cart_config"
     )
+    direct_send = serializers.SerializerMethodField("get_direct_send")
+
+    def get_direct_send(self, obj):
+        """Read-only Direct Send flag (defaults to ``False`` on absence)."""
+        return bool(obj.config.get("direct_send", False))
 
     def get_webhook_url(self, obj):
         domain_url = settings.DOMAIN

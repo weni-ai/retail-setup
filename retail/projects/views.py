@@ -42,7 +42,6 @@ from retail.projects.usecases.request_onboarding_support import (
 from retail.projects.usecases.save_onboarding_failure import (
     SaveOnboardingFailureUseCase,
 )
-from retail.projects.usecases.start_crawl import CrawlerStartError
 from retail.projects.usecases.start_setup import StartSetupUseCase
 from retail.projects.usecases.update_onboarding_progress import (
     UpdateOnboardingProgressUseCase,
@@ -151,13 +150,7 @@ class StartSetupView(KeycloakAPIView):
             channel_data=channel_data,
         )
 
-        try:
-            StartSetupUseCase().execute(dto)
-        except CrawlerStartError as e:
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
+        StartSetupUseCase().execute(dto)
 
         return Response({"status": "started"}, status=status.HTTP_201_CREATED)
 

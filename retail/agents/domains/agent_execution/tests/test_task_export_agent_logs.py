@@ -21,7 +21,7 @@ from uuid import UUID, uuid4
 from django.test import TestCase
 
 from retail.agents.domains.agent_execution.usecases.export_agent_logs import (
-    ExportAgentLogsFilter,
+    ExportAgentLogsDTO,
 )
 
 
@@ -55,7 +55,7 @@ class TaskExportAgentLogsTests(TestCase):
 
         mock_use_case.execute.assert_called_once()
         dto = mock_use_case.execute.call_args.args[0]
-        self.assertIsInstance(dto, ExportAgentLogsFilter)
+        self.assertIsInstance(dto, ExportAgentLogsDTO)
         self.assertEqual(dto.agent_uuid, self.agent_uuid)
         self.assertEqual(dto.project_uuid, self.project_uuid)
         self.assertEqual(dto.search, "alice")

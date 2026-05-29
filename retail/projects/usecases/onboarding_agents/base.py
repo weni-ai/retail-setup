@@ -5,19 +5,23 @@ from typing import Optional
 from retail.services.nexus.service import NexusService
 
 
-@dataclass
+@dataclass(frozen=True)
 class AgentContext:
     """Shared context passed to every agent during integration.
 
-    Core fields are always set. Channel-specific fields (app_uuid,
-    channel_uuid) are populated when the channel provides them —
-    e.g. wpp-cloud stores these after channel creation.
+    Immutable so agents cannot mutate state seen by the next agent
+    in the integration sequence. Core fields are always set;
+    channel-specific fields (app_uuid, channel_uuid, flow_id) are
+    populated when the channel provides them — e.g. wpp-cloud stores
+    app_uuid + channel_uuid after the channel is created, and
+    flow_id after the One-Click Payment Meta Flow is created.
     """
 
     project_uuid: str
     vtex_account: str
     app_uuid: Optional[str] = None
     channel_uuid: Optional[str] = None
+    flow_id: Optional[str] = None
 
 
 class OnboardingAgent(ABC):

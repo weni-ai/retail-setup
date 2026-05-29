@@ -37,10 +37,6 @@ from retail.agents.domains.agent_execution.row_mapper import (
 from retail.agents.domains.agent_execution.status_mapping import (
     LOG_STATUSES,
 )
-from retail.interfaces.services.aws_s3 import S3ServiceInterface
-
-
-JSON_URL_TTL_SECONDS = 60 * 15
 
 # ``amount.value`` is rendered as a precision-preserving string with
 # two decimals (e.g. ``"100.00"``). DRF's default JSON encoder would
@@ -131,7 +127,13 @@ class ExportAgentLogsBodySerializer(_BaseAgentLogsFilterSerializer):
 
 
 class AgentLogRowSerializer(serializers.Serializer):
-    """Render an ``AgentExecution`` in the agent-logs row shape."""
+    """Render an ``AgentExecution`` in the agent-logs row shape.
+
+    ``json_url`` is expected to be pre-resolved on the row by
+    :class:`ListAgentLogsUseCase` so this serializer never touches S3
+    directly. Rows without a ``json_url`` attribute (e.g. tests
+    bypassing the use case) render ``null``.
+    """
 
     uuid = serializers.SerializerMethodField()
     template_uuid = serializers.SerializerMethodField()
@@ -143,10 +145,6 @@ class AgentLogRowSerializer(serializers.Serializer):
     status = serializers.SerializerMethodField()
     summary = serializers.SerializerMethodField()
     json_url = serializers.SerializerMethodField()
-
-    def __init__(self, *args, **kwargs):
-        self.s3_service: Optional[S3ServiceInterface] = kwargs.pop("s3_service", None)
-        super().__init__(*args, **kwargs)
 
     def get_uuid(self, obj: AgentExecution) -> str:
         return str(obj.uuid)
@@ -184,11 +182,4 @@ class AgentLogRowSerializer(serializers.Serializer):
         return resolve_summary(resolve_log_status(obj))
 
     def get_json_url(self, obj: AgentExecution) -> Optional[str]:
-        if not obj.traces_s3_key or self.s3_service is None:
-            return None
-        try:
-            return self.s3_service.generate_presigned_url(
-                obj.traces_s3_key, expiration=JSON_URL_TTL_SECONDS
-            )
-        except Exception:
-            return None
+        return getattr(obj, "json_url", None)
