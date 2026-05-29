@@ -40,7 +40,7 @@ class ValidatePreApprovedTemplatesUseCase:
         if not data:
             return None
 
-        return adapt_meta_library_template_response(data[0])
+        return adapt_meta_library_template_response(data[0], language)
 
     def execute(self, agent: Agent) -> None:
         templates = agent.templates.all()
