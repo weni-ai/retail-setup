@@ -1,4 +1,4 @@
-from typing import Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
 from django.core.files.uploadedfile import UploadedFile
 
@@ -11,4 +11,30 @@ class S3ServiceInterface(Protocol):
 
     def generate_presigned_url(self, key: str, expiration: int = 3600) -> str:
         """Generates a presigned URL for accessing a private S3 object."""
+        pass
+
+    def get_object(self, key: str) -> Optional[bytes]:
+        """Downloads object content from S3.
+
+        Args:
+            key: The S3 object key.
+
+        Returns:
+            The object content as bytes, or None if the object doesn't exist.
+        """
+        pass
+
+    def put_object(
+        self, key: str, content: bytes, content_type: str = "application/json"
+    ) -> str:
+        """Uploads raw content to S3.
+
+        Args:
+            key: The S3 object key.
+            content: The content to upload as bytes.
+            content_type: The MIME type of the content.
+
+        Returns:
+            The S3 key of the uploaded object.
+        """
         pass

@@ -3,7 +3,9 @@ import logging
 import mimetypes
 from urllib.parse import urlparse
 
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
+from uuid import UUID
 
 from datetime import datetime
 
@@ -22,6 +24,7 @@ from retail.agents.domains.agent_webhook.services.direct_send_payload_builder im
     is_valid_direct_send_template_name,
     substitute_template_variables,
 )
+from retail.broadcasts.models import BroadcastMessage
 from retail.broadcasts.usecases.record_broadcast_sent import (
     BroadcastDispatchContext,
     RecordBroadcastSentDTO,
@@ -37,6 +40,30 @@ from weni_datalake_sdk.clients.client import send_commerce_webhook_data
 from weni_datalake_sdk.paths.commerce_webhook import CommerceWebhookPath
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class BroadcastDispatchResult:
+    """Outcome of a successful broadcast dispatch through Flows.
+
+    Carries both the raw Flows response (used by upstream callers for
+    downstream logging and template lookup) and the UUID of the
+    BroadcastMessage row that ``RecordBroadcastSentUseCase`` persisted.
+    The latter lets ``AgentWebhookUseCase`` thread the UUID into
+    ``ExecutionLoggerService.log_broadcast_sent`` so the FK on
+    ``AgentExecution.broadcast_message`` is set, enabling the
+    agent-logs API to surface the courier-driven lifecycle
+    (delivered / read / failed).
+
+    Only emitted on the success path. The failure path (``CustomAPIException``)
+    re-raises the original error after recording a FAILED BroadcastMessage
+    out-of-band; the FK linkage is intentionally skipped there because the
+    AgentExecution already lands at ``status='error'`` via the upstream
+    exception handler.
+    """
+
+    response: Dict[str, Any]
+    broadcast_message_uuid: Optional[UUID]
 
 
 class Broadcast:
@@ -408,8 +435,15 @@ class Broadcast:
         integrated_agent: IntegratedAgent,
         lambda_data: Optional[Dict[str, Any]] = None,
         dispatch_context: Optional[BroadcastDispatchContext] = None,
-    ):
+    ) -> BroadcastDispatchResult:
         """Send broadcast message via flows service.
+
+        Returns a ``BroadcastDispatchResult`` carrying both the raw Flows
+        response and the UUID of the persisted ``BroadcastMessage`` row
+        (``None`` when persistence failed defensively). Raises
+        ``CustomAPIException`` when the Flows call itself rejects the
+        dispatch; the failure is audited as a FAILED BroadcastMessage
+        out-of-band before re-raising.
 
         ``dispatch_context`` carries the commercial origin (order_form_id /
         order_id) so the persisted BroadcastMessage row can later be
@@ -450,17 +484,25 @@ class Broadcast:
                     f"Could not resolve template for BroadcastMessage record: {exc}"
                 )
 
-        self._record_broadcast_message(
+        broadcast_message = self._record_broadcast_message(
             message=message,
             response=response,
             integrated_agent=integrated_agent,
             template=resolved_template,
             dispatch_context=dispatch_context,
         )
+        broadcast_message_uuid = (
+            broadcast_message.uuid if broadcast_message is not None else None
+        )
+
         logger.info(
             f"Broadcast message sent. "
             f"Project: {project_uuid}, VTEX Account: {vtex_account}, "
             f"Template: {template_name}, Response: {response}"
+        )
+        return BroadcastDispatchResult(
+            response=response or {},
+            broadcast_message_uuid=broadcast_message_uuid,
         )
 
     def _record_broadcast_message(
@@ -470,12 +512,15 @@ class Broadcast:
         integrated_agent: IntegratedAgent,
         template: Optional[Template],
         dispatch_context: Optional[BroadcastDispatchContext] = None,
-    ) -> None:
+    ) -> Optional[BroadcastMessage]:
         """Persist a BroadcastMessage row for end-to-end tracking.
 
         Kept defensive: a failure to persist must not break the user-facing
         broadcast flow, only surface as a logged error so we can diagnose
-        and retry later.
+        and retry later. Returns the persisted ``BroadcastMessage`` row so
+        the caller can link it onto the ``AgentExecution`` audit row, or
+        ``None`` when either ``RecordBroadcastSentUseCase`` declined to
+        persist (already logged) or an unexpected exception was caught.
         """
         try:
             broadcast_id = self._extract_broadcast_id(response)
@@ -487,7 +532,7 @@ class Broadcast:
             )
             flows_template_uuid = self._extract_flows_template_uuid(response)
 
-            RecordBroadcastSentUseCase().execute(
+            return RecordBroadcastSentUseCase().execute(
                 RecordBroadcastSentDTO(
                     broadcast_id=broadcast_id,
                     integrated_agent=integrated_agent,
@@ -504,6 +549,7 @@ class Broadcast:
                 f"Failed to persist BroadcastMessage for agent "
                 f"{integrated_agent.uuid}: {exc}"
             )
+            return None
 
     def _record_failed_dispatch(
         self,
