@@ -1,3 +1,6 @@
+# 5.26.0
+- feat: Skip Fulfillment order events and add vtex_account to lambda logs
+
 # 5.25.0
 - feat: add WhatsApp Direct Send dispatch path for OrderStatus
 - feat: add Direct Send incorrect-category webhook

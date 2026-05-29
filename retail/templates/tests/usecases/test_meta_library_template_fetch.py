@@ -577,13 +577,29 @@ class ButtonLabelOverrideMapTest(TestCase):
             adapt_meta_library_template_response(raw, language="pt_BR")
         self.assertEqual(ctx.exception.component_type, "buttons")
 
-    def test_overflow_with_map_miss_on_wrong_language_raises(self):
+    def test_overflow_with_unmapped_language_falls_back_to_pt_br(self):
         raw = _typical_response(
             name="order_canceled_3",
             buttons=[
                 {
                     "type": "URL",
                     "text": self._OVERLONG_PT,
+                    "url": "https://loja.com/track/{{1}}",
+                }
+            ],
+        )
+        result = adapt_meta_library_template_response(raw, language="fr")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["metadata"]["buttons"][0]["text"], self._OVERRIDE_PT)
+
+    def test_overflow_unmapped_language_without_pt_br_entry_raises(self):
+        raw = _typical_response(
+            name="unknown_template",
+            buttons=[
+                {
+                    "type": "URL",
+                    "text": "An overlong button label",
                     "url": "https://loja.com/track/{{1}}",
                 }
             ],

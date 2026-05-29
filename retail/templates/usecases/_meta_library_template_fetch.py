@@ -42,6 +42,7 @@ class TemplateInfo(TypedDict):
 _SUPPORTED_BUTTON_TYPES = {"URL", "QUICK_REPLY"}
 _MAX_URL_BUTTONS = 1
 _MAX_QUICK_REPLY_BUTTONS = 3
+_OVERRIDE_FALLBACK_LANGUAGE = "pt_BR"
 
 
 def adapt_meta_library_template_response(
@@ -225,22 +226,20 @@ def _resolve_url_button_label_override(
     template_name: str,
     language: Optional[str],
 ) -> str:
-    """Look up the URL-button label override for ``(template_name, language)``.
+    """Look up the URL-button label override for ``(template_name, language)``,
+    falling back to the ``pt_BR`` entry when the requested language is unmapped.
 
-    Caller has already confirmed the upstream overflow. An override
-    that itself overflows raises (the map is a remediation, not a
-    length-check bypass). Anchor: FR-003g(f) / FR-003g(h).
+    Caller has already confirmed the upstream overflow. A missing override
+    (in both the requested language and the ``pt_BR`` fallback) or one that
+    itself overflows raises (the map is a remediation, not a length-check
+    bypass). Anchor: FR-003g(c) / FR-003g(f) / FR-003g(h).
     """
-    override_key = (template_name, language)
     override_map = direct_send_button_overrides.DIRECT_SEND_BUTTON_LABEL_OVERRIDES
-    if language is None or override_key not in override_map:
-        raise DirectSendUnsupportedComponentError(
-            template_name=template_name,
-            component_type="buttons",
-        )
+    override = override_map.get((template_name, language))
+    if override is None:
+        override = override_map.get((template_name, _OVERRIDE_FALLBACK_LANGUAGE))
 
-    override = override_map[override_key]
-    if len(override) > MAX_BUTTON_LABEL_LENGTH:
+    if override is None or len(override) > MAX_BUTTON_LABEL_LENGTH:
         raise DirectSendUnsupportedComponentError(
             template_name=template_name,
             component_type="buttons",
