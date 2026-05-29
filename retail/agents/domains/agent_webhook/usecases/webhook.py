@@ -296,6 +296,13 @@ class AgentWebhookUseCase:
                 integrated_agent=integrated_agent, data=data
             )
 
+            logger.info(
+                f"[AgentWebhookUseCase] Invoked lambda response for "
+                f"agent {integrated_agent.uuid} "
+                f"vtex_account: {integrated_agent.project.vtex_account} "
+                f"response: {response}"
+            )
+
             parsed_response = self.active_agent.parse_response(response)
             log_tail = self.active_agent.parse_log_tail(response)
 

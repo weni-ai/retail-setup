@@ -134,7 +134,7 @@ class ExecutionLoggerService(ExecutionLoggerServiceInterface):
             trace_type=ExecutionTraceType.LAMBDA_REQUEST.value,
             data=request_data,
         )
-        logger.debug(f"[EXEC_LOG] Logged lambda request for execution {exec_uuid}")
+        logger.info(f"[EXEC_LOG] Logged lambda request for execution {exec_uuid}")
 
     @_with_execution_uuid
     def log_lambda_response(
@@ -160,7 +160,7 @@ class ExecutionLoggerService(ExecutionLoggerServiceInterface):
             trace_type=ExecutionTraceType.LAMBDA_RESPONSE.value,
             data=trace_data,
         )
-        logger.debug(f"[EXEC_LOG] Logged lambda response for execution {exec_uuid}")
+        logger.info(f"[EXEC_LOG] Logged lambda response for execution {exec_uuid}")
 
     @_with_execution_uuid
     def log_broadcast_sent(
