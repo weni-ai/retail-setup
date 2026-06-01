@@ -1,3 +1,7 @@
+# 5.27.0
+- feat: enhance AssignAgentUseCase to drop non-interactive headers footers
+- refactor: Decouple crawl and Nexus upload from onboarding wizard
+
 # 5.26.0
 - feat: Skip Fulfillment order events and add vtex_account to lambda logs
 
