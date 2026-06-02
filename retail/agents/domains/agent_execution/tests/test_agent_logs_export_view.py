@@ -98,6 +98,7 @@ class AgentLogsExportViewTest(BaseTestMixin, APITestCase):
         kwargs = mock_task.apply_async.call_args.kwargs["kwargs"]
         self.assertEqual(kwargs["agent_uuid"], str(self.integrated_agent.uuid))
         self.assertEqual(kwargs["project_uuid"], str(self.project.uuid))
+        self.assertEqual(kwargs["user_email"], self.user.email)
         self.assertEqual(kwargs["search"], "ORD-")
         self.assertEqual(kwargs["start_date"], "2026-05-01")
         self.assertEqual(kwargs["end_date"], "2026-05-31")

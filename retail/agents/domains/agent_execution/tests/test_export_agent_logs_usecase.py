@@ -22,6 +22,7 @@ from retail.agents.domains.agent_execution.models import (
 )
 from retail.agents.domains.agent_execution.usecases.export_agent_logs import (
     CSV_HEADER,
+    PRESIGNED_URL_TTL_SECONDS,
     ExportAgentLogsDTO,
     ExportAgentLogsUseCase,
 )
@@ -141,7 +142,7 @@ class ExportAgentLogsUseCaseTests(TestCase):
 
         key, presigned_url = self.use_case.execute(self._filter())
 
-        self.assertEqual(self.fake_s3.presign_calls, [(key, 60 * 60 * 24)])
+        self.assertEqual(self.fake_s3.presign_calls, [(key, PRESIGNED_URL_TTL_SECONDS)])
         self.assertIn("signature=fake", presigned_url)
 
     def test_filter_smoke_check_search_pipes_through(self):

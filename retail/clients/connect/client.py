@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from django.conf import settings
 
 from retail.interfaces.clients.connect.interface import (
@@ -53,6 +53,34 @@ class ConnectClient(RequestClient, ConnectClientInterface):
             "language": language,
             "organization_name": organization_name,
             "project_name": project_name,
+        }
+
+        response = self.make_request(
+            url=url,
+            method="POST",
+            json=payload,
+            headers=self.internal_authentication.headers,
+        )
+        return response.json()
+
+    def send_data_export_email(
+        self,
+        user_email: str,
+        file_url: str,
+        start_date: str,
+        end_date: str,
+        template: str,
+        status: List[str],
+    ) -> Dict:
+        url = f"{self.base_url}/v2/commerce/send-data-export-email/"
+
+        payload: Dict = {
+            "user_email": user_email,
+            "file_url": file_url,
+            "start_date": start_date,
+            "end_date": end_date,
+            "template": template,
+            "status": status,
         }
 
         response = self.make_request(

@@ -1,4 +1,4 @@
-from typing import Protocol, Dict, Tuple, Optional
+from typing import Protocol, Dict, List, Tuple, Optional
 
 
 class ConnectClientInterface(Protocol):
@@ -14,6 +14,17 @@ class ConnectClientInterface(Protocol):
         language: str,
         organization_name: str,
         project_name: str,
+    ) -> Dict:
+        ...
+
+    def send_data_export_email(
+        self,
+        user_email: str,
+        file_url: str,
+        start_date: str,
+        end_date: str,
+        template: str,
+        status: List[str],
     ) -> Dict:
         ...
 
