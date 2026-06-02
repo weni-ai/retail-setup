@@ -67,16 +67,28 @@ class AgentLogsExportViewTest(BaseTestMixin, APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @patch("retail.agents.domains.agent_execution.views.task_export_agent_logs")
-    def test_returns_202_and_requested_true_on_empty_body(self, mock_task):
+    def test_returns_202_and_requested_true_on_minimal_body(self, mock_task):
+        self.setup_connect_service_mock(
+            *ConnectServicePermissionScenarios.success_scenario(2)
+        )
+
+        response = self._post(
+            body={"user_email": "tester@example.com"}, project_uuid=self.project.uuid
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.json(), {"requested": True})
+        self.assertTrue(mock_task.apply_async.called)
+
+    def test_missing_user_email_is_rejected_with_400(self):
         self.setup_connect_service_mock(
             *ConnectServicePermissionScenarios.success_scenario(2)
         )
 
         response = self._post(project_uuid=self.project.uuid)
 
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-        self.assertEqual(response.json(), {"requested": True})
-        self.assertTrue(mock_task.apply_async.called)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("user_email", response.json())
 
     @patch("retail.agents.domains.agent_execution.views.task_export_agent_logs")
     def test_forwards_filters_to_celery_task(self, mock_task):
@@ -85,6 +97,7 @@ class AgentLogsExportViewTest(BaseTestMixin, APITestCase):
         )
         template_uuid = uuid4()
         body = {
+            "user_email": "recipient@example.com",
             "search": "ORD-",
             "start_date": "2026-05-01",
             "end_date": "2026-05-31",
@@ -98,7 +111,7 @@ class AgentLogsExportViewTest(BaseTestMixin, APITestCase):
         kwargs = mock_task.apply_async.call_args.kwargs["kwargs"]
         self.assertEqual(kwargs["agent_uuid"], str(self.integrated_agent.uuid))
         self.assertEqual(kwargs["project_uuid"], str(self.project.uuid))
-        self.assertEqual(kwargs["user_email"], self.user.email)
+        self.assertEqual(kwargs["user_email"], "recipient@example.com")
         self.assertEqual(kwargs["search"], "ORD-")
         self.assertEqual(kwargs["start_date"], "2026-05-01")
         self.assertEqual(kwargs["end_date"], "2026-05-31")
@@ -111,10 +124,12 @@ class AgentLogsExportViewTest(BaseTestMixin, APITestCase):
         )
 
         response = self._post(
-            body={"statuses": ["bogus"]}, project_uuid=self.project.uuid
+            body={"user_email": "tester@example.com", "statuses": ["bogus"]},
+            project_uuid=self.project.uuid,
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("statuses", response.json())
 
     def test_unknown_agent_returns_404(self):
         self.setup_connect_service_mock(

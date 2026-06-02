@@ -133,6 +133,7 @@ class ListAgentLogsQuerySerializer(_BaseAgentLogsFilterSerializer):
 
 class ExportAgentLogsBodySerializer(_BaseAgentLogsFilterSerializer):
     """Parse the POST body for ``/logs/export/``."""
+    user_email = serializers.EmailField(required=True)
 
 
 class AgentLogRowSerializer(serializers.Serializer):

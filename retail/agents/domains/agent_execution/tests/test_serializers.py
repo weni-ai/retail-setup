@@ -128,14 +128,16 @@ class CommaSeparatedUUIDsFieldViaParentSerializerTests(SimpleTestCase):
         self.assertIn("template_uuids", serializer.errors)
 
     def test_empty_list_is_accepted(self):
-        serializer = ExportAgentLogsBodySerializer(data={"template_uuids": []})
+        serializer = ExportAgentLogsBodySerializer(
+            data={"user_email": "tester@example.com", "template_uuids": []}
+        )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data.get("template_uuids"), [])
 
     def test_valid_list_round_trips_to_uuid_objects(self):
         uuid_a = uuid4()
         serializer = ExportAgentLogsBodySerializer(
-            data={"template_uuids": [str(uuid_a)]}
+            data={"user_email": "tester@example.com", "template_uuids": [str(uuid_a)]}
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         parsed = serializer.validated_data["template_uuids"]
@@ -183,7 +185,7 @@ class CommaSeparatedStatusesFieldViaParentSerializerTests(SimpleTestCase):
 
     def test_known_statuses_round_trip(self):
         serializer = ExportAgentLogsBodySerializer(
-            data={"statuses": ["sent", "skipped"]}
+            data={"user_email": "tester@example.com", "statuses": ["sent", "skipped"]}
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data["statuses"], ["sent", "skipped"])
@@ -206,7 +208,11 @@ class DateRangeValidationTests(SimpleTestCase):
 
     def test_single_day_range_is_accepted(self):
         serializer = ExportAgentLogsBodySerializer(
-            data={"start_date": "2026-05-01", "end_date": "2026-05-01"}
+            data={
+                "user_email": "tester@example.com",
+                "start_date": "2026-05-01",
+                "end_date": "2026-05-01",
+            }
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
@@ -229,6 +235,35 @@ class DateRangeValidationTests(SimpleTestCase):
             data={"start_date": "2026-05-31", "end_date": "2026-05-01"}
         )
         self.assertFalse(serializer.is_valid())
+
+
+class ExportUserEmailTests(SimpleTestCase):
+    """``user_email`` is the required export destination.
+
+    The request reaches this service through an internal proxy that
+    rewrites the authenticated identity, so the recipient can't be
+    derived from ``request.user`` — it must arrive in the body and be a
+    well-formed address.
+    """
+
+    def test_missing_user_email_is_rejected(self):
+        serializer = ExportAgentLogsBodySerializer(data={})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("user_email", serializer.errors)
+
+    def test_malformed_user_email_is_rejected(self):
+        serializer = ExportAgentLogsBodySerializer(data={"user_email": "not-an-email"})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("user_email", serializer.errors)
+
+    def test_valid_user_email_round_trips(self):
+        serializer = ExportAgentLogsBodySerializer(
+            data={"user_email": "recipient@example.com"}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(
+            serializer.validated_data["user_email"], "recipient@example.com"
+        )
 
 
 class AgentLogRowSerializerSentAtTests(SimpleTestCase):
