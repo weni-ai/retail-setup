@@ -15,6 +15,7 @@ from retail.agents.domains.agent_execution.models import AgentExecutionStatus
 from retail.agents.domains.agent_execution.row_mapper import (
     DEFAULT_CURRENCY,
     STATUS_TO_SUMMARY,
+    format_amount_value,
     format_contact,
     resolve_amount_value,
     resolve_currency,
@@ -119,6 +120,18 @@ class AmountAndCurrencyResolutionTests(SimpleTestCase):
     def test_falls_back_to_default_currency_when_missing(self):
         execution = _stub_execution(currency=None)
         self.assertEqual(resolve_currency(execution), DEFAULT_CURRENCY)
+
+    def test_format_amount_value_keeps_two_decimals(self):
+        execution = _stub_execution(amount=Decimal("193.9"))
+        self.assertEqual(format_amount_value(execution), "193.90")
+
+    def test_format_amount_value_renders_zero_for_missing_amount(self):
+        execution = _stub_execution(amount=None)
+        self.assertEqual(format_amount_value(execution), "0.00")
+
+    def test_format_amount_value_rounds_half_up(self):
+        execution = _stub_execution(amount=Decimal("10.005"))
+        self.assertEqual(format_amount_value(execution), "10.01")
 
 
 class StatusAndSummaryResolutionTests(SimpleTestCase):

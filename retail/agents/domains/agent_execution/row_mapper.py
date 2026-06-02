@@ -8,7 +8,7 @@ also makes them trivial to unit-test without spinning up DRF or S3.
 """
 
 import re
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
 from retail.agents.domains.agent_execution.models import (
@@ -28,6 +28,11 @@ from retail.broadcasts.models import BroadcastStatus
 
 
 DEFAULT_CURRENCY = "BRL"
+
+# ``amount.value`` is rendered as a precision-preserving string with two
+# decimals (e.g. ``"100.00"``) so the JSON list response and the CSV
+# export agree byte-for-byte and trailing zeros are never dropped.
+AMOUNT_QUANTUM = Decimal("0.01")
 
 
 STATUS_TO_SUMMARY: dict = {
@@ -111,6 +116,19 @@ def resolve_amount_value(execution: AgentExecution) -> Decimal:
     surface as ``0`` rather than a missing field.
     """
     return execution.amount if execution.amount is not None else Decimal("0")
+
+
+def format_amount_value(execution: AgentExecution) -> str:
+    """Return the amount quantized to two decimals as a string.
+
+    Shared by the JSON list serializer and the CSV export so both render
+    the value identically (e.g. ``"100.00"``) instead of one dropping
+    trailing zeros (``"100"``) or a legacy ``None`` row diverging.
+    """
+    quantized = resolve_amount_value(execution).quantize(
+        AMOUNT_QUANTUM, rounding=ROUND_HALF_UP
+    )
+    return str(quantized)
 
 
 def resolve_currency(execution: AgentExecution) -> str:

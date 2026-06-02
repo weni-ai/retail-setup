@@ -1,3 +1,4 @@
+from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 from botocore.exceptions import ClientError
@@ -139,3 +140,35 @@ class TestS3ClientPutObject(_S3ClientBotoMixin, SimpleTestCase):
 
         with self.assertRaises(ClientError):
             self.client.put_object("traces/fail.json", b"{}")
+
+
+class TestS3ClientUploadFileobj(_S3ClientBotoMixin, SimpleTestCase):
+    def test_upload_fileobj_forwards_stream_and_returns_key(self):
+        fileobj = BytesIO(b"col\nval\n")
+
+        result = self.client.upload_fileobj(fileobj, "exports/out.csv")
+
+        self.mock_s3.upload_fileobj.assert_called_once_with(
+            fileobj,
+            "my-bucket",
+            "exports/out.csv",
+            ExtraArgs={"ContentType": "application/octet-stream"},
+        )
+        self.assertEqual(result, "exports/out.csv")
+
+    def test_upload_fileobj_uses_custom_content_type(self):
+        fileobj = BytesIO(b"col\nval\n")
+
+        self.client.upload_fileobj(fileobj, "exports/out.csv", content_type="text/csv")
+
+        _, kwargs = self.mock_s3.upload_fileobj.call_args
+        self.assertEqual(kwargs["ExtraArgs"], {"ContentType": "text/csv"})
+
+    def test_upload_fileobj_propagates_boto_error(self):
+        self.mock_s3.upload_fileobj.side_effect = ClientError(
+            error_response={"Error": {"Code": "InternalError"}},
+            operation_name="PutObject",
+        )
+
+        with self.assertRaises(ClientError):
+            self.client.upload_fileobj(BytesIO(b"x"), "exports/fail.csv")

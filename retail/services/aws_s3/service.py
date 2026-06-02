@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import BinaryIO, Optional
 
 from django.core.files.uploadedfile import UploadedFile
 
@@ -25,6 +25,15 @@ class S3Service(S3ServiceInterface):
     def upload_file(self, file: UploadedFile, key: str) -> str:
         """Uploads a file to an S3 bucket and returns the key."""
         return self.client.upload_file(file, key)
+
+    def upload_fileobj(
+        self,
+        fileobj: BinaryIO,
+        key: str,
+        content_type: str = "application/octet-stream",
+    ) -> str:
+        """Streams a binary file-like object to S3 (multipart-capable)."""
+        return self.client.upload_fileobj(fileobj, key, content_type)
 
     def generate_presigned_url(self, key: str, expiration: int = 3600) -> str:
         """Generates a presigned URL for accessing a private S3 object."""
