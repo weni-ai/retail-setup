@@ -15,6 +15,7 @@ from retail.agents.domains.agent_execution.models import (
     AgentExecution,
     AgentExecutionStatus,
 )
+from retail.templates.models import Template
 from retail.agents.domains.agent_execution.status_mapping import (
     LOG_STATUS_DELIVERED,
     LOG_STATUS_ERROR,
@@ -83,15 +84,14 @@ def format_contact(contact_urn: Optional[str]) -> str:
     return raw
 
 
-def resolve_template_name(execution: AgentExecution) -> Optional[str]:
-    """Return the human-readable template name, or ``None``.
+def template_display_name(template: Optional[Template]) -> Optional[str]:
+    """Return a template's human-readable name, or ``None``.
 
     Custom templates expose ``display_name`` directly; templates
     inheriting from a ``PreApprovedTemplate`` use the parent's
     ``display_name``. Falls back to the raw ``Template.name`` when
     no display name is set.
     """
-    template = execution.template
     if template is None:
         return None
 
@@ -100,6 +100,10 @@ def resolve_template_name(execution: AgentExecution) -> Optional[str]:
         display_name = template.parent.display_name
 
     return display_name or template.name
+
+
+def resolve_template_name(execution: AgentExecution) -> Optional[str]:
+    return template_display_name(execution.template)
 
 
 def resolve_template_uuid(execution: AgentExecution) -> Optional[str]:

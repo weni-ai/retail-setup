@@ -11,9 +11,10 @@ as a single in-memory blob.
 
 The view layer treats the export as fire-and-forget (the API responds
 ``202 Accepted`` and the CSV is delivered out-of-band), so this use
-case returns the deterministic key + presigned URL for logging /
-follow-up rather than driving any user-facing notification — delivery
-channel is intentionally out of scope for this iteration.
+case only returns the deterministic key + presigned URL. Notifying the
+requester is a separate concern handled by
+``SendAgentLogsExportEmailUseCase``, which the task invokes with the
+presigned URL once the upload succeeds.
 """
 
 import csv
@@ -62,7 +63,10 @@ CSV_HEADER = [
     "summary",
 ]
 
-PRESIGNED_URL_TTL_SECONDS = 60 * 60 * 24
+# 7 days is the maximum lifetime AWS allows for a SigV4 presigned URL,
+# so the "Download File" link in the export-ready email stays valid for
+# the full week the file is retained.
+PRESIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7
 
 # CSV rows accumulate in memory up to this size before the spooled
 # temp file rolls over to disk, keeping the working set bounded
@@ -121,6 +125,7 @@ class ExportAgentLogsDTO:
     end_date: Optional[date] = None
     template_uuids: Sequence[UUID] = field(default_factory=tuple)
     statuses: Sequence[str] = field(default_factory=tuple)
+    user_email: Optional[str] = None
 
     @classmethod
     def from_task_args(
@@ -132,6 +137,7 @@ class ExportAgentLogsDTO:
         end_date_str: Optional[str] = None,
         template_uuids: Optional[Sequence[str]] = None,
         statuses: Optional[Sequence[str]] = None,
+        user_email: Optional[str] = None,
     ) -> "ExportAgentLogsDTO":
         """Build the filter from JSON-serializable Celery task arguments.
 
@@ -147,6 +153,7 @@ class ExportAgentLogsDTO:
             end_date=date.fromisoformat(end_date_str) if end_date_str else None,
             template_uuids=tuple(UUID(t) for t in (template_uuids or [])),
             statuses=tuple(statuses or ()),
+            user_email=user_email,
         )
 
 

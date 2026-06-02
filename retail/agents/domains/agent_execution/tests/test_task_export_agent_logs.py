@@ -32,8 +32,11 @@ class TaskExportAgentLogsTests(TestCase):
         self.agent_uuid = uuid4()
         self.project_uuid = uuid4()
 
+    @patch("retail.agents.tasks.SendAgentLogsExportEmailUseCase")
     @patch("retail.agents.tasks.ExportAgentLogsUseCase")
-    def test_returns_presigned_url_and_passes_full_filter(self, mock_use_case_cls):
+    def test_returns_presigned_url_and_passes_full_filter(
+        self, mock_use_case_cls, mock_email_use_case_cls
+    ):
         from retail.agents.tasks import task_export_agent_logs
 
         mock_use_case = MagicMock()
@@ -51,6 +54,7 @@ class TaskExportAgentLogsTests(TestCase):
             end_date="2024-09-26",
             template_uuids=[str(template_uuid_a), str(template_uuid_b)],
             statuses=["sent", "skipped"],
+            user_email="tester@example.com",
         )
 
         self.assertEqual(result, "https://signed/url")
@@ -69,9 +73,18 @@ class TaskExportAgentLogsTests(TestCase):
         for tpl in dto.template_uuids:
             self.assertIsInstance(tpl, UUID)
         self.assertEqual(dto.statuses, ("sent", "skipped"))
+        self.assertEqual(dto.user_email, "tester@example.com")
 
+        # The same DTO + presigned URL are handed to the email use case.
+        mock_email_use_case_cls.return_value.execute.assert_called_once_with(
+            dto, file_url="https://signed/url"
+        )
+
+    @patch("retail.agents.tasks.SendAgentLogsExportEmailUseCase")
     @patch("retail.agents.tasks.ExportAgentLogsUseCase")
-    def test_optional_filters_default_to_empty_tuples(self, mock_use_case_cls):
+    def test_optional_filters_default_to_empty_tuples(
+        self, mock_use_case_cls, mock_email_use_case_cls
+    ):
         from retail.agents.tasks import task_export_agent_logs
 
         mock_use_case = MagicMock()
@@ -91,9 +104,13 @@ class TaskExportAgentLogsTests(TestCase):
         self.assertIsNone(dto.end_date)
         self.assertEqual(dto.template_uuids, ())
         self.assertEqual(dto.statuses, ())
+        self.assertIsNone(dto.user_email)
 
+    @patch("retail.agents.tasks.SendAgentLogsExportEmailUseCase")
     @patch("retail.agents.tasks.ExportAgentLogsUseCase")
-    def test_returns_none_when_use_case_raises(self, mock_use_case_cls):
+    def test_returns_none_when_use_case_raises(
+        self, mock_use_case_cls, mock_email_use_case_cls
+    ):
         from retail.agents.tasks import task_export_agent_logs
 
         mock_use_case = MagicMock()
@@ -107,6 +124,8 @@ class TaskExportAgentLogsTests(TestCase):
             )
 
         self.assertIsNone(result)
+        # No email when there is no file to deliver.
+        mock_email_use_case_cls.return_value.execute.assert_not_called()
         # Operators need to know which agent + project failed.
         joined = "\n".join(log_capture.output)
         self.assertIn(str(self.agent_uuid), joined)

@@ -1,8 +1,13 @@
-from typing import Dict, Optional
+import logging
+
+from typing import Dict, List, Optional
 
 from retail.interfaces.clients.connect.interface import ConnectClientInterface
 from retail.interfaces.services.connect import ConnectServiceInterface
 from retail.clients.connect.client import ConnectClient
+
+
+logger = logging.getLogger(__name__)
 
 
 class ConnectService(ConnectServiceInterface):
@@ -31,6 +36,30 @@ class ConnectService(ConnectServiceInterface):
             organization_name=organization_name,
             project_name=project_name,
         )
+
+    def send_data_export_email(
+        self,
+        user_email: str,
+        file_url: str,
+        start_date: str,
+        end_date: str,
+        template: str,
+        status: List[str],
+    ) -> Optional[Dict]:
+        try:
+            return self.connect_client.send_data_export_email(
+                user_email=user_email,
+                file_url=file_url,
+                start_date=start_date,
+                end_date=end_date,
+                template=template,
+                status=status,
+            )
+        except Exception as exc:
+            logger.error(
+                f"Failed to send data export email to {user_email}: {exc}"
+            )
+            return None
 
     def update_project_config(
         self,

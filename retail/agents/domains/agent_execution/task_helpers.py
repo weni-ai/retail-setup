@@ -15,8 +15,11 @@ the exception path uniformly.
 """
 
 import logging
+import sys
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Iterator, Optional, Type
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type
+
+from celery.exceptions import Retry
 
 from retail.agents.domains.agent_execution.context import (
     clear_execution_context,
@@ -35,8 +38,8 @@ def execution_log_scope(
     *,
     error_data: Optional[Dict[str, Any]] = None,
     error_data_factory: Optional[Callable[[], Dict[str, Any]]] = None,
-    reraise: tuple = (),
-    suppress: tuple = (Exception,),
+    reraise: Tuple[Type[BaseException], ...] = (Retry,),
+    suppress: Tuple[Type[BaseException], ...] = (Exception,),
     log_prefix: str = "[TASK]",
 ) -> Iterator[ExecutionLoggerService]:
     """Provide an ``ExecutionLoggerService`` and uniform error handling.
@@ -47,8 +50,11 @@ def execution_log_scope(
             (e.g. ``{"cart_uuid": cart_uuid}``).
         error_data_factory: Lazy alternative to ``error_data`` for
             context that's only known at exception time.
-        reraise: Exception classes to re-raise after logging (e.g.
-            celery retry exceptions). Defaults to nothing.
+        reraise: Exception classes to re-raise after logging. Defaults
+            to ``(Retry,)`` because ``Retry`` subclasses ``Exception``
+            and would otherwise be swallowed by ``suppress`` — a bound
+            task calling ``self.retry()`` gets its signal propagated
+            without having to opt in.
         suppress: Exception classes to swallow after logging. Defaults
             to all ``Exception`` subclasses so a task crash never
             blocks subsequent beat ticks.
@@ -85,14 +91,13 @@ def _log_terminal_error(
     extra_message: Optional[str] = None,
 ) -> None:
     """Forward the active task failure to the execution log."""
-    import sys
-
-    exc_type: Optional[Type[BaseException]] = sys.exc_info()[0]
-    exc_value: Optional[BaseException] = sys.exc_info()[1]
+    exc_type, exc_value, _ = sys.exc_info()
     if exc_value is None:
         return
 
-    message = str(exc_value) or (exc_type.__name__ if exc_type else "Unknown error")
+    message = extra_message or str(exc_value) or (
+        exc_type.__name__ if exc_type else "Unknown error"
+    )
 
     payload: Dict[str, Any] = {}
     if error_data:

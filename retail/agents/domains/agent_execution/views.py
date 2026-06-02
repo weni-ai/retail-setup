@@ -151,6 +151,7 @@ class AgentLogsExportView(_AgentLogsBaseView):
             kwargs={
                 "agent_uuid": str(integrated_agent.uuid),
                 "project_uuid": str(integrated_agent.project.uuid),
+                "user_email": request.user.email,
                 "search": validated.get("search") or None,
                 "start_date": start_date.isoformat() if start_date else None,
                 "end_date": end_date.isoformat() if end_date else None,
