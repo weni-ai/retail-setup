@@ -43,7 +43,16 @@ class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
         project.config.update(config)
         project.save(update_fields=["config"])
 
+        if "vtex_host_store" in config:
+            logger.info(
+                f"[ProjectUpdateConsumer] - vtex_host_store echoed back from "
+                f"Connect and persisted for project {project_uuid} "
+                f"vtex_account={project.vtex_account}: "
+                f"host={config['vtex_host_store']!r}"
+            )
+
         logger.info(
-            f"[ProjectUpdateConsumer] - Config updated for project {project_uuid}"
+            f"[ProjectUpdateConsumer] - Config updated for project {project_uuid} "
+            f"vtex_account={project.vtex_account} (keys={list(config.keys())})"
         )
         self.ack()
