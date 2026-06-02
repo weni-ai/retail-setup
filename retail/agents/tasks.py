@@ -105,7 +105,13 @@ def task_delivered_order_tracking_webhook(
         integrated_agent_uuid: UUID of the integrated agent
         webhook_data: Data received from VTEX webhook
     """
-    try:
+    with execution_log_scope(
+        error_data={
+            "integrated_agent_uuid": integrated_agent_uuid,
+            "webhook_data": webhook_data,
+        },
+        log_prefix="[DELIVERED_TRACKING]",
+    ):
         logger.info(
             f"[DELIVERED_TRACKING] task_started: "
             f"agent_uuid={integrated_agent_uuid} data={webhook_data}"
@@ -123,13 +129,6 @@ def task_delivered_order_tracking_webhook(
             f"[DELIVERED_TRACKING] task_completed: "
             f"vtex_account={vtex_account} agent_uuid={integrated_agent_uuid} "
             f"result={result} data={webhook_data}"
-        )
-
-    except Exception as e:
-        logger.exception(
-            f"[DELIVERED_TRACKING] task_failed: "
-            f"agent_uuid={integrated_agent_uuid} "
-            f"data={webhook_data} error={e}"
         )
 
 
@@ -218,8 +217,8 @@ def task_payment_recovery_webhook(
 
         use_case = PaymentRecoveryWebhookUseCase()
         # Resolve the agent BEFORE opening any execution log so a missing
-        # agent raises NotFound and is caught below without leaving an
-        # agentless row behind.
+        # agent raises NotFound and is handled by execution_log_scope
+        # without leaving an agentless row behind.
         integrated_agent = use_case.get_integrated_agent(integrated_agent_uuid)
 
         exec_logger.log_webhook_received(
