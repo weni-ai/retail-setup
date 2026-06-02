@@ -45,14 +45,20 @@ def _split_csv(value: Optional[str]) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-class _CommaSeparatedUUIDsField(serializers.Field):
-    """Accept either a comma-separated string (query) or a list (body)."""
+class _CommaSeparatedField(serializers.Field):
+    """Accept either a comma-separated string (query) or a list (body).
+
+    Subclasses convert the parsed entries to their target type by
+    overriding ``_convert_entries``; everything before that — the
+    empty/None short-circuit, the str-vs-list branch, and the
+    strip-and-filter — is identical and lives here.
+    """
 
     default_error_messages = {
-        "invalid": "Each entry must be a valid UUID.",
+        "invalid": "Invalid value.",
     }
 
-    def to_internal_value(self, data) -> List[UUID]:
+    def to_internal_value(self, data):
         if data is None or data == "":
             return []
         if isinstance(data, str):
@@ -61,43 +67,40 @@ class _CommaSeparatedUUIDsField(serializers.Field):
             entries = [str(entry).strip() for entry in data if str(entry).strip()]
         else:
             self.fail("invalid")
-            return []
+        return self._convert_entries(entries)
 
+    def to_representation(self, value):
+        return list(value or [])
+
+    def _convert_entries(self, entries: List[str]) -> list:
+        raise NotImplementedError
+
+
+class _CommaSeparatedUUIDsField(_CommaSeparatedField):
+    default_error_messages = {
+        "invalid": "Each entry must be a valid UUID.",
+    }
+
+    def _convert_entries(self, entries: List[str]) -> List[UUID]:
         try:
             return [UUID(entry) for entry in entries]
         except (TypeError, ValueError):
             self.fail("invalid")
-            return []
 
     def to_representation(self, value):
         return [str(v) for v in (value or [])]
 
 
-class _CommaSeparatedStatusesField(serializers.Field):
-    """Accept either a comma-separated string or a list of log-status values."""
-
+class _CommaSeparatedStatusesField(_CommaSeparatedField):
     default_error_messages = {
         "invalid_status": "Unknown status value: {value}",
     }
 
-    def to_internal_value(self, data) -> List[str]:
-        if data is None or data == "":
-            return []
-        if isinstance(data, str):
-            entries = _split_csv(data)
-        elif isinstance(data, (list, tuple)):
-            entries = [str(entry).strip() for entry in data if str(entry).strip()]
-        else:
-            self.fail("invalid_status", value=data)
-            return []
-
+    def _convert_entries(self, entries: List[str]) -> List[str]:
         for entry in entries:
             if entry not in LOG_STATUSES:
                 self.fail("invalid_status", value=entry)
         return entries
-
-    def to_representation(self, value):
-        return list(value or [])
 
 
 class _BaseAgentLogsFilterSerializer(serializers.Serializer):
@@ -117,9 +120,7 @@ class _BaseAgentLogsFilterSerializer(serializers.Serializer):
                 "start_date and end_date must be provided together."
             )
         if start_date is not None and start_date > end_date:
-            raise serializers.ValidationError(
-                "start_date must not be after end_date."
-            )
+            raise serializers.ValidationError("start_date must not be after end_date.")
         return attrs
 
 
@@ -148,7 +149,7 @@ class AgentLogRowSerializer(serializers.Serializer):
     template_name = serializers.SerializerMethodField()
     sent_at = serializers.SerializerMethodField()
     contact = serializers.SerializerMethodField()
-    order_id = serializers.SerializerMethodField()
+    order_id = serializers.CharField(allow_null=True)
     amount = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
     summary = serializers.SerializerMethodField()
@@ -171,9 +172,6 @@ class AgentLogRowSerializer(serializers.Serializer):
     def get_contact(self, obj: AgentExecution) -> str:
         return format_contact(obj.contact_urn)
 
-    def get_order_id(self, obj: AgentExecution) -> Optional[str]:
-        return obj.order_id
-
     def get_amount(self, obj: AgentExecution) -> dict:
         return {
             "value": format_amount_value(obj),
@@ -181,6 +179,9 @@ class AgentLogRowSerializer(serializers.Serializer):
         }
 
     def get_status(self, obj: AgentExecution) -> str:
+        # resolve_log_status is pure and DB-free — broadcast_message is
+        # select_related in the list/export querysets — so the repeated
+        # per-row calls from status, summary, and has_json cost no query.
         return resolve_log_status(obj)
 
     def get_summary(self, obj: AgentExecution) -> str:

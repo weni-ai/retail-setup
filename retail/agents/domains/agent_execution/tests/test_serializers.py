@@ -157,6 +157,38 @@ class CommaSeparatedUUIDsFieldRepresentationTests(SimpleTestCase):
         self.assertEqual(field.to_representation(None), [])
 
 
+class CommaSeparatedStatusesFieldViaParentSerializerTests(SimpleTestCase):
+    """Exercises ``_CommaSeparatedStatusesField`` via its parent serializer.
+
+    The non-str / non-list branch routes through the shared base's
+    ``self.fail("invalid")``; an unknown status value routes through the
+    per-entry ``self.fail("invalid_status", value=...)``. Both surface as
+    a 400 collected on the ``statuses`` key.
+    """
+
+    def test_dict_payload_is_rejected_as_invalid(self):
+        serializer = ExportAgentLogsBodySerializer(data={"statuses": {"x": 1}})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("statuses", serializer.errors)
+
+    def test_int_payload_is_rejected_as_invalid(self):
+        serializer = ExportAgentLogsBodySerializer(data={"statuses": 42})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("statuses", serializer.errors)
+
+    def test_unknown_status_value_is_rejected(self):
+        serializer = ListAgentLogsQuerySerializer(data={"statuses": "sent,bogus"})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("statuses", serializer.errors)
+
+    def test_known_statuses_round_trip(self):
+        serializer = ExportAgentLogsBodySerializer(
+            data={"statuses": ["sent", "skipped"]}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["statuses"], ["sent", "skipped"])
+
+
 class DateRangeValidationTests(SimpleTestCase):
     """``start_date``/``end_date`` must arrive as an ordered pair.
 
@@ -212,6 +244,21 @@ class AgentLogRowSerializerSentAtTests(SimpleTestCase):
         execution = _stub_execution(created_on=created_on)
         serializer = AgentLogRowSerializer(execution)
         self.assertEqual(serializer.data["sent_at"], created_on.isoformat())
+
+
+class AgentLogRowSerializerOrderIdTests(SimpleTestCase):
+    """``order_id`` is a plain CharField — the value passes through, and a
+    legacy ``None`` row renders ``null`` instead of crashing."""
+
+    def test_renders_value_when_present(self):
+        execution = _stub_execution(order_id="ORD-1")
+        serializer = AgentLogRowSerializer(execution)
+        self.assertEqual(serializer.data["order_id"], "ORD-1")
+
+    def test_renders_none_when_absent(self):
+        execution = _stub_execution(order_id=None)
+        serializer = AgentLogRowSerializer(execution)
+        self.assertIsNone(serializer.data["order_id"])
 
 
 class AgentLogRowSerializerHasJsonTests(SimpleTestCase):
