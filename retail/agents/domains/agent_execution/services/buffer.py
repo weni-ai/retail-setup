@@ -64,7 +64,7 @@ def _traces_storage_for(bucket: str) -> ExecutionTracesStorageService:
     return ExecutionTracesStorageService()
 
 
-def _get_shared_traces_storage() -> ExecutionTracesStorageService:
+def get_shared_traces_storage() -> ExecutionTracesStorageService:
     """Return the process-wide traces storage instance.
 
     Bucket-keyed so ``@override_settings(EXECUTION_TRACES_BUCKET=...)``
@@ -118,7 +118,7 @@ class ExecutionBufferService(ExecutionBufferInterface):
     @property
     def traces_storage(self) -> ExecutionTracesStorageService:
         if self._traces_storage is None:
-            self._traces_storage = _get_shared_traces_storage()
+            self._traces_storage = get_shared_traces_storage()
         return self._traces_storage
 
     @classmethod

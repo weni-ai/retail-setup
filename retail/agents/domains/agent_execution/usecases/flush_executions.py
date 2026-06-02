@@ -7,26 +7,26 @@ unlinks the Redis state. Optionally runs the SQL stuck sweep on the
 same tick — that lives in ``SweepStuckExecutionsUseCase``.
 """
 
-import json
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from retail.agents.domains.agent_execution.models import (
-    AgentExecution,
-    AgentExecutionStatus,
+from retail.agents.domains.agent_execution.flush_helpers import (
+    mark_processing_as_timed_out,
+    parse_traces,
+    write_traces_parallel,
 )
+from retail.agents.domains.agent_execution.models import AgentExecution
 from retail.agents.domains.agent_execution.services import buffer as _buffer_module
 from retail.agents.domains.agent_execution.services.buffer import (
     ExecutionBufferService,
     _decode,
-    _get_shared_traces_storage,
+    get_shared_traces_storage,
 )
 from retail.agents.domains.agent_execution.services.traces_storage import (
     ExecutionTracesStorageService,
@@ -37,9 +37,6 @@ from retail.agents.domains.agent_execution.usecases.sweep_stuck_executions impor
 
 
 logger = logging.getLogger(__name__)
-
-
-TIMEOUT_ERROR_MESSAGE = "Execution timed out"
 
 
 # Redis hash field -> AgentExecution column. Only fields that map
@@ -98,91 +95,6 @@ def _extract_orm_fields(data: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _parse_traces(raw_traces: Iterable[Any], uuid_str: str) -> List[Dict[str, Any]]:
-    traces: List[Dict[str, Any]] = []
-    for raw_trace in raw_traces or []:
-        if isinstance(raw_trace, bytes):
-            raw_trace = raw_trace.decode("utf-8")
-        try:
-            traces.append(json.loads(raw_trace))
-        except json.JSONDecodeError as parse_err:
-            logger.warning(
-                "[EXEC_LOG] Skipping malformed trace for %s: %s",
-                uuid_str,
-                parse_err,
-            )
-    return traces
-
-
-def mark_processing_as_timed_out(uuids: Iterable[UUID]) -> None:
-    """Mark in-flight rows as ``error='Execution timed out'``.
-
-    The ``status='processing'`` filter makes the call idempotent: a
-    late terminal arriving after the caller picked the UUIDs up but
-    before this UPDATE hits won't be overwritten.
-    """
-    uuid_list = list(uuids)
-    if not uuid_list:
-        return
-    AgentExecution.objects.filter(
-        uuid__in=uuid_list,
-        status=AgentExecutionStatus.PROCESSING,
-    ).update(
-        status=AgentExecutionStatus.ERROR,
-        error_message=TIMEOUT_ERROR_MESSAGE,
-        updated_on=timezone.now(),
-    )
-
-
-def write_traces_parallel(
-    traces_storage: ExecutionTracesStorageService,
-    writes: List[Tuple[UUID, str, List[Dict[str, Any]]]],
-    max_workers: int,
-) -> Set[str]:
-    """Write a batch of traces files to S3 in parallel.
-
-    Returns the set of UUID strings whose PUT failed so the caller can
-    leave them in the flush queue for retry.
-    """
-    if not writes:
-        return set()
-
-    failures: Set[str] = set()
-
-    def _put(execution_uuid: UUID, s3_key: str, traces: List[Dict[str, Any]]) -> Optional[str]:
-        try:
-            traces_storage.write_traces(
-                execution_uuid=execution_uuid,
-                traces=traces,
-                s3_key=s3_key,
-            )
-            return None
-        except Exception:
-            logger.exception(
-                "[EXEC_LOG] S3 PUT failed for execution %s; will retry",
-                execution_uuid,
-            )
-            return str(execution_uuid)
-
-    workers = max(1, min(max_workers, len(writes)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        future_to_uuid = {
-            executor.submit(_put, execution_uuid, s3_key, traces): str(execution_uuid)
-            for execution_uuid, s3_key, traces in writes
-        }
-        for future, uuid_str in future_to_uuid.items():
-            try:
-                failed = future.result()
-            except Exception:
-                logger.exception(
-                    "[EXEC_LOG] Unexpected S3 PUT failure for %s", uuid_str
-                )
-                failed = uuid_str
-            if failed:
-                failures.add(failed)
-    return failures
-
-
 @dataclass(frozen=True)
 class FlushResult:
     """Outcome of a single flush tick."""
@@ -221,7 +133,7 @@ class FlushExecutionsUseCase:
     @property
     def traces_storage(self) -> ExecutionTracesStorageService:
         if self._traces_storage is None:
-            self._traces_storage = _get_shared_traces_storage()
+            self._traces_storage = get_shared_traces_storage()
         return self._traces_storage
 
     def execute(self, do_stuck_sweep: bool = False) -> FlushResult:
@@ -266,8 +178,9 @@ class FlushExecutionsUseCase:
                 traces_storage=self.traces_storage,
                 batch_size=self.flush_batch_size,
                 s3_parallel_puts=self.s3_parallel_puts,
+                redis_client=redis_client,
             )
-            stuck_finalized = sweep.execute(redis_client)
+            stuck_finalized = sweep.execute()
 
         if flushed or stuck_finalized:
             logger.info(
@@ -301,7 +214,7 @@ class FlushExecutionsUseCase:
             raw_hash = read_results[i * 2]
             raw_traces = read_results[i * 2 + 1]
             data = self.buffer.deserialize_hash(raw_hash)
-            traces = _parse_traces(raw_traces, uuid_str)
+            traces = parse_traces(raw_traces, uuid_str)
 
             execution_uuid = UUID(uuid_str)
             traces_s3_key = data.get(
