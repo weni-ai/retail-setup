@@ -8,7 +8,7 @@ also makes them trivial to unit-test without spinning up DRF or S3.
 """
 
 import re
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
 from retail.agents.domains.agent_execution.models import (
@@ -28,6 +28,11 @@ from retail.broadcasts.models import BroadcastStatus
 
 
 DEFAULT_CURRENCY = "BRL"
+
+# ``amount.value`` is rendered as a precision-preserving string with two
+# decimals (e.g. ``"100.00"``) so the JSON list response and the CSV
+# export agree byte-for-byte and trailing zeros are never dropped.
+AMOUNT_QUANTUM = Decimal("0.01")
 
 
 STATUS_TO_SUMMARY: dict = {
@@ -113,12 +118,38 @@ def resolve_amount_value(execution: AgentExecution) -> Decimal:
     return execution.amount if execution.amount is not None else Decimal("0")
 
 
+def format_amount_value(execution: AgentExecution) -> str:
+    """Return the amount quantized to two decimals as a string.
+
+    Shared by the JSON list serializer and the CSV export so both render
+    the value identically (e.g. ``"100.00"``) instead of one dropping
+    trailing zeros (``"100"``) or a legacy ``None`` row diverging.
+    """
+    quantized = resolve_amount_value(execution).quantize(
+        AMOUNT_QUANTUM, rounding=ROUND_HALF_UP
+    )
+    return str(quantized)
+
+
 def resolve_currency(execution: AgentExecution) -> str:
     return execution.currency or DEFAULT_CURRENCY
 
 
 def resolve_summary(log_status: str) -> str:
     return STATUS_TO_SUMMARY.get(log_status, "")
+
+
+def resolve_has_json(execution: AgentExecution) -> bool:
+    """Whether a stored JSON payload exists for this row.
+
+    The buffer writes the traces file for every execution that reaches a
+    terminal state, so any non-``processing`` row has a payload fetchable
+    through the proxy endpoint. ``processing`` rows are still in flight
+    and may have no object in S3 yet, so they report ``False``. Derived
+    from the status alone — no S3 round-trip — to keep the list endpoint
+    free of storage calls.
+    """
+    return resolve_log_status(execution) != LOG_STATUS_PROCESSING
 
 
 def resolve_log_status(execution: AgentExecution) -> str:

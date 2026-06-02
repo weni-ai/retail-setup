@@ -2,7 +2,7 @@
 
 Pins the API-shaped filter semantics:
 - search ILIKE across contact_urn AND order_id
-- single calendar-day filter, treated as UTC
+- inclusive start_date/end_date calendar-day range, treated as UTC
 - multi-template / multi-status OR
 - page/page_size with total
 - stable ordering with uuid tiebreaker
@@ -153,7 +153,7 @@ class ListAgentLogsUseCaseTests(TestCase):
         self.assertEqual([r.uuid for r in rows], [kept.uuid])
         self.assertEqual(total, 1)
 
-    def test_date_filter_treats_day_as_utc(self):
+    def test_single_day_range_treats_day_as_utc(self):
         target_day = date(2026, 5, 1)
 
         in_window = _make_execution(self.integrated_agent)
@@ -171,30 +171,64 @@ class ListAgentLogsUseCaseTests(TestCase):
             created_on=datetime(2026, 5, 2, 0, 0, 1, tzinfo=dt_timezone.utc)
         )
 
-        rows, total = self.use_case.execute(self._filter(date=target_day))
+        rows, total = self.use_case.execute(
+            self._filter(start_date=target_day, end_date=target_day)
+        )
 
         self.assertEqual([r.uuid for r in rows], [in_window.uuid])
         self.assertEqual(total, 1)
 
-    def test_date_filter_includes_utc_day_edges(self):
-        target_day = date(2026, 5, 1)
+    def test_date_range_includes_utc_window_edges(self):
+        start_day = date(2026, 5, 1)
+        end_day = date(2026, 5, 3)
 
         edge_start = _make_execution(self.integrated_agent)
         AgentExecution.objects.filter(uuid=edge_start.uuid).update(
             created_on=datetime.combine(
-                target_day, time(0, 0, 0), tzinfo=dt_timezone.utc
+                start_day, time(0, 0, 0), tzinfo=dt_timezone.utc
             )
         )
         edge_end = _make_execution(self.integrated_agent)
         AgentExecution.objects.filter(uuid=edge_end.uuid).update(
             created_on=datetime.combine(
-                target_day, time(23, 59, 59, 999999), tzinfo=dt_timezone.utc
+                end_day, time(23, 59, 59, 999999), tzinfo=dt_timezone.utc
             )
         )
 
-        rows, total = self.use_case.execute(self._filter(date=target_day))
+        rows, total = self.use_case.execute(
+            self._filter(start_date=start_day, end_date=end_day)
+        )
 
         self.assertEqual({r.uuid for r in rows}, {edge_start.uuid, edge_end.uuid})
+        self.assertEqual(total, 2)
+
+    def test_date_range_spans_multiple_days(self):
+        start_day = date(2026, 5, 1)
+        end_day = date(2026, 5, 5)
+
+        inside_a = _make_execution(self.integrated_agent)
+        AgentExecution.objects.filter(uuid=inside_a.uuid).update(
+            created_on=datetime(2026, 5, 2, 8, 0, tzinfo=dt_timezone.utc)
+        )
+        inside_b = _make_execution(self.integrated_agent)
+        AgentExecution.objects.filter(uuid=inside_b.uuid).update(
+            created_on=datetime(2026, 5, 4, 20, 0, tzinfo=dt_timezone.utc)
+        )
+
+        before = _make_execution(self.integrated_agent)
+        AgentExecution.objects.filter(uuid=before.uuid).update(
+            created_on=datetime(2026, 4, 30, 23, 59, 59, tzinfo=dt_timezone.utc)
+        )
+        after = _make_execution(self.integrated_agent)
+        AgentExecution.objects.filter(uuid=after.uuid).update(
+            created_on=datetime(2026, 5, 6, 0, 0, 1, tzinfo=dt_timezone.utc)
+        )
+
+        rows, total = self.use_case.execute(
+            self._filter(start_date=start_day, end_date=end_day)
+        )
+
+        self.assertEqual({r.uuid for r in rows}, {inside_a.uuid, inside_b.uuid})
         self.assertEqual(total, 2)
 
     def test_template_uuids_filter_combines_with_or(self):

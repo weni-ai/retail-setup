@@ -4,7 +4,7 @@ import mimetypes
 
 import logging
 
-from typing import Optional
+from typing import BinaryIO, Optional
 
 from botocore.exceptions import ClientError
 from django.conf import settings
@@ -43,6 +43,27 @@ class S3Client(S3ClientInterface):
 
         self.s3.upload_fileobj(file, self.bucket_name, key, ExtraArgs=extra_args)
 
+        return key
+
+    def upload_fileobj(
+        self,
+        fileobj: BinaryIO,
+        key: str,
+        content_type: str = "application/octet-stream",
+    ) -> str:
+        """Streams a binary file-like object to S3.
+
+        boto3's ``upload_fileobj`` reads the stream in chunks and
+        transparently switches to a multipart upload past its threshold,
+        so the full payload never has to be materialized in memory.
+        """
+        self.s3.upload_fileobj(
+            fileobj,
+            self.bucket_name,
+            key,
+            ExtraArgs={"ContentType": content_type},
+        )
+        logger.debug(f"Streamed content to S3: {key}")
         return key
 
     def generate_presigned_url(self, key: str, expiration: int = 3600) -> str:

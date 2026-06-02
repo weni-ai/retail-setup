@@ -18,7 +18,6 @@ beyond a sane minimum — the view layer applies the default
 forward compatibility.
 """
 
-from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 from uuid import UUID
 
@@ -26,9 +25,10 @@ from rest_framework import serializers
 
 from retail.agents.domains.agent_execution.models import AgentExecution
 from retail.agents.domains.agent_execution.row_mapper import (
+    format_amount_value,
     format_contact,
-    resolve_amount_value,
     resolve_currency,
+    resolve_has_json,
     resolve_log_status,
     resolve_summary,
     resolve_template_name,
@@ -37,12 +37,6 @@ from retail.agents.domains.agent_execution.row_mapper import (
 from retail.agents.domains.agent_execution.status_mapping import (
     LOG_STATUSES,
 )
-
-# ``amount.value`` is rendered as a precision-preserving string with
-# two decimals (e.g. ``"100.00"``). DRF's default JSON encoder would
-# otherwise render a ``Decimal`` as a float and drop trailing zeros,
-# so we quantize + stringify at the serializer boundary.
-_AMOUNT_QUANTUM = Decimal("0.01")
 
 
 def _split_csv(value: Optional[str]) -> List[str]:
@@ -110,9 +104,23 @@ class _BaseAgentLogsFilterSerializer(serializers.Serializer):
     search = serializers.CharField(
         required=False, allow_blank=True, allow_null=True, trim_whitespace=True
     )
-    date = serializers.DateField(required=False, allow_null=True)
+    start_date = serializers.DateField(required=False, allow_null=True)
+    end_date = serializers.DateField(required=False, allow_null=True)
     template_uuids = _CommaSeparatedUUIDsField(required=False)
     statuses = _CommaSeparatedStatusesField(required=False)
+
+    def validate(self, attrs):
+        start_date = attrs.get("start_date")
+        end_date = attrs.get("end_date")
+        if (start_date is None) != (end_date is None):
+            raise serializers.ValidationError(
+                "start_date and end_date must be provided together."
+            )
+        if start_date is not None and start_date > end_date:
+            raise serializers.ValidationError(
+                "start_date must not be after end_date."
+            )
+        return attrs
 
 
 class ListAgentLogsQuerySerializer(_BaseAgentLogsFilterSerializer):
@@ -129,10 +137,10 @@ class ExportAgentLogsBodySerializer(_BaseAgentLogsFilterSerializer):
 class AgentLogRowSerializer(serializers.Serializer):
     """Render an ``AgentExecution`` in the agent-logs row shape.
 
-    ``json_url`` is expected to be pre-resolved on the row by
-    :class:`ListAgentLogsUseCase` so this serializer never touches S3
-    directly. Rows without a ``json_url`` attribute (e.g. tests
-    bypassing the use case) render ``null``.
+    ``has_json`` signals whether a stored payload exists; the client
+    fetches it through the proxy endpoint
+    (``GET /logs/{log_uuid}/json/``) rather than from S3 directly, so
+    this serializer never touches storage.
     """
 
     uuid = serializers.SerializerMethodField()
@@ -144,7 +152,7 @@ class AgentLogRowSerializer(serializers.Serializer):
     amount = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
     summary = serializers.SerializerMethodField()
-    json_url = serializers.SerializerMethodField()
+    has_json = serializers.SerializerMethodField()
 
     def get_uuid(self, obj: AgentExecution) -> str:
         return str(obj.uuid)
@@ -167,11 +175,8 @@ class AgentLogRowSerializer(serializers.Serializer):
         return obj.order_id
 
     def get_amount(self, obj: AgentExecution) -> dict:
-        value = resolve_amount_value(obj).quantize(
-            _AMOUNT_QUANTUM, rounding=ROUND_HALF_UP
-        )
         return {
-            "value": str(value),
+            "value": format_amount_value(obj),
             "currency": resolve_currency(obj),
         }
 
@@ -181,5 +186,5 @@ class AgentLogRowSerializer(serializers.Serializer):
     def get_summary(self, obj: AgentExecution) -> str:
         return resolve_summary(resolve_log_status(obj))
 
-    def get_json_url(self, obj: AgentExecution) -> Optional[str]:
-        return getattr(obj, "json_url", None)
+    def get_has_json(self, obj: AgentExecution) -> bool:
+        return resolve_has_json(obj)

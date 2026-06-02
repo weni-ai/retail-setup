@@ -86,7 +86,8 @@ class AgentLogsExportViewTest(BaseTestMixin, APITestCase):
         template_uuid = uuid4()
         body = {
             "search": "ORD-",
-            "date": "2026-05-01",
+            "start_date": "2026-05-01",
+            "end_date": "2026-05-31",
             "template_uuids": [str(template_uuid)],
             "statuses": ["sent", "skipped"],
         }
@@ -98,7 +99,8 @@ class AgentLogsExportViewTest(BaseTestMixin, APITestCase):
         self.assertEqual(kwargs["agent_uuid"], str(self.integrated_agent.uuid))
         self.assertEqual(kwargs["project_uuid"], str(self.project.uuid))
         self.assertEqual(kwargs["search"], "ORD-")
-        self.assertEqual(kwargs["date"], "2026-05-01")
+        self.assertEqual(kwargs["start_date"], "2026-05-01")
+        self.assertEqual(kwargs["end_date"], "2026-05-31")
         self.assertEqual(kwargs["template_uuids"], [str(template_uuid)])
         self.assertEqual(kwargs["statuses"], ["sent", "skipped"])
 

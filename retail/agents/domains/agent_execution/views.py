@@ -1,17 +1,18 @@
 """HTTP layer for the public agent-logs API.
 
-Two endpoints, both scoped to a single ``IntegratedAgent`` via the URL
+Three endpoints, all scoped to a single ``IntegratedAgent`` via the URL
 and to a single project via the ``Project-Uuid`` header:
 
 - ``GET /api/v3/agents/assigneds/{agent_uuid}/logs/`` — paginated list.
+- ``GET /api/v3/agents/assigneds/{agent_uuid}/logs/{log_uuid}/json/`` —
+  server-side proxy that reads the stored trace payload from S3.
 - ``POST /api/v3/agents/assigneds/{agent_uuid}/logs/export/`` — async
   CSV export request.
 
 The views stay thin — query/body validation, DTO assembly, and
 delegation to the corresponding use case. All row mapping lives in
-``serializers`` + ``row_mapper``, all filter logic lives in the use
-cases, and the presigned ``json_url`` is resolved inside the list use
-case (so the view never touches S3).
+``serializers`` + ``row_mapper``, all filter logic and S3 reads live in
+the use cases (so the views never touch S3).
 """
 
 import logging
@@ -28,6 +29,10 @@ from retail.agents.domains.agent_execution.serializers import (
     AgentLogRowSerializer,
     ExportAgentLogsBodySerializer,
     ListAgentLogsQuerySerializer,
+)
+from retail.agents.domains.agent_execution.usecases.get_agent_log_json import (
+    GetAgentLogJsonDTO,
+    GetAgentLogJsonUseCase,
 )
 from retail.agents.domains.agent_execution.usecases.list_agent_logs import (
     ListAgentLogsDTO,
@@ -86,7 +91,8 @@ class AgentLogsView(_AgentLogsBaseView):
             agent_uuid=integrated_agent.uuid,
             project_uuid=integrated_agent.project.uuid,
             search=validated.get("search") or None,
-            date=validated.get("date"),
+            start_date=validated.get("start_date"),
+            end_date=validated.get("end_date"),
             template_uuids=tuple(validated.get("template_uuids") or ()),
             statuses=tuple(validated.get("statuses") or ()),
             page=validated.get("page", 1),
@@ -109,6 +115,26 @@ class AgentLogsView(_AgentLogsBaseView):
         )
 
 
+class AgentLogJsonView(_AgentLogsBaseView):
+    """GET ``/assigneds/{agent_uuid}/logs/{log_uuid}/json/``.
+
+    Proxies the stored trace payload from S3 server-side so the browser
+    never fetches it cross-origin.
+    """
+
+    def get(self, request: Request, agent_uuid: UUID, log_uuid: UUID) -> Response:
+        integrated_agent = self._get_integrated_agent(request, agent_uuid)
+
+        dto = GetAgentLogJsonDTO(
+            agent_uuid=integrated_agent.uuid,
+            project_uuid=integrated_agent.project.uuid,
+            log_uuid=log_uuid,
+        )
+        payload = GetAgentLogJsonUseCase().execute(dto)
+
+        return Response(payload, status=status.HTTP_200_OK)
+
+
 class AgentLogsExportView(_AgentLogsBaseView):
     """POST ``/assigneds/{agent_uuid}/logs/export/``."""
 
@@ -119,13 +145,15 @@ class AgentLogsExportView(_AgentLogsBaseView):
         body_serializer.is_valid(raise_exception=True)
         validated = body_serializer.validated_data
 
-        date_value = validated.get("date")
+        start_date = validated.get("start_date")
+        end_date = validated.get("end_date")
         task_export_agent_logs.apply_async(
             kwargs={
                 "agent_uuid": str(integrated_agent.uuid),
                 "project_uuid": str(integrated_agent.project.uuid),
                 "search": validated.get("search") or None,
-                "date": date_value.isoformat() if date_value else None,
+                "start_date": start_date.isoformat() if start_date else None,
+                "end_date": end_date.isoformat() if end_date else None,
                 "template_uuids": [
                     str(uuid) for uuid in (validated.get("template_uuids") or [])
                 ],
