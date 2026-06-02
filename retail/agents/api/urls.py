@@ -3,6 +3,7 @@ from django.urls import path
 from rest_framework.routers import SimpleRouter
 
 from retail.agents.domains.agent_execution.views import (
+    AgentLogJsonView,
     AgentLogsExportView,
     AgentLogsView,
 )
@@ -76,6 +77,11 @@ urlpatterns = [
         "assigneds/<uuid:agent_uuid>/logs/export/",
         AgentLogsExportView.as_view(),
         name="agent-logs-export",
+    ),
+    path(
+        "assigneds/<uuid:agent_uuid>/logs/<uuid:log_uuid>/json/",
+        AgentLogJsonView.as_view(),
+        name="agent-log-json",
     ),
 ]
 

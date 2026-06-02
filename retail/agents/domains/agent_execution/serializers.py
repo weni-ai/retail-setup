@@ -28,6 +28,7 @@ from retail.agents.domains.agent_execution.row_mapper import (
     format_amount_value,
     format_contact,
     resolve_currency,
+    resolve_has_json,
     resolve_log_status,
     resolve_summary,
     resolve_template_name,
@@ -136,10 +137,10 @@ class ExportAgentLogsBodySerializer(_BaseAgentLogsFilterSerializer):
 class AgentLogRowSerializer(serializers.Serializer):
     """Render an ``AgentExecution`` in the agent-logs row shape.
 
-    ``json_url`` is expected to be pre-resolved on the row by
-    :class:`ListAgentLogsUseCase` so this serializer never touches S3
-    directly. Rows without a ``json_url`` attribute (e.g. tests
-    bypassing the use case) render ``null``.
+    ``has_json`` signals whether a stored payload exists; the client
+    fetches it through the proxy endpoint
+    (``GET /logs/{log_uuid}/json/``) rather than from S3 directly, so
+    this serializer never touches storage.
     """
 
     uuid = serializers.SerializerMethodField()
@@ -151,7 +152,7 @@ class AgentLogRowSerializer(serializers.Serializer):
     amount = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
     summary = serializers.SerializerMethodField()
-    json_url = serializers.SerializerMethodField()
+    has_json = serializers.SerializerMethodField()
 
     def get_uuid(self, obj: AgentExecution) -> str:
         return str(obj.uuid)
@@ -185,5 +186,5 @@ class AgentLogRowSerializer(serializers.Serializer):
     def get_summary(self, obj: AgentExecution) -> str:
         return resolve_summary(resolve_log_status(obj))
 
-    def get_json_url(self, obj: AgentExecution) -> Optional[str]:
-        return getattr(obj, "json_url", None)
+    def get_has_json(self, obj: AgentExecution) -> bool:
+        return resolve_has_json(obj)

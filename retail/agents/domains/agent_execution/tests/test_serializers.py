@@ -6,9 +6,8 @@ infrastructure:
 
 - ``_CommaSeparatedUUIDsField`` rejects non-string / non-list input
   and list entries that aren't valid UUIDs.
-- ``AgentLogRowSerializer.get_json_url`` reads the pre-resolved
-  attribute set by ``ListAgentLogsUseCase`` and falls back to ``null``
-  when the attribute is missing.
+- ``AgentLogRowSerializer.get_has_json`` derives the flag from the row
+  status (terminal -> ``True``, ``processing`` -> ``False``).
 - ``AgentLogRowSerializer.get_sent_at`` handles the ``created_on=None``
   legacy row shape without crashing.
 """
@@ -215,47 +214,33 @@ class AgentLogRowSerializerSentAtTests(SimpleTestCase):
         self.assertEqual(serializer.data["sent_at"], created_on.isoformat())
 
 
-class AgentLogRowSerializerJsonUrlTests(SimpleTestCase):
-    """``get_json_url`` reads the pre-resolved attribute set on the row.
+class AgentLogRowSerializerHasJsonTests(SimpleTestCase):
+    """``get_has_json`` is derived from the row status, never from S3.
 
-    ``ListAgentLogsUseCase`` injects ``json_url`` onto each row before
-    handing it to the serializer (presigned URL or ``None``); the
-    serializer just renders whatever is there. Rows that bypass the
-    use case (e.g. unit tests on the bare model) render ``null``.
+    Every terminal status (``sent`` / ``skipped`` / ``error`` /
+    ``delivered`` / ``read``) advertises a stored payload; a
+    ``processing`` row is still in flight and reports ``False``.
     """
 
-    def test_renders_url_set_on_row_attribute(self):
-        execution = _stub_execution(
-            status=AgentExecutionStatus.SUCCESS.value,
-            traces_s3_key="executions/sent/traces.json",
-        )
-        execution.json_url = "https://s3.amazonaws.com/test/sent-signed"
-
+    def test_true_for_sent(self):
+        execution = _stub_execution(status=AgentExecutionStatus.SUCCESS.value)
         serializer = AgentLogRowSerializer(execution)
+        self.assertTrue(serializer.data["has_json"])
 
-        self.assertEqual(
-            serializer.data["json_url"], "https://s3.amazonaws.com/test/sent-signed"
-        )
-
-    def test_returns_none_when_attribute_missing(self):
-        execution = _stub_execution(
-            status=AgentExecutionStatus.ERROR.value, traces_s3_key=None
-        )
-
+    def test_true_for_error(self):
+        execution = _stub_execution(status=AgentExecutionStatus.ERROR.value)
         serializer = AgentLogRowSerializer(execution)
+        self.assertTrue(serializer.data["has_json"])
 
-        self.assertIsNone(serializer.data["json_url"])
-
-    def test_returns_none_when_use_case_resolved_no_url(self):
-        execution = _stub_execution(
-            status=AgentExecutionStatus.SKIP.value,
-            traces_s3_key="executions/skipped/traces.json",
-        )
-        execution.json_url = None
-
+    def test_true_for_skipped(self):
+        execution = _stub_execution(status=AgentExecutionStatus.SKIP.value)
         serializer = AgentLogRowSerializer(execution)
+        self.assertTrue(serializer.data["has_json"])
 
-        self.assertIsNone(serializer.data["json_url"])
+    def test_false_for_processing(self):
+        execution = _stub_execution(status=AgentExecutionStatus.PROCESSING.value)
+        serializer = AgentLogRowSerializer(execution)
+        self.assertFalse(serializer.data["has_json"])
 
 
 class AgentLogRowSerializerAmountTests(SimpleTestCase):

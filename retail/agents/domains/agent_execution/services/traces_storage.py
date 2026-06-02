@@ -83,6 +83,17 @@ class ExecutionTracesStorageService:
         )
         return key
 
+    def read_traces_payload(self, s3_key: str) -> Optional[bytes]:
+        """Return the raw stored traces bytes, or ``None`` when absent.
+
+        Unlike ``get_traces`` (which swallows every failure into ``[]``
+        for ops convenience), this surfaces the missing-object case as
+        ``None`` and lets genuine S3 errors propagate, so the proxy
+        endpoint can distinguish a ``404`` (no payload) from a ``500``
+        (unexpected read failure).
+        """
+        return self.s3_service.get_object(s3_key)
+
     def get_traces(
         self, execution_uuid: UUID, s3_key: Optional[str] = None
     ) -> List[Dict[str, Any]]:

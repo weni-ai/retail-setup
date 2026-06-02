@@ -139,6 +139,19 @@ def resolve_summary(log_status: str) -> str:
     return STATUS_TO_SUMMARY.get(log_status, "")
 
 
+def resolve_has_json(execution: AgentExecution) -> bool:
+    """Whether a stored JSON payload exists for this row.
+
+    The buffer writes the traces file for every execution that reaches a
+    terminal state, so any non-``processing`` row has a payload fetchable
+    through the proxy endpoint. ``processing`` rows are still in flight
+    and may have no object in S3 yet, so they report ``False``. Derived
+    from the status alone — no S3 round-trip — to keep the list endpoint
+    free of storage calls.
+    """
+    return resolve_log_status(execution) != LOG_STATUS_PROCESSING
+
+
 def resolve_log_status(execution: AgentExecution) -> str:
     """Return the agent-logs status string for an ``AgentExecution`` row.
 

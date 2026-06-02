@@ -19,6 +19,7 @@ from retail.agents.domains.agent_execution.row_mapper import (
     format_contact,
     resolve_amount_value,
     resolve_currency,
+    resolve_has_json,
     resolve_log_status,
     resolve_summary,
     resolve_template_name,
@@ -145,6 +146,38 @@ class StatusAndSummaryResolutionTests(SimpleTestCase):
 
     def test_resolve_summary_returns_empty_for_unknown_status(self):
         self.assertEqual(resolve_summary("unknown"), "")
+
+
+class HasJsonResolutionTests(SimpleTestCase):
+    """``resolve_has_json`` is True for any terminal row, False while
+    the execution is still ``processing``."""
+
+    def test_processing_has_no_payload(self):
+        execution = _stub_execution(status=AgentExecutionStatus.PROCESSING.value)
+        self.assertFalse(resolve_has_json(execution))
+
+    def test_terminal_statuses_have_a_payload(self):
+        for internal in (
+            AgentExecutionStatus.SUCCESS.value,
+            AgentExecutionStatus.SKIP.value,
+            AgentExecutionStatus.ERROR.value,
+        ):
+            execution = _stub_execution(status=internal)
+            self.assertTrue(
+                resolve_has_json(execution),
+                msg=f"status={internal} should advertise a stored payload",
+            )
+
+    def test_courier_driven_statuses_have_a_payload(self):
+        for broadcast_status in (
+            BroadcastStatus.DELIVERED.value,
+            BroadcastStatus.READ.value,
+        ):
+            execution = _stub_execution(
+                status=AgentExecutionStatus.SUCCESS.value,
+                broadcast_message=_stub_broadcast_message(broadcast_status),
+            )
+            self.assertTrue(resolve_has_json(execution))
 
 
 class BroadcastMessageStatusEnrichmentTests(SimpleTestCase):
