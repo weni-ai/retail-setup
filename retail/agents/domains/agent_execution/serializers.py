@@ -110,9 +110,23 @@ class _BaseAgentLogsFilterSerializer(serializers.Serializer):
     search = serializers.CharField(
         required=False, allow_blank=True, allow_null=True, trim_whitespace=True
     )
-    date = serializers.DateField(required=False, allow_null=True)
+    start_date = serializers.DateField(required=False, allow_null=True)
+    end_date = serializers.DateField(required=False, allow_null=True)
     template_uuids = _CommaSeparatedUUIDsField(required=False)
     statuses = _CommaSeparatedStatusesField(required=False)
+
+    def validate(self, attrs):
+        start_date = attrs.get("start_date")
+        end_date = attrs.get("end_date")
+        if (start_date is None) != (end_date is None):
+            raise serializers.ValidationError(
+                "start_date and end_date must be provided together."
+            )
+        if start_date is not None and start_date > end_date:
+            raise serializers.ValidationError(
+                "start_date must not be after end_date."
+            )
+        return attrs
 
 
 class ListAgentLogsQuerySerializer(_BaseAgentLogsFilterSerializer):

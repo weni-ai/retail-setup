@@ -8,7 +8,7 @@ a tenant + agent-scoped key.
 
 import csv
 import io
-from datetime import datetime, timezone as dt_timezone
+from datetime import date, datetime, timezone as dt_timezone
 from decimal import Decimal
 from unittest.mock import patch
 from uuid import uuid4
@@ -158,6 +158,26 @@ class ExportAgentLogsUseCaseTests(TestCase):
         _, content, _ = self.fake_s3.put_calls[0]
         rows = self._csv_rows(content)
         self.assertEqual(len(rows), 2, "header + one matching execution")
+
+    def test_date_range_filter_pipes_through(self):
+        inside = _make_execution(self.integrated_agent)
+        AgentExecution.objects.filter(uuid=inside.uuid).update(
+            created_on=datetime(2026, 5, 2, 8, 0, tzinfo=dt_timezone.utc)
+        )
+        outside = _make_execution(self.integrated_agent)
+        AgentExecution.objects.filter(uuid=outside.uuid).update(
+            created_on=datetime(2026, 5, 9, 8, 0, tzinfo=dt_timezone.utc)
+        )
+
+        self.use_case.execute(
+            self._filter(start_date=date(2026, 5, 1), end_date=date(2026, 5, 5))
+        )
+
+        _, content, _ = self.fake_s3.put_calls[0]
+        rows = self._csv_rows(content)
+        self.assertEqual(len(rows), 2, "header + one in-range execution")
+        data_row = dict(zip(rows[0], rows[1]))
+        self.assertEqual(data_row["uuid"], str(inside.uuid))
 
 
 class ExportAgentLogsBucketResolutionTests(TestCase):

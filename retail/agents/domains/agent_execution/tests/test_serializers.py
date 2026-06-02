@@ -158,6 +158,48 @@ class CommaSeparatedUUIDsFieldRepresentationTests(SimpleTestCase):
         self.assertEqual(field.to_representation(None), [])
 
 
+class DateRangeValidationTests(SimpleTestCase):
+    """``start_date``/``end_date`` must arrive as an ordered pair.
+
+    The contract sends both bounds together (or neither); the serializer
+    rejects a lone bound and an inverted range with a 400.
+    """
+
+    def test_valid_range_is_accepted(self):
+        serializer = ListAgentLogsQuerySerializer(
+            data={"start_date": "2026-05-01", "end_date": "2026-05-31"}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(str(serializer.validated_data["start_date"]), "2026-05-01")
+        self.assertEqual(str(serializer.validated_data["end_date"]), "2026-05-31")
+
+    def test_single_day_range_is_accepted(self):
+        serializer = ExportAgentLogsBodySerializer(
+            data={"start_date": "2026-05-01", "end_date": "2026-05-01"}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_both_absent_is_accepted(self):
+        serializer = ListAgentLogsQuerySerializer(data={})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertIsNone(serializer.validated_data.get("start_date"))
+        self.assertIsNone(serializer.validated_data.get("end_date"))
+
+    def test_only_start_date_is_rejected(self):
+        serializer = ListAgentLogsQuerySerializer(data={"start_date": "2026-05-01"})
+        self.assertFalse(serializer.is_valid())
+
+    def test_only_end_date_is_rejected(self):
+        serializer = ExportAgentLogsBodySerializer(data={"end_date": "2026-05-31"})
+        self.assertFalse(serializer.is_valid())
+
+    def test_start_after_end_is_rejected(self):
+        serializer = ListAgentLogsQuerySerializer(
+            data={"start_date": "2026-05-31", "end_date": "2026-05-01"}
+        )
+        self.assertFalse(serializer.is_valid())
+
+
 class AgentLogRowSerializerSentAtTests(SimpleTestCase):
     """``get_sent_at`` is an ISO string or ``None`` — no crash on legacy rows."""
 

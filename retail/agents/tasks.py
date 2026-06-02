@@ -135,7 +135,8 @@ def task_export_agent_logs(
     agent_uuid: str,
     project_uuid: str,
     search: Optional[str] = None,
-    date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     template_uuids: Optional[List[str]] = None,
     statuses: Optional[List[str]] = None,
 ) -> Optional[str]:
@@ -151,7 +152,8 @@ def task_export_agent_logs(
         agent_uuid: ``IntegratedAgent.uuid`` to scope the export to.
         project_uuid: Tenant guard from the ``Project-Uuid`` header.
         search: Optional ILIKE filter applied to contact/order_id.
-        date: Optional ``YYYY-MM-DD`` calendar day (UTC).
+        start_date: Optional ``YYYY-MM-DD`` inclusive lower bound (UTC).
+        end_date: Optional ``YYYY-MM-DD`` inclusive upper bound (UTC).
         template_uuids: Optional template-UUID OR filter.
         statuses: Optional log-status OR filter (skipped/sent/...).
 
@@ -165,7 +167,8 @@ def task_export_agent_logs(
             agent_uuid=agent_uuid,
             project_uuid=project_uuid,
             search=search,
-            date_str=date,
+            start_date_str=start_date,
+            end_date_str=end_date,
             template_uuids=template_uuids,
             statuses=statuses,
         )

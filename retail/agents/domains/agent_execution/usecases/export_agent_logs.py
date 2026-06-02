@@ -94,7 +94,8 @@ class ExportAgentLogsDTO:
     agent_uuid: UUID
     project_uuid: UUID
     search: Optional[str] = None
-    date: Optional[date] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     template_uuids: Sequence[UUID] = field(default_factory=tuple)
     statuses: Sequence[str] = field(default_factory=tuple)
 
@@ -104,25 +105,23 @@ class ExportAgentLogsDTO:
         agent_uuid: str,
         project_uuid: str,
         search: Optional[str] = None,
-        date_str: Optional[str] = None,
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None,
         template_uuids: Optional[Sequence[str]] = None,
         statuses: Optional[Sequence[str]] = None,
     ) -> "ExportAgentLogsDTO":
         """Build the filter from JSON-serializable Celery task arguments.
 
         Centralises the string→typed conversion so the task can stay
-        glue: parses the ISO date, validates the UUID strings, and
+        glue: parses the ISO dates, validates the UUID strings, and
         normalises iterable defaults.
         """
-        parsed_date: Optional[date] = None
-        if date_str:
-            parsed_date = date.fromisoformat(date_str)
-
         return cls(
             agent_uuid=UUID(agent_uuid),
             project_uuid=UUID(project_uuid),
             search=search,
-            date=parsed_date,
+            start_date=date.fromisoformat(start_date_str) if start_date_str else None,
+            end_date=date.fromisoformat(end_date_str) if end_date_str else None,
             template_uuids=tuple(UUID(t) for t in (template_uuids or [])),
             statuses=tuple(statuses or ()),
         )
@@ -185,9 +184,11 @@ class ExportAgentLogsUseCase:
                     Q(contact_urn__icontains=search) | Q(order_id__icontains=search)
                 )
 
-        if dto.date is not None:
-            start_dt = datetime.combine(dto.date, time.min, tzinfo=dt_timezone.utc)
-            end_dt = datetime.combine(dto.date, time.max, tzinfo=dt_timezone.utc)
+        if dto.start_date is not None and dto.end_date is not None:
+            start_dt = datetime.combine(
+                dto.start_date, time.min, tzinfo=dt_timezone.utc
+            )
+            end_dt = datetime.combine(dto.end_date, time.max, tzinfo=dt_timezone.utc)
             queryset = queryset.filter(created_on__range=(start_dt, end_dt))
 
         if dto.template_uuids:

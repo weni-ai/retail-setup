@@ -2,8 +2,8 @@
 
 Surface tailored to the agent-logs API: page/page_size + total instead of
 limit/offset, ILIKE search across contact_urn / order_id, multi-status
-and multi-template OR filters, and a date filter that is a single
-calendar day rather than an arbitrary range.
+and multi-template OR filters, and an inclusive ``start_date``/``end_date``
+calendar-day range.
 
 The use case is also responsible for resolving the per-row presigned
 ``json_url`` so the view stays free of S3 wiring. The presigned URL
@@ -54,7 +54,8 @@ class ListAgentLogsDTO:
     agent_uuid: UUID
     project_uuid: UUID
     search: Optional[str] = None
-    date: Optional[date] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     template_uuids: Sequence[UUID] = field(default_factory=tuple)
     statuses: Sequence[str] = field(default_factory=tuple)
     page: int = 1
@@ -127,9 +128,11 @@ class ListAgentLogsUseCase:
                     Q(contact_urn__icontains=search) | Q(order_id__icontains=search)
                 )
 
-        if dto.date is not None:
-            start_dt = datetime.combine(dto.date, time.min, tzinfo=dt_timezone.utc)
-            end_dt = datetime.combine(dto.date, time.max, tzinfo=dt_timezone.utc)
+        if dto.start_date is not None and dto.end_date is not None:
+            start_dt = datetime.combine(
+                dto.start_date, time.min, tzinfo=dt_timezone.utc
+            )
+            end_dt = datetime.combine(dto.end_date, time.max, tzinfo=dt_timezone.utc)
             queryset = queryset.filter(created_on__range=(start_dt, end_dt))
 
         if dto.template_uuids:

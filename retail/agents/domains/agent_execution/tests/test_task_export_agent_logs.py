@@ -3,7 +3,8 @@
 The Celery task is the only entrypoint for the agent-logs CSV export.
 It must:
 
-- Parse ``date`` strings ("YYYY-MM-DD") into ``date`` objects.
+- Parse ``start_date`` / ``end_date`` strings ("YYYY-MM-DD") into
+  ``date`` objects.
 - Coerce ``agent_uuid`` / ``project_uuid`` strings into ``UUID``.
 - Coerce ``template_uuids`` into a tuple of ``UUID``.
 - Coerce ``statuses`` into a tuple (preserving the log-status
@@ -46,7 +47,8 @@ class TaskExportAgentLogsTests(TestCase):
             agent_uuid=str(self.agent_uuid),
             project_uuid=str(self.project_uuid),
             search="alice",
-            date="2024-09-26",
+            start_date="2024-09-01",
+            end_date="2024-09-26",
             template_uuids=[str(template_uuid_a), str(template_uuid_b)],
             statuses=["sent", "skipped"],
         )
@@ -59,7 +61,8 @@ class TaskExportAgentLogsTests(TestCase):
         self.assertEqual(dto.agent_uuid, self.agent_uuid)
         self.assertEqual(dto.project_uuid, self.project_uuid)
         self.assertEqual(dto.search, "alice")
-        self.assertEqual(dto.date, date_type(2024, 9, 26))
+        self.assertEqual(dto.start_date, date_type(2024, 9, 1))
+        self.assertEqual(dto.end_date, date_type(2024, 9, 26))
         # Tuples, not lists — the dataclass declares ``Sequence[UUID]``
         # and the task is expected to coerce on input.
         self.assertEqual(dto.template_uuids, (template_uuid_a, template_uuid_b))
@@ -84,7 +87,8 @@ class TaskExportAgentLogsTests(TestCase):
 
         dto = mock_use_case.execute.call_args.args[0]
         self.assertIsNone(dto.search)
-        self.assertIsNone(dto.date)
+        self.assertIsNone(dto.start_date)
+        self.assertIsNone(dto.end_date)
         self.assertEqual(dto.template_uuids, ())
         self.assertEqual(dto.statuses, ())
 
@@ -125,7 +129,8 @@ class TaskExportAgentLogsTests(TestCase):
         result = task_export_agent_logs(
             agent_uuid=str(self.agent_uuid),
             project_uuid=str(self.project_uuid),
-            date="not-a-date",
+            start_date="not-a-date",
+            end_date="2024-09-26",
         )
 
         self.assertIsNone(result)

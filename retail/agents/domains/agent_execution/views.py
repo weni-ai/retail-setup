@@ -86,7 +86,8 @@ class AgentLogsView(_AgentLogsBaseView):
             agent_uuid=integrated_agent.uuid,
             project_uuid=integrated_agent.project.uuid,
             search=validated.get("search") or None,
-            date=validated.get("date"),
+            start_date=validated.get("start_date"),
+            end_date=validated.get("end_date"),
             template_uuids=tuple(validated.get("template_uuids") or ()),
             statuses=tuple(validated.get("statuses") or ()),
             page=validated.get("page", 1),
@@ -119,13 +120,15 @@ class AgentLogsExportView(_AgentLogsBaseView):
         body_serializer.is_valid(raise_exception=True)
         validated = body_serializer.validated_data
 
-        date_value = validated.get("date")
+        start_date = validated.get("start_date")
+        end_date = validated.get("end_date")
         task_export_agent_logs.apply_async(
             kwargs={
                 "agent_uuid": str(integrated_agent.uuid),
                 "project_uuid": str(integrated_agent.project.uuid),
                 "search": validated.get("search") or None,
-                "date": date_value.isoformat() if date_value else None,
+                "start_date": start_date.isoformat() if start_date else None,
+                "end_date": end_date.isoformat() if end_date else None,
                 "template_uuids": [
                     str(uuid) for uuid in (validated.get("template_uuids") or [])
                 ],
