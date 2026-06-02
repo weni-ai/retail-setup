@@ -227,12 +227,60 @@ class ActiveAgentTest(TestCase):
 
         self.assertFalse(result)
 
+    def test_validate_response_rejection_log_includes_vtex_account(self):
+        data = {
+            "status": ActiveAgentResponseStatus.RULE_NOT_MATCHED,
+            "error": "No rule matched",
+        }
+
+        with self.assertLogs(
+            "retail.agents.domains.agent_webhook.services.active_agent",
+            level="INFO",
+        ) as captured:
+            self.handler.validate_response(data, self.mock_agent)
+
+        self.assertTrue(
+            any(
+                "Rule not matched" in line and "vtex_account=test_account" in line
+                for line in captured.output
+            ),
+            captured.output,
+        )
+
+    def test_validate_response_unknown_status_log_includes_vtex_account(self):
+        data = {"status": 999, "error": "Unknown error"}
+
+        with self.assertLogs(
+            "retail.agents.domains.agent_webhook.services.active_agent",
+            level="WARNING",
+        ) as captured:
+            self.handler.validate_response(data, self.mock_agent)
+
+        self.assertTrue(
+            any("vtex_account=test_account" in line for line in captured.output),
+            captured.output,
+        )
+
     def test_validate_response_error_message(self):
         data = {"errorMessage": "Some error"}
 
         result = self.handler.validate_response(data, self.mock_agent)
 
         self.assertFalse(result)
+
+    def test_validate_response_error_message_log_includes_vtex_account(self):
+        data = {"errorMessage": "Some error"}
+
+        with self.assertLogs(
+            "retail.agents.domains.agent_webhook.services.active_agent",
+            level="ERROR",
+        ) as captured:
+            self.handler.validate_response(data, self.mock_agent)
+
+        self.assertTrue(
+            any("vtex_account=test_account" in line for line in captured.output),
+            captured.output,
+        )
 
     def test_validate_response_no_status_no_error_message(self):
         data = {"template": "order_update", "contact_urn": "whatsapp:123"}

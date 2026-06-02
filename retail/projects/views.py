@@ -15,6 +15,7 @@ from retail.internal.permissions import CanCommunicateInternally
 from retail.projects.serializer import (
     ProjectSerializer,
     ProjectVtexConfigSerializer,
+    RequestOnboardingSupportSerializer,
     StartSetupSerializer,
     CrawlerWebhookSerializer,
     InstallChannelAgentsSerializer,
@@ -32,12 +33,15 @@ from retail.projects.usecases.onboarding_dto import (
     StartSetupDTO,
     CrawlerWebhookDTO,
     InstallChannelAgentsDTO,
+    RequestOnboardingSupportDTO,
 )
 from retail.projects.usecases.project_vtex import ProjectVtexConfigUseCase
+from retail.projects.usecases.request_onboarding_support import (
+    RequestOnboardingSupportUseCase,
+)
 from retail.projects.usecases.save_onboarding_failure import (
     SaveOnboardingFailureUseCase,
 )
-from retail.projects.usecases.start_crawl import CrawlerStartError
 from retail.projects.usecases.start_setup import StartSetupUseCase
 from retail.projects.usecases.update_onboarding_progress import (
     UpdateOnboardingProgressUseCase,
@@ -146,13 +150,7 @@ class StartSetupView(KeycloakAPIView):
             channel_data=channel_data,
         )
 
-        try:
-            StartSetupUseCase().execute(dto)
-        except CrawlerStartError as e:
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
+        StartSetupUseCase().execute(dto)
 
         return Response({"status": "started"}, status=status.HTTP_201_CREATED)
 
@@ -284,3 +282,31 @@ class InstallChannelAgentsView(KeycloakAPIView):
             )
 
         return Response({"success": True}, status=status.HTTP_201_CREATED)
+
+
+class OnboardingSupportContactView(KeycloakAPIView):
+    """
+    Endpoint used by the front-end when the user clicks 'Contact support'.
+
+    The body accepts a generic ``data`` payload built by the front-end with
+    whatever context it considers useful (last screen, captured error,
+    user-provided message, etc.). The endpoint enriches it with onboarding
+    metadata from the database and dispatches a Slack notification to the
+    support team.
+
+    Always returns 202 Accepted: a Slack outage or missing onboarding
+    record must not prevent the support request from reaching the team.
+    """
+
+    def post(self, request, vtex_account: str) -> Response:
+        serializer = RequestOnboardingSupportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dto = RequestOnboardingSupportDTO(
+            vtex_account=vtex_account,
+            data=serializer.validated_data["data"],
+        )
+
+        RequestOnboardingSupportUseCase().execute(dto)
+
+        return Response({"status": "received"}, status=status.HTTP_202_ACCEPTED)

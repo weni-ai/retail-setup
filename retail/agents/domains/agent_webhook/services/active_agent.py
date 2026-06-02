@@ -109,6 +109,7 @@ class ActiveAgent:
         """Validate lambda response for errors based on status codes."""
         status_code = data.get("status")
         error = data.get("error")
+        vtex_account = integrated_agent.project.vtex_account
 
         if status_code is not None:
             match status_code:
@@ -116,42 +117,52 @@ class ActiveAgent:
                     return True
                 case ActiveAgentResponseStatus.RULE_NOT_MATCHED:
                     logger.info(
-                        f"Rule not matched for integrated agent {integrated_agent.uuid}: {error}"
+                        f"Rule not matched for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} error={error}"
                     )
                     return False
                 case ActiveAgentResponseStatus.PRE_PROCESSING_FAILED:
                     logger.info(
-                        f"Pre-processing failed for integrated agent {integrated_agent.uuid}: {error}"
+                        f"Pre-processing failed for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} error={error}"
                     )
                     return False
                 case ActiveAgentResponseStatus.CUSTOM_RULE_FAILED:
                     logger.info(
-                        f"Custom rule failed for integrated agent {integrated_agent.uuid}: {error}"
+                        f"Custom rule failed for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} error={error}"
                     )
                     return False
                 case ActiveAgentResponseStatus.OFFICIAL_RULE_FAILED:
                     logger.info(
-                        f"Official rule failed for integrated agent {integrated_agent.uuid}: {error}"
+                        f"Official rule failed for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} error={error}"
                     )
                     return False
                 case ActiveAgentResponseStatus.GLOBAL_RULE_FAILED:
                     logger.info(
-                        f"Global rule failed for integrated agent {integrated_agent.uuid}: {error}"
+                        f"Global rule failed for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} error={error}"
                     )
                     return False
                 case ActiveAgentResponseStatus.GLOBAL_RULE_NOT_MATCHED:
                     logger.info(
-                        f"Global rule not matched for integrated agent {integrated_agent.uuid}: {error}"
+                        f"Global rule not matched for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} error={error}"
                     )
                     return False
                 case _:
                     logger.warning(
-                        f"Unknown status code for integrated agent {integrated_agent.uuid}: {status_code}"
+                        f"Unknown status code for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} status_code={status_code}"
                     )
                     return False
 
         if isinstance(data, dict) and "errorMessage" in data:
-            logger.error(f"Lambda execution error: {data.get('errorMessage')}")
+            logger.error(
+                f"Lambda execution error: vtex_account={vtex_account} "
+                f"errorMessage={data.get('errorMessage')}"
+            )
             return False
 
         return False

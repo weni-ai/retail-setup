@@ -53,10 +53,11 @@ class TestTaskSetupChannelAndStartCrawl(TestCase):
             name="Test", uuid=uuid4(), vtex_account="mystore"
         )
 
+    @patch("retail.projects.tasks.OnboardingOrchestrator")
     @patch("retail.projects.tasks.InitiateCrawlUseCase")
     @patch("retail.projects.tasks.PreCrawlChannelUseCase")
-    def test_runs_channel_then_crawl_when_project_linked(
-        self, mock_channel_cls, mock_initiate_cls
+    def test_runs_channel_crawl_and_orchestrator_when_project_linked(
+        self, mock_channel_cls, mock_initiate_cls, mock_orch_cls
     ):
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
@@ -68,6 +69,13 @@ class TestTaskSetupChannelAndStartCrawl(TestCase):
         mock_channel_cls.return_value = mock_channel
         mock_initiate = MagicMock()
         mock_initiate_cls.return_value = mock_initiate
+        mock_orch = MagicMock()
+        mock_orch_cls.return_value = mock_orch
+
+        call_order = []
+        mock_channel.execute.side_effect = lambda *_: call_order.append("channel")
+        mock_initiate.execute.side_effect = lambda *_: call_order.append("crawl")
+        mock_orch.execute.side_effect = lambda *_: call_order.append("orchestrator")
 
         from retail.projects.tasks import task_setup_channel_and_start_crawl
 
@@ -77,17 +85,15 @@ class TestTaskSetupChannelAndStartCrawl(TestCase):
         mock_initiate.execute.assert_called_once_with(
             self.project, "mystore", "https://mystore.com.br/"
         )
+        mock_orch.execute.assert_called_once_with("mystore")
 
-        # Channel must run before crawl initiation.
-        channel_call_order = mock_channel.execute.call_args
-        crawl_call_order = mock_initiate.execute.call_args
-        self.assertIsNotNone(channel_call_order)
-        self.assertIsNotNone(crawl_call_order)
+        self.assertEqual(call_order, ["channel", "crawl", "orchestrator"])
 
+    @patch("retail.projects.tasks.OnboardingOrchestrator")
     @patch("retail.projects.tasks.InitiateCrawlUseCase")
     @patch("retail.projects.tasks.PreCrawlChannelUseCase")
     def test_sets_project_linked_progress_before_channel_setup(
-        self, mock_channel_cls, _mock_initiate
+        self, mock_channel_cls, _mock_initiate, _mock_orch
     ):
         """When start-setup linked the project inline, the task still bumps progress."""
         ProjectOnboarding.objects.create(
@@ -118,10 +124,11 @@ class TestTaskSetupChannelAndStartCrawl(TestCase):
         self.assertEqual(progress_at_channel_time["value"], PROJECT_LINKED_PROGRESS)
         self.assertEqual(progress_at_channel_time["step"], "PROJECT_CONFIG")
 
+    @patch("retail.projects.tasks.OnboardingOrchestrator")
     @patch("retail.projects.tasks.InitiateCrawlUseCase")
     @patch("retail.projects.tasks.PreCrawlChannelUseCase")
     def test_does_not_regress_progress_when_eda_linked_project(
-        self, mock_channel_cls, _mock_initiate
+        self, mock_channel_cls, _mock_initiate, _mock_orch
     ):
         """When EDA already set progress >= 30, the task must not regress it."""
         ProjectOnboarding.objects.create(
@@ -171,10 +178,15 @@ class TestTaskSetupChannelAndStartCrawl(TestCase):
         )
 
     @patch("retail.projects.tasks.mark_onboarding_failed")
+    @patch("retail.projects.tasks.OnboardingOrchestrator")
     @patch("retail.projects.tasks.InitiateCrawlUseCase")
     @patch("retail.projects.tasks.PreCrawlChannelUseCase")
     def test_marks_failed_and_skips_crawl_when_channel_fails(
-        self, mock_channel_cls, mock_initiate_cls, mock_mark_failed
+        self,
+        mock_channel_cls,
+        mock_initiate_cls,
+        mock_orch_cls,
+        mock_mark_failed,
     ):
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
@@ -189,6 +201,9 @@ class TestTaskSetupChannelAndStartCrawl(TestCase):
         mock_initiate = MagicMock()
         mock_initiate_cls.return_value = mock_initiate
 
+        mock_orch = MagicMock()
+        mock_orch_cls.return_value = mock_orch
+
         from retail.projects.tasks import task_setup_channel_and_start_crawl
 
         with self.assertRaises(RuntimeError):
@@ -198,6 +213,7 @@ class TestTaskSetupChannelAndStartCrawl(TestCase):
         called_with_reason = mock_mark_failed.call_args[0][1]
         self.assertIn("Channel creation failed", called_with_reason)
         mock_initiate.execute.assert_not_called()
+        mock_orch.execute.assert_not_called()
 
 
 class TestTaskWaitAndStartCrawlAlias(TestCase):
@@ -208,9 +224,12 @@ class TestTaskWaitAndStartCrawlAlias(TestCase):
             name="Test", uuid=uuid4(), vtex_account="mystore"
         )
 
+    @patch("retail.projects.tasks.OnboardingOrchestrator")
     @patch("retail.projects.tasks.InitiateCrawlUseCase")
     @patch("retail.projects.tasks.PreCrawlChannelUseCase")
-    def test_alias_runs_channel_then_crawl(self, mock_channel_cls, mock_initiate_cls):
+    def test_alias_runs_channel_crawl_and_orchestrator(
+        self, mock_channel_cls, mock_initiate_cls, mock_orch_cls
+    ):
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=self.project,
@@ -221,6 +240,8 @@ class TestTaskWaitAndStartCrawlAlias(TestCase):
         mock_channel_cls.return_value = mock_channel
         mock_initiate = MagicMock()
         mock_initiate_cls.return_value = mock_initiate
+        mock_orch = MagicMock()
+        mock_orch_cls.return_value = mock_orch
 
         from retail.projects.tasks import task_wait_and_start_crawl
 
@@ -230,9 +251,15 @@ class TestTaskWaitAndStartCrawlAlias(TestCase):
         mock_initiate.execute.assert_called_once_with(
             self.project, "mystore", "https://mystore.com.br/"
         )
+        mock_orch.execute.assert_called_once_with("mystore")
 
 
-class TestTaskConfigureNexus(TestCase):
+class TestTaskUploadNexusContents(TestCase):
+    """
+    Background-only upload task. Failures are soft -- the task swallows
+    the exception and records it via ``SaveBackgroundFailureUseCase``.
+    """
+
     def setUp(self):
         self.project = Project.objects.create(
             name="Test", uuid=uuid4(), vtex_account="mystore"
@@ -243,33 +270,81 @@ class TestTaskConfigureNexus(TestCase):
             config={"channels": {"wwc": {}}},
         )
 
-    @patch("retail.projects.tasks.OnboardingOrchestrator")
+    @patch("retail.projects.tasks.UploadNexusContentsUseCase")
     @patch("retail.projects.tasks.release_task_lock")
-    def test_delegates_to_orchestrator(self, mock_release, mock_orch_cls):
-        mock_orch = MagicMock()
-        mock_orch_cls.return_value = mock_orch
+    def test_delegates_to_upload_use_case(self, mock_release, mock_upload_cls):
+        mock_upload = MagicMock()
+        mock_upload_cls.return_value = mock_upload
+
+        from retail.projects.tasks import task_upload_nexus_contents
+
+        contents = [{"link": "a", "title": "b", "content": "c"}]
+        task_upload_nexus_contents("mystore", contents)
+
+        mock_upload.execute.assert_called_once_with("mystore", contents)
+        mock_release.assert_called_once_with("upload_nexus_contents", "mystore")
+
+    @patch("retail.projects.tasks.SaveBackgroundFailureUseCase")
+    @patch("retail.projects.tasks.UploadNexusContentsUseCase")
+    @patch("retail.projects.tasks.release_task_lock")
+    def test_soft_fails_and_records_background_failure(
+        self, mock_release, mock_upload_cls, mock_save_background_cls
+    ):
+        mock_upload = MagicMock()
+        mock_upload.execute.side_effect = RuntimeError("nexus down")
+        mock_upload_cls.return_value = mock_upload
+
+        from retail.projects.tasks import task_upload_nexus_contents
+
+        task_upload_nexus_contents("mystore", [])
+
+        mock_save_background_cls.execute.assert_called_once_with(
+            "mystore", "nexus_upload", "nexus down"
+        )
+        mock_release.assert_called_once_with("upload_nexus_contents", "mystore")
+
+    @patch("retail.projects.tasks.UploadNexusContentsUseCase")
+    @patch("retail.projects.tasks.release_task_lock")
+    def test_releases_lock_on_success(self, mock_release, _mock_upload_cls):
+        from retail.projects.tasks import task_upload_nexus_contents
+
+        task_upload_nexus_contents("mystore", [])
+
+        mock_release.assert_called_once_with("upload_nexus_contents", "mystore")
+
+
+class TestTaskConfigureNexusDeprecatedAlias(TestCase):
+    """
+    The legacy ``task_configure_nexus`` name must keep executing the new
+    upload pipeline so any jobs queued before the rename are still
+    processed correctly.
+    """
+
+    def setUp(self):
+        self.project = Project.objects.create(
+            name="Test", uuid=uuid4(), vtex_account="mystore"
+        )
+        self.onboarding = ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+            project=self.project,
+            config={"channels": {"wwc": {}}},
+        )
+
+    @patch("retail.projects.tasks.UploadNexusContentsUseCase")
+    @patch("retail.projects.tasks.release_task_lock")
+    def test_alias_delegates_to_upload_use_case(
+        self, mock_release, mock_upload_cls
+    ):
+        mock_upload = MagicMock()
+        mock_upload_cls.return_value = mock_upload
 
         from retail.projects.tasks import task_configure_nexus
 
         contents = [{"link": "a", "title": "b", "content": "c"}]
         task_configure_nexus("mystore", contents)
 
-        mock_orch.execute.assert_called_once_with("mystore", contents)
-        mock_release.assert_called_once_with("configure_nexus", "mystore")
-
-    @patch("retail.projects.tasks.OnboardingOrchestrator")
-    @patch("retail.projects.tasks.release_task_lock")
-    def test_releases_lock_on_failure(self, mock_release, mock_orch_cls):
-        mock_orch = MagicMock()
-        mock_orch.execute.side_effect = Exception("orchestrator failed")
-        mock_orch_cls.return_value = mock_orch
-
-        from retail.projects.tasks import task_configure_nexus
-
-        with self.assertRaises(Exception):
-            task_configure_nexus("mystore", [])
-
-        mock_release.assert_called_once_with("configure_nexus", "mystore")
+        mock_upload.execute.assert_called_once_with("mystore", contents)
+        mock_release.assert_called_once_with("upload_nexus_contents", "mystore")
 
 
 class TestTaskActivateAgenticCxScript(TestCase):

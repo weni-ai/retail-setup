@@ -1,3 +1,28 @@
+# 5.27.0
+- feat: enhance AssignAgentUseCase to drop non-interactive headers footers
+- refactor: Decouple crawl and Nexus upload from onboarding wizard
+
+# 5.26.0
+- feat: Skip Fulfillment order events and add vtex_account to lambda logs
+
+# 5.25.0
+- feat: add WhatsApp Direct Send dispatch path for OrderStatus
+- feat: add Direct Send incorrect-category webhook
+- feat: add Direct Send template sample validation endpoint
+- refactor: streamline exception messages and improve documentation
+
+# 5.24.1
+- fix: Make One-Click Payment Meta Flow name unique per channel
+
+# 5.24.0
+- feat: Adds One-Click Payment configuration to WPP Cloud onboarding
+- feat: Adds One-Click Payment agent with wpp_flow_uuid credential
+- chore: Adopt GitHub Spec Kit with Cursor integration
+
+# 5.23.0
+- feat: Add endpoint that sends onboarding support requests to Slack
+- feat: Refactor onboarding process with pre-crawl channel setup
+
 # 5.22.0
 - feat: Support multi-agent OR check on agent-active endpoint
 

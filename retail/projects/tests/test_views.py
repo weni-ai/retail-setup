@@ -47,24 +47,6 @@ class TestStartSetupView(TestCase):
 
     @_auth_bypass(None)
     @patch("retail.projects.views.StartSetupUseCase")
-    def test_returns_502_when_crawler_fails(self, mock_usecase_cls, _mock_auth):
-        from retail.projects.usecases.start_crawl import CrawlerStartError
-
-        mock_instance = MagicMock()
-        mock_instance.execute.side_effect = CrawlerStartError("Crawler down")
-        mock_usecase_cls.return_value = mock_instance
-
-        response = self.client.post(
-            "/api/onboard/mystore/start-setup/",
-            {"crawl_url": "https://www.mystore.com.br/", "channel": "wwc"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, 502)
-        self.assertIn("Crawler down", response.json()["detail"])
-
-    @_auth_bypass(None)
-    @patch("retail.projects.views.StartSetupUseCase")
     def test_returns_201_with_wpp_cloud_channel_data(
         self, mock_usecase_cls, _mock_auth
     ):
@@ -140,8 +122,20 @@ class TestCrawlerWebhookView(TestCase):
         "retail.projects.usecases.update_onboarding_progress.acquire_task_lock",
         return_value=True,
     )
-    @patch("retail.projects.usecases.update_onboarding_progress.task_configure_nexus")
+    @patch(
+        "retail.projects.usecases.update_onboarding_progress.task_upload_nexus_contents"
+    )
     def test_returns_200_on_valid_webhook(self, mock_task, mock_lock):
+        """
+        Background crawl progress events do NOT touch the main
+        ``progress`` -- the response reflects the onboarding's current
+        main progress (set by the inline orchestrator path), not the
+        crawl-local percentage in the webhook payload.
+        """
+        self.onboarding.progress = 100
+        self.onboarding.current_step = "NEXUS_CONFIG"
+        self.onboarding.save(update_fields=["progress", "current_step"])
+
         response = self.client.post(
             f"/api/onboard/{self.onboarding.uuid}/webhook/",
             {
@@ -155,7 +149,7 @@ class TestCrawlerWebhookView(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["progress"], 50)
+        self.assertEqual(response.json()["progress"], 100)
 
     def test_returns_404_for_unknown_project(self):
         response = self.client.post(
@@ -291,3 +285,55 @@ class TestOnboardingPatchView(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+
+class TestOnboardingSupportContactView(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    @_auth_bypass(None)
+    @patch("retail.projects.views.RequestOnboardingSupportUseCase")
+    def test_returns_202_and_dispatches_use_case(self, mock_use_case_cls, _mock_auth):
+        mock_instance = MagicMock()
+        mock_use_case_cls.return_value = mock_instance
+
+        response = self.client.post(
+            "/api/onboard/mystore/support-contact/",
+            {"data": {"message": "stuck on channel setup", "screen": "wpp_setup"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"status": "received"})
+        mock_instance.execute.assert_called_once()
+        dto = mock_instance.execute.call_args.args[0]
+        self.assertEqual(dto.vtex_account, "mystore")
+        self.assertEqual(
+            dto.data, {"message": "stuck on channel setup", "screen": "wpp_setup"}
+        )
+
+    @_auth_bypass(None)
+    @patch("retail.projects.views.RequestOnboardingSupportUseCase")
+    def test_accepts_empty_body(self, mock_use_case_cls, _mock_auth):
+        mock_instance = MagicMock()
+        mock_use_case_cls.return_value = mock_instance
+
+        response = self.client.post(
+            "/api/onboard/mystore/support-contact/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        dto = mock_instance.execute.call_args.args[0]
+        self.assertEqual(dto.data, {})
+
+    @_auth_bypass(None)
+    def test_returns_400_when_data_is_not_an_object(self, _mock_auth):
+        response = self.client.post(
+            "/api/onboard/mystore/support-contact/",
+            {"data": "not-a-dict"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)

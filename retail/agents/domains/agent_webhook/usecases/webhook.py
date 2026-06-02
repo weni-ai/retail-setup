@@ -134,6 +134,14 @@ class AgentWebhookUseCase:
         """
         exec_logger = self.exec_logger
         data = parsed_data
+        vtex_account = integrated_agent.project.vtex_account
+
+        if not data:
+            exec_logger.log_execution_error(
+                error_message="Failed to parse lambda response",
+                error_data={"payload_data": data},
+            )
+            return None
 
         # Update contact_urn if we now have it from lambda response
         if data.get("contact_urn"):
@@ -147,7 +155,10 @@ class AgentWebhookUseCase:
             return None
 
         if not self.broadcast_handler.can_send_to_contact(integrated_agent, data):
-            logger.info("Contact is not allowed to receive the broadcast.")
+            logger.info(
+                f"Contact is not allowed to receive the broadcast. "
+                f"vtex_account={vtex_account} agent={integrated_agent.uuid}"
+            )
             exec_logger.log_execution_skip(
                 reason="Contact not allowed to receive broadcast",
                 skip_data={"contact_urn": data.get("contact_urn")},
@@ -158,7 +169,9 @@ class AgentWebhookUseCase:
             message = self.broadcast_handler.build_message(integrated_agent, data)
             if not message:
                 logger.info(
-                    f"Failed to build broadcast message from payload data: {data}"
+                    f"Failed to build broadcast message from payload data: "
+                    f"vtex_account={vtex_account} agent={integrated_agent.uuid} "
+                    f"data={data}"
                 )
                 exec_logger.log_execution_error(
                     error_message="Failed to build broadcast message",

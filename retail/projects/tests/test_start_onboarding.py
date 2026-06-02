@@ -66,6 +66,10 @@ class TestStartSetupUseCase(TestCase):
             config={
                 "last_failure": {"stage": "start_setup_validation"},
                 "reason_failed": "previous error",
+                "background_error": {
+                    "stage": "nexus_upload",
+                    "error": "previous background error",
+                },
             },
         )
 
@@ -79,6 +83,7 @@ class TestStartSetupUseCase(TestCase):
         self.assertFalse(onboarding.completed)
         self.assertNotIn("last_failure", onboarding.config)
         self.assertNotIn("reason_failed", onboarding.config)
+        self.assertNotIn("background_error", onboarding.config)
 
     @patch("retail.projects.usecases.start_setup.task_setup_channel_and_start_crawl")
     def test_reset_clears_previous_channel_app_uuid(self, _mock_task):

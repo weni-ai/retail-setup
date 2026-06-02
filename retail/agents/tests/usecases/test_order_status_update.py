@@ -308,6 +308,7 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
         mock_order_status_dto.orderId = "order-id"
         mock_order_status_dto.currentState = "invoiced"
+        mock_order_status_dto.domain = "Marketplace"
         mock_order_status_dto.vtexAccount = "test-account"
 
         mock_agent_webhook_use_case = MagicMock()
@@ -317,6 +318,24 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
 
         mock_agent_webhook_use_case_cls.assert_not_called()
         mock_agent_webhook_use_case.execute.assert_not_called()
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
+    )
+    def test_execute_skips_fulfillment_domain_before_dedup(
+        self, mock_agent_webhook_use_case_cls, mock_cache
+    ):
+        mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
+        mock_order_status_dto.orderId = "order-id"
+        mock_order_status_dto.currentState = "invoiced"
+        mock_order_status_dto.domain = "Fulfillment"
+        mock_order_status_dto.vtexAccount = "test-account"
+
+        self.usecase.execute(self.mock_integrated_agent, mock_order_status_dto)
+
+        mock_cache.add.assert_not_called()
+        mock_agent_webhook_use_case_cls.assert_not_called()
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")

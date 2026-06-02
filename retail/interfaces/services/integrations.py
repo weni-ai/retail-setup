@@ -29,3 +29,8 @@ class IntegrationsServiceInterface(Protocol):
         language: str,
     ) -> Dict[str, Dict[str, Any]]:
         ...
+
+    def get_channel_app(
+        self, apptype: str, app_uuid: str
+    ) -> Optional[Dict[str, Any]]:
+        ...

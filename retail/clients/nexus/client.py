@@ -1,7 +1,7 @@
 """Client for connection with Nexus"""
 
 from django.conf import settings
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 from retail.clients.base import RequestClient, InternalAuthentication
 from retail.interfaces.clients.nexus.client import NexusClientInterface
@@ -72,6 +72,38 @@ class NexusClient(RequestClient, NexusClientInterface):
         response = self.make_request(
             url,
             method="PATCH",
+            json=payload,
+            headers=self.authentication_instance.headers,
+        )
+        return response.json()
+
+    def create_agent_credentials(
+        self,
+        project_uuid: str,
+        agent_uuid: str,
+        credentials: List[Dict],
+    ) -> Dict:
+        """
+        Creates one or more credentials on a Nexus agent for a project.
+
+        Args:
+            project_uuid: The project's unique identifier.
+            agent_uuid: The agent that will receive the credentials.
+            credentials: List of credential dicts (``name``, ``label``,
+                ``placeholder``, ``is_confidential``, ``value``).
+
+        Returns:
+            Dict with Nexus response (e.g. ``created_credentials``).
+        """
+        url = f"{self.base_url}/api/project/{str(project_uuid)}/app-credentials"
+        payload = {
+            "agent_uuid": str(agent_uuid),
+            "credentials": credentials,
+        }
+
+        response = self.make_request(
+            url,
+            method="POST",
             json=payload,
             headers=self.authentication_instance.headers,
         )

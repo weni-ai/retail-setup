@@ -166,6 +166,125 @@ class SendTestTemplateUseCaseTest(TestCase):
 
         self.mock_flows_service.send_whatsapp_broadcast.assert_not_called()
 
+    @staticmethod
+    def _stub_template_lookup(mock_agent, template) -> MagicMock:
+        """Wire ``templates.filter(...).select_related(...).first()`` to
+        return ``template`` (or ``None``) in a single chain. The
+        implementation issues exactly one ``filter()`` call per
+        ``_get_active_template`` invocation and classifies the version
+        status in Python (US3 / T032).
+        """
+        mock_filter = MagicMock()
+        mock_filter.select_related.return_value.first.return_value = template
+        mock_agent.templates.filter = MagicMock(return_value=mock_filter)
+        return mock_filter
+
+    @patch(
+        "retail.api.integrated_agent.usecases.send_test_template.IntegratedAgent.objects"
+    )
+    def test_execute_raises_validation_error_when_template_paused(
+        self, mock_objects
+    ):
+        """US3 / T030 — PAUSED versions raise ValidationError whose
+        ``detail`` includes the literal ``"PAUSED"`` so QA users can
+        see the cause.
+        """
+        mock_agent = self._create_mock_integrated_agent()
+        mock_objects.select_related.return_value.get.return_value = mock_agent
+
+        paused_template = self._create_mock_template()
+        paused_template.current_version.status = "PAUSED"
+
+        self._stub_template_lookup(mock_agent, paused_template)
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.use_case.execute(self.dto)
+
+        self.assertIn("PAUSED", str(ctx.exception.detail))
+        self.mock_flows_service.send_whatsapp_broadcast.assert_not_called()
+
+    @patch(
+        "retail.api.integrated_agent.usecases.send_test_template.IntegratedAgent.objects"
+    )
+    def test_execute_raises_validation_error_when_template_flagged(
+        self, mock_objects
+    ):
+        """US3 / T030 — FLAGGED versions raise ValidationError whose
+        ``detail`` includes the literal ``"FLAGGED"``.
+        """
+        mock_agent = self._create_mock_integrated_agent()
+        mock_objects.select_related.return_value.get.return_value = mock_agent
+
+        flagged_template = self._create_mock_template()
+        flagged_template.current_version.status = "FLAGGED"
+
+        self._stub_template_lookup(mock_agent, flagged_template)
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.use_case.execute(self.dto)
+
+        self.assertIn("FLAGGED", str(ctx.exception.detail))
+        self.mock_flows_service.send_whatsapp_broadcast.assert_not_called()
+
+    @patch(
+        "retail.api.integrated_agent.usecases.send_test_template.IntegratedAgent.objects"
+    )
+    def test_execute_keeps_existing_message_for_other_non_approved_states(
+        self, mock_objects
+    ):
+        """US3 / T030 regression — pre-existing non-APPROVED states
+        keep the current error message unchanged (no ``PAUSED`` /
+        ``FLAGGED`` substring leaks into them).
+        """
+        legacy_states = [
+            "PENDING",
+            "REJECTED",
+            "IN_APPEAL",
+            "LOCKED",
+            "DISABLED",
+            "DELETED",
+            "PENDING_DELETION",
+        ]
+
+        for state in legacy_states:
+            with self.subTest(version_status=state):
+                mock_agent = self._create_mock_integrated_agent()
+                mock_objects.select_related.return_value.get.return_value = (
+                    mock_agent
+                )
+
+                non_approved_template = self._create_mock_template()
+                non_approved_template.current_version.status = state
+
+                self._stub_template_lookup(mock_agent, non_approved_template)
+
+                with self.assertRaises(ValidationError) as ctx:
+                    self.use_case.execute(self.dto)
+
+                detail = str(ctx.exception.detail)
+                self.assertIn(str(self.integrated_agent_uuid), detail)
+                self.assertNotIn("PAUSED", detail)
+                self.assertNotIn("FLAGGED", detail)
+
+    @patch(
+        "retail.api.integrated_agent.usecases.send_test_template.IntegratedAgent.objects"
+    )
+    def test_get_active_template_issues_single_filter_call(self, mock_objects):
+        """T032 strategy pin — ``_get_active_template`` MUST issue
+        exactly one ``templates.filter(...)`` call per invocation. A
+        regression that re-introduced a sibling fallback query would
+        fail this test even on the happy path.
+        """
+        mock_agent = self._create_mock_integrated_agent()
+        mock_objects.select_related.return_value.get.return_value = mock_agent
+
+        approved_template = self._create_mock_template()
+        self._stub_template_lookup(mock_agent, approved_template)
+
+        self.use_case.execute(self.dto)
+
+        self.assertEqual(mock_agent.templates.filter.call_count, 1)
+
     @patch(
         "retail.api.integrated_agent.usecases.send_test_template.IntegratedAgent.objects"
     )
@@ -237,7 +356,6 @@ class SendTestTemplateUseCaseTest(TestCase):
         mock_agent.templates.filter.assert_called_once_with(
             is_active=True,
             current_version__isnull=False,
-            current_version__status="APPROVED",
         )
 
     @patch(

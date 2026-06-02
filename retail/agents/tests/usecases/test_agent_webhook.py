@@ -161,6 +161,27 @@ class AgentWebhookUseCaseTest(TestCase):
         result = self.usecase.execute(self.mock_agent, MagicMock())
         self.assertIsNone(result)
 
+    def test_execute_parse_response_failure_logs_vtex_account(self):
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = None
+
+        with self.assertLogs(
+            "retail.agents.domains.agent_webhook.usecases.webhook",
+            level="INFO",
+        ) as captured:
+            result = self.usecase.execute(self.mock_agent, MagicMock())
+
+        self.assertIsNone(result)
+        self.mock_broadcast_handler.build_message.assert_not_called()
+        self.assertTrue(
+            any(
+                "Error in parsing lambda response" in line
+                and "vtex_account=test_account" in line
+                for line in captured.output
+            ),
+            captured.output,
+        )
+
     def test_execute_missing_template_error(self):
         mock_response = {"Payload": MagicMock()}
         self.mock_lambda_handler.invoke.return_value = mock_response

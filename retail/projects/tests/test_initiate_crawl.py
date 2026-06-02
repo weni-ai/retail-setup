@@ -5,7 +5,6 @@ from django.test import TestCase
 
 from retail.projects.models import Project, ProjectOnboarding
 from retail.projects.usecases.initiate_crawl import InitiateCrawlUseCase
-from retail.projects.usecases.start_crawl import CrawlerStartError
 
 
 class TestInitiateCrawlUseCase(TestCase):
@@ -63,12 +62,16 @@ class TestInitiateCrawlUseCase(TestCase):
         self.mock_start_crawl.execute.assert_called_once()
         self.mock_detect_storefront.execute.assert_called_once()
 
-    def test_storefront_detection_skipped_when_crawl_fails(self):
-        self.mock_start_crawl.execute.side_effect = CrawlerStartError(
-            "crawler down"
-        )
+    def test_storefront_detection_skipped_when_start_crawl_raises(self):
+        """
+        ``StartCrawlUseCase`` soft-fails on crawler-comms errors (does NOT
+        raise), but it can still raise on unexpected errors (e.g. DB
+        lookup failures). When it does raise, storefront detection must
+        be skipped so the failure surface stays narrow.
+        """
+        self.mock_start_crawl.execute.side_effect = RuntimeError("unexpected boom")
 
-        with self.assertRaises(CrawlerStartError):
+        with self.assertRaises(RuntimeError):
             self.usecase.execute(
                 self.project, "mystore", "https://www.mystore.com.br/"
             )
