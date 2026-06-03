@@ -47,6 +47,9 @@ from retail.agents.domains.agent_execution.tests._fakes import (
     FakeS3Client,
 )
 from retail.agents.domains.agent_execution.types import ExecutionTraceType
+from retail.agents.domains.agent_execution.usecases.flush_executions import (
+    FlushExecutionsUseCase,
+)
 
 
 @override_settings(EXECUTION_TRACES_BUCKET="test-traces-bucket")
@@ -68,6 +71,16 @@ class _BufferTestBase(TestCase):
         self.addCleanup(patcher.stop)
 
         self.buffer = ExecutionBufferService(traces_storage=self.traces_storage)
+
+    def _flush(self, do_stuck_sweep: bool = False) -> dict:
+        """Drain the buffer through the flush use case wired to this fixture."""
+        return (
+            FlushExecutionsUseCase(
+                buffer=self.buffer, traces_storage=self.traces_storage
+            )
+            .execute(do_stuck_sweep=do_stuck_sweep)
+            .as_dict()
+        )
 
     def _data_key(self, execution_uuid: UUID) -> str:
         return f"{self.buffer.DATA_KEY_PREFIX}{execution_uuid}"
@@ -542,7 +555,7 @@ class ExecutionBufferLifecycleTests(_BufferTestBase):
             broadcast_id=42,
         )
 
-        result = self.buffer.flush()
+        result = self._flush()
 
         self.assertEqual(result["flushed"], 1)
         self.assertEqual(result["stuck_finalized"], 0)
@@ -603,7 +616,7 @@ class ExecutionBufferLifecycleTests(_BufferTestBase):
             broadcast_message_uuid=broadcast_message.uuid,
         )
 
-        self.buffer.flush()
+        self._flush()
 
         row = AgentExecution.objects.get(uuid=execution_uuid)
         self.assertEqual(row.broadcast_message_id, broadcast_message.uuid)
@@ -620,7 +633,7 @@ class ExecutionBufferLifecycleTests(_BufferTestBase):
             status=AgentExecutionStatus.SUCCESS,
         )
 
-        self.buffer.flush()
+        self._flush()
 
         self.assertNotIn(self._data_key(execution_uuid), self.fake_redis.hashes)
         self.assertNotIn(self._traces_key(execution_uuid), self.fake_redis.lists)
@@ -653,7 +666,7 @@ class ExecutionBufferLifecycleTests(_BufferTestBase):
             execution_uuid=execution_uuid,
             status=AgentExecutionStatus.SUCCESS,
         )
-        self.buffer.flush()
+        self._flush()
 
         self.assertIsNone(self.buffer.get_execution(execution_uuid))
 
@@ -662,7 +675,7 @@ class ExecutionBufferResilienceTests(_BufferTestBase):
     """Failure modes degrade gracefully without blocking subsequent ticks."""
 
     def test_flush_with_no_queue_entries_is_noop(self):
-        result = self.buffer.flush()
+        result = self._flush()
         self.assertEqual(result, {"flushed": 0, "stuck_finalized": 0})
         self.assertEqual(self.fake_s3.put_calls, [])
 
@@ -672,7 +685,7 @@ class ExecutionBufferResilienceTests(_BufferTestBase):
             "zrangebyscore",
             side_effect=RuntimeError("redis down"),
         ):
-            result = self.buffer.flush()
+            result = self._flush()
         self.assertEqual(result, {"flushed": 0, "stuck_finalized": 0})
 
     def test_flush_handles_redis_connect_failure(self):
@@ -681,7 +694,7 @@ class ExecutionBufferResilienceTests(_BufferTestBase):
             "get_redis_connection",
             side_effect=RuntimeError("connection refused"),
         ):
-            result = self.buffer.flush()
+            result = self._flush()
         self.assertEqual(result, {"flushed": 0, "stuck_finalized": 0})
 
     def test_flush_leaves_entries_in_queue_when_s3_put_fails(self):
@@ -696,7 +709,7 @@ class ExecutionBufferResilienceTests(_BufferTestBase):
         )
         self.fake_s3.fail_on_put = True
 
-        result = self.buffer.flush()
+        result = self._flush()
 
         self.assertEqual(result["flushed"], 0)
         self.assertIsNotNone(
@@ -719,7 +732,7 @@ class ExecutionBufferResilienceTests(_BufferTestBase):
             execution_uuid=execution_uuid,
             status=AgentExecutionStatus.SUCCESS,
         )
-        result = self.buffer.flush()
+        result = self._flush()
 
         self.assertEqual(result["flushed"], 1)
         self.assertEqual(len(self.fake_s3.put_calls), 1)
@@ -747,7 +760,7 @@ class ExecutionBufferResilienceTests(_BufferTestBase):
             "AgentExecution.objects"
         ) as mock_objects:
             mock_objects.filter.side_effect = RuntimeError("db down")
-            result = self.buffer.flush()
+            result = self._flush()
 
         self.assertEqual(result["flushed"], 0)
         # Redis state is preserved so the next tick retries
@@ -761,7 +774,7 @@ class ExecutionBufferResilienceTests(_BufferTestBase):
             b"status": AgentExecutionStatus.SUCCESS.encode("utf-8"),
         }
 
-        result = self.buffer.flush()
+        result = self._flush()
 
         # Bulk update finds no row but the batch still completes
         self.assertEqual(result["flushed"], 1)
