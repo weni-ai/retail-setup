@@ -49,7 +49,20 @@ class GetAgentLogJsonUseCase:
     def __init__(
         self, traces_storage: Optional[ExecutionTracesStorageService] = None
     ):
-        self._traces_storage = traces_storage or ExecutionTracesStorageService()
+        self._traces_storage = traces_storage
+
+    @property
+    def traces_storage(self) -> ExecutionTracesStorageService:
+        """Build the S3-backed storage lazily.
+
+        Constructing it resolves the trace bucket from settings, which
+        fails loudly when storage is unconfigured. Deferring it keeps
+        the not-found paths (missing row / empty key) from depending on
+        S3 configuration, so they return 404 without ever touching S3.
+        """
+        if self._traces_storage is None:
+            self._traces_storage = ExecutionTracesStorageService()
+        return self._traces_storage
 
     def execute(self, dto: GetAgentLogJsonDTO) -> Any:
         execution = self._get_execution(dto)
@@ -75,7 +88,7 @@ class GetAgentLogJsonUseCase:
 
     def _read_payload(self, s3_key: str, log_uuid: UUID) -> Optional[bytes]:
         try:
-            return self._traces_storage.read_traces_payload(s3_key)
+            return self.traces_storage.read_traces_payload(s3_key)
         except (BotoCoreError, ClientError) as exc:
             logger.error(
                 f"[AGENT_LOGS] Failed to read payload for log {log_uuid}: {exc}"
