@@ -19,6 +19,8 @@ WWC_CHANNEL_BASE_CONFIG = {
     "selector": "#wwc",
     "embedded": False,
     "mainColor": "#0366DD",
+    # Anchor corner of the widget; "bottom-left" is the only other value.
+    "position": "bottom-right",
     "contactTimeout": 0,
     "startFullScreen": False,
     "showCameraButton": False,
