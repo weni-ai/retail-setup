@@ -325,7 +325,11 @@ class AgentWebhookUseCase:
             )
 
             if not parsed_response:
-                logger.info("Error in parsing lambda response.")
+                logger.info(
+                    f"Error in parsing lambda response. "
+                    f"vtex_account={integrated_agent.project.vtex_account} "
+                    f"agent={integrated_agent.uuid}"
+                )
                 exec_logger.log_execution_error(
                     error_message="Error parsing lambda response",
                 )
