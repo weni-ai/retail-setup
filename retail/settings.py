@@ -239,11 +239,97 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 
+# Master switch for agent execution logging. When ``False`` the
+# ExecutionLoggerService becomes a no-op: no AgentExecution rows are
+# created, no traces are buffered in Redis, nothing is written to S3.
+# With nothing stored, the periodic flush/sweep/cleanup tasks have
+# nothing to process.
+AGENT_EXECUTION_LOGGING_ENABLED = env.bool(
+    "AGENT_EXECUTION_LOGGING_ENABLED", default=True
+)
+
+# Maximum number of executions a single flush tick drains from the
+# Redis ZSET. Caps per-tick S3 + DB cost; remaining entries are
+# picked up on the next tick.
+AGENT_EXECUTION_FLUSH_BATCH_SIZE = env.int(
+    "AGENT_EXECUTION_FLUSH_BATCH_SIZE", default=500
+)
+
+# Maximum number of AgentExecution rows the retention sweep deletes
+# per iteration. Bounds the per-statement runtime so the daily
+# cleanup task does not hit Postgres ``statement_timeout`` or the
+# Celery soft/hard timeout on tables with millions of rows. The use
+# case loops until no rows older than the retention horizon remain.
+AGENT_EXECUTION_CLEANUP_BATCH_SIZE = env.int(
+    "AGENT_EXECUTION_CLEANUP_BATCH_SIZE", default=5000
+)
+
+# Beat cadence for ``task_flush_execution_logs``. Each tick drains
+# ready entries from the queue and (every Nth tick) runs the SQL
+# stuck sweep. Empty ticks are no-ops.
+AGENT_EXECUTION_FLUSH_INTERVAL_SECONDS = env.float(
+    "AGENT_EXECUTION_FLUSH_INTERVAL_SECONDS", default=1.0
+)
+
+# An execution sits in the flush queue with a deadline of
+# ``now + max_wait_seconds``. Reaching a terminal status bumps the
+# deadline to ``now`` so the next flush picks it up immediately. If
+# the deadline expires without a terminal status, the flush
+# force-finalises the row as ``error='Execution timed out'``.
+AGENT_EXECUTION_MAX_WAIT_SECONDS = env.int(
+    "AGENT_EXECUTION_MAX_WAIT_SECONDS", default=600
+)
+
+# Every Nth flush tick the same task additionally runs a SQL sweep
+# for rows still ``processing`` past the stuck threshold. At the
+# default 1s tick interval, ``60`` means "run the sweep once per
+# minute".
+AGENT_EXECUTION_STUCK_SWEEP_EVERY_N_TICKS = env.int(
+    "AGENT_EXECUTION_STUCK_SWEEP_EVERY_N_TICKS", default=60
+)
+
+# DB rows still ``processing`` with ``updated_on`` older than this
+# threshold are force-finalised by the SQL stuck sweep. Catches the
+# rare case where Redis lost the queue entry (eviction, restart) but
+# the DB row is still in flight.
+AGENT_EXECUTION_STUCK_THRESHOLD_SECONDS = env.int(
+    "AGENT_EXECUTION_STUCK_THRESHOLD_SECONDS", default=600
+)
+
+# Maximum number of parallel S3 PUT workers the flush task uses for
+# trace files. Each PUT is a per-execution write so this is the
+# upper bound on concurrent uploads per tick.
+AGENT_EXECUTION_S3_PARALLEL_PUTS = env.int(
+    "AGENT_EXECUTION_S3_PARALLEL_PUTS", default=10
+)
+
+# Dedicated Celery queue for agent-execution maintenance tasks
+# (cleanup + flush). Isolating these from the default ``celery``
+# queue prevents the high-frequency flush loop from blocking
+# unrelated jobs. Requires a worker started with
+# ``celery-worker <queue-name>`` consuming this queue.
+AGENT_EXECUTION_CELERY_QUEUE = env.str(
+    "AGENT_EXECUTION_CELERY_QUEUE", default="agent-executions"
+)
+
 CELERY_BEAT_SCHEDULE = {
     "task-cleanup-old-carts": {
         "task": "task_cleanup_old_carts",
         "schedule": crontab(minute=0, hour=2),
     },
+    "task-cleanup-old-executions": {
+        "task": "task_cleanup_old_executions",
+        "schedule": crontab(minute=30, hour=2),
+    },
+    "task-flush-execution-logs": {
+        "task": "task_flush_execution_logs",
+        "schedule": AGENT_EXECUTION_FLUSH_INTERVAL_SECONDS,
+    },
+}
+
+CELERY_TASK_ROUTES = {
+    "task_cleanup_old_executions": {"queue": AGENT_EXECUTION_CELERY_QUEUE},
+    "task_flush_execution_logs": {"queue": AGENT_EXECUTION_CELERY_QUEUE},
 }
 
 
@@ -310,6 +396,19 @@ if USE_LAMBDA:
 
 if USE_S3:
     AWS_STORAGE_BUCKET_NAME = env.str("AWS_STORAGE_BUCKET_NAME")
+
+# S3 bucket for storing agent execution traces
+# Defaults to AWS_STORAGE_BUCKET_NAME if not specified
+EXECUTION_TRACES_BUCKET = env.str(
+    "EXECUTION_TRACES_BUCKET",
+    default=env.str("AWS_STORAGE_BUCKET_NAME", default=""),
+)
+
+# Retention horizon (in days) for AgentExecution rows. The
+# task_cleanup_old_executions Celery beat task deletes rows older
+# than this. The matching S3 lifecycle rule on the executions/
+# prefix of EXECUTION_TRACES_BUCKET is configured outside Django.
+AGENT_EXECUTION_RETENTION_DAYS = env.int("AGENT_EXECUTION_RETENTION_DAYS", default=30)
 
 # Webchat Push S3 — bucket used by the VTEX pixel app to load the webchat loader
 WEBCHAT_PUSH_S3_BUCKET_NAME = env.str("WEBCHAT_PUSH_S3_BUCKET_NAME", default="")

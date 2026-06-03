@@ -18,9 +18,11 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
     """Test cases for AgentOrderStatusUpdateUsecase functionality."""
 
     def setUp(self):
+        self.exec_logger = MagicMock()
         self.mock_cache_handler = MagicMock()
         self.usecase = AgentOrderStatusUpdateUsecase(
-            cache_handler=self.mock_cache_handler
+            cache_handler=self.mock_cache_handler,
+            exec_logger=self.exec_logger
         )
         self.mock_project = MagicMock(spec=Project)
         self.mock_project.uuid = uuid4()
@@ -295,7 +297,10 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
     )
     def test_execute_skips_duplicate_event_within_window(
-        self, mock_agent_webhook_use_case_cls, mock_cache, mock_settings
+        self,
+        mock_agent_webhook_use_case_cls,
+        mock_cache,
+        mock_settings,
     ):
         mock_settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = 60
         mock_cache.add.return_value = False
@@ -331,6 +336,71 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
 
         mock_cache.add.assert_not_called()
         mock_agent_webhook_use_case_cls.assert_not_called()
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
+    )
+    def test_fulfillment_domain_pushes_terminal_skip_status(
+        self, mock_agent_webhook_use_case_cls, mock_cache
+    ):
+        """When the event belongs to the ``Fulfillment`` domain, the
+        execution row opened upstream must be closed with a
+        ``log_execution_skip`` call so it never times out."""
+        mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
+        mock_order_status_dto.orderId = "order-id"
+        mock_order_status_dto.currentState = "invoiced"
+        mock_order_status_dto.domain = "Fulfillment"
+        mock_order_status_dto.vtexAccount = "test-account"
+
+        self.usecase.execute(self.mock_integrated_agent, mock_order_status_dto)
+
+        self.exec_logger.log_execution_skip.assert_called_once()
+        kwargs = self.exec_logger.log_execution_skip.call_args.kwargs
+        self.assertEqual(kwargs.get("reason"), "fulfillment_domain_event")
+        self.assertEqual(
+            kwargs.get("skip_data"),
+            {
+                "order_id": "order-id",
+                "current_state": "invoiced",
+                "vtex_account": "test-account",
+            },
+        )
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    def test_duplicate_event_pushes_terminal_skip_status(
+        self, mock_cache, mock_settings
+    ):
+        """When ``_is_duplicate_event`` short-circuits, the
+        execution row opened upstream must be closed with a
+        ``log_execution_skip`` call so it never times out."""
+        mock_settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = 60
+        # ``cache.add`` returning False signals the event was already
+        # registered → duplicate → we expect the skip path.
+        mock_cache.add.return_value = False
+
+        mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
+        mock_order_status_dto.orderId = "order-id"
+        mock_order_status_dto.currentState = "invoiced"
+        mock_order_status_dto.domain = "Marketplace"
+        mock_order_status_dto.vtexAccount = "test-account"
+
+        self.usecase.execute(self.mock_integrated_agent, mock_order_status_dto)
+
+        self.exec_logger.log_execution_skip.assert_called_once()
+        kwargs = self.exec_logger.log_execution_skip.call_args.kwargs
+        self.assertEqual(
+            kwargs.get("reason"), "duplicate_order_status_event_within_window"
+        )
+        self.assertEqual(
+            kwargs.get("skip_data"),
+            {
+                "order_id": "order-id",
+                "current_state": "invoiced",
+                "vtex_account": "test-account",
+            },
+        )
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")

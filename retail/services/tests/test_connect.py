@@ -51,6 +51,44 @@ class ConnectServiceTest(TestCase):
 
         self.assertEqual(result, (404, {"error": "User not found"}))
 
+    def test_send_data_export_email_delegates_to_client(self):
+        """send_data_export_email forwards every field to the client."""
+        self.mock_client.send_data_export_email.return_value = {"sent": True}
+
+        result = self.service.send_data_export_email(
+            user_email="user@example.com",
+            file_url="https://files/export.csv",
+            start_date="2026-04-01",
+            end_date="2026-05-01",
+            template="all",
+            status=["sent", "delivered"],
+        )
+
+        self.assertEqual(result, {"sent": True})
+        self.mock_client.send_data_export_email.assert_called_once_with(
+            user_email="user@example.com",
+            file_url="https://files/export.csv",
+            start_date="2026-04-01",
+            end_date="2026-05-01",
+            template="all",
+            status=["sent", "delivered"],
+        )
+
+    def test_send_data_export_email_returns_none_on_client_error(self):
+        """A client failure is swallowed so the export task never crashes."""
+        self.mock_client.send_data_export_email.side_effect = RuntimeError("boom")
+
+        result = self.service.send_data_export_email(
+            user_email="user@example.com",
+            file_url="https://files/export.csv",
+            start_date="2026-04-01",
+            end_date="2026-05-01",
+            template="all",
+            status=["sent"],
+        )
+
+        self.assertIsNone(result)
+
     def test_default_connect_client_initialization(self):
         """Test that ConnectService initializes with default ConnectClient when none provided"""
         service = ConnectService()

@@ -1,4 +1,4 @@
-from typing import Protocol, Tuple, Dict, Optional
+from typing import Protocol, Tuple, Dict, List, Optional
 
 
 class ConnectServiceInterface(Protocol):
@@ -15,6 +15,17 @@ class ConnectServiceInterface(Protocol):
         organization_name: str,
         project_name: str,
     ) -> Dict:
+        ...
+
+    def send_data_export_email(
+        self,
+        user_email: str,
+        file_url: str,
+        start_date: str,
+        end_date: str,
+        template: str,
+        status: List[str],
+    ) -> Optional[Dict]:
         ...
 
     def update_project_config(

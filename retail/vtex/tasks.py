@@ -1,19 +1,19 @@
 import logging
 
 from datetime import timedelta
+from typing import Optional
 
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError
 
 from celery import shared_task
 from retail.agents.domains.agent_webhook.usecases.webhook import AgentWebhookUseCase
 from retail.agents.domains.agent_webhook.usecases.order_status import (
     AgentOrderStatusUpdateUsecase,
 )
+from retail.agents.domains.agent_execution.task_helpers import execution_log_scope
 from retail.broadcasts.usecases.mark_broadcast_converted import (
     MarkBroadcastConvertedUseCase,
 )
-from retail.interfaces.clients.aws_lambda.client import RequestData
 from retail.vtex.models import Cart
 from retail.vtex.usecases.cart_abandonment import CartAbandonmentUseCase
 from retail.vtex.usecases.handle_purchase_event import HandlePurchaseEventUseCase
@@ -37,14 +37,26 @@ _PURCHASE_CONFIRMED_STATES = frozenset({"invoiced"})
 
 @shared_task
 def task_abandoned_cart_update(cart_uuid: str):
-    """
-    Task to process an abandoned cart update.
+    """Process an abandoned cart update.
+
+    Wrapped in ``execution_log_scope`` so any failure inside the body
+    that already opened an AgentExecution row finalises it as
+    ``error`` instead of leaving it in ``processing`` until the ZSET
+    deadline expires.
     """
     try:
-        # Get the cart to access
         cart = Cart.objects.get(uuid=cart_uuid, status="created")
+    except Cart.DoesNotExist:
+        logger.warning(
+            f"[CART_TASK] Cart not found or already processed: cart_uuid={cart_uuid} "
+            f"reason=cart_does_not_exist_or_status_changed"
+        )
+        return
 
-        # Build log context with all relevant tracking info
+    with execution_log_scope(
+        error_data={"cart_uuid": cart_uuid},
+        log_prefix="[CART_TASK]",
+    ) as exec_logger:
         vtex_account = cart.project.vtex_account if cart.project else "unknown"
         project_uuid = str(cart.project.uuid) if cart.project else "unknown"
         log_context = (
@@ -66,18 +78,28 @@ def task_abandoned_cart_update(cart_uuid: str):
         integrated_agent = use_case.get_integrated_agent(cart.project)
 
         if integrated_agent:
+            execution_uuid = exec_logger.log_webhook_received(
+                integrated_agent=integrated_agent,
+                payload={
+                    "cart_uuid": cart_uuid,
+                    "order_form_id": cart.order_form_id,
+                    "phone_number": cart.phone_number,
+                },
+                contact_urn=f"whatsapp:{cart.phone_number}",
+                order_id=cart.order_form_id,
+            )
+
             logger.info(
                 f"[CART_TASK] Using agent flow: {log_context} "
                 f"agent_uuid={integrated_agent.uuid}"
             )
-            use_case.execute(cart, integrated_agent)
+            use_case.execute(cart, integrated_agent, execution_uuid=execution_uuid)
         elif cart.integrated_feature:
             logger.info(
                 f"[CART_TASK] Using feature flow (legacy): {log_context} "
                 f"feature_uuid={cart.integrated_feature.uuid}"
             )
-            legacy_use_case = CartAbandonmentUseCase()
-            legacy_use_case.execute(cart)
+            CartAbandonmentUseCase().execute(cart)
         else:
             logger.warning(
                 f"[CART_TASK] No integration configured: {log_context} "
@@ -86,25 +108,20 @@ def task_abandoned_cart_update(cart_uuid: str):
             return
 
         logger.info(f"[CART_TASK] Completed abandoned cart processing: {log_context}")
-    except Cart.DoesNotExist:
-        logger.warning(
-            f"[CART_TASK] Cart not found or already processed: cart_uuid={cart_uuid} "
-            f"reason=cart_does_not_exist_or_status_changed"
-        )
-        return
-    except Exception as e:
-        logger.error(
-            f"[CART_TASK] Unexpected error: cart_uuid={cart_uuid} error={str(e)}",
-            exc_info=True,
-        )
 
 
 @shared_task
 def task_order_status_update(order_update_data: dict):
+    """Process an order status update.
+
+    ``ValidationError`` is intentionally swallowed (no re-raise) so a
+    bad payload doesn't trigger beat retries — the scope still
+    finalises the active execution row as ``error`` first.
     """
-    Task to process an order status update.
-    """
-    try:
+    with execution_log_scope(
+        error_data={"order_update_data": order_update_data},
+        log_prefix="[ORDER_STATUS]",
+    ) as exec_logger:
         order_status_dto = OrderStatusDTO(**order_update_data)
         vtex_account = order_status_dto.vtexAccount
         order_id = order_status_dto.orderId
@@ -115,7 +132,7 @@ def task_order_status_update(order_update_data: dict):
             f"vtex_account={vtex_account} data={order_update_data}"
         )
 
-        use_case = AgentOrderStatusUpdateUsecase()
+        use_case = AgentOrderStatusUpdateUsecase(exec_logger=exec_logger)
         project = use_case.get_project_by_vtex_account(vtex_account)
         if not project:
             logger.info(
@@ -148,6 +165,12 @@ def task_order_status_update(order_update_data: dict):
         integrated_agent = use_case.get_integrated_agent_if_exists(project)
 
         if integrated_agent:
+            exec_logger.log_webhook_received(
+                integrated_agent=integrated_agent,
+                payload=order_update_data,
+                order_id=order_status_dto.orderId,
+            )
+
             logger.info(
                 f"[ORDER_STATUS] processing_with_agent: "
                 f"vtex_account={vtex_account} current_state={current_state} "
@@ -160,20 +183,12 @@ def task_order_status_update(order_update_data: dict):
                 f"vtex_account={vtex_account} current_state={current_state} "
                 f"order_id={order_id}"
             )
-            legacy_use_case = OrderStatusUseCase(order_status_dto)
-            legacy_use_case.process_notification(project)
+            OrderStatusUseCase(order_status_dto).process_notification(project)
 
         logger.info(
             f"[ORDER_STATUS] completed: "
             f"vtex_account={vtex_account} current_state={current_state} "
             f"order_id={order_id}"
-        )
-    except ValidationError:
-        pass
-    except Exception as e:
-        logger.error(
-            f"[ORDER_STATUS] unexpected_error: " f"data={order_update_data} error={e}",
-            exc_info=True,
         )
 
 
@@ -193,28 +208,36 @@ def _is_purchase_confirmed(order_status: str) -> bool:
 
 
 @shared_task
-def task_agent_webhook(integrated_agent_uuid: str, payload: dict, params: dict):
-    logger.info(
-        f"Processing agent webhook. "
-        f"Integrated Agent: {integrated_agent_uuid}, Payload: {payload}, params: {params}"
-    )
+def task_agent_webhook(
+    integrated_agent_uuid: str,
+    payload: dict,
+    params: dict,
+    execution_uuid: Optional[str] = None,
+):
+    """Process an agent webhook.
 
-    use_case = AgentWebhookUseCase()
-    request_data = RequestData(
-        params=params,
-        payload=payload,
-    )
-    integrated_agent = use_case._get_integrated_agent(integrated_agent_uuid)
-    if not integrated_agent:
-        logger.info(f"Integrated agent not found for UUID {integrated_agent_uuid}.")
-        return
+    Thin glue: delegates the resolve-agent / forward-UUID / dispatch
+    flow to :meth:`AgentWebhookUseCase.execute_from_task` so the task
+    holds no business logic. ``execution_uuid`` is forwarded by inner
+    callers (e.g. ``task_abandoned_cart_update``) so a single
+    AgentExecution row covers the whole chain.
+    """
+    with execution_log_scope(
+        error_data={"integrated_agent_uuid": integrated_agent_uuid},
+        log_prefix="[AGENT_WEBHOOK]",
+    ) as exec_logger:
+        logger.info(
+            f"Processing agent webhook. "
+            f"Integrated Agent: {integrated_agent_uuid}, "
+            f"Payload: {payload}, params: {params}"
+        )
 
-    credentials = use_case._addapt_credentials(integrated_agent)
-
-    request_data.set_credentials(credentials)
-    request_data.set_ignored_official_rules(integrated_agent.ignore_templates)
-
-    return use_case.execute(integrated_agent, request_data)
+        return AgentWebhookUseCase(exec_logger=exec_logger).execute_from_task(
+            integrated_agent_uuid=integrated_agent_uuid,
+            payload=payload,
+            params=params,
+            forwarded_execution_uuid=execution_uuid,
+        )
 
 
 @shared_task
