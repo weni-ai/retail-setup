@@ -1,3 +1,6 @@
+# 5.28.0
+- feat: implement agent execution logging and S3 trace storage
+
 # 5.27.1
 - chore: Improve vtex_host_store propagation logging and add vtex_account
 
