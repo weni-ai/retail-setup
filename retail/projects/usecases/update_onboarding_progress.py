@@ -132,10 +132,17 @@ class UpdateOnboardingProgressUseCase:
         resolved_url = dto.data.get("resolved_url")
         original_url = dto.data.get("original_url")
 
+        logger.info(
+            f"[url_redirected] Crawler reported a store host redirect for "
+            f"onboarding={onboarding.uuid} vtex_account={onboarding.vtex_account}: "
+            f"original={original_url!r} -> resolved={resolved_url!r}"
+        )
+
         if not resolved_url:
             logger.warning(
                 f"[url_redirected] Missing resolved_url in webhook payload for "
-                f"onboarding={onboarding.uuid}. Skipping update."
+                f"onboarding={onboarding.uuid} vtex_account={onboarding.vtex_account}. "
+                f"Skipping update."
             )
             return onboarding
 
@@ -145,7 +152,8 @@ class UpdateOnboardingProgressUseCase:
         onboarding.save(update_fields=["config"])
 
         logger.info(
-            f"[url_redirected] Updated store URL for onboarding={onboarding.uuid}: "
+            f"[url_redirected] Updated store URL for onboarding={onboarding.uuid} "
+            f"vtex_account={onboarding.vtex_account}: "
             f"original={original_url} -> resolved={resolved_url}"
         )
 
@@ -158,11 +166,17 @@ class UpdateOnboardingProgressUseCase:
         """Propagates the resolved store URL to Connect. Non-blocking by design."""
         if onboarding.project is None:
             logger.warning(
-                f"[url_redirected] Onboarding={onboarding.uuid} has no linked project. "
+                f"[url_redirected] Onboarding={onboarding.uuid} "
+                f"vtex_account={onboarding.vtex_account} has no linked project. "
                 f"Skipping Connect update."
             )
             return
 
+        logger.info(
+            f"[url_redirected] Sending resolved store host to Connect for "
+            f"project={onboarding.project.uuid} "
+            f"vtex_account={onboarding.vtex_account}: host={resolved_url!r}"
+        )
         try:
             self.connect_service.update_project_config(
                 project_uuid=str(onboarding.project.uuid),
@@ -171,8 +185,17 @@ class UpdateOnboardingProgressUseCase:
         except Exception:
             logger.exception(
                 f"[url_redirected] Failed to propagate vtex_host_store to Connect "
-                f"for project={onboarding.project.uuid}"
+                f"for project={onboarding.project.uuid} "
+                f"vtex_account={onboarding.vtex_account} host={resolved_url!r}"
             )
+            return
+
+        logger.info(
+            f"[url_redirected] Sent vtex_host_store to Connect for "
+            f"project={onboarding.project.uuid} "
+            f"vtex_account={onboarding.vtex_account} host={resolved_url!r}. "
+            f"Awaiting EDA echo to persist locally."
+        )
 
     @staticmethod
     def _handle_progress(
