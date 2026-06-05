@@ -133,8 +133,15 @@ class AgentWebhookUseCase:
                 ``invoiced`` event for conversion attribution.
         """
         exec_logger = self.exec_logger
-        vtex_account = integrated_agent.project.vtex_account
         data = parsed_data
+        vtex_account = integrated_agent.project.vtex_account
+
+        if not data:
+            exec_logger.log_execution_error(
+                error_message="Failed to parse lambda response",
+                error_data={"payload_data": data},
+            )
+            return None
 
         # Update contact_urn if we now have it from lambda response
         if data.get("contact_urn"):

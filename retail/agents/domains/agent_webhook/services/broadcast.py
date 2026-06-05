@@ -10,6 +10,7 @@ from uuid import UUID
 from datetime import datetime
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.broadcasts.models import BroadcastMessage
 from retail.agents.domains.agent_webhook.services.direct_send_constants import (
     MAX_BODY_LENGTH,
     MAX_BUTTON_LABEL_LENGTH,
@@ -24,7 +25,6 @@ from retail.agents.domains.agent_webhook.services.direct_send_payload_builder im
     is_valid_direct_send_template_name,
     substitute_template_variables,
 )
-from retail.broadcasts.models import BroadcastMessage
 from retail.broadcasts.usecases.record_broadcast_sent import (
     BroadcastDispatchContext,
     RecordBroadcastSentDTO,

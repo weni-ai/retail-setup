@@ -311,3 +311,37 @@ class TestS3Service(TestCase):
         self.mock_client.put_object.assert_called_once_with(
             "bad/key.json", b"{}", "application/json"
         )
+
+    def test_upload_fileobj_default_content_type(self):
+        expected_key = "exports/out.csv"
+        self.mock_client.upload_fileobj.return_value = expected_key
+        fileobj = BytesIO(b"col\nval\n")
+
+        result = self.service.upload_fileobj(fileobj, expected_key)
+
+        self.mock_client.upload_fileobj.assert_called_once_with(
+            fileobj, expected_key, "application/octet-stream"
+        )
+        self.assertEqual(result, expected_key)
+
+    def test_upload_fileobj_custom_content_type(self):
+        expected_key = "exports/out.csv"
+        self.mock_client.upload_fileobj.return_value = expected_key
+        fileobj = BytesIO(b"col\nval\n")
+
+        result = self.service.upload_fileobj(
+            fileobj, expected_key, content_type="text/csv"
+        )
+
+        self.mock_client.upload_fileobj.assert_called_once_with(
+            fileobj, expected_key, "text/csv"
+        )
+        self.assertEqual(result, expected_key)
+
+    def test_upload_fileobj_propagates_client_error(self):
+        self.mock_client.upload_fileobj.side_effect = Exception("stream failed")
+
+        with self.assertRaises(Exception) as context:
+            self.service.upload_fileobj(BytesIO(b"x"), "bad/key.csv")
+
+        self.assertIn("stream failed", str(context.exception))

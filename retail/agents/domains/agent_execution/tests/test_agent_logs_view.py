@@ -1,17 +1,15 @@
 """End-to-end tests for ``GET /assigneds/{agent_uuid}/logs/``.
 
 These tests exercise the view: query parsing, permission checks,
-response shape, status mapping, the ``json_url`` rules, and filter
+response shape, status mapping, the ``has_json`` rules, and filter
 forwarding to the use case.
 """
 
 from datetime import datetime, timezone as dt_timezone
 from decimal import Decimal
-from unittest.mock import patch
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -107,14 +105,9 @@ class AgentLogsViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("retail.agents.domains.agent_execution.usecases.list_agent_logs.S3Service")
-    def test_returns_paginated_results_in_log_shape(self, mock_s3_class):
+    def test_returns_paginated_results_in_log_shape(self):
         self.setup_connect_service_mock(
             *ConnectServicePermissionScenarios.success_scenario(2)
-        )
-        mock_s3 = mock_s3_class.return_value
-        mock_s3.generate_presigned_url.return_value = (
-            "https://s3.amazonaws.com/test/payload.json?signed=yes"
         )
 
         execution = self._make_execution()
@@ -122,8 +115,7 @@ class AgentLogsViewTest(BaseTestMixin, APITestCase):
             created_on=datetime(2026, 5, 1, 14, 2, 0, tzinfo=dt_timezone.utc)
         )
 
-        with self.settings(EXECUTION_TRACES_BUCKET="test-traces"):
-            response = self._request(project_uuid=self.project.uuid)
+        response = self._request(project_uuid=self.project.uuid)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
@@ -138,54 +130,29 @@ class AgentLogsViewTest(BaseTestMixin, APITestCase):
         self.assertEqual(row["order_id"], "ORD-1")
         self.assertEqual(row["amount"], {"value": "100.00", "currency": "BRL"})
         self.assertIn("Message handed off to the messaging provider", row["summary"])
-        # The fixture sets ``traces_s3_key`` so a healthy ``sent`` row
-        # surfaces the presigned URL — the API consumer decides whether
-        # to display it; the backend just exposes the link to traces.
-        self.assertEqual(
-            row["json_url"], "https://s3.amazonaws.com/test/payload.json?signed=yes"
-        )
+        # A terminal ``sent`` row has a stored payload, so ``has_json``
+        # is True; the client fetches it through the proxy endpoint.
+        self.assertTrue(row["has_json"])
 
-    @patch("retail.agents.domains.agent_execution.usecases.list_agent_logs.S3Service")
-    def test_json_url_is_generated_for_all_rows_with_traces(self, mock_s3_class):
+    def test_has_json_is_true_for_terminal_rows_and_false_for_processing(self):
         self.setup_connect_service_mock(
             *ConnectServicePermissionScenarios.success_scenario(2)
         )
-        mock_s3 = mock_s3_class.return_value
-        mock_s3.generate_presigned_url.return_value = (
-            "https://s3.amazonaws.com/test/payload.json?signed=yes"
-        )
 
-        skipped = self._make_execution(
-            status=AgentExecutionStatus.SKIP,
-            traces_s3_key="executions/skipped/traces.json",
-        )
-        errored = self._make_execution(
-            status=AgentExecutionStatus.ERROR,
-            traces_s3_key="executions/error/traces.json",
-        )
-        sent = self._make_execution(
-            status=AgentExecutionStatus.SUCCESS,
-            traces_s3_key="executions/sent/traces.json",
-        )
+        skipped = self._make_execution(status=AgentExecutionStatus.SKIP)
+        errored = self._make_execution(status=AgentExecutionStatus.ERROR)
+        sent = self._make_execution(status=AgentExecutionStatus.SUCCESS)
+        processing = self._make_execution(status=AgentExecutionStatus.PROCESSING)
 
-        with self.settings(EXECUTION_TRACES_BUCKET="test-traces"):
-            response = self._request(project_uuid=self.project.uuid)
+        response = self._request(project_uuid=self.project.uuid)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         rows = {r["uuid"]: r for r in response.json()["results"]}
 
-        self.assertEqual(
-            rows[str(skipped.uuid)]["json_url"],
-            "https://s3.amazonaws.com/test/payload.json?signed=yes",
-        )
-        self.assertEqual(
-            rows[str(errored.uuid)]["json_url"],
-            "https://s3.amazonaws.com/test/payload.json?signed=yes",
-        )
-        self.assertEqual(
-            rows[str(sent.uuid)]["json_url"],
-            "https://s3.amazonaws.com/test/payload.json?signed=yes",
-        )
+        self.assertTrue(rows[str(skipped.uuid)]["has_json"])
+        self.assertTrue(rows[str(errored.uuid)]["has_json"])
+        self.assertTrue(rows[str(sent.uuid)]["has_json"])
+        self.assertFalse(rows[str(processing.uuid)]["has_json"])
 
     def test_invalid_status_is_rejected_with_400(self):
         self.setup_connect_service_mock(
@@ -310,65 +277,3 @@ class AgentLogsViewTest(BaseTestMixin, APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         rows = response.json()["results"]
         self.assertEqual(rows[0]["status"], "read")
-
-
-class ListAgentLogsUseCaseS3FallbackTests(SimpleTestCase):
-    """Defensive branches for the S3 wiring inside ``ListAgentLogsUseCase``.
-
-    The use case deliberately swallows every infrastructure failure
-    (no bucket configured, broken S3 init) so the list endpoint never
-    500s just because traces storage is unreachable; rows fall back
-    to ``json_url=null`` in that case.
-    """
-
-    @override_settings(EXECUTION_TRACES_BUCKET="", AWS_STORAGE_BUCKET_NAME="")
-    def test_uses_no_s3_service_when_both_bucket_settings_are_empty(self):
-        from retail.agents.domains.agent_execution.usecases.list_agent_logs import (
-            ListAgentLogsUseCase,
-        )
-
-        use_case = ListAgentLogsUseCase()
-
-        self.assertIsNone(use_case._s3_service)
-
-    @override_settings(EXECUTION_TRACES_BUCKET="traces-bucket")
-    @patch("retail.agents.domains.agent_execution.usecases.list_agent_logs.S3Service")
-    def test_uses_no_s3_service_when_constructor_raises(self, mock_s3_class):
-        from retail.agents.domains.agent_execution.usecases.list_agent_logs import (
-            ListAgentLogsUseCase,
-        )
-
-        mock_s3_class.side_effect = RuntimeError("boto init failed")
-
-        use_case = ListAgentLogsUseCase()
-
-        self.assertIsNone(use_case._s3_service)
-        mock_s3_class.assert_called_once_with(bucket_name="traces-bucket")
-
-    @override_settings(EXECUTION_TRACES_BUCKET="traces-bucket")
-    @patch("retail.agents.domains.agent_execution.usecases.list_agent_logs.S3Service")
-    def test_builds_s3_service_bound_to_configured_bucket(self, mock_s3_class):
-        from retail.agents.domains.agent_execution.usecases.list_agent_logs import (
-            ListAgentLogsUseCase,
-        )
-
-        use_case = ListAgentLogsUseCase()
-
-        self.assertIs(use_case._s3_service, mock_s3_class.return_value)
-        mock_s3_class.assert_called_once_with(bucket_name="traces-bucket")
-
-    @override_settings(
-        EXECUTION_TRACES_BUCKET="", AWS_STORAGE_BUCKET_NAME="fallback-bucket"
-    )
-    @patch("retail.agents.domains.agent_execution.usecases.list_agent_logs.S3Service")
-    def test_falls_back_to_aws_storage_bucket_name_when_traces_bucket_is_empty(
-        self, mock_s3_class
-    ):
-        from retail.agents.domains.agent_execution.usecases.list_agent_logs import (
-            ListAgentLogsUseCase,
-        )
-
-        use_case = ListAgentLogsUseCase()
-
-        self.assertIs(use_case._s3_service, mock_s3_class.return_value)
-        mock_s3_class.assert_called_once_with(bucket_name="fallback-bucket")

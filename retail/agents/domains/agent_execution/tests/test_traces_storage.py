@@ -102,6 +102,39 @@ class TracesStorageGetTracesErrorPathsTests(TestCase):
             self.storage.get_traces(uuid4())
 
 
+@override_settings(EXECUTION_TRACES_BUCKET="test-traces")
+class TracesStorageReadPayloadTests(TestCase):
+    """``read_traces_payload`` is the proxy-endpoint read path: it must
+    distinguish a missing object (``None``) from an unexpected S3
+    failure (propagated), unlike ``get_traces`` which swallows both.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.s3_service = MagicMock(spec=S3ServiceInterface)
+        self.storage = ExecutionTracesStorageService(s3_service=self.s3_service)
+
+    def test_returns_raw_bytes_when_object_exists(self):
+        self.s3_service.get_object.return_value = b'[{"type": "x"}]'
+        self.assertEqual(
+            self.storage.read_traces_payload("executions/x/traces.json"),
+            b'[{"type": "x"}]',
+        )
+
+    def test_returns_none_when_object_missing(self):
+        self.s3_service.get_object.return_value = None
+        self.assertIsNone(
+            self.storage.read_traces_payload("executions/x/traces.json")
+        )
+
+    def test_propagates_boto_client_error(self):
+        self.s3_service.get_object.side_effect = ClientError(
+            {"Error": {"Code": "InternalError"}}, "GetObject"
+        )
+        with self.assertRaises(ClientError):
+            self.storage.read_traces_payload("executions/x/traces.json")
+
+
 @override_settings(EXECUTION_TRACES_BUCKET="exec-bucket")
 class TracesStorageInjectionTests(TestCase):
     """The storage depends on ``S3ServiceInterface`` so the bucket

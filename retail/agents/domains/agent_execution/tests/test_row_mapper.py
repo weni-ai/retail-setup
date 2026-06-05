@@ -15,9 +15,11 @@ from retail.agents.domains.agent_execution.models import AgentExecutionStatus
 from retail.agents.domains.agent_execution.row_mapper import (
     DEFAULT_CURRENCY,
     STATUS_TO_SUMMARY,
+    format_amount_value,
     format_contact,
     resolve_amount_value,
     resolve_currency,
+    resolve_has_json,
     resolve_log_status,
     resolve_summary,
     resolve_template_name,
@@ -120,6 +122,18 @@ class AmountAndCurrencyResolutionTests(SimpleTestCase):
         execution = _stub_execution(currency=None)
         self.assertEqual(resolve_currency(execution), DEFAULT_CURRENCY)
 
+    def test_format_amount_value_keeps_two_decimals(self):
+        execution = _stub_execution(amount=Decimal("193.9"))
+        self.assertEqual(format_amount_value(execution), "193.90")
+
+    def test_format_amount_value_renders_zero_for_missing_amount(self):
+        execution = _stub_execution(amount=None)
+        self.assertEqual(format_amount_value(execution), "0.00")
+
+    def test_format_amount_value_rounds_half_up(self):
+        execution = _stub_execution(amount=Decimal("10.005"))
+        self.assertEqual(format_amount_value(execution), "10.01")
+
 
 class StatusAndSummaryResolutionTests(SimpleTestCase):
     def test_resolve_log_status_translates_internal_status(self):
@@ -132,6 +146,38 @@ class StatusAndSummaryResolutionTests(SimpleTestCase):
 
     def test_resolve_summary_returns_empty_for_unknown_status(self):
         self.assertEqual(resolve_summary("unknown"), "")
+
+
+class HasJsonResolutionTests(SimpleTestCase):
+    """``resolve_has_json`` is True for any terminal row, False while
+    the execution is still ``processing``."""
+
+    def test_processing_has_no_payload(self):
+        execution = _stub_execution(status=AgentExecutionStatus.PROCESSING.value)
+        self.assertFalse(resolve_has_json(execution))
+
+    def test_terminal_statuses_have_a_payload(self):
+        for internal in (
+            AgentExecutionStatus.SUCCESS.value,
+            AgentExecutionStatus.SKIP.value,
+            AgentExecutionStatus.ERROR.value,
+        ):
+            execution = _stub_execution(status=internal)
+            self.assertTrue(
+                resolve_has_json(execution),
+                msg=f"status={internal} should advertise a stored payload",
+            )
+
+    def test_courier_driven_statuses_have_a_payload(self):
+        for broadcast_status in (
+            BroadcastStatus.DELIVERED.value,
+            BroadcastStatus.READ.value,
+        ):
+            execution = _stub_execution(
+                status=AgentExecutionStatus.SUCCESS.value,
+                broadcast_message=_stub_broadcast_message(broadcast_status),
+            )
+            self.assertTrue(resolve_has_json(execution))
 
 
 class BroadcastMessageStatusEnrichmentTests(SimpleTestCase):

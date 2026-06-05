@@ -10,11 +10,12 @@ from retail.projects.usecases.save_background_failure import (
 
 class TestSaveBackgroundFailureUseCase(TestCase):
     def setUp(self):
-        self.onboarding = ProjectOnboarding.objects.create(
-            vtex_account="mystore",
-            completed=True,
-            config={"channels": {"wwc": {}}},
-        )
+        with patch("retail.projects.tasks.task_activate_agentic_cx_script"):
+            self.onboarding = ProjectOnboarding.objects.create(
+                vtex_account="mystore",
+                completed=True,
+                config={"channels": {"wwc": {}}},
+            )
 
     def test_writes_background_error_snapshot(self):
         SaveBackgroundFailureUseCase.execute(

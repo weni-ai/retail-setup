@@ -253,6 +253,14 @@ class AgentOrderStatusUpdateUsecase:
                 f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
                 f"current_state={current_state} order_id={order_id}"
             )
+            self.exec_logger.log_execution_skip(
+                reason="fulfillment_domain_event",
+                skip_data={
+                    "order_id": order_status_dto.orderId,
+                    "current_state": order_status_dto.currentState,
+                    "vtex_account": order_status_dto.vtexAccount,
+                },
+            )
             return
 
         if self._is_duplicate_event(integrated_agent, order_status_dto):
@@ -261,9 +269,6 @@ class AgentOrderStatusUpdateUsecase:
                 f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
                 f"current_state={current_state} order_id={order_id}"
             )
-            # Close the execution row opened by the upstream task; without
-            # this skip the row would linger at `processing` until the
-            # ZSET deadline force-finalises it as `Execution timed out`.
             self.exec_logger.log_execution_skip(
                 reason="duplicate_order_status_event_within_window",
                 skip_data={

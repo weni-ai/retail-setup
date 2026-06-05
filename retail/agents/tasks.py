@@ -16,6 +16,9 @@ from retail.agents.domains.agent_execution.usecases.export_agent_logs import (
 from retail.agents.domains.agent_execution.usecases.flush_executions import (
     FlushExecutionsUseCase,
 )
+from retail.agents.domains.agent_execution.usecases.send_agent_logs_export_email import (
+    SendAgentLogsExportEmailUseCase,
+)
 from retail.agents.domains.agent_integration.usecases.delivered_order_tracking import (
     DeliveredOrderTrackingWebhookUseCase,
 )
@@ -102,7 +105,13 @@ def task_delivered_order_tracking_webhook(
         integrated_agent_uuid: UUID of the integrated agent
         webhook_data: Data received from VTEX webhook
     """
-    try:
+    with execution_log_scope(
+        error_data={
+            "integrated_agent_uuid": integrated_agent_uuid,
+            "webhook_data": webhook_data,
+        },
+        log_prefix="[DELIVERED_TRACKING]",
+    ):
         logger.info(
             f"[DELIVERED_TRACKING] task_started: "
             f"agent_uuid={integrated_agent_uuid} data={webhook_data}"
@@ -122,38 +131,35 @@ def task_delivered_order_tracking_webhook(
             f"result={result} data={webhook_data}"
         )
 
-    except Exception as e:
-        logger.exception(
-            f"[DELIVERED_TRACKING] task_failed: "
-            f"agent_uuid={integrated_agent_uuid} "
-            f"data={webhook_data} error={e}"
-        )
-
 
 @shared_task(name="task_export_agent_logs")
 def task_export_agent_logs(
     agent_uuid: str,
     project_uuid: str,
     search: Optional[str] = None,
-    date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     template_uuids: Optional[List[str]] = None,
     statuses: Optional[List[str]] = None,
+    user_email: Optional[str] = None,
 ) -> Optional[str]:
     """
-    Build the agent-logs CSV export and stash it on S3.
+    Build the agent-logs CSV export, stash it on S3, and email the link.
 
     Fire-and-forget: the caller treats any non-error status as success
-    and we deliver the file out-of-band. This iteration only persists
-    the CSV + presigned URL and logs them — wiring an email /
-    notification channel is a separate piece of work.
+    and we deliver the file out-of-band. Once the CSV is uploaded, the
+    presigned URL is emailed to ``user_email`` through Connect; that
+    notification is best-effort and never fails the export.
 
     Args:
         agent_uuid: ``IntegratedAgent.uuid`` to scope the export to.
         project_uuid: Tenant guard from the ``Project-Uuid`` header.
         search: Optional ILIKE filter applied to contact/order_id.
-        date: Optional ``YYYY-MM-DD`` calendar day (UTC).
+        start_date: Optional ``YYYY-MM-DD`` inclusive lower bound (UTC).
+        end_date: Optional ``YYYY-MM-DD`` inclusive upper bound (UTC).
         template_uuids: Optional template-UUID OR filter.
         statuses: Optional log-status OR filter (skipped/sent/...).
+        user_email: Recipient of the export-ready email (the requester).
 
     Returns:
         The presigned S3 URL on success, or ``None`` on failure.
@@ -165,9 +171,11 @@ def task_export_agent_logs(
             agent_uuid=agent_uuid,
             project_uuid=project_uuid,
             search=search,
-            date_str=date,
+            start_date_str=start_date,
+            end_date_str=end_date,
             template_uuids=template_uuids,
             statuses=statuses,
+            user_email=user_email,
         )
         _, presigned_url = ExportAgentLogsUseCase().execute(dto)
 
@@ -177,6 +185,9 @@ def task_export_agent_logs(
             project_uuid,
             presigned_url,
         )
+
+        SendAgentLogsExportEmailUseCase().execute(dto, file_url=presigned_url)
+
         return presigned_url
     except Exception:
         logger.exception(
@@ -206,8 +217,8 @@ def task_payment_recovery_webhook(
 
         use_case = PaymentRecoveryWebhookUseCase()
         # Resolve the agent BEFORE opening any execution log so a missing
-        # agent raises NotFound and is caught below without leaving an
-        # agentless row behind.
+        # agent raises NotFound and is handled by execution_log_scope
+        # without leaving an agentless row behind.
         integrated_agent = use_case.get_integrated_agent(integrated_agent_uuid)
 
         exec_logger.log_webhook_received(

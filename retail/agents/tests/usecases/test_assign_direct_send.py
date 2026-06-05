@@ -585,3 +585,117 @@ class AssignDirectSendReassignmentTest(AssignDirectSendBaseTest):
             self.assertIsNotNone(ds_meta)
             self.assertEqual(ds_meta["actual_language"], "es_MX")
             self.assertEqual(ds_meta["requested_language"], "es_MX")
+
+
+class AssignDirectSendDropsHeaderFooterWhenNonInteractiveTest(AssignDirectSendBaseTest):
+    """Templates without interactive buttons must not persist header/footer.
+
+    Meta rejects a plain text message that carries a text header/footer,
+    so the assignment path drops them before persistence.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.integrations_service.get_channel_app.return_value = {
+            "config": {"direct_send": True}
+        }
+        self.meta_service.fetch_library_template_by_name_and_language.side_effect = (
+            lambda name, language: {
+                "name": name,
+                "language": language,
+                "category": "UTILITY",
+                "body": "Olá {{1}}, seu pedido {{2}}.",
+                "body_params": ["customer_name", "order_id"],
+                "footer": "Equipe Loja",
+                "header": "Pedido enviado",
+                "buttons": [],
+            }
+        )
+
+    def test_persists_templates_without_header_and_footer(self):
+        with override_settings(
+            ORDER_STATUS_AGENT_UUID=str(self.order_status_agent_uuid)
+        ):
+            integrated_agent = self.use_case.execute(
+                agent=self.order_status_agent,
+                project_uuid=self.project.uuid,
+                app_uuid=uuid4(),
+                channel_uuid=uuid4(),
+                credentials={},
+                include_templates=[
+                    str(self.template_a.uuid),
+                    str(self.template_b.uuid),
+                ],
+            )
+
+        templates = Template.objects.filter(integrated_agent=integrated_agent)
+        self.assertEqual(templates.count(), 2)
+        for template in templates:
+            self.assertNotIn("header", template.metadata)
+            self.assertNotIn("footer", template.metadata)
+            self.assertIn("body", template.metadata)
+
+
+class AssignDirectSendPreservesHeaderFooterWhenInteractiveTest(
+    AssignDirectSendBaseTest
+):
+    """Templates with interactive buttons keep header and footer."""
+
+    def setUp(self):
+        super().setUp()
+        self.integrations_service.get_channel_app.return_value = {
+            "config": {"direct_send": True}
+        }
+
+    def test_quick_reply_keeps_header_and_footer(self):
+        with override_settings(
+            ORDER_STATUS_AGENT_UUID=str(self.order_status_agent_uuid)
+        ):
+            integrated_agent = self.use_case.execute(
+                agent=self.order_status_agent,
+                project_uuid=self.project.uuid,
+                app_uuid=uuid4(),
+                channel_uuid=uuid4(),
+                credentials={},
+                include_templates=[
+                    str(self.template_a.uuid),
+                    str(self.template_b.uuid),
+                ],
+            )
+
+        templates = Template.objects.filter(integrated_agent=integrated_agent)
+        self.assertEqual(templates.count(), 2)
+        for template in templates:
+            self.assertEqual(
+                template.metadata["header"],
+                {"header_type": "TEXT", "text": "Pedido enviado"},
+            )
+            self.assertEqual(template.metadata["footer"], "Equipe Loja")
+
+
+class DropNonInteractiveHeaderFooterHelperTest(AssignDirectSendBaseTest):
+    """Direct unit coverage for `_drop_non_interactive_header_footer`."""
+
+    def test_keeps_image_header_when_non_interactive(self):
+        metadata = {
+            "header": {"header_type": "IMAGE", "text": "s3-key"},
+            "footer": "Equipe Loja",
+            "buttons": [],
+        }
+        self.use_case._drop_non_interactive_header_footer(metadata)
+
+        self.assertEqual(metadata["header"], {"header_type": "IMAGE", "text": "s3-key"})
+        self.assertNotIn("footer", metadata)
+
+    def test_preserves_components_when_buttons_present(self):
+        metadata = {
+            "header": {"header_type": "TEXT", "text": "Pedido enviado"},
+            "footer": "Equipe Loja",
+            "buttons": [{"type": "QUICK_REPLY", "text": "Sim"}],
+        }
+        self.use_case._drop_non_interactive_header_footer(metadata)
+
+        self.assertEqual(
+            metadata["header"], {"header_type": "TEXT", "text": "Pedido enviado"}
+        )
+        self.assertEqual(metadata["footer"], "Equipe Loja")

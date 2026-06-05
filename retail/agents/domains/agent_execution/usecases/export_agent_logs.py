@@ -2,21 +2,24 @@
 
 Filter semantics mirror ``ListAgentLogsUseCase`` exactly so the file
 the user receives matches what they were viewing when they hit
-"Export". The CSV is written in-memory with ``csv.writer`` (the
-expected row counts are bounded by what an operator can usefully
-review and the queryset is iterated with ``.iterator()`` to keep the
-working set small) and uploaded as a single S3 PUT.
+"Export". Rows are streamed through a ``SpooledTemporaryFile`` (kept in
+RAM up to ``EXPORT_SPOOL_MAX_BYTES``, then rolled over to disk) while
+the queryset is consumed with ``.iterator()``; the spooled file is then
+handed to ``upload_fileobj``, which lets boto3 switch to a multipart
+upload for large exports. The full CSV is therefore never materialized
+as a single in-memory blob.
 
 The view layer treats the export as fire-and-forget (the API responds
 ``202 Accepted`` and the CSV is delivered out-of-band), so this use
-case returns the deterministic key + presigned URL for logging /
-follow-up rather than driving any user-facing notification — delivery
-channel is intentionally out of scope for this iteration.
+case only returns the deterministic key + presigned URL. Notifying the
+requester is a separate concern handled by
+``SendAgentLogsExportEmailUseCase``, which the task invokes with the
+presigned URL once the upload succeeds.
 """
 
 import csv
-import io
 import logging
+import tempfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone as dt_timezone
 from typing import List, Optional, Sequence, Tuple
@@ -29,8 +32,8 @@ from django.utils import timezone
 
 from retail.agents.domains.agent_execution.models import AgentExecution
 from retail.agents.domains.agent_execution.row_mapper import (
+    format_amount_value,
     format_contact,
-    resolve_amount_value,
     resolve_currency,
     resolve_log_status,
     resolve_summary,
@@ -60,7 +63,31 @@ CSV_HEADER = [
     "summary",
 ]
 
-PRESIGNED_URL_TTL_SECONDS = 60 * 60 * 24
+# 7 days is the maximum lifetime AWS allows for a SigV4 presigned URL,
+# so the "Download File" link in the export-ready email stays valid for
+# the full week the file is retained.
+PRESIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7
+
+# CSV rows accumulate in memory up to this size before the spooled
+# temp file rolls over to disk, keeping the working set bounded
+# regardless of how many rows the filter matches.
+EXPORT_SPOOL_MAX_BYTES = 5 * 1024 * 1024
+
+
+class _Utf8CsvSink:
+    """Adapt a binary stream to ``csv.writer``, which emits ``str``.
+
+    ``csv.writer`` requires a text-mode file, but the export streams into
+    a binary ``SpooledTemporaryFile`` (whose IO interface is incomplete
+    before Python 3.11, so ``io.TextIOWrapper`` can't wrap it). This sink
+    encodes each written row to UTF-8 and forwards it to the spool.
+    """
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def write(self, text: str) -> int:
+        return self._stream.write(text.encode("utf-8"))
 
 
 def _resolve_export_bucket() -> str:
@@ -94,9 +121,11 @@ class ExportAgentLogsDTO:
     agent_uuid: UUID
     project_uuid: UUID
     search: Optional[str] = None
-    date: Optional[date] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     template_uuids: Sequence[UUID] = field(default_factory=tuple)
     statuses: Sequence[str] = field(default_factory=tuple)
+    user_email: Optional[str] = None
 
     @classmethod
     def from_task_args(
@@ -104,27 +133,27 @@ class ExportAgentLogsDTO:
         agent_uuid: str,
         project_uuid: str,
         search: Optional[str] = None,
-        date_str: Optional[str] = None,
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None,
         template_uuids: Optional[Sequence[str]] = None,
         statuses: Optional[Sequence[str]] = None,
+        user_email: Optional[str] = None,
     ) -> "ExportAgentLogsDTO":
         """Build the filter from JSON-serializable Celery task arguments.
 
         Centralises the string→typed conversion so the task can stay
-        glue: parses the ISO date, validates the UUID strings, and
+        glue: parses the ISO dates, validates the UUID strings, and
         normalises iterable defaults.
         """
-        parsed_date: Optional[date] = None
-        if date_str:
-            parsed_date = date.fromisoformat(date_str)
-
         return cls(
             agent_uuid=UUID(agent_uuid),
             project_uuid=UUID(project_uuid),
             search=search,
-            date=parsed_date,
+            start_date=date.fromisoformat(start_date_str) if start_date_str else None,
+            end_date=date.fromisoformat(end_date_str) if end_date_str else None,
             template_uuids=tuple(UUID(t) for t in (template_uuids or [])),
             statuses=tuple(statuses or ()),
+            user_email=user_email,
         )
 
 
@@ -140,19 +169,19 @@ class ExportAgentLogsUseCase:
     def execute(self, dto: ExportAgentLogsDTO) -> Tuple[str, str]:
         """Build the CSV, upload it to S3, and return ``(key, presigned_url)``."""
         queryset = self._build_queryset(dto)
-
-        buffer = io.StringIO()
-        writer = csv.writer(buffer)
-        writer.writerow(CSV_HEADER)
+        key = self._build_key(dto)
 
         row_count = 0
-        for execution in queryset.iterator():
-            writer.writerow(self._row_for(execution))
-            row_count += 1
-
-        key = self._build_key(dto)
-        content = buffer.getvalue().encode("utf-8")
-        self.s3_service.put_object(key, content, content_type="text/csv")
+        with tempfile.SpooledTemporaryFile(
+            max_size=EXPORT_SPOOL_MAX_BYTES, mode="w+b"
+        ) as spool:
+            writer = csv.writer(_Utf8CsvSink(spool))
+            writer.writerow(CSV_HEADER)
+            for execution in queryset.iterator():
+                writer.writerow(self._row_for(execution))
+                row_count += 1
+            spool.seek(0)
+            self.s3_service.upload_fileobj(spool, key, content_type="text/csv")
 
         presigned_url = self.s3_service.generate_presigned_url(
             key, expiration=PRESIGNED_URL_TTL_SECONDS
@@ -185,9 +214,11 @@ class ExportAgentLogsUseCase:
                     Q(contact_urn__icontains=search) | Q(order_id__icontains=search)
                 )
 
-        if dto.date is not None:
-            start_dt = datetime.combine(dto.date, time.min, tzinfo=dt_timezone.utc)
-            end_dt = datetime.combine(dto.date, time.max, tzinfo=dt_timezone.utc)
+        if dto.start_date is not None and dto.end_date is not None:
+            start_dt = datetime.combine(
+                dto.start_date, time.min, tzinfo=dt_timezone.utc
+            )
+            end_dt = datetime.combine(dto.end_date, time.max, tzinfo=dt_timezone.utc)
             queryset = queryset.filter(created_on__range=(start_dt, end_dt))
 
         if dto.template_uuids:
@@ -210,7 +241,7 @@ class ExportAgentLogsUseCase:
             sent_at,
             format_contact(execution.contact_urn),
             execution.order_id or "",
-            str(resolve_amount_value(execution)),
+            format_amount_value(execution),
             resolve_currency(execution),
             log_status,
             resolve_summary(log_status),

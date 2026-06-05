@@ -8,7 +8,7 @@ a tenant + agent-scoped key.
 
 import csv
 import io
-from datetime import datetime, timezone as dt_timezone
+from datetime import date, datetime, timezone as dt_timezone
 from decimal import Decimal
 from unittest.mock import patch
 from uuid import uuid4
@@ -22,6 +22,7 @@ from retail.agents.domains.agent_execution.models import (
 )
 from retail.agents.domains.agent_execution.usecases.export_agent_logs import (
     CSV_HEADER,
+    PRESIGNED_URL_TTL_SECONDS,
     ExportAgentLogsDTO,
     ExportAgentLogsUseCase,
 )
@@ -31,14 +32,14 @@ from retail.projects.models import Project
 
 
 class _FakeS3Service:
-    """Minimal stand-in that captures put / presign calls."""
+    """Minimal stand-in that captures streamed upload / presign calls."""
 
     def __init__(self):
-        self.put_calls = []
+        self.upload_calls = []
         self.presign_calls = []
 
-    def put_object(self, key, content, content_type="application/octet-stream"):
-        self.put_calls.append((key, content, content_type))
+    def upload_fileobj(self, fileobj, key, content_type="application/octet-stream"):
+        self.upload_calls.append((key, fileobj.read(), content_type))
         return key
 
     def generate_presigned_url(self, key, expiration=3600):
@@ -98,8 +99,8 @@ class ExportAgentLogsUseCaseTests(TestCase):
 
         self.use_case.execute(self._filter())
 
-        self.assertEqual(len(self.fake_s3.put_calls), 1)
-        _, content, content_type = self.fake_s3.put_calls[0]
+        self.assertEqual(len(self.fake_s3.upload_calls), 1)
+        _, content, content_type = self.fake_s3.upload_calls[0]
         self.assertEqual(content_type, "text/csv")
         rows = self._csv_rows(content)
         self.assertEqual(rows[0], CSV_HEADER)
@@ -114,20 +115,20 @@ class ExportAgentLogsUseCaseTests(TestCase):
 
         self.use_case.execute(self._filter())
 
-        _, content, _ = self.fake_s3.put_calls[0]
+        _, content, _ = self.fake_s3.upload_calls[0]
         rows = self._csv_rows(content)
         self.assertEqual(len(rows), 2)
         data_row = dict(zip(rows[0], rows[1]))
         self.assertEqual(data_row["status"], "skipped")
         self.assertEqual(data_row["currency"], "BRL")
-        self.assertEqual(data_row["amount"], "0")
+        self.assertEqual(data_row["amount"], "0.00")
 
     def test_key_is_scoped_by_project_and_agent(self):
         _make_execution(self.integrated_agent)
 
         self.use_case.execute(self._filter())
 
-        key, _, _ = self.fake_s3.put_calls[0]
+        key, _, _ = self.fake_s3.upload_calls[0]
         prefix = f"exports/agent_logs/{self.project.uuid}/{self.integrated_agent.uuid}/"
         self.assertTrue(
             key.startswith(prefix),
@@ -141,7 +142,7 @@ class ExportAgentLogsUseCaseTests(TestCase):
 
         key, presigned_url = self.use_case.execute(self._filter())
 
-        self.assertEqual(self.fake_s3.presign_calls, [(key, 60 * 60 * 24)])
+        self.assertEqual(self.fake_s3.presign_calls, [(key, PRESIGNED_URL_TTL_SECONDS)])
         self.assertIn("signature=fake", presigned_url)
 
     def test_filter_smoke_check_search_pipes_through(self):
@@ -155,9 +156,29 @@ class ExportAgentLogsUseCaseTests(TestCase):
 
         self.use_case.execute(self._filter(search="777777"))
 
-        _, content, _ = self.fake_s3.put_calls[0]
+        _, content, _ = self.fake_s3.upload_calls[0]
         rows = self._csv_rows(content)
         self.assertEqual(len(rows), 2, "header + one matching execution")
+
+    def test_date_range_filter_pipes_through(self):
+        inside = _make_execution(self.integrated_agent)
+        AgentExecution.objects.filter(uuid=inside.uuid).update(
+            created_on=datetime(2026, 5, 2, 8, 0, tzinfo=dt_timezone.utc)
+        )
+        outside = _make_execution(self.integrated_agent)
+        AgentExecution.objects.filter(uuid=outside.uuid).update(
+            created_on=datetime(2026, 5, 9, 8, 0, tzinfo=dt_timezone.utc)
+        )
+
+        self.use_case.execute(
+            self._filter(start_date=date(2026, 5, 1), end_date=date(2026, 5, 5))
+        )
+
+        _, content, _ = self.fake_s3.upload_calls[0]
+        rows = self._csv_rows(content)
+        self.assertEqual(len(rows), 2, "header + one in-range execution")
+        data_row = dict(zip(rows[0], rows[1]))
+        self.assertEqual(data_row["uuid"], str(inside.uuid))
 
 
 class ExportAgentLogsBucketResolutionTests(TestCase):

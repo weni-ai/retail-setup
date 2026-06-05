@@ -277,7 +277,7 @@ class ExecutionLoggerService(ExecutionLoggerServiceInterface):
             trace_type=ExecutionTraceType.SKIP.value,
             trace_data=trace_data,
             status=AgentExecutionStatus.SKIP,
-            log_level=logging.DEBUG,
+            log_level=logging.INFO,
             log_summary=f"[EXEC_LOG] Execution {exec_uuid} skipped: {reason}",
         )
 

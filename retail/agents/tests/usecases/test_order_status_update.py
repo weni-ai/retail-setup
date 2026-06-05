@@ -337,6 +337,36 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         mock_cache.add.assert_not_called()
         mock_agent_webhook_use_case_cls.assert_not_called()
 
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
+    )
+    def test_fulfillment_domain_pushes_terminal_skip_status(
+        self, mock_agent_webhook_use_case_cls, mock_cache
+    ):
+        """When the event belongs to the ``Fulfillment`` domain, the
+        execution row opened upstream must be closed with a
+        ``log_execution_skip`` call so it never times out."""
+        mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
+        mock_order_status_dto.orderId = "order-id"
+        mock_order_status_dto.currentState = "invoiced"
+        mock_order_status_dto.domain = "Fulfillment"
+        mock_order_status_dto.vtexAccount = "test-account"
+
+        self.usecase.execute(self.mock_integrated_agent, mock_order_status_dto)
+
+        self.exec_logger.log_execution_skip.assert_called_once()
+        kwargs = self.exec_logger.log_execution_skip.call_args.kwargs
+        self.assertEqual(kwargs.get("reason"), "fulfillment_domain_event")
+        self.assertEqual(
+            kwargs.get("skip_data"),
+            {
+                "order_id": "order-id",
+                "current_state": "invoiced",
+                "vtex_account": "test-account",
+            },
+        )
+
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
     def test_duplicate_event_pushes_terminal_skip_status(
@@ -353,6 +383,7 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
         mock_order_status_dto.orderId = "order-id"
         mock_order_status_dto.currentState = "invoiced"
+        mock_order_status_dto.domain = "Marketplace"
         mock_order_status_dto.vtexAccount = "test-account"
 
         self.usecase.execute(self.mock_integrated_agent, mock_order_status_dto)
