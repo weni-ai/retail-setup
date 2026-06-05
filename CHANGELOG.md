@@ -1,3 +1,7 @@
+# 5.29.0
+- feat: set 100% rollout for order status agent on assignment
+- feat: Add position attribute to WWC webchat onboarding config
+
 # 5.28.0
 - feat: implement agent execution logging and S3 trace storage
 
