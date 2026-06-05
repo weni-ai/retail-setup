@@ -266,17 +266,17 @@ class AssignAgentUseCase:
         """
         Return the contact_percentage override for specific agent types.
 
-        Payment recovery must reach 100% of eligible contacts from day one;
-        other agents keep the model default (10%).
+        Payment recovery and order status must reach 100% of eligible
+        contacts from day one; other agents keep the model default (10%).
         """
-        payment_recovery_agent_uuid = getattr(
-            settings, "PAYMENT_RECOVERY_AGENT_UUID", ""
+        full_rollout_setting_names = (
+            "PAYMENT_RECOVERY_AGENT_UUID",
+            "ORDER_STATUS_AGENT_UUID",
         )
-        if (
-            payment_recovery_agent_uuid
-            and str(agent.uuid) == payment_recovery_agent_uuid
-        ):
-            return 100
+        for setting_name in full_rollout_setting_names:
+            agent_uuid = getattr(settings, setting_name, "")
+            if agent_uuid and str(agent.uuid) == agent_uuid:
+                return 100
         return None
 
     def _validate_credentials(self, agent: Agent, credentials: dict):
