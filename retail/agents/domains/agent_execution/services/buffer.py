@@ -416,23 +416,3 @@ class ExecutionBufferService(ExecutionBufferInterface):
             return None
         decoded = self.deserialize_hash(raw)
         return decoded or None
-
-    def flush(self, do_stuck_sweep: bool = False) -> Dict[str, int]:
-        """Backwards-compatible delegate to :class:`FlushExecutionsUseCase`.
-
-        New call sites should depend on the use case directly. This
-        wrapper exists so the diagnostic scripts and the periodic
-        Celery task can keep the historical ``ExecutionBufferService().flush()``
-        entry point.
-        """
-        # Imported lazily to avoid a circular import (the use case
-        # imports the buffer's class-level constants and helpers).
-        from retail.agents.domains.agent_execution.usecases.flush_executions import (
-            FlushExecutionsUseCase,
-        )
-
-        return (
-            FlushExecutionsUseCase(buffer=self, traces_storage=self._traces_storage)
-            .execute(do_stuck_sweep=do_stuck_sweep)
-            .as_dict()
-        )

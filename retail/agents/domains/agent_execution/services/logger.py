@@ -15,6 +15,8 @@ from decimal import Decimal
 from typing import Any, Callable, Dict, Optional
 from uuid import UUID
 
+from django.conf import settings
+
 from retail.agents.domains.agent_execution.constants import (
     LEGACY_FLOW_AGENT_LABEL,
     UNKNOWN_CONTACT_URN,
@@ -47,6 +49,8 @@ def _with_execution_uuid(method: Callable) -> Callable:
 
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
+        if not self.enabled:
+            return None
         execution_uuid = kwargs.pop("execution_uuid", None)
         exec_uuid = self._get_execution_uuid(execution_uuid)
         if not exec_uuid:
@@ -77,6 +81,15 @@ class ExecutionLoggerService(ExecutionLoggerServiceInterface):
     def __init__(self, buffer_service: Optional[ExecutionBufferService] = None):
         self.buffer = buffer_service or ExecutionBufferService()
 
+    @property
+    def enabled(self) -> bool:
+        """Master switch read at call time so ``override_settings`` works.
+
+        When ``False`` every public method is a no-op: nothing is
+        stored in the DB, Redis or S3.
+        """
+        return getattr(settings, "AGENT_EXECUTION_LOGGING_ENABLED", True)
+
     def log_webhook_received(
         self,
         integrated_agent: Optional[IntegratedAgent],
@@ -91,6 +104,9 @@ class ExecutionLoggerService(ExecutionLoggerServiceInterface):
         Also sets the execution_uuid in context so subsequent logging
         calls can access it without explicit parameter passing.
         """
+        if not self.enabled:
+            return None
+
         if not contact_urn:
             contact_urn = self._extract_contact_urn(payload)
 

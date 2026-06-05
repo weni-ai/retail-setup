@@ -31,6 +31,7 @@ from retail.agents.domains.agent_execution.tests._fakes import (
     FakeS3Client,
 )
 from retail.agents.domains.agent_execution.usecases.flush_executions import (
+    FlushExecutionsUseCase,
     FlushResult,
 )
 from retail.agents.tasks import (
@@ -146,8 +147,8 @@ class FlushTickCounterTests(TestCase):
     AGENT_EXECUTION_STUCK_THRESHOLD_SECONDS=600,
 )
 class FlushBufferIntegrationTests(TestCase):
-    """End-to-end behaviour of ``ExecutionBufferService.flush`` against
-    the in-memory Redis fake and the real ``AgentExecution`` model."""
+    """End-to-end behaviour of ``FlushExecutionsUseCase`` against the
+    in-memory Redis fake and the real ``AgentExecution`` model."""
 
     def setUp(self):
         super().setUp()
@@ -162,6 +163,16 @@ class FlushBufferIntegrationTests(TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.buffer = ExecutionBufferService(traces_storage=self.traces_storage)
+
+    def _flush(self, do_stuck_sweep: bool = False) -> dict:
+        """Drain the buffer through the flush use case wired to this fixture."""
+        return (
+            FlushExecutionsUseCase(
+                buffer=self.buffer, traces_storage=self.traces_storage
+            )
+            .execute(do_stuck_sweep=do_stuck_sweep)
+            .as_dict()
+        )
 
     def _data_key(self, execution_uuid: UUID) -> str:
         return f"{self.buffer.DATA_KEY_PREFIX}{execution_uuid}"
@@ -182,7 +193,7 @@ class FlushBufferIntegrationTests(TestCase):
             {str(execution_uuid): timezone.now().timestamp() - 1},
         )
 
-        result = self.buffer.flush()
+        result = self._flush()
 
         self.assertEqual(result["flushed"], 1)
         row = AgentExecution.objects.get(uuid=execution_uuid)
@@ -213,7 +224,7 @@ class FlushBufferIntegrationTests(TestCase):
             status=AgentExecutionStatus.SUCCESS
         )
 
-        self.buffer.flush()
+        self._flush()
 
         row = AgentExecution.objects.get(uuid=execution_uuid)
         self.assertEqual(row.status, AgentExecutionStatus.SUCCESS)
@@ -233,7 +244,7 @@ class FlushBufferIntegrationTests(TestCase):
             )
             uuids.append(execution_uuid)
 
-        result = self.buffer.flush()
+        result = self._flush()
 
         self.assertEqual(result["flushed"], 5)
         self.assertEqual(len(self.fake_s3.put_calls), 5)
@@ -263,7 +274,7 @@ class FlushBufferIntegrationTests(TestCase):
         # Simulate Redis eviction of the data hash
         del self.fake_redis.hashes[self._data_key(execution_uuid)]
 
-        result = self.buffer.flush()
+        result = self._flush()
 
         self.assertEqual(result["flushed"], 1)
         row = AgentExecution.objects.get(uuid=execution_uuid)
@@ -292,6 +303,16 @@ class StuckSweepTests(TestCase):
         self.addCleanup(patcher.stop)
         self.buffer = ExecutionBufferService(traces_storage=self.traces_storage)
 
+    def _flush(self, do_stuck_sweep: bool = False) -> dict:
+        """Drain the buffer through the flush use case wired to this fixture."""
+        return (
+            FlushExecutionsUseCase(
+                buffer=self.buffer, traces_storage=self.traces_storage
+            )
+            .execute(do_stuck_sweep=do_stuck_sweep)
+            .as_dict()
+        )
+
     def _make_stuck_row(self, age_seconds: int) -> UUID:
         """Insert a processing row whose ``updated_on`` is in the past."""
         execution = AgentExecution.objects.create(
@@ -311,7 +332,7 @@ class StuckSweepTests(TestCase):
         stuck_uuid = self._make_stuck_row(age_seconds=601)
         fresh_uuid = self._make_stuck_row(age_seconds=10)
 
-        result = self.buffer.flush(do_stuck_sweep=True)
+        result = self._flush(do_stuck_sweep=True)
 
         self.assertEqual(result["stuck_finalized"], 1)
         stuck = AgentExecution.objects.get(uuid=stuck_uuid)
@@ -321,7 +342,7 @@ class StuckSweepTests(TestCase):
         self.assertEqual(fresh.status, AgentExecutionStatus.PROCESSING)
 
     def test_sweep_with_no_stuck_rows_returns_zero(self):
-        result = self.buffer.flush(do_stuck_sweep=True)
+        result = self._flush(do_stuck_sweep=True)
         self.assertEqual(result, {"flushed": 0, "stuck_finalized": 0})
 
     def test_sweep_uploads_leftover_traces_to_s3_best_effort(self):
@@ -331,7 +352,7 @@ class StuckSweepTests(TestCase):
             b'{"type":"webhook_received","timestamp":"2026-04-30","data":{}}'
         ]
 
-        result = self.buffer.flush(do_stuck_sweep=True)
+        result = self._flush(do_stuck_sweep=True)
 
         self.assertEqual(result["stuck_finalized"], 1)
         self.assertEqual(len(self.fake_s3.put_calls), 1)

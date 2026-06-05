@@ -16,6 +16,7 @@ from retail.projects.models import Project
 
 PAYMENT_RECOVERY_UUID = str(uuid.uuid4())
 ABANDONED_CART_UUID = str(uuid.uuid4())
+ORDER_STATUS_UUID = str(uuid.uuid4())
 
 
 class ResolveContactPercentageTest(TestCase):
@@ -56,6 +57,30 @@ class ResolveContactPercentageTest(TestCase):
         agent = Agent.objects.create(
             uuid=PAYMENT_RECOVERY_UUID,
             name="Payment Recovery",
+            lambda_arn="arn:aws:lambda:fake",
+            project=self.project,
+            credentials={},
+        )
+        result = self.use_case._resolve_contact_percentage(agent)
+        self.assertIsNone(result)
+
+    @override_settings(ORDER_STATUS_AGENT_UUID=ORDER_STATUS_UUID)
+    def test_returns_100_for_order_status_agent(self):
+        agent = Agent.objects.create(
+            uuid=ORDER_STATUS_UUID,
+            name="Order Status",
+            lambda_arn="arn:aws:lambda:fake",
+            project=self.project,
+            credentials={},
+        )
+        result = self.use_case._resolve_contact_percentage(agent)
+        self.assertEqual(result, 100)
+
+    @override_settings(ORDER_STATUS_AGENT_UUID="")
+    def test_returns_none_when_order_status_setting_is_empty(self):
+        agent = Agent.objects.create(
+            uuid=ORDER_STATUS_UUID,
+            name="Order Status",
             lambda_arn="arn:aws:lambda:fake",
             project=self.project,
             credentials={},
