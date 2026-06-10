@@ -18,8 +18,8 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
     """Test cases for AgentOrderStatusUpdateUsecase functionality."""
 
     def setUp(self):
-        self.exec_logger = MagicMock()
         self.mock_cache_handler = MagicMock()
+        self.exec_logger = MagicMock()
         self.usecase = AgentOrderStatusUpdateUsecase(
             cache_handler=self.mock_cache_handler,
             exec_logger=self.exec_logger
