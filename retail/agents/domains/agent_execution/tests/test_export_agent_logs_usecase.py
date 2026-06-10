@@ -22,7 +22,6 @@ from retail.agents.domains.agent_execution.models import (
 )
 from retail.agents.domains.agent_execution.usecases.export_agent_logs import (
     CSV_HEADER,
-    PRESIGNED_URL_TTL_SECONDS,
     ExportAgentLogsDTO,
     ExportAgentLogsUseCase,
 )
@@ -32,19 +31,14 @@ from retail.projects.models import Project
 
 
 class _FakeS3Service:
-    """Minimal stand-in that captures streamed upload / presign calls."""
+    """Minimal stand-in that captures streamed upload calls."""
 
     def __init__(self):
         self.upload_calls = []
-        self.presign_calls = []
 
     def upload_fileobj(self, fileobj, key, content_type="application/octet-stream"):
         self.upload_calls.append((key, fileobj.read(), content_type))
         return key
-
-    def generate_presigned_url(self, key, expiration=3600):
-        self.presign_calls.append((key, expiration))
-        return f"https://s3.amazonaws.com/{key}?signature=fake&expiration={expiration}"
 
     def get_object(self, key):  # pragma: no cover - unused in tests
         return None
@@ -136,14 +130,14 @@ class ExportAgentLogsUseCaseTests(TestCase):
         )
         self.assertTrue(key.endswith(".csv"))
 
-    def test_returns_presigned_url_and_logs_row_count(self):
+    def test_returns_uploaded_key(self):
         _make_execution(self.integrated_agent)
         _make_execution(self.integrated_agent)
 
-        key, presigned_url = self.use_case.execute(self._filter())
+        key = self.use_case.execute(self._filter())
 
-        self.assertEqual(self.fake_s3.presign_calls, [(key, PRESIGNED_URL_TTL_SECONDS)])
-        self.assertIn("signature=fake", presigned_url)
+        uploaded_key, _, _ = self.fake_s3.upload_calls[0]
+        self.assertEqual(key, uploaded_key)
 
     def test_filter_smoke_check_search_pipes_through(self):
         """One smoke-check that ``ExportAgentLogsDTO`` is forwarded to
@@ -239,7 +233,7 @@ class ExportAgentLogsKeyTests(TestCase):
             "export_agent_logs.timezone.now",
             return_value=fixed_now,
         ):
-            key, _ = use_case.execute(
+            key = use_case.execute(
                 ExportAgentLogsDTO(
                     agent_uuid=integrated_agent.uuid,
                     project_uuid=project.uuid,
