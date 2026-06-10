@@ -10,7 +10,8 @@ It must:
 - Coerce ``statuses`` into a tuple (preserving the log-status
   values the API accepts).
 - Forward every filter to ``ExportAgentLogsUseCase.execute`` exactly.
-- Return the presigned URL produced by the use case on success.
+- Sign the uploaded key into a download URL and email that link.
+- Return the signed download URL on success.
 - Return ``None`` on any exception so the worker doesn't crash and
   the API surface stays fire-and-forget.
 """
@@ -33,15 +34,19 @@ class TaskExportAgentLogsTests(TestCase):
         self.project_uuid = uuid4()
 
     @patch("retail.agents.tasks.SendAgentLogsExportEmailUseCase")
+    @patch("retail.agents.tasks.BuildExportDownloadUrlUseCase")
     @patch("retail.agents.tasks.ExportAgentLogsUseCase")
-    def test_returns_presigned_url_and_passes_full_filter(
-        self, mock_use_case_cls, mock_email_use_case_cls
+    def test_returns_download_url_and_passes_full_filter(
+        self, mock_use_case_cls, mock_build_url_cls, mock_email_use_case_cls
     ):
         from retail.agents.tasks import task_export_agent_logs
 
         mock_use_case = MagicMock()
-        mock_use_case.execute.return_value = ("some/key.csv", "https://signed/url")
+        mock_use_case.execute.return_value = "some/key.csv"
         mock_use_case_cls.return_value = mock_use_case
+        mock_build_url_cls.return_value.execute.return_value = (
+            "https://app/download?token=abc"
+        )
 
         template_uuid_a = uuid4()
         template_uuid_b = uuid4()
@@ -57,7 +62,7 @@ class TaskExportAgentLogsTests(TestCase):
             user_email="tester@example.com",
         )
 
-        self.assertEqual(result, "https://signed/url")
+        self.assertEqual(result, "https://app/download?token=abc")
 
         mock_use_case.execute.assert_called_once()
         dto = mock_use_case.execute.call_args.args[0]
@@ -75,28 +80,34 @@ class TaskExportAgentLogsTests(TestCase):
         self.assertEqual(dto.statuses, ("sent", "skipped"))
         self.assertEqual(dto.user_email, "tester@example.com")
 
-        # The same DTO + presigned URL are handed to the email use case.
+        # The uploaded key is signed into the download URL...
+        mock_build_url_cls.return_value.execute.assert_called_once_with("some/key.csv")
+        # ...and that link (not a presigned URL) is what the email carries.
         mock_email_use_case_cls.return_value.execute.assert_called_once_with(
-            dto, file_url="https://signed/url"
+            dto, file_url="https://app/download?token=abc"
         )
 
     @patch("retail.agents.tasks.SendAgentLogsExportEmailUseCase")
+    @patch("retail.agents.tasks.BuildExportDownloadUrlUseCase")
     @patch("retail.agents.tasks.ExportAgentLogsUseCase")
     def test_optional_filters_default_to_empty_tuples(
-        self, mock_use_case_cls, mock_email_use_case_cls
+        self, mock_use_case_cls, mock_build_url_cls, mock_email_use_case_cls
     ):
         from retail.agents.tasks import task_export_agent_logs
 
         mock_use_case = MagicMock()
-        mock_use_case.execute.return_value = ("some/key.csv", "https://signed/url")
+        mock_use_case.execute.return_value = "some/key.csv"
         mock_use_case_cls.return_value = mock_use_case
+        mock_build_url_cls.return_value.execute.return_value = (
+            "https://app/download?token=abc"
+        )
 
         result = task_export_agent_logs(
             agent_uuid=str(self.agent_uuid),
             project_uuid=str(self.project_uuid),
         )
 
-        self.assertEqual(result, "https://signed/url")
+        self.assertEqual(result, "https://app/download?token=abc")
 
         dto = mock_use_case.execute.call_args.args[0]
         self.assertIsNone(dto.search)
@@ -107,9 +118,10 @@ class TaskExportAgentLogsTests(TestCase):
         self.assertIsNone(dto.user_email)
 
     @patch("retail.agents.tasks.SendAgentLogsExportEmailUseCase")
+    @patch("retail.agents.tasks.BuildExportDownloadUrlUseCase")
     @patch("retail.agents.tasks.ExportAgentLogsUseCase")
     def test_returns_none_when_use_case_raises(
-        self, mock_use_case_cls, mock_email_use_case_cls
+        self, mock_use_case_cls, mock_build_url_cls, mock_email_use_case_cls
     ):
         from retail.agents.tasks import task_export_agent_logs
 
@@ -124,7 +136,8 @@ class TaskExportAgentLogsTests(TestCase):
             )
 
         self.assertIsNone(result)
-        # No email when there is no file to deliver.
+        # No link is built and no email is sent when there is no file.
+        mock_build_url_cls.return_value.execute.assert_not_called()
         mock_email_use_case_cls.return_value.execute.assert_not_called()
         # Operators need to know which agent + project failed.
         joined = "\n".join(log_capture.output)

@@ -33,6 +33,19 @@ class InitiateCrawlUseCase:
         self.detect_storefront_usecase.execute(project, crawl_url)
 
     def _send_vtex_host_store(self, project: Project, crawl_url: str) -> None:
+        """Propagates the store host to Connect.
+
+        The host value is the ``crawl_url`` received from the storefront at
+        start-setup; it is NOT fetched from VTEX here. The local
+        ``Project.config["vtex_host_store"]`` is only persisted once Connect
+        echoes it back via EDA, so this log trail is the source of truth for
+        whether the outbound propagation happened.
+        """
+        logger.info(
+            f"[vtex_host_store] Resolved store host for project={project.uuid} "
+            f"vtex_account={project.vtex_account}: host={crawl_url!r}. "
+            f"Sending to Connect."
+        )
         try:
             self.connect_service.update_project_config(
                 project_uuid=str(project.uuid),
@@ -40,6 +53,14 @@ class InitiateCrawlUseCase:
             )
         except Exception:
             logger.exception(
-                f"Failed to send vtex_host_store to Connect "
-                f"for project={project.uuid}"
+                f"[vtex_host_store] Failed to send to Connect for "
+                f"project={project.uuid} vtex_account={project.vtex_account} "
+                f"host={crawl_url!r}"
             )
+            return
+
+        logger.info(
+            f"[vtex_host_store] Sent to Connect for project={project.uuid} "
+            f"vtex_account={project.vtex_account} host={crawl_url!r}. "
+            f"Awaiting EDA echo to persist locally."
+        )

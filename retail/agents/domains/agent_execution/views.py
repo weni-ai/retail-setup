@@ -19,16 +19,22 @@ import logging
 from typing import Optional
 from uuid import UUID
 
+from django.http import HttpResponseRedirect
 from rest_framework import status
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from retail.agents.domains.agent_execution.serializers import (
     AgentLogRowSerializer,
     ExportAgentLogsBodySerializer,
+    ExportDownloadQuerySerializer,
     ListAgentLogsQuerySerializer,
+)
+from retail.agents.domains.agent_execution.usecases.export_download import (
+    ResolveExportDownloadUseCase,
 )
 from retail.agents.domains.agent_execution.usecases.get_agent_log_json import (
     GetAgentLogJsonDTO,
@@ -163,3 +169,25 @@ class AgentLogsExportView(_AgentLogsBaseView):
         )
 
         return Response({"requested": True}, status=status.HTTP_202_ACCEPTED)
+
+
+class AgentLogsExportDownloadView(APIView):
+    """GET ``/logs/export/download/?token=...``.
+
+    Public, token-authorized entry point for the link emailed after an
+    export. The signed token (not a platform session) authorizes the
+    request, mirroring the webhook endpoints, so it works straight from
+    the recipient's email client. It mints a fresh, short-lived
+    presigned URL and redirects, keeping long-lived presigned URLs out
+    of the email entirely.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request: Request) -> HttpResponseRedirect:
+        serializer = ExportDownloadQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+
+        url = ResolveExportDownloadUseCase().execute(serializer.validated_data["token"])
+        return HttpResponseRedirect(url)

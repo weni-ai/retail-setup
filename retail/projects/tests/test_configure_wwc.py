@@ -141,6 +141,22 @@ class TestConfigureWWCUseCase(TestCase):
         self.assertEqual(configure_call[0][0], "wwc")
         self.assertEqual(configure_call[0][1], app_uuid)
 
+    def test_configure_uses_default_bottom_right_position(self):
+        """The widget defaults to bottom-right, matching how it renders today."""
+        app_uuid = str(uuid4())
+        self.mock_integrations_service.create_channel_app.return_value = {
+            "uuid": app_uuid,
+        }
+        self.mock_integrations_service.configure_channel_app.return_value = {
+            "uuid": app_uuid,
+        }
+
+        self.usecase.execute("mystore")
+
+        configure_call = self.mock_integrations_service.configure_channel_app.call_args
+        channel_config = configure_call[0][2]
+        self.assertEqual(channel_config["position"], "bottom-right")
+
     def test_progress_milestones_within_project_config(self):
         """Progress walks the PROJECT_CONFIG start/create/configure/persist milestones."""
         app_uuid = str(uuid4())

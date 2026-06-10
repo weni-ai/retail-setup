@@ -4,6 +4,7 @@ from rest_framework.routers import SimpleRouter
 
 from retail.agents.domains.agent_execution.views import (
     AgentLogJsonView,
+    AgentLogsExportDownloadView,
     AgentLogsExportView,
     AgentLogsView,
 )
@@ -77,6 +78,11 @@ urlpatterns = [
         "assigneds/<uuid:agent_uuid>/logs/export/",
         AgentLogsExportView.as_view(),
         name="agent-logs-export",
+    ),
+    path(
+        "logs/export/download/",
+        AgentLogsExportDownloadView.as_view(),
+        name="agent-logs-export-download",
     ),
     path(
         "assigneds/<uuid:agent_uuid>/logs/<uuid:log_uuid>/json/",

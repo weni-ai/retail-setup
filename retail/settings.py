@@ -239,6 +239,15 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 
+# Master switch for agent execution logging. When ``False`` the
+# ExecutionLoggerService becomes a no-op: no AgentExecution rows are
+# created, no traces are buffered in Redis, nothing is written to S3.
+# With nothing stored, the periodic flush/sweep/cleanup tasks have
+# nothing to process.
+AGENT_EXECUTION_LOGGING_ENABLED = env.bool(
+    "AGENT_EXECUTION_LOGGING_ENABLED", default=True
+)
+
 # Maximum number of executions a single flush tick drains from the
 # Redis ZSET. Caps per-tick S3 + DB cost; remaining entries are
 # picked up on the next tick.

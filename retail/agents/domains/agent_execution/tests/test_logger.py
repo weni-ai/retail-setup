@@ -11,7 +11,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 from uuid import uuid4
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from retail.agents.domains.agent_execution.context import (
     clear_execution_context,
@@ -326,5 +326,48 @@ class LoggerErrorAndSkipTests(TestCase):
     def test_skip_and_error_noop_without_uuid(self):
         self.logger.log_execution_error(error_message="boom")
         self.logger.log_execution_skip(reason="nope")
+        self.buffer.add_trace.assert_not_called()
+        self.buffer.update_metadata.assert_not_called()
+
+
+@override_settings(AGENT_EXECUTION_LOGGING_ENABLED=False)
+class LoggerDisabledTests(TestCase):
+    """With the master switch off, every method is a no-op: nothing
+    reaches the buffer and the execution context is never set."""
+
+    def setUp(self):
+        super().setUp()
+        clear_execution_context()
+        self.addCleanup(clear_execution_context)
+        self.buffer = MagicMock(spec=ExecutionBufferService)
+        self.logger = ExecutionLoggerService(buffer_service=self.buffer)
+
+    def test_log_webhook_received_returns_none_and_skips_buffer_and_context(self):
+        returned = self.logger.log_webhook_received(
+            integrated_agent=MagicMock(uuid=uuid4()),
+            payload={"order_id": "abc"},
+            contact_urn="whatsapp:+5511999999999",
+        )
+
+        self.assertIsNone(returned)
+        self.buffer.start_execution.assert_not_called()
+        self.assertIsNone(get_current_execution_uuid())
+
+    def test_trace_methods_noop_even_with_explicit_uuid(self):
+        execution_uuid = uuid4()
+
+        self.logger.log_lambda_request(
+            request_data={"k": "v"}, execution_uuid=execution_uuid
+        )
+        self.logger.log_broadcast_sent(
+            broadcast_response={"id": 1},
+            broadcast_id=1,
+            execution_uuid=execution_uuid,
+        )
+        self.logger.log_execution_error(
+            error_message="boom", execution_uuid=execution_uuid
+        )
+        self.logger.log_execution_skip(reason="nope", execution_uuid=execution_uuid)
+
         self.buffer.add_trace.assert_not_called()
         self.buffer.update_metadata.assert_not_called()
