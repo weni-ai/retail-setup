@@ -92,6 +92,7 @@ INSTALLED_APPS = [
     "retail.templates",
     "retail.agents",
     "retail.broadcasts",
+    "retail.contracts",
 ]
 
 MIDDLEWARE = [

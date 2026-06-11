@@ -28,6 +28,17 @@ class ConnectClientInterface(Protocol):
     ) -> Dict:
         ...
 
+    def send_contract_acceptance_email(
+        self,
+        user_email: str,
+        acceptance_id: str,
+        subject: str,
+        body_html: str,
+        file_name: str,
+        file_base64: str,
+    ) -> Dict:
+        ...
+
     def update_project_config(
         self,
         project_uuid: str,

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="{{ lang_code }}">
+<head>
+    <meta charset="utf-8" />
+    <title>{{ labels.title }}</title>
+    <style>
+        @page { size: A4; margin: 2.5cm; }
+        body { font-family: "DejaVu Sans", sans-serif; font-size: 12px; color: #1a1a1a; }
+        h1 { font-size: 20px; margin-bottom: 4px; }
+        .meta { margin: 24px 0; }
+        .meta dt { font-weight: bold; }
+        .meta dd { margin: 0 0 8px 0; }
+        .acceptance { margin-top: 32px; padding-top: 16px; border-top: 1px solid #ccc; }
+        .label { font-style: italic; }
+    </style>
+</head>
+<body>
+    <h1>{{ labels.title }}</h1>
+    <p>{{ labels.version }} {{ contract_version }}</p>
+
+    <dl class="meta">
+        <dt>{{ labels.vtex_account }}</dt>
+        <dd>{{ vtex_account }}</dd>
+
+        <dt>{{ labels.email }}</dt>
+        <dd>{{ email }}</dd>
+
+        <dt>{{ labels.plan }}</dt>
+        <dd>{{ plan|default:"-" }}</dd>
+
+        <dt>{{ labels.accepted_at }}</dt>
+        <dd>{{ accepted_at }} ({{ labels.offset }} {{ accepted_at_local_offset }})</dd>
+    </dl>
+
+    <div class="acceptance">
+        <p class="label">{{ checkbox_label_text }}</p>
+        <p>
+            {{ labels.acceptance_prefix }} {{ vtex_account }}
+            {{ labels.acceptance_on }} {{ accepted_at }}.
+        </p>
+    </div>
+</body>
+</html>

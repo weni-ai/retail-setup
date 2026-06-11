@@ -46,3 +46,42 @@ class ConnectClientSendDataExportEmailTests(TestCase):
             },
             headers={"Authorization": "Bearer token"},
         )
+
+
+@override_settings(CONNECT_REST_ENDPOINT="https://connect.example.com")
+class ConnectClientSendContractAcceptanceEmailTests(TestCase):
+    @patch("retail.clients.connect.client.InternalAuthentication")
+    def test_posts_expected_url_and_payload(self, mock_auth_cls):
+        mock_auth_cls.return_value.headers = {"Authorization": "Bearer token"}
+
+        client = ConnectClient()
+        response = MagicMock()
+        response.json.return_value = {"sent": True}
+        client.make_request = MagicMock(return_value=response)
+
+        result = client.send_contract_acceptance_email(
+            user_email="user@example.com",
+            acceptance_id="acceptance-uuid",
+            subject="Your contract",
+            body_html="<p>Hello</p>",
+            file_name="contract-v2.1.pdf",
+            file_base64="JVBERi0=",
+        )
+
+        self.assertEqual(result, {"sent": True})
+        client.make_request.assert_called_once_with(
+            url=(
+                "https://connect.example.com"
+                "/v2/commerce/send-contract-acceptance-email/"
+            ),
+            method="POST",
+            json={
+                "user_email": "user@example.com",
+                "acceptance_id": "acceptance-uuid",
+                "subject": "Your contract",
+                "body_html": "<p>Hello</p>",
+                "file_name": "contract-v2.1.pdf",
+                "file_base64": "JVBERi0=",
+            },
+            headers={"Authorization": "Bearer token"},
+        )
