@@ -84,6 +84,28 @@ class ReadAgentSerializer(serializers.Serializer):
     is_oficial = serializers.BooleanField()
     templates = serializers.SerializerMethodField()
     examples = serializers.JSONField()
+    channel_uuid = serializers.SerializerMethodField()
+
+    def _get_project_integrated_agent(self, obj):
+        project_uuid = self.context.get("project_uuid")
+        if not project_uuid:
+            return None
+
+        for integrated in obj.integrateds.all():
+            if integrated.is_active and str(integrated.project.uuid) == str(
+                project_uuid
+            ):
+                return integrated
+
+        return None
+
+    def get_channel_uuid(self, obj):
+        integrated = self._get_project_integrated_agent(obj)
+        return (
+            str(integrated.channel_uuid)
+            if integrated and integrated.channel_uuid
+            else None
+        )
 
     def get_templates(self, obj):
         templates = obj.templates.all()

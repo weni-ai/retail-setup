@@ -90,7 +90,11 @@ class AgentViewSet(ViewSet):
 
         agents = ListAgentsUseCase.execute(project_uuid)
 
-        response_serializer = ReadAgentSerializer(agents, many=True)
+        response_serializer = ReadAgentSerializer(
+            agents,
+            many=True,
+            context={"project_uuid": project_uuid},
+        )
 
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
@@ -99,5 +103,9 @@ class AgentViewSet(ViewSet):
 
         self.check_object_permissions(request, agent)
 
-        response_serializer = ReadAgentSerializer(agent)
+        project_uuid = request.headers.get("Project-Uuid")
+        response_serializer = ReadAgentSerializer(
+            agent,
+            context={"project_uuid": project_uuid},
+        )
         return Response(response_serializer.data, status=status.HTTP_200_OK)
