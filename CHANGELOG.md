@@ -1,3 +1,6 @@
+# 5.29.1
+- fix: Serve agent-logs export download via signed redirect
+
 # 5.29.0
 - feat: set 100% rollout for order status agent on assignment
 - feat: Add position attribute to WWC webchat onboarding config

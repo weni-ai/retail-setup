@@ -98,7 +98,7 @@ class UpdateIntegratedAgentSerializer(PartialUpdateSerializer):
 
 class ReadIntegratedAgentSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
-    channel_uuid = serializers.UUIDField()
+    channel_uuid = serializers.UUIDField(allow_null=True)
     templates = serializers.SerializerMethodField("get_templates")
     webhook_url = serializers.SerializerMethodField("get_webhook_url")
     description = serializers.SerializerMethodField("get_description")
