@@ -8,7 +8,6 @@ from uuid import uuid4
 
 from retail.projects.models import Project
 from retail.agents.domains.agent_management.models import Agent
-from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.internal.test_mixins import BaseTestMixin, with_test_settings
 
 
@@ -81,32 +80,6 @@ class AgentViewSetE2ETest(BaseTestMixin, APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["uuid"], str(self.agent2.uuid))
-
-    def test_retrieve_agent_returns_integrated_channel_uuid(self):
-        channel_uuid = uuid4()
-        IntegratedAgent.objects.create(
-            agent=self.agent1,
-            project=self.project1,
-            channel_uuid=channel_uuid,
-            is_active=True,
-        )
-
-        response = self.client.get(
-            self.detail_url1, HTTP_PROJECT_UUID=str(self.project1.uuid)
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["channel_uuid"], str(channel_uuid))
-
-    def test_retrieve_agent_without_integrated_assignment_returns_null_channel_uuid(
-        self,
-    ):
-        response = self.client.get(
-            self.detail_url1, HTTP_PROJECT_UUID=str(self.project1.uuid)
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(response.json()["channel_uuid"])
 
     def test_retrieve_agent_without_permission(self):
         """Test retrieving agent fails without proper project permissions"""

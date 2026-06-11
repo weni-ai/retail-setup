@@ -9,7 +9,10 @@ from retail.templates.models import Template
 class ListIntegratedAgentUseCase:
     def _get_queryset(self, project_uuid: UUID) -> QuerySet[IntegratedAgent]:
         templates_prefetch = Prefetch(
-            "templates", queryset=Template.objects.filter(is_active=True)
+            "templates",
+            queryset=Template.objects.filter(is_active=True).prefetch_related(
+                "versions"
+            ),
         )
 
         return IntegratedAgent.objects.filter(
