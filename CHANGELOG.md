@@ -1,3 +1,6 @@
+# 5.30.0
+- feat: Expose integrated agent channel_uuid on agent GET
+
 # 5.29.1
 - fix: Serve agent-logs export download via signed redirect
 
