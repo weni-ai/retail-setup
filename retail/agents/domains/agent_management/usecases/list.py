@@ -10,4 +10,4 @@ class ListAgentsUseCase:
     def execute(project_uuid: Optional[str]) -> QuerySet[Agent]:
         return Agent.objects.filter(
             Q(project__uuid=project_uuid) | Q(is_oficial=True)
-        ).prefetch_related("templates")
+        ).prefetch_related("templates", "integrateds")

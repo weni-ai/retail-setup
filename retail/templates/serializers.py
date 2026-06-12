@@ -83,6 +83,7 @@ class ReadTemplateSerializer(serializers.Serializer):
     deleted_at = serializers.DateTimeField()
     is_active = serializers.BooleanField()
     variables = serializers.JSONField()
+    app_uuid = serializers.SerializerMethodField()
 
     def __init__(self, *args, **kwargs):
         self.s3_service = kwargs.pop("s3_service", None)
@@ -125,6 +126,13 @@ class ReadTemplateSerializer(serializers.Serializer):
             obj.metadata, s3_service=self.s3_service
         )
         return metadata_serializer.data
+
+    def get_app_uuid(self, obj: Template) -> str | None:
+        first_version = obj.versions.order_by("id").first()
+        if not first_version or not first_version.integrations_app_uuid:
+            return None
+
+        return str(first_version.integrations_app_uuid)
 
 
 class UpdateTemplateSerializer(serializers.Serializer):
