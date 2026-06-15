@@ -63,6 +63,20 @@ class ConnectClient(RequestClient, ConnectClientInterface):
         )
         return response.json()
 
+    def link_vtex_account(self, project_uuid: str, vtex_account: str) -> Dict:
+        url = (
+            f"{self.base_url}/v2/commerce/projects/"
+            f"{project_uuid}/link-vtex-account/"
+        )
+
+        response = self.make_request(
+            url=url,
+            method="POST",
+            json={"vtex_account": vtex_account},
+            headers=self.internal_authentication.headers,
+        )
+        return response.json()
+
     def send_data_export_email(
         self,
         user_email: str,
