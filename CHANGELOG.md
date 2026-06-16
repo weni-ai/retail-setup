@@ -1,3 +1,6 @@
+# 5.31.0
+- feat: Add endpoint to link a project to a VTEX account
+
 # 5.30.0
 - feat: Expose integrated agent channel_uuid on agent GET
 
