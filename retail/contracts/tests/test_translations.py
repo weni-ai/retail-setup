@@ -1,10 +1,11 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone as dt_timezone
 
 from django.test import TestCase
 
 from retail.contracts.translations import (
     CONTRACT_PDF_TRANSLATIONS,
     build_contract_email,
+    format_acceptance_datetime,
     get_contract_pdf_labels,
     resolve_language_prefix,
 )
@@ -37,7 +38,7 @@ class ContractTranslationsTests(TestCase):
             self.assertEqual(set(CONTRACT_PDF_TRANSLATIONS[lang]), en_keys)
 
     def test_build_contract_email_localizes_subject_body_and_date(self):
-        accepted_at = datetime(2026, 6, 10, 14, 32, tzinfo=timezone.utc)
+        accepted_at = datetime(2026, 6, 10, 14, 32, tzinfo=dt_timezone.utc)
 
         email_pt = build_contract_email("pt-br", "Growth", "v2.1", accepted_at)
         self.assertEqual(email_pt["subject"], "Seu contrato")
@@ -49,9 +50,16 @@ class ContractTranslationsTests(TestCase):
         self.assertIn("06/10/2026", email_en["body_html"])
 
     def test_build_contract_email_falls_back_plan_placeholder(self):
-        accepted_at = datetime(2026, 6, 10, tzinfo=timezone.utc)
+        accepted_at = datetime(2026, 6, 10, tzinfo=dt_timezone.utc)
 
         email = build_contract_email("es", "", "v2.1", accepted_at)
 
         self.assertEqual(email["subject"], "Tu contrato")
         self.assertIn("Plan: -", email["body_html"])
+
+    def test_format_acceptance_datetime_portuguese(self):
+        accepted_at = datetime(2025, 6, 10, 17, 32, tzinfo=dt_timezone.utc)
+
+        formatted = format_acceptance_datetime(accepted_at, "-03:00", "pt-br")
+
+        self.assertEqual(formatted, "10 de junho de 2025, às 14h32min (UTC-03:00)")

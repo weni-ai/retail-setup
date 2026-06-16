@@ -1,3 +1,4 @@
+from datetime import datetime, timezone as dt_timezone
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -13,7 +14,6 @@ from retail.contracts.usecases.register_contract_acceptance import (
     RegisterContractAcceptanceUseCase,
 )
 from retail.projects.models import Project
-from retail.vtex.models import Lead
 
 TASK_PATH = (
     "retail.contracts.usecases.register_contract_acceptance."
@@ -35,15 +35,14 @@ class RegisterContractAcceptanceUseCaseTests(TestCase):
         defaults = dict(
             user_id=str(uuid4()),
             email_at_acceptance="user@example.com",
+            user_name="Carlos Eduardo Ferreira",
             vtex_account="teststore",
-            contract_version="v2.1",
+            plan="Growth",
             acceptance_method="checkbox",
             checkbox_label_text="I accept the terms.",
-            accepted_at_local_offset="-03:00",
             ip_address="200.10.20.30",
             user_agent="Mozilla/5.0",
             session_id="session-123",
-            plan_id=str(uuid4()),
         )
         defaults.update(overrides)
         return RegisterContractAcceptanceDTO(**defaults)
@@ -55,6 +54,7 @@ class RegisterContractAcceptanceUseCaseTests(TestCase):
         self.assertEqual(ContractAcceptance.objects.count(), 1)
         self.assertEqual(acceptance.contract_template, self.template)
         self.assertEqual(acceptance.contract_version, "v2.1")
+        self.assertEqual(acceptance.plan_snapshot, {"plan": "Growth"})
         self.assertEqual(
             acceptance.contract_document_key,
             f"contratos/teststore/{acceptance.uuid}.pdf",
@@ -62,38 +62,47 @@ class RegisterContractAcceptanceUseCaseTests(TestCase):
         mock_task.delay.assert_called_once_with(str(acceptance.uuid))
 
     @patch(TASK_PATH)
-    def test_execute_uses_latest_active_template_when_version_omitted(self, _mock_task):
+    def test_execute_uses_latest_active_template(self, _mock_task):
         latest = ContractTemplate.objects.create(
             version="v3.0", template_name="contract/pdf/v1.html"
         )
 
-        acceptance = self.usecase.execute(self._build_dto(contract_version=None))
+        acceptance = self.usecase.execute(self._build_dto())
 
         self.assertEqual(acceptance.contract_template, latest)
         self.assertEqual(acceptance.contract_version, "v3.0")
 
     @patch(TASK_PATH)
-    def test_execute_captures_plan_snapshot_from_lead(self, _mock_task):
-        Lead.objects.create(
-            user_email="user@example.com",
-            vtex_account="teststore",
-            project=self.project,
-            plan="Growth",
-            data={"carts_triggered": 10},
-        )
+    def test_execute_freezes_plan_from_dto_in_snapshot(self, _mock_task):
+        acceptance = self.usecase.execute(self._build_dto(plan="Enterprise"))
 
-        acceptance = self.usecase.execute(self._build_dto())
-
-        self.assertEqual(
-            acceptance.plan_snapshot,
-            {"plan": "Growth", "data": {"carts_triggered": 10}},
-        )
+        self.assertEqual(acceptance.plan_snapshot, {"plan": "Enterprise"})
 
     @patch(TASK_PATH)
-    def test_execute_empty_snapshot_when_no_lead(self, _mock_task):
+    def test_execute_defaults_company_name_to_project_name(self, _mock_task):
         acceptance = self.usecase.execute(self._build_dto())
 
-        self.assertEqual(acceptance.plan_snapshot, {})
+        self.assertEqual(acceptance.company_name, "Test Store")
+
+    @patch(TASK_PATH)
+    @patch(
+        "retail.contracts.usecases.register_contract_acceptance.timezone.now",
+        return_value=datetime(2026, 6, 10, 14, 32, tzinfo=dt_timezone.utc),
+    )
+    def test_execute_resolves_local_offset_from_acceptance_timezone(
+        self, _mock_now, _mock_task
+    ):
+        acceptance = self.usecase.execute(self._build_dto())
+
+        self.assertEqual(acceptance.accepted_at_local_offset, "-03:00")
+
+    @patch(TASK_PATH)
+    def test_execute_persists_explicit_company_name(self, _mock_task):
+        acceptance = self.usecase.execute(
+            self._build_dto(company_name="Magazine Luiza S.A.")
+        )
+
+        self.assertEqual(acceptance.company_name, "Magazine Luiza S.A.")
 
     @patch(TASK_PATH)
     def test_execute_raises_when_project_not_found(self, mock_task):
@@ -103,12 +112,7 @@ class RegisterContractAcceptanceUseCaseTests(TestCase):
         mock_task.delay.assert_not_called()
 
     @patch(TASK_PATH)
-    def test_execute_raises_when_template_not_found(self, _mock_task):
-        with self.assertRaises(ContractTemplateNotFoundError):
-            self.usecase.execute(self._build_dto(contract_version="v9.9"))
-
-    @patch(TASK_PATH)
-    def test_execute_ignores_inactive_template(self, _mock_task):
+    def test_execute_raises_when_no_active_template(self, _mock_task):
         self.template.is_active = False
         self.template.save(update_fields=["is_active"])
 

@@ -25,6 +25,8 @@ class ProcessContractAcceptanceDocumentUseCaseTests(TestCase):
         self.acceptance = ContractAcceptance.objects.create(
             user_id=uuid4(),
             email_at_acceptance="user@example.com",
+            company_name="Test Store",
+            user_name="Carlos Eduardo Ferreira",
             project=self.project,
             vtex_account="teststore",
             accepted_at_local_offset="-03:00",
@@ -61,6 +63,9 @@ class ProcessContractAcceptanceDocumentUseCaseTests(TestCase):
         self.assertEqual(rendered_template, "contract/pdf/v1.html")
         self.assertEqual(context["lang_code"], "es")
         self.assertEqual(context["labels"]["title"], "Contrato de adhesión")
+        self.assertIn("acceptance_id", context)
+        self.assertIn("legal_notice", context)
+        self.assertEqual(context["company_name"], "Test Store")
 
         expected_date = self.acceptance.accepted_at.strftime("%d/%m/%Y")
         self.connect_service.send_contract_acceptance_email.assert_called_once_with(

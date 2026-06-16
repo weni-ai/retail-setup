@@ -27,12 +27,12 @@ class RegisterContractAcceptanceViewTests(TestCase):
         self.url = "/api/v3/contracts/accept/"
         self.valid_payload = {
             "user_id": str(uuid4()),
+            "email_at_acceptance": "merchant@store.com",
+            "user_name": "Carlos Eduardo Ferreira",
             "vtex_account": "teststore",
-            "plan_id": str(uuid4()),
-            "contract_version": "v2.1",
+            "plan": "Growth",
             "acceptance_method": "checkbox",
             "checkbox_label_text": "I accept the terms.",
-            "accepted_at_local_offset": "-03:00",
         }
 
     def _acceptance_stub(self):
@@ -59,7 +59,7 @@ class RegisterContractAcceptanceViewTests(TestCase):
 
     @_auth_bypass()
     @patch("retail.contracts.views.RegisterContractAcceptanceUseCase")
-    def test_server_fills_technical_evidence(self, mock_cls, _auth):
+    def test_passes_subscriber_email_from_body(self, mock_cls, _auth):
         mock_cls.return_value.execute.return_value = self._acceptance_stub()
 
         self.client.post(
@@ -77,7 +77,7 @@ class RegisterContractAcceptanceViewTests(TestCase):
         self.assertEqual(dto.user_agent, "Mozilla/5.0")
         self.assertEqual(dto.session_id, "session-xyz")
         self.assertEqual(dto.request_id, "11111111-1111-1111-1111-111111111111")
-        self.assertEqual(dto.email_at_acceptance, "user@example.com")
+        self.assertEqual(dto.email_at_acceptance, "merchant@store.com")
         self.assertIsNone(dto.geo_country)
 
     @_auth_bypass()
@@ -106,13 +106,24 @@ class RegisterContractAcceptanceViewTests(TestCase):
         self.assertIn("checkbox_label_text", response.data)
 
     @_auth_bypass()
-    def test_returns_400_for_invalid_offset(self, _auth):
-        payload = dict(self.valid_payload, accepted_at_local_offset="-3:00")
+    def test_returns_400_when_email_missing(self, _auth):
+        payload = dict(self.valid_payload)
+        payload.pop("email_at_acceptance")
 
         response = self.client.post(self.url, payload, format="json")
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("accepted_at_local_offset", response.data)
+        self.assertIn("email_at_acceptance", response.data)
+
+    @_auth_bypass()
+    def test_returns_400_when_plan_missing(self, _auth):
+        payload = dict(self.valid_payload)
+        payload.pop("plan")
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("plan", response.data)
 
     @_auth_bypass()
     @patch("retail.contracts.views.RegisterContractAcceptanceUseCase")

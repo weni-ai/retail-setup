@@ -54,6 +54,8 @@ class ContractAcceptance(models.Model):
 
     user_id = models.UUIDField()
     email_at_acceptance = models.EmailField()
+    company_name = models.CharField(max_length=256)
+    user_name = models.CharField(max_length=256)
     project = models.ForeignKey(
         Project,
         on_delete=models.PROTECT,

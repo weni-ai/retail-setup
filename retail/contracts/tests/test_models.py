@@ -22,6 +22,8 @@ class ContractAcceptanceModelTests(TestCase):
         defaults = dict(
             user_id=uuid4(),
             email_at_acceptance="user@example.com",
+            company_name="Test Store",
+            user_name="Carlos Eduardo Ferreira",
             project=self.project,
             vtex_account="teststore",
             accepted_at_local_offset="-03:00",

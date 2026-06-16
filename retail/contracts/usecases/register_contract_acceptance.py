@@ -7,13 +7,13 @@ from uuid import uuid4
 
 from django.utils import timezone
 
+from retail.contracts.acceptance_timezone import resolve_acceptance_local_offset
 from retail.contracts.exceptions import (
     ContractTemplateNotFoundError,
     ProjectNotFoundError,
 )
 from retail.contracts.models import ContractAcceptance, ContractTemplate
 from retail.contracts.tasks import task_process_contract_acceptance_document
-from retail.contracts.usecases.plan_snapshot_resolver import PlanSnapshotResolver
 from retail.projects.models import Project
 
 logger = logging.getLogger(__name__)
@@ -23,15 +23,15 @@ logger = logging.getLogger(__name__)
 class RegisterContractAcceptanceDTO:
     user_id: str
     email_at_acceptance: str
+    user_name: str
     vtex_account: str
+    plan: str
     acceptance_method: str
     checkbox_label_text: str
-    accepted_at_local_offset: str
     ip_address: str
     user_agent: str
     session_id: str
-    contract_version: Optional[str] = None
-    plan_id: Optional[str] = None
+    company_name: Optional[str] = None
     request_id: Optional[str] = None
     geo_country: Optional[str] = None
 
@@ -47,32 +47,28 @@ class RegisterContractAcceptanceUseCase:
     ``task_process_contract_acceptance_document``.
     """
 
-    def __init__(self, plan_snapshot_resolver: Optional[PlanSnapshotResolver] = None):
-        self.plan_snapshot_resolver = plan_snapshot_resolver or PlanSnapshotResolver()
-
     def execute(self, dto: RegisterContractAcceptanceDTO) -> ContractAcceptance:
         project = self._get_project(dto.vtex_account)
-        template = self._get_template(dto.contract_version)
-        plan_snapshot = self.plan_snapshot_resolver.resolve(
-            vtex_account=dto.vtex_account, plan_id=dto.plan_id
-        )
+        template = self._get_active_template()
 
         acceptance_uuid = uuid4()
+        accepted_at = timezone.now()
         acceptance = ContractAcceptance.objects.create(
             uuid=acceptance_uuid,
             user_id=dto.user_id,
             email_at_acceptance=dto.email_at_acceptance,
+            company_name=dto.company_name or project.name,
+            user_name=dto.user_name,
             project=project,
             vtex_account=dto.vtex_account,
-            accepted_at=timezone.now(),
-            accepted_at_local_offset=dto.accepted_at_local_offset,
+            accepted_at=accepted_at,
+            accepted_at_local_offset=resolve_acceptance_local_offset(accepted_at),
             contract_template=template,
             contract_version=template.version,
             contract_document_key=self._build_document_key(
                 dto.vtex_account, acceptance_uuid
             ),
-            plan_id=dto.plan_id,
-            plan_snapshot=plan_snapshot,
+            plan_snapshot={"plan": dto.plan},
             ip_address=dto.ip_address,
             user_agent=dto.user_agent,
             session_id=dto.session_id,
@@ -84,7 +80,8 @@ class RegisterContractAcceptanceUseCase:
 
         logger.info(
             f"Contract acceptance registered: acceptance_id={acceptance.uuid} "
-            f"vtex_account={dto.vtex_account} contract_version={template.version}"
+            f"vtex_account={dto.vtex_account} plan={dto.plan} "
+            f"contract_version={template.version}"
         )
 
         task_process_contract_acceptance_document.delay(str(acceptance.uuid))
@@ -105,16 +102,12 @@ class RegisterContractAcceptanceUseCase:
             )
 
     @staticmethod
-    def _get_template(contract_version: Optional[str]) -> ContractTemplate:
-        templates = ContractTemplate.objects.filter(is_active=True)
-        if contract_version:
-            template = templates.filter(version=contract_version).first()
-        else:
-            template = templates.order_by("-created_at").first()
-
+    def _get_active_template() -> ContractTemplate:
+        template = (
+            ContractTemplate.objects.filter(is_active=True)
+            .order_by("-created_at")
+            .first()
+        )
         if template is None:
-            raise ContractTemplateNotFoundError(
-                "Active contract template not found "
-                f"(version={contract_version or 'latest'})"
-            )
+            raise ContractTemplateNotFoundError("Active contract template not found")
         return template

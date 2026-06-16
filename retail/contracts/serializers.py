@@ -7,24 +7,27 @@ class RegisterContractAcceptanceSerializer(serializers.Serializer):
     """Validates the client-supplied portion of a contract acceptance.
 
     Technical evidence (``ip_address``, ``user_agent``, ``session_id``,
-    ``request_id``, ``geo_country``), the acceptance email and the plan
-    snapshot are filled by the server and never trusted from the client.
+    ``request_id``, ``geo_country``, ``accepted_at``,
+    ``accepted_at_local_offset``) is filled by the server.
+    ``email_at_acceptance`` and ``user_name`` identify the VTEX subscriber.
+    ``company_name`` is optional; when omitted the project name is used.
+    ``plan`` is frozen into ``plan_snapshot`` on the acceptance row.
+    ``contract_version`` is resolved server-side from the active template.
     """
 
     user_id = serializers.UUIDField(required=True)
-    vtex_account = serializers.CharField(max_length=100, required=True)
-    plan_id = serializers.UUIDField(required=False, allow_null=True)
-    contract_version = serializers.CharField(
-        max_length=50, required=False, allow_blank=True
+    email_at_acceptance = serializers.EmailField(required=True)
+    user_name = serializers.CharField(max_length=256, required=True)
+    company_name = serializers.CharField(
+        max_length=256, required=False, allow_blank=True
     )
+    vtex_account = serializers.CharField(max_length=100, required=True)
+    plan = serializers.CharField(max_length=100, required=True)
     acceptance_method = serializers.ChoiceField(
         choices=ContractAcceptance.ACCEPTANCE_METHOD_CHOICES,
         default=ContractAcceptance.ACCEPTANCE_METHOD_CHECKBOX,
     )
     checkbox_label_text = serializers.CharField(required=True)
-    accepted_at_local_offset = serializers.RegexField(
-        regex=r"^[+-][0-9]{2}:[0-9]{2}$", required=True
-    )
 
 
 class ContractAcceptanceResponseSerializer(serializers.Serializer):

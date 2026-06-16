@@ -27,9 +27,10 @@ logger = logging.getLogger(__name__)
 class RegisterContractAcceptanceView(KeycloakAPIView):
     """Records an immutable contract acceptance for the authenticated user.
 
-    Technical evidence is captured from the request itself; the client
-    payload only carries the user's intent (chosen plan, contract version,
-    acceptance method and the exact label shown).
+    Technical evidence is captured from the request itself. The client
+    payload carries the subscriber identity (``user_id``, ``email_at_acceptance``),
+    chosen plan, acceptance method and the exact label shown. Acceptance
+    timestamp, local offset and contract version are resolved server-side.
     """
 
     def post(self, request: Request) -> Response:
@@ -37,17 +38,15 @@ class RegisterContractAcceptanceView(KeycloakAPIView):
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
 
-        plan_id = validated.get("plan_id")
-
         dto = RegisterContractAcceptanceDTO(
             user_id=str(validated["user_id"]),
-            email_at_acceptance=request.user.email,
+            email_at_acceptance=validated["email_at_acceptance"],
+            user_name=validated["user_name"],
+            company_name=validated.get("company_name") or None,
             vtex_account=validated["vtex_account"],
-            plan_id=str(plan_id) if plan_id else None,
-            contract_version=validated.get("contract_version"),
+            plan=validated["plan"],
             acceptance_method=validated["acceptance_method"],
             checkbox_label_text=validated["checkbox_label_text"],
-            accepted_at_local_offset=validated["accepted_at_local_offset"],
             ip_address=self._client_ip(request),
             user_agent=request.META.get("HTTP_USER_AGENT", ""),
             session_id=self._session_id(request),

@@ -59,6 +59,8 @@ class Migration(migrations.Migration):
                 ),
                 ("user_id", models.UUIDField()),
                 ("email_at_acceptance", models.EmailField(max_length=254)),
+                ("company_name", models.CharField(max_length=256)),
+                ("user_name", models.CharField(max_length=256)),
                 ("vtex_account", models.CharField(max_length=100)),
                 (
                     "accepted_at",

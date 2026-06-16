@@ -15,7 +15,10 @@ from typing import Optional
 from retail.contracts.models import ContractAcceptance
 from retail.contracts.renderers import ContractPdfRendererInterface
 from retail.contracts.translations import (
+    CONTRACTOR_LEGAL,
     build_contract_email,
+    build_electronic_acceptance_notice,
+    format_acceptance_datetime,
     get_contract_pdf_labels,
     resolve_language_prefix,
 )
@@ -83,16 +86,33 @@ class ProcessContractAcceptanceDocumentUseCase:
 
     @staticmethod
     def _build_context(acceptance: ContractAcceptance, language: str) -> dict:
+        labels = get_contract_pdf_labels(language)
         return {
-            "labels": get_contract_pdf_labels(language),
+            "labels": labels,
             "lang_code": resolve_language_prefix(language),
             "email": acceptance.email_at_acceptance,
+            "company_name": acceptance.company_name,
+            "user_name": acceptance.user_name,
             "vtex_account": acceptance.vtex_account,
             "user_id": str(acceptance.user_id),
             "plan": acceptance.plan_snapshot.get("plan"),
             "plan_snapshot": acceptance.plan_snapshot,
             "contract_version": acceptance.contract_version,
             "accepted_at": acceptance.accepted_at,
+            "accepted_at_formatted": format_acceptance_datetime(
+                acceptance.accepted_at,
+                acceptance.accepted_at_local_offset,
+                language,
+            ),
             "accepted_at_local_offset": acceptance.accepted_at_local_offset,
             "checkbox_label_text": acceptance.checkbox_label_text,
+            "ip_address": acceptance.ip_address,
+            "acceptance_id": str(acceptance.uuid),
+            "contractor": CONTRACTOR_LEGAL,
+            "legal_notice": build_electronic_acceptance_notice(
+                language=language,
+                accepted_at=acceptance.accepted_at,
+                local_offset=acceptance.accepted_at_local_offset,
+                acceptance_id=str(acceptance.uuid),
+            ),
         }
