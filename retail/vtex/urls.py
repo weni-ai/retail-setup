@@ -3,6 +3,7 @@ from retail.vtex.views import (
     AccountIdentifierProxyView,
     CreateProjectUserView,
     LeadView,
+    LinkProjectView,
     OrderFormTrackingView,
     OrderDetailsProxyView,
     OrdersProxyView,
@@ -54,6 +55,11 @@ urlpatterns = [
         "account/<str:vtex_account>/project-user/",
         CreateProjectUserView.as_view(),
         name="create-project-user",
+    ),
+    path(
+        "account/<str:vtex_account>/link-project/",
+        LinkProjectView.as_view(),
+        name="link-project",
     ),
     path(
         "lead/",
