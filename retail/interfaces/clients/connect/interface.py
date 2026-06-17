@@ -17,6 +17,9 @@ class ConnectClientInterface(Protocol):
     ) -> Dict:
         ...
 
+    def link_vtex_account(self, project_uuid: str, vtex_account: str) -> Dict:
+        ...
+
     def send_data_export_email(
         self,
         user_email: str,

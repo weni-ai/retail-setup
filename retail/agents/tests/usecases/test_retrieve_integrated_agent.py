@@ -320,12 +320,9 @@ class RetrieveIntegratedAgentUseCaseTest(TestCase):
         """Test that execute uses prefetch_related to optimize database queries."""
         query_params: RetrieveIntegratedAgentQueryParams = {}
 
-        # Should be minimal queries due to prefetch_related
-        with self.assertNumQueries(
-            2
-        ):  # One for the agent, one for prefetched templates
+        with self.assertNumQueries(3):
+            # Agent, prefetched templates, prefetched template versions (app_uuid)
             result = self.use_case.execute(self.integrated_agent.uuid, query_params)
-            # Accessing templates shouldn't trigger additional queries
             templates_count = result.templates.count()
             self.assertEqual(templates_count, 2)
 

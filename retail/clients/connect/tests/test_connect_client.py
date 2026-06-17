@@ -85,3 +85,31 @@ class ConnectClientSendContractAcceptanceEmailTests(TestCase):
             },
             headers={"Authorization": "Bearer token"},
         )
+
+
+@override_settings(CONNECT_REST_ENDPOINT="https://connect.example.com")
+class ConnectClientLinkVtexAccountTests(TestCase):
+    @patch("retail.clients.connect.client.InternalAuthentication")
+    def test_posts_expected_url_and_payload(self, mock_auth_cls):
+        mock_auth_cls.return_value.headers = {"Authorization": "Bearer token"}
+
+        client = ConnectClient()
+        response = MagicMock()
+        response.json.return_value = {"success": True}
+        client.make_request = MagicMock(return_value=response)
+
+        result = client.link_vtex_account(
+            project_uuid="project-uuid",
+            vtex_account="mystore",
+        )
+
+        self.assertEqual(result, {"success": True})
+        client.make_request.assert_called_once_with(
+            url=(
+                "https://connect.example.com/v2/commerce/projects/"
+                "project-uuid/link-vtex-account/"
+            ),
+            method="POST",
+            json={"vtex_account": "mystore"},
+            headers={"Authorization": "Bearer token"},
+        )

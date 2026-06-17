@@ -13,6 +13,9 @@ from retail.agents.domains.agent_execution.usecases.export_agent_logs import (
     ExportAgentLogsDTO,
     ExportAgentLogsUseCase,
 )
+from retail.agents.domains.agent_execution.usecases.export_download import (
+    BuildExportDownloadUrlUseCase,
+)
 from retail.agents.domains.agent_execution.usecases.flush_executions import (
     FlushExecutionsUseCase,
 )
@@ -147,9 +150,10 @@ def task_export_agent_logs(
     Build the agent-logs CSV export, stash it on S3, and email the link.
 
     Fire-and-forget: the caller treats any non-error status as success
-    and we deliver the file out-of-band. Once the CSV is uploaded, the
-    presigned URL is emailed to ``user_email`` through Connect; that
-    notification is best-effort and never fails the export.
+    and we deliver the file out-of-band. Once the CSV is uploaded, a
+    signed link to our download endpoint is emailed to ``user_email``
+    through Connect; that notification is best-effort and never fails
+    the export.
 
     Args:
         agent_uuid: ``IntegratedAgent.uuid`` to scope the export to.
@@ -162,7 +166,7 @@ def task_export_agent_logs(
         user_email: Recipient of the export-ready email (the requester).
 
     Returns:
-        The presigned S3 URL on success, or ``None`` on failure.
+        The signed download URL on success, or ``None`` on failure.
         Errors are logged so a failed export never crashes the
         worker.
     """
@@ -177,18 +181,19 @@ def task_export_agent_logs(
             statuses=statuses,
             user_email=user_email,
         )
-        _, presigned_url = ExportAgentLogsUseCase().execute(dto)
+        key = ExportAgentLogsUseCase().execute(dto)
+        download_url = BuildExportDownloadUrlUseCase().execute(key)
 
         logger.info(
-            "[AGENT_LOGS_EXPORT] CSV ready for agent=%s project=%s url=%s",
+            "[AGENT_LOGS_EXPORT] CSV ready for agent=%s project=%s key=%s",
             agent_uuid,
             project_uuid,
-            presigned_url,
+            key,
         )
 
-        SendAgentLogsExportEmailUseCase().execute(dto, file_url=presigned_url)
+        SendAgentLogsExportEmailUseCase().execute(dto, file_url=download_url)
 
-        return presigned_url
+        return download_url
     except Exception:
         logger.exception(
             "[AGENT_LOGS_EXPORT] Failed to build CSV for agent=%s project=%s",

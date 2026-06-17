@@ -129,6 +129,21 @@ class ConnectServiceTest(TestCase):
 
         self.assertIsNone(result)
 
+    def test_link_vtex_account_delegates_to_client(self):
+        """link_vtex_account forwards project_uuid and vtex_account."""
+        self.mock_client.link_vtex_account.return_value = {"success": True}
+
+        result = self.service.link_vtex_account(
+            project_uuid="project-uuid",
+            vtex_account="mystore",
+        )
+
+        self.assertEqual(result, {"success": True})
+        self.mock_client.link_vtex_account.assert_called_once_with(
+            project_uuid="project-uuid",
+            vtex_account="mystore",
+        )
+
     def test_default_connect_client_initialization(self):
         """Test that ConnectService initializes with default ConnectClient when none provided"""
         service = ConnectService()

@@ -136,6 +136,12 @@ class ExportAgentLogsBodySerializer(_BaseAgentLogsFilterSerializer):
     user_email = serializers.EmailField(required=True)
 
 
+class ExportDownloadQuerySerializer(serializers.Serializer):
+    """Parse the signed token from the export download link query string."""
+
+    token = serializers.CharField()
+
+
 class AgentLogRowSerializer(serializers.Serializer):
     """Render an ``AgentExecution`` in the agent-logs row shape.
 

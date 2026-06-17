@@ -23,6 +23,12 @@ class CreateProjectUserSerializer(serializers.Serializer):
     user_email = serializers.EmailField(required=True)
 
 
+class LinkProjectSerializer(serializers.Serializer):
+    """Validates the payload for linking a project to a VTEX account."""
+
+    project_uuid = serializers.UUIDField(required=True)
+
+
 class VtexProxySerializer(serializers.Serializer):
     """
     Validates the payload for VTEX proxy requests.

@@ -37,6 +37,12 @@ class ConnectService(ConnectServiceInterface):
             project_name=project_name,
         )
 
+    def link_vtex_account(self, project_uuid: str, vtex_account: str) -> Dict:
+        return self.connect_client.link_vtex_account(
+            project_uuid=project_uuid,
+            vtex_account=vtex_account,
+        )
+
     def send_data_export_email(
         self,
         user_email: str,

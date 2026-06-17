@@ -11,10 +11,10 @@ as a single in-memory blob.
 
 The view layer treats the export as fire-and-forget (the API responds
 ``202 Accepted`` and the CSV is delivered out-of-band), so this use
-case only returns the deterministic key + presigned URL. Notifying the
-requester is a separate concern handled by
-``SendAgentLogsExportEmailUseCase``, which the task invokes with the
-presigned URL once the upload succeeds.
+case only returns the deterministic S3 key. Turning that key into the
+emailed download link is a separate concern: the task signs it via
+``BuildExportDownloadUrlUseCase`` and hands the result to
+``SendAgentLogsExportEmailUseCase``.
 """
 
 import csv
@@ -22,7 +22,7 @@ import logging
 import tempfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone as dt_timezone
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence
 from uuid import UUID
 
 from django.conf import settings
@@ -62,11 +62,6 @@ CSV_HEADER = [
     "status",
     "summary",
 ]
-
-# 7 days is the maximum lifetime AWS allows for a SigV4 presigned URL,
-# so the "Download File" link in the export-ready email stays valid for
-# the full week the file is retained.
-PRESIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7
 
 # CSV rows accumulate in memory up to this size before the spooled
 # temp file rolls over to disk, keeping the working set bounded
@@ -166,8 +161,13 @@ class ExportAgentLogsUseCase:
         else:
             self.s3_service = S3Service(bucket_name=_resolve_export_bucket())
 
-    def execute(self, dto: ExportAgentLogsDTO) -> Tuple[str, str]:
-        """Build the CSV, upload it to S3, and return ``(key, presigned_url)``."""
+    def execute(self, dto: ExportAgentLogsDTO) -> str:
+        """Build the CSV, upload it to S3, and return the object key.
+
+        The link delivered to the user is built separately (see
+        ``BuildExportDownloadUrlUseCase``) so the download URL is minted
+        fresh on click and never embeds a long-lived presigned URL.
+        """
         queryset = self._build_queryset(dto)
         key = self._build_key(dto)
 
@@ -183,10 +183,6 @@ class ExportAgentLogsUseCase:
             spool.seek(0)
             self.s3_service.upload_fileobj(spool, key, content_type="text/csv")
 
-        presigned_url = self.s3_service.generate_presigned_url(
-            key, expiration=PRESIGNED_URL_TTL_SECONDS
-        )
-
         logger.info(
             "Exported %d agent log rows for agent=%s project=%s key=%s",
             row_count,
@@ -194,7 +190,7 @@ class ExportAgentLogsUseCase:
             dto.project_uuid,
             key,
         )
-        return key, presigned_url
+        return key
 
     def _build_queryset(self, dto: ExportAgentLogsDTO):
         queryset = AgentExecution.objects.select_related(

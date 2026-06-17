@@ -13,6 +13,7 @@ from retail.vtex.dtos.register_order_form_dto import RegisterOrderFormDTO
 from retail.vtex.serializers import (
     CreateProjectUserSerializer,
     LeadSerializer,
+    LinkProjectSerializer,
     OrderFormTrackingSerializer,
     OrdersQueryParamsSerializer,
     PaymentGatewayProxySerializer,
@@ -23,6 +24,10 @@ from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.usecases.create_project_user import (
     CreateProjectUserDTO,
     CreateProjectUserUseCase,
+)
+from retail.vtex.usecases.link_project import (
+    LinkProjectDTO,
+    LinkProjectUseCase,
 )
 from retail.vtex.usecases.get_account_identifier import GetAccountIdentifierUsecase
 from retail.vtex.usecases.get_store_url import GetStoreUrlUseCase
@@ -445,6 +450,40 @@ class CreateProjectUserView(KeycloakAPIView):
         except CustomAPIException as e:
             logger.error(
                 f"[CreateProjectUser] Connect error: "
+                f"vtex_account={vtex_account} detail={e.detail}"
+            )
+            return Response(
+                {"detail": e.detail},
+                status=e.status_code or status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class LinkProjectView(KeycloakAPIView):
+    """
+    Links an existing project to a VTEX account.
+
+    The IO front-end calls this route to attach a project_uuid to the
+    vtex_account in the path. The vtex_account uniqueness validations are
+    enforced at the root (Connect), which also triggers the Insights
+    migration; this view then mirrors the link locally.
+    """
+
+    def post(self, request: Request, vtex_account: str) -> Response:
+        serializer = LinkProjectSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dto = LinkProjectDTO(
+            vtex_account=vtex_account,
+            project_uuid=str(serializer.validated_data["project_uuid"]),
+        )
+
+        try:
+            result = LinkProjectUseCase().execute(dto)
+        except CustomAPIException as e:
+            logger.error(
+                f"[LinkProject] Connect error: "
                 f"vtex_account={vtex_account} detail={e.detail}"
             )
             return Response(

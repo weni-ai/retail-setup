@@ -243,6 +243,31 @@ class TestReadTemplateSerializer(TestCase):
 
         self.assertEqual(result["status"], "APPROVED")
 
+    def test_template_app_uuid_from_first_version(self):
+        app_uuid = uuid4()
+        template = Template.objects.create(
+            uuid=uuid4(), name="test_template", parent=self.parent
+        )
+
+        Version.objects.create(
+            template=template,
+            template_name="weni_test_template",
+            integrations_app_uuid=app_uuid,
+            project=self.project,
+            status="APPROVED",
+        )
+
+        serializer = ReadTemplateSerializer(template)
+        self.assertEqual(serializer.data["app_uuid"], str(app_uuid))
+
+    def test_template_app_uuid_without_version(self):
+        template = Template.objects.create(
+            uuid=uuid4(), name="test_template", parent=self.parent
+        )
+
+        serializer = ReadTemplateSerializer(template)
+        self.assertIsNone(serializer.data["app_uuid"])
+
     def test_template_status_without_version(self):
         template = Template.objects.create(
             uuid=uuid4(), name="test_template", parent=self.parent
