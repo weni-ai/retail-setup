@@ -115,9 +115,14 @@ class BroadcastConversionTest(TestCase):
         self.assertIsNone(conversion.order_form_id)
         self.assertIsNone(conversion.value)
         self.assertEqual(conversion.currency, "")
+        self.assertIsNone(conversion.order_created_at)
+        self.assertIsNone(conversion.payment_at)
+        self.assertEqual(conversion.payment_type, "")
         self.assertIsNotNone(conversion.converted_at)
 
     def test_persists_full_payload(self):
+        order_created_at = timezone.now()
+        payment_at = timezone.now()
         conversion = BroadcastConversion.objects.create(
             project=self.project,
             integrated_agent=self.integrated_agent,
@@ -125,6 +130,9 @@ class BroadcastConversionTest(TestCase):
             order_form_id="of-1",
             value=Decimal("199.99"),
             currency="BRL",
+            order_created_at=order_created_at,
+            payment_at=payment_at,
+            payment_type="Pix",
         )
 
         conversion.refresh_from_db()
@@ -133,6 +141,9 @@ class BroadcastConversionTest(TestCase):
         self.assertEqual(conversion.order_form_id, "of-1")
         self.assertEqual(conversion.value, Decimal("199.99"))
         self.assertEqual(conversion.currency, "BRL")
+        self.assertEqual(conversion.order_created_at, order_created_at)
+        self.assertEqual(conversion.payment_at, payment_at)
+        self.assertEqual(conversion.payment_type, "Pix")
 
     def test_unique_constraint_on_project_and_order_id(self):
         BroadcastConversion.objects.create(
