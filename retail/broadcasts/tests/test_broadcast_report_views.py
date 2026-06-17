@@ -126,6 +126,15 @@ class BroadcastReportViewsTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_project_dispatches_rejects_invalid_project_header(self):
+        response = self._get(
+            self.project_dispatches_url,
+            project_uuid="not-a-valid-uuid",
+            query=self.query,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_summary_returns_delivered_and_converted_totals(self):
         BroadcastMessage.objects.create(
             project=self.project,
