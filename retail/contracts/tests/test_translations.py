@@ -5,6 +5,8 @@ from django.test import TestCase
 from retail.contracts.translations import (
     CONTRACT_PDF_TRANSLATIONS,
     build_contract_email,
+    build_electronic_acceptance_notice,
+    apply_local_offset,
     format_acceptance_datetime,
     get_contract_pdf_labels,
     resolve_language_prefix,
@@ -63,3 +65,46 @@ class ContractTranslationsTests(TestCase):
         formatted = format_acceptance_datetime(accepted_at, "-03:00", "pt-br")
 
         self.assertEqual(formatted, "10 de junho de 2025, às 14h32min (UTC-03:00)")
+
+    def test_format_acceptance_datetime_english(self):
+        accepted_at = datetime(2025, 6, 10, 17, 32, tzinfo=dt_timezone.utc)
+
+        formatted = format_acceptance_datetime(accepted_at, "-03:00", "en-US")
+
+        self.assertEqual(formatted, "June 10, 2025, at 2:32 PM (UTC-03:00)")
+
+    def test_format_acceptance_datetime_spanish(self):
+        accepted_at = datetime(2025, 6, 10, 17, 32, tzinfo=dt_timezone.utc)
+
+        formatted = format_acceptance_datetime(accepted_at, "-03:00", "es-MX")
+
+        self.assertEqual(formatted, "10 de junio de 2025, a las 14:32 (UTC-03:00)")
+
+    def test_apply_local_offset_ignores_invalid_offset(self):
+        accepted_at = datetime(2025, 6, 10, 17, 32, tzinfo=dt_timezone.utc)
+
+        result = apply_local_offset(accepted_at, "invalid")
+
+        self.assertEqual(result, accepted_at)
+
+    def test_apply_local_offset_adjusts_naive_datetime(self):
+        accepted_at = datetime(2025, 6, 10, 17, 32)
+
+        result = apply_local_offset(accepted_at, "-03:00")
+
+        self.assertEqual(result.hour, 14)
+        self.assertEqual(result.minute, 32)
+
+    def test_build_electronic_acceptance_notice_includes_formatted_date(self):
+        accepted_at = datetime(2025, 6, 10, 17, 32, tzinfo=dt_timezone.utc)
+
+        notice = build_electronic_acceptance_notice(
+            language="pt-br",
+            accepted_at=accepted_at,
+            local_offset="-03:00",
+            acceptance_id="acceptance-uuid",
+        )
+
+        self.assertIn("acceptance-uuid", notice)
+        self.assertIn("14h32min", notice)
+        self.assertIn("VTEX CX", notice)

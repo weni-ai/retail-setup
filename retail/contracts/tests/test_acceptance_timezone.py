@@ -1,4 +1,5 @@
 from datetime import datetime, timezone as dt_timezone
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
@@ -19,3 +20,17 @@ class ResolveAcceptanceLocalOffsetTests(TestCase):
         offset = resolve_acceptance_local_offset(accepted_at)
 
         self.assertEqual(offset, "-03:00")
+
+    def test_returns_zero_offset_when_utcoffset_is_none(self):
+        accepted_at = MagicMock()
+        local_dt = MagicMock()
+        local_dt.utcoffset.return_value = None
+        accepted_at.astimezone.return_value = local_dt
+
+        with patch(
+            "retail.contracts.acceptance_timezone.dj_timezone.is_naive",
+            return_value=False,
+        ):
+            offset = resolve_acceptance_local_offset(accepted_at)
+
+        self.assertEqual(offset, "+00:00")

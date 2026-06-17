@@ -6,7 +6,10 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from retail.contracts.exceptions import ProjectNotFoundError
+from retail.contracts.exceptions import (
+    ContractTemplateNotFoundError,
+    ProjectNotFoundError,
+)
 
 
 def _auth_bypass():
@@ -133,6 +136,42 @@ class RegisterContractAcceptanceViewTests(TestCase):
         response = self.client.post(self.url, self.valid_payload, format="json")
 
         self.assertEqual(response.status_code, 404)
+
+    @_auth_bypass()
+    @patch("retail.contracts.views.RegisterContractAcceptanceUseCase")
+    def test_returns_404_when_template_not_found(self, mock_cls, _auth):
+        mock_cls.return_value.execute.side_effect = ContractTemplateNotFoundError(
+            "Active contract template not found"
+        )
+
+        response = self.client.post(self.url, self.valid_payload, format="json")
+
+        self.assertEqual(response.status_code, 404)
+
+    @_auth_bypass()
+    @patch("retail.contracts.views.RegisterContractAcceptanceUseCase")
+    def test_falls_back_to_remote_addr_without_forwarded_for(self, mock_cls, _auth):
+        mock_cls.return_value.execute.return_value = self._acceptance_stub()
+
+        self.client.post(
+            self.url,
+            self.valid_payload,
+            format="json",
+            REMOTE_ADDR="198.51.100.42",
+        )
+
+        dto = mock_cls.return_value.execute.call_args[0][0]
+        self.assertEqual(dto.ip_address, "198.51.100.42")
+
+    @_auth_bypass()
+    @patch("retail.contracts.views.RegisterContractAcceptanceUseCase")
+    def test_session_id_is_empty_without_header_or_session(self, mock_cls, _auth):
+        mock_cls.return_value.execute.return_value = self._acceptance_stub()
+
+        self.client.post(self.url, self.valid_payload, format="json")
+
+        dto = mock_cls.return_value.execute.call_args[0][0]
+        self.assertEqual(dto.session_id, "")
 
     def test_returns_401_without_auth(self):
         response = self.client.post(self.url, self.valid_payload, format="json")
