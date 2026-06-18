@@ -166,51 +166,67 @@ class AgentWebhookUseCase:
             return None
 
         try:
-            message = self.broadcast_handler.build_message(integrated_agent, data)
-            if not message:
-                logger.info(
-                    f"Failed to build broadcast message from payload data: "
-                    f"vtex_account={vtex_account} agent={integrated_agent.uuid} "
-                    f"data={data}"
-                )
-                exec_logger.log_execution_error(
-                    error_message="Failed to build broadcast message",
-                    error_data={"payload_data": data},
-                )
-                return None
+            template = self.broadcast_handler.get_current_template(
+                integrated_agent, data
+            )
+        except Exception as e:
+            logger.exception(f"Unexpected error while resolving broadcast template: {e}")
+            exec_logger.log_execution_error(
+                error_message=f"Error resolving broadcast template: {e}",
+                error_data={"phase": "broadcast_template_resolve"},
+            )
+            return None
 
+        try:
+            message = self.broadcast_handler.build_message(integrated_agent, data)
+        except Exception as e:
+            logger.exception(f"Unexpected error while building broadcast message: {e}")
+            exec_logger.log_execution_error(
+                error_message=f"Error building broadcast message: {e}",
+                error_data={"phase": "broadcast_build"},
+            )
+            return None
+
+        if not message:
+            logger.info(
+                f"Failed to build broadcast message from payload data: "
+                f"vtex_account={vtex_account} agent={integrated_agent.uuid} "
+                f"data={data}"
+            )
+            exec_logger.log_execution_error(
+                error_message="Failed to build broadcast message",
+                error_data={"payload_data": data},
+            )
+            return None
+
+        try:
             dispatch_result = self.broadcast_handler.send_message(
                 message,
                 integrated_agent,
                 data,
                 dispatch_context=dispatch_context,
             )
-            broadcast_response = dispatch_result.response
-            broadcast_message_uuid = dispatch_result.broadcast_message_uuid
-
-            template = self.broadcast_handler.get_current_template(
-                integrated_agent, data
-            )
-            template_uuid = (
-                template.uuid if template and template is not False else None
-            )
-            broadcast_id = broadcast_response.get("id") if broadcast_response else None
-
-            exec_logger.log_broadcast_sent(
-                broadcast_response=broadcast_response or {},
-                template_uuid=template_uuid,
-                broadcast_id=broadcast_id,
-                broadcast_message_uuid=broadcast_message_uuid,
-            )
-
-            return data
-
         except Exception as e:
-            logger.exception(f"Unexpected error while building broadcast message: {e}")
+            logger.exception(f"Unexpected error while sending broadcast message: {e}")
             exec_logger.log_execution_error(
-                error_message=f"Error building/sending broadcast: {str(e)}",
+                error_message=f"Error sending broadcast message: {e}",
+                error_data={"phase": "broadcast_send"},
             )
             return None
+
+        broadcast_response = dispatch_result.response
+        broadcast_message_uuid = dispatch_result.broadcast_message_uuid
+        template_uuid = template.uuid if template and template is not False else None
+        broadcast_id = broadcast_response.get("id") if broadcast_response else None
+
+        exec_logger.log_broadcast_sent(
+            broadcast_response=broadcast_response or {},
+            template_uuid=template_uuid,
+            broadcast_id=broadcast_id,
+            broadcast_message_uuid=broadcast_message_uuid,
+        )
+
+        return data
 
     def execute_from_task(
         self,
