@@ -46,9 +46,7 @@ class GetAgentLogJsonDTO:
 class GetAgentLogJsonUseCase:
     """Fetch and return the stored JSON payload for a single log row."""
 
-    def __init__(
-        self, traces_storage: Optional[ExecutionTracesStorageService] = None
-    ):
+    def __init__(self, traces_storage: Optional[ExecutionTracesStorageService] = None):
         self._traces_storage = traces_storage
 
     @property
@@ -80,7 +78,7 @@ class GetAgentLogJsonUseCase:
         try:
             return AgentExecution.objects.get(
                 uuid=dto.log_uuid,
-                integrated_agent_id=dto.agent_uuid,
+                integrated_agent__uuid=dto.agent_uuid,
                 integrated_agent__project__uuid=dto.project_uuid,
             )
         except AgentExecution.DoesNotExist:

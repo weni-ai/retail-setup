@@ -321,11 +321,17 @@ class MarkBroadcastConvertedUseCase:
             )
             return
 
+        integrated_agent_uuid = (
+            last_touch_broadcast.integrated_agent.uuid
+            if last_touch_broadcast.integrated_agent_id
+            else None
+        )
+
         logger.info(
             f"[CONVERSION_TRACKING] converted: "
             f"conversion_uuid={conversion.uuid} "
             f"project_uuid={project.uuid} "
-            f"agent_uuid={conversion.integrated_agent_id} "
+            f"agent_uuid={integrated_agent_uuid} "
             f"order_id={conversion.order_id} "
             f"order_form_id={conversion.order_form_id} "
             f"value={conversion.value} currency={conversion.currency} "
