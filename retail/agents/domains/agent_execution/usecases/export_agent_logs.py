@@ -36,9 +36,7 @@ from retail.agents.domains.agent_execution.row_mapper import (
     format_contact,
     resolve_currency,
     resolve_log_status,
-    resolve_summary,
-    resolve_template_name,
-    resolve_template_uuid,
+    resolve_meta_template_name,
 )
 from retail.agents.domains.agent_execution.status_mapping import (
     build_status_filter,
@@ -52,7 +50,6 @@ logger = logging.getLogger(__name__)
 
 CSV_HEADER = [
     "uuid",
-    "template_uuid",
     "template_name",
     "sent_at",
     "contact",
@@ -60,7 +57,6 @@ CSV_HEADER = [
     "amount",
     "currency",
     "status",
-    "summary",
 ]
 
 # CSV rows accumulate in memory up to this size before the spooled
@@ -195,7 +191,7 @@ class ExportAgentLogsUseCase:
     def _build_queryset(self, dto: ExportAgentLogsDTO):
         queryset = AgentExecution.objects.select_related(
             "template",
-            "template__parent",
+            "template__current_version",
             "integrated_agent",
             "broadcast_message",
         ).filter(
@@ -232,15 +228,13 @@ class ExportAgentLogsUseCase:
         )
         return [
             str(execution.uuid),
-            resolve_template_uuid(execution) or "",
-            resolve_template_name(execution) or "",
+            resolve_meta_template_name(execution) or "",
             sent_at,
             format_contact(execution.contact_urn),
             execution.order_id or "",
             format_amount_value(execution),
             resolve_currency(execution),
             log_status,
-            resolve_summary(log_status),
         ]
 
     @staticmethod

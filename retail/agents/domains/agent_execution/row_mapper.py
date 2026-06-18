@@ -106,6 +106,24 @@ def resolve_template_name(execution: AgentExecution) -> Optional[str]:
     return template_display_name(execution.template)
 
 
+def resolve_meta_template_name(execution: AgentExecution) -> Optional[str]:
+    """Return the WABA-registered template name used at dispatch time.
+
+    Unlike ``resolve_template_name`` (human-readable ``display_name`` for
+    the list API), this reads ``Template.current_version.template_name``
+    so the CSV export matches the identifier Meta stores for the message.
+    """
+    template = execution.template
+    if template is None:
+        return None
+
+    current_version = getattr(template, "current_version", None)
+    if current_version is not None:
+        return current_version.template_name
+
+    return template.name
+
+
 def resolve_template_uuid(execution: AgentExecution) -> Optional[str]:
     if execution.template_id is None:
         return None
