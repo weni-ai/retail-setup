@@ -2,14 +2,24 @@ import json
 from unittest.mock import MagicMock
 from uuid import uuid4
 
-from django.test import TestCase
+from django.core.cache import cache
+from django.test import TestCase, override_settings
 
 from retail.projects.consumers.project_update_consumer import ProjectUpdateConsumer
 from retail.projects.models import Project, ProjectOnboarding
 
 
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "project-update-consumer-tests",
+        }
+    }
+)
 class TestProjectUpdateConsumer(TestCase):
     def setUp(self):
+        cache.clear()
         self.project = Project.objects.create(
             uuid=str(uuid4()),
             name="Test Project",
@@ -19,6 +29,9 @@ class TestProjectUpdateConsumer(TestCase):
         )
         self.consumer = ProjectUpdateConsumer()
         self.consumer.ack = MagicMock()
+
+    def tearDown(self):
+        cache.clear()
 
     def _make_message(self, body: dict) -> MagicMock:
         msg = MagicMock()
