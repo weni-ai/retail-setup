@@ -262,6 +262,23 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
         )
         self.mock_integrated_agent.save.assert_called_once()
 
+    def test_execute_sets_payment_recovery_delay_minutes(self):
+        """Test setting PIX delay_minutes persists into config."""
+        self.mock_integrated_agent.config = {
+            "payment_recovery": {"hook_created": True, "delay_minutes": 5}
+        }
+        data = {"payment_recovery_config": {"delay_minutes": 15}}
+
+        self.usecase.execute(self.mock_integrated_agent, data)
+
+        self.assertEqual(
+            self.mock_integrated_agent.config["payment_recovery"]["delay_minutes"],
+            15,
+        )
+        self.assertTrue(
+            self.mock_integrated_agent.config["payment_recovery"]["hook_created"]
+        )
+
     def test_execute_clears_payment_recovery_minimum_order_value(self):
         """Test that sending null removes the minimum (any value fires)."""
         self.mock_integrated_agent.config = {
