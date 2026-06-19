@@ -24,7 +24,9 @@ class ListIntegratedAgentUseCaseTest(TestCase):
         result = self.usecase._get_queryset(self.project_uuid)
 
         mock_objects.filter.assert_called_once_with(
-            project__uuid=self.project_uuid, is_active=True
+            project__uuid=self.project_uuid,
+            project__is_active=True,
+            is_active=True,
         )
         mock_qs.prefetch_related.assert_called_once()
         self.assertEqual(result, mock_prefetch_qs)
@@ -39,7 +41,9 @@ class ListIntegratedAgentUseCaseTest(TestCase):
         result = self.usecase.execute(self.project_uuid)
 
         mock_objects.filter.assert_called_once_with(
-            project__uuid=self.project_uuid, is_active=True
+            project__uuid=self.project_uuid,
+            project__is_active=True,
+            is_active=True,
         )
         mock_qs.prefetch_related.assert_called_once()
         self.assertEqual(result, mock_prefetch_qs)

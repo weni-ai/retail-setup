@@ -5,7 +5,7 @@ from uuid import uuid4
 from django.test import TestCase
 
 from retail.projects.consumers.project_update_consumer import ProjectUpdateConsumer
-from retail.projects.models import Project
+from retail.projects.models import Project, ProjectOnboarding
 
 
 class TestProjectUpdateConsumer(TestCase):
@@ -141,6 +141,33 @@ class TestProjectUpdateConsumer(TestCase):
         self.assertEqual(self.project.config, {"store_type": "vtex-io"})
         self.consumer.ack.assert_called_once()
 
+    def test_updates_inactive_project_on_update_event(self):
+        """Update events should sync fields even when the project is inactive."""
+        self.project.is_active = False
+        self.project.save(update_fields=["is_active"])
+        project_uuid = str(self.project.uuid)
+
+        message = self._make_message(
+            {
+                "project_uuid": project_uuid,
+                "action": "updated",
+                "name": "Inactive Updated Name",
+                "language": "es",
+                "config": {"vtex_host_store": "https://inactive.com/"},
+            }
+        )
+
+        self.consumer.consume(message)
+
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.is_active)
+        self.assertEqual(self.project.name, "Inactive Updated Name")
+        self.assertEqual(self.project.language, "es")
+        self.assertEqual(
+            self.project.config["vtex_host_store"], "https://inactive.com/"
+        )
+        self.consumer.ack.assert_called_once()
+
     def test_acks_when_project_not_found_on_update(self):
         """If the project does not exist locally, should ack and skip."""
         message = self._make_message(
@@ -154,9 +181,13 @@ class TestProjectUpdateConsumer(TestCase):
         self.consumer.consume(message)
         self.consumer.ack.assert_called_once()
 
-    def test_deletes_project_on_deleted_action(self):
-        """A deleted event should remove the project from the database."""
+    def test_soft_deletes_project_on_deleted_action(self):
+        """A deleted event should deactivate the project instead of removing it."""
         project_uuid = str(self.project.uuid)
+        onboarding = ProjectOnboarding.objects.create(
+            vtex_account="teststore",
+            project=self.project,
+        )
 
         message = self._make_message(
             {
@@ -168,7 +199,33 @@ class TestProjectUpdateConsumer(TestCase):
 
         self.consumer.consume(message)
 
+        self.assertTrue(Project.all_objects.filter(uuid=project_uuid).exists())
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.is_active)
+        self.assertIsNotNone(self.project.modified_on)
         self.assertFalse(Project.objects.filter(uuid=project_uuid).exists())
+        onboarding.refresh_from_db()
+        self.assertFalse(onboarding.is_active)
+        self.assertEqual(onboarding.project_id, self.project.id)
+        self.consumer.ack.assert_called_once()
+
+    def test_soft_delete_is_idempotent(self):
+        """Deleting an already inactive project should not raise errors."""
+        self.project.is_active = False
+        self.project.save(update_fields=["is_active"])
+        project_uuid = str(self.project.uuid)
+
+        message = self._make_message(
+            {
+                "project_uuid": project_uuid,
+                "action": "deleted",
+            }
+        )
+
+        self.consumer.consume(message)
+
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.is_active)
         self.consumer.ack.assert_called_once()
 
     def test_acks_when_project_not_found_on_delete(self):

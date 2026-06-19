@@ -2,6 +2,9 @@ import amqp
 import logging
 
 from retail.projects.models import Project
+from retail.projects.usecases.onboarding_access import (
+    deactivate_onboardings_for_project,
+)
 
 from weni.eda.parsers import JSONParser
 from weni.eda.django.consumers import EDAConsumer
@@ -37,13 +40,19 @@ class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
         project_uuid = body.get("project_uuid")
 
         try:
-            project = Project.objects.get(uuid=project_uuid)
+            project = Project.all_objects.get(uuid=project_uuid)
         except Project.DoesNotExist:
             logger.warning(
                 f"[ProjectUpdateConsumer] - Project {project_uuid} not found, "
                 "skipping update."
             )
             return
+
+        if not project.is_active:
+            logger.warning(
+                f"[ProjectUpdateConsumer] - Updating inactive project "
+                f"{project_uuid}"
+            )
 
         updated_fields = []
 
@@ -99,6 +108,12 @@ class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
         project.is_active = False
         project.save(update_fields=["is_active"])
         project.clear_cache()
+        deactivated = deactivate_onboardings_for_project(project)
+        if deactivated:
+            logger.info(
+                f"[ProjectUpdateConsumer] - Soft-deleted {deactivated} onboarding "
+                f"record(s) for project {project_uuid}"
+            )
         logger.info(
             f"[ProjectUpdateConsumer] - Soft-deleted project {project_uuid} "
             f"(is_active=False)"

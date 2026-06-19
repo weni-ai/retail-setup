@@ -66,6 +66,141 @@ class TestProjectCreationUseCase(TestCase):
         self.assertIn(self.vtex_project_dto.vtex_account, error_msg)
         self.assertIn("Project.objects.create(", error_msg)
 
+    def test_allows_creation_when_vtex_account_owned_by_inactive_project(self):
+        """Soft-deleted projects should not block new creations for the same vtex_account."""
+        inactive_uuid = str(uuid4())
+        Project.all_objects.create(
+            name="Inactive Project",
+            uuid=inactive_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account=self.vtex_project_dto.vtex_account,
+            is_active=False,
+        )
+
+        ProjectCreationUseCase.create_project(self.vtex_project_dto)
+
+        created_project = Project.objects.get(uuid=self.vtex_project_dto.uuid)
+        self.assertEqual(
+            created_project.vtex_account, self.vtex_project_dto.vtex_account
+        )
+        self.assertTrue(created_project.is_active)
+
+    def test_updates_inactive_project_without_reactivating(self):
+        """A creation event for a soft-deleted UUID should update fields only."""
+        project_uuid = str(uuid4())
+        Project.all_objects.create(
+            name="Old Name",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account="mystore",
+            is_active=False,
+        )
+
+        dto = ProjectCreationDTO(
+            name="Updated Name",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account="mystore",
+            language="pt-br",
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.all_objects.get(uuid=project_uuid)
+        self.assertFalse(project.is_active)
+        self.assertEqual(project.name, "Updated Name")
+        self.assertEqual(project.language, "pt-br")
+        self.assertFalse(Project.objects.filter(uuid=project_uuid).exists())
+
+    def test_inactive_project_update_allows_vtex_account_held_by_active_project(
+        self,
+    ):
+        """Inactive projects do not compete for active vtex_account slots."""
+        inactive_uuid = str(uuid4())
+        vtex_account = "mystore"
+
+        Project.all_objects.create(
+            name="Inactive Project",
+            uuid=inactive_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account=vtex_account,
+            is_active=False,
+        )
+        Project.objects.create(
+            name="Active Replacement",
+            uuid=str(uuid4()),
+            organization_uuid=str(uuid4()),
+            vtex_account=vtex_account,
+        )
+
+        dto = ProjectCreationDTO(
+            name="Updated Inactive Name",
+            uuid=inactive_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account=vtex_account,
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        inactive_project = Project.all_objects.get(uuid=inactive_uuid)
+        self.assertFalse(inactive_project.is_active)
+        self.assertEqual(inactive_project.name, "Updated Inactive Name")
+
+    def test_active_project_update_raises_conflict_when_vtex_account_taken(self):
+        """Active projects must not claim a vtex_account held by another active project."""
+        project_uuid = str(uuid4())
+        other_uuid = str(uuid4())
+        vtex_account = "mystore"
+
+        Project.objects.create(
+            name="Existing Project",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account="other-store",
+        )
+        Project.objects.create(
+            name="Other Active Project",
+            uuid=other_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account=vtex_account,
+        )
+
+        dto = ProjectCreationDTO(
+            name="Updated Name",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account=vtex_account,
+        )
+
+        with self.assertRaises(VtexAccountConflictError) as ctx:
+            ProjectCreationUseCase.create_project(dto)
+
+        self.assertIn(other_uuid, str(ctx.exception))
+        project = Project.objects.get(uuid=project_uuid)
+        self.assertEqual(project.vtex_account, "other-store")
+
+    def test_active_project_update_with_same_vtex_account_succeeds(self):
+        """Updating an active project with its own vtex_account must not conflict."""
+        project_uuid = str(uuid4())
+        vtex_account = "mystore"
+
+        Project.objects.create(
+            name="Existing Project",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account=vtex_account,
+        )
+
+        dto = ProjectCreationDTO(
+            name="Updated Name",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account=vtex_account,
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.objects.get(uuid=project_uuid)
+        self.assertEqual(project.name, "Updated Name")
+        self.assertEqual(project.vtex_account, vtex_account)
+
     def test_conflict_does_not_modify_existing_project(self):
         """The existing project should remain untouched when a conflict occurs."""
         existing_uuid = str(uuid4())
