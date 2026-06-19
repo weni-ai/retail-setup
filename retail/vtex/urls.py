@@ -2,9 +2,14 @@ from django.urls import path
 from retail.vtex.views import (
     AccountIdentifierProxyView,
     CreateProjectUserView,
+    LeadView,
+    LinkProjectView,
     OrderFormTrackingView,
     OrderDetailsProxyView,
     OrdersProxyView,
+    PaymentGatewayProxyView,
+    PaymentTransactionProxyView,
+    StoreUrlView,
     VtexProxyView,
 )
 
@@ -22,6 +27,11 @@ urlpatterns = [
         name="vtex-order-details",
     ),
     path(
+        "projects/store-url/",
+        StoreUrlView.as_view(),
+        name="vtex-store-url",
+    ),
+    path(
         "order-form-tracking/",
         OrderFormTrackingView.as_view(),
         name="vtex-order-form-tracking",
@@ -32,8 +42,28 @@ urlpatterns = [
         name="vtex-proxy",
     ),
     path(
+        "payments/send-transaction/",
+        PaymentTransactionProxyView.as_view(),
+        name="vtex-payment-transaction-proxy",
+    ),
+    path(
+        "payments/gateway-proxy/",
+        PaymentGatewayProxyView.as_view(),
+        name="vtex-payment-gateway-proxy",
+    ),
+    path(
         "account/<str:vtex_account>/project-user/",
         CreateProjectUserView.as_view(),
         name="create-project-user",
+    ),
+    path(
+        "account/<str:vtex_account>/link-project/",
+        LinkProjectView.as_view(),
+        name="link-project",
+    ),
+    path(
+        "lead/",
+        LeadView.as_view(),
+        name="vtex-lead",
     ),
 ]

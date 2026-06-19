@@ -1,14 +1,20 @@
 import logging
 
-from typing import Union, Tuple
+from decimal import Decimal
+from typing import Optional, Union, Tuple
+from uuid import UUID
 
 from django.utils import timezone
 from django.conf import settings
 
 from datetime import timedelta
 
+from retail.agents.domains.agent_execution.services.logger import ExecutionLoggerService
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.features.models import IntegratedFeature
+from retail.interfaces.services.execution_logger import (
+    ExecutionLoggerServiceInterface,
+)
 
 from retail.vtex.models import Cart
 from retail.vtex.usecases.base import BaseVtexUseCase
@@ -27,6 +33,13 @@ from retail.clients.code_actions.client import CodeActionsClient
 from retail.clients.vtex.client import VtexClient
 from retail.clients.exceptions import CustomAPIException
 from retail.clients.vtex_io.client import VtexIOClient
+
+
+# VTEX order statuses that count as a finalized purchase.
+PURCHASED_ORDER_STATUSES = frozenset({"invoiced"})
+
+# Lookback window aligned with the Cart cleanup task TTL.
+ORDER_FORM_DEDUPLICATION_WINDOW = timedelta(days=15)
 
 
 logger = logging.getLogger(__name__)
@@ -64,12 +77,18 @@ class CartAbandonmentService(BaseVtexUseCase):
     but made flexible to work with both integration types.
     """
 
-    def __init__(self):
+    def __init__(self, exec_logger: Optional[ExecutionLoggerServiceInterface] = None):
         self.vtex_io_service = VtexIOService(VtexIOClient())
         self.notification_lock_service = PhoneNotificationLockService()
+        self.exec_logger: ExecutionLoggerServiceInterface = (
+            exec_logger or ExecutionLoggerService()
+        )
 
     def process_abandoned_cart(
-        self, cart: Cart, integration_config: Union[IntegratedFeature, IntegratedAgent]
+        self,
+        cart: Cart,
+        integration_config: Union[IntegratedFeature, IntegratedAgent],
+        execution_uuid: Optional[UUID] = None,
     ) -> None:
         """
         Process a cart marked as abandoned - MAIN ENTRY POINT.
@@ -78,6 +97,11 @@ class CartAbandonmentService(BaseVtexUseCase):
         Args:
             cart (Cart): The cart instance to process.
             integration_config: Either IntegratedFeature or IntegratedAgent instance.
+            execution_uuid: Pre-existing AgentExecution UUID created by the
+                caller (e.g. ``task_abandoned_cart_update``). When provided,
+                it is forwarded down to ``task_agent_webhook`` so a single
+                AgentExecution row covers the entire flow instead of having
+                the inner task mint a duplicate UUID.
         """
         log_context = _build_log_context(cart, integration_config)
 
@@ -103,6 +127,10 @@ class CartAbandonmentService(BaseVtexUseCase):
                     f"[CART_SERVICE] Client email not found: {log_context} "
                     f"reason=email_not_in_order_form final_status=empty"
                 )
+                self._log_execution_skip(
+                    "client_email_missing",
+                    cart_uuid=str(cart.uuid),
+                )
                 self._update_cart_status(cart, "empty")
                 return
 
@@ -125,7 +153,10 @@ class CartAbandonmentService(BaseVtexUseCase):
                     )
                     # Continue processing instead of marking as empty
                 else:
-                    # Mark cart as empty if no items are found (original behavior)
+                    self._log_execution_skip(
+                        "order_form_has_no_items",
+                        cart_uuid=str(cart.uuid),
+                    )
                     self._update_cart_status(cart, "empty")
                     logger.info(
                         f"[CART_SERVICE] Cart is empty: {log_context} "
@@ -150,7 +181,12 @@ class CartAbandonmentService(BaseVtexUseCase):
             )
 
             self._evaluate_orders(
-                cart, orders, order_form, client_profile, integration_config
+                cart,
+                orders,
+                order_form,
+                client_profile,
+                integration_config,
+                execution_uuid=execution_uuid,
             )
 
             logger.info(f"[CART_SERVICE] Completed processing: {log_context}")
@@ -165,11 +201,19 @@ class CartAbandonmentService(BaseVtexUseCase):
                 f"[CART_SERVICE] API error: {log_context} "
                 f"error={str(e)} final_status=delivered_error"
             )
+            self._log_execution_error(
+                f"VTEX API error: {e}",
+                cart_uuid=str(cart.uuid),
+            )
             self._update_cart_status(cart, "delivered_error", str(e))
         except Exception as e:
             logger.exception(
                 f"[CART_SERVICE] Unexpected error: {log_context} "
                 f"error={str(e)} final_status=delivered_error"
+            )
+            self._log_execution_error(
+                f"Unexpected error: {e}",
+                cart_uuid=str(cart.uuid),
             )
             self._update_cart_status(cart, "delivered_error", str(e))
 
@@ -257,6 +301,7 @@ class CartAbandonmentService(BaseVtexUseCase):
         order_form: dict,
         client_profile: dict,
         integration_config: Union[IntegratedFeature, IntegratedAgent],
+        execution_uuid: Optional[UUID] = None,
     ):
         """
         Evaluate orders and determine the status of the cart.
@@ -267,6 +312,8 @@ class CartAbandonmentService(BaseVtexUseCase):
             order_form (dict): Order form details.
             client_profile (dict): Client profile data.
             integration_config: Either IntegratedFeature or IntegratedAgent instance.
+            execution_uuid: Optional caller-provided AgentExecution UUID,
+                forwarded to the agent flow so all traces land on one row.
         """
         log_context = _build_log_context(cart, integration_config)
 
@@ -276,26 +323,57 @@ class CartAbandonmentService(BaseVtexUseCase):
                 f"action=mark_as_abandoned reason=client_has_no_orders"
             )
             self._mark_cart_as_abandoned(
-                cart, order_form, client_profile, integration_config
+                cart,
+                order_form,
+                client_profile,
+                integration_config,
+                execution_uuid=execution_uuid,
             )
             return
 
         recent_orders = orders.get("list", [])[:5]
+        invoiced_orders = self._filter_invoiced_orders(recent_orders)
 
-        if self._check_recent_purchases_for_cart_items(cart, recent_orders):
+        if not invoiced_orders:
+            logger.info(
+                f"[CART_SERVICE] No invoiced orders among recent ones: {log_context} "
+                f"recent_orders_checked={len(recent_orders)} "
+                f"recent_statuses={[o.get('status') for o in recent_orders]} "
+                f"action=mark_as_abandoned reason=no_purchased_status_found"
+            )
+            self._mark_cart_as_abandoned(
+                cart,
+                order_form,
+                client_profile,
+                integration_config,
+                execution_uuid=execution_uuid,
+            )
+            return
+
+        if self._check_recent_purchases_for_cart_items(cart, invoiced_orders):
             logger.info(
                 f"[CART_SERVICE] Cart items already purchased: {log_context} "
-                f"final_status=purchased reason=items_found_in_recent_orders"
+                f"final_status=purchased reason=items_found_in_invoiced_orders "
+                f"invoiced_orders_checked={len(invoiced_orders)}"
+            )
+            self._log_execution_skip(
+                "cart_items_already_purchased",
+                cart_uuid=str(cart.uuid),
+                invoiced_orders_checked=len(invoiced_orders),
             )
             self._update_cart_status(cart, "purchased")
             return
 
         logger.info(
-            f"[CART_SERVICE] Orders found but items not purchased: {log_context} "
-            f"recent_orders_checked={len(recent_orders)} action=mark_as_abandoned"
+            f"[CART_SERVICE] Invoiced orders found but items not purchased: {log_context} "
+            f"invoiced_orders_checked={len(invoiced_orders)} action=mark_as_abandoned"
         )
         self._mark_cart_as_abandoned(
-            cart, order_form, client_profile, integration_config
+            cart,
+            order_form,
+            client_profile,
+            integration_config,
+            execution_uuid=execution_uuid,
         )
 
     def _mark_cart_as_abandoned(
@@ -304,6 +382,7 @@ class CartAbandonmentService(BaseVtexUseCase):
         order_form: dict,
         client_profile: dict,
         integration_config: Union[IntegratedFeature, IntegratedAgent],
+        execution_uuid: Optional[UUID] = None,
     ) -> None:
         """
         Mark a cart as abandoned and send notification.
@@ -336,11 +415,42 @@ class CartAbandonmentService(BaseVtexUseCase):
                 # Log is already inside the method, just return
                 return
 
+            # Propagate the cart value to the agent execution row so the
+            # public agent-logs API surfaces `amount`/`currency`. VTEX stores
+            # values in cents; convert via Decimal(str(...)) to avoid the
+            # binary-float bridge that would otherwise drop precision.
+            currency = (
+                order_form.get("storePreferencesData", {}).get("currencyCode") or "BRL"
+            )
+            amount = (Decimal(str(cart_value)) / Decimal(100)).quantize(Decimal("0.01"))
+            self.exec_logger.update_order_info(
+                amount=amount,
+                currency=currency,
+            )
+
+        # Skip when this order form already produced a successful notification
+        if self._check_order_form_already_notified(cart):
+            logger.info(
+                f"[CART_SERVICE] SKIP - Order form already notified: {log_context} "
+                f"final_status=skipped_order_form_already_notified "
+                f"reason=order_form_delivered_within_window"
+            )
+            self._log_execution_skip(
+                "order_form_already_notified_within_window",
+                cart_uuid=str(cart.uuid),
+            )
+            self._update_cart_status(cart, "skipped_order_form_already_notified")
+            return
+
         # Check if abandoned cart notification cooldown is configured and should be applied
         if self._check_abandoned_cart_notification_cooldown(cart, integration_config):
             logger.info(
                 f"[CART_SERVICE] SKIP - Cooldown active: {log_context} "
                 f"final_status=skipped_abandoned_cart_cooldown reason=notification_cooldown_active"
+            )
+            self._log_execution_skip(
+                "notification_cooldown_active",
+                cart_uuid=str(cart.uuid),
             )
             self._update_cart_status(cart, "skipped_abandoned_cart_cooldown")
             return
@@ -350,6 +460,10 @@ class CartAbandonmentService(BaseVtexUseCase):
             logger.info(
                 f"[CART_SERVICE] SKIP - Identical cart: {log_context} "
                 f"final_status=skipped_identical_cart reason=identical_cart_sent_within_24h"
+            )
+            self._log_execution_skip(
+                "identical_cart_sent_within_24h",
+                cart_uuid=str(cart.uuid),
             )
             self._update_cart_status(cart, "skipped_identical_cart")
             return
@@ -361,6 +475,11 @@ class CartAbandonmentService(BaseVtexUseCase):
             logger.info(
                 f"[CART_SERVICE] SKIP - Lock failed: {log_context} "
                 f"reason=notification_already_in_progress_for_phone"
+            )
+            self._log_execution_skip(
+                "notification_already_in_progress_for_phone",
+                cart_uuid=str(cart.uuid),
+                phone_number=cart.phone_number,
             )
             return
 
@@ -378,7 +497,12 @@ class CartAbandonmentService(BaseVtexUseCase):
         # For IntegratedFeature, we use the legacy flow with message structure.
         if isinstance(integration_config, IntegratedAgent):
             flow_type = "agent"
-            flow_success = self._execute_agent_flow(cart, integration_config, cart_data)
+            flow_success = self._execute_agent_flow(
+                cart,
+                integration_config,
+                cart_data,
+                execution_uuid=execution_uuid,
+            )
         else:
             flow_type = "legacy"
             flow_success = self._execute_legacy_flow(
@@ -429,12 +553,16 @@ class CartAbandonmentService(BaseVtexUseCase):
             # Order form data
             order_form=order_form,
             # Configuration (only for legacy flow - agent flow gets these from AWS Lambda)
-            template_name=config.get("abandoned_cart_template")
-            if isinstance(integration_config, IntegratedFeature)
-            else None,
-            channel_uuid=config.get("flow_channel_uuid")
-            if isinstance(integration_config, IntegratedFeature)
-            else None,
+            template_name=(
+                config.get("abandoned_cart_template")
+                if isinstance(integration_config, IntegratedFeature)
+                else None
+            ),
+            channel_uuid=(
+                config.get("flow_channel_uuid")
+                if isinstance(integration_config, IntegratedFeature)
+                else None
+            ),
             # Additional data
             cart_link=f"{cart.order_form_id}/",
             additional_data=cart.config,
@@ -445,6 +573,7 @@ class CartAbandonmentService(BaseVtexUseCase):
         cart: Cart,
         integrated_agent: IntegratedAgent,
         cart_data: CartAbandonmentDataDTO,
+        execution_uuid: Optional[UUID] = None,
     ) -> bool:
         """
         Execute the agent flow: webhook -> AWS Lambda -> Broadcast.
@@ -453,6 +582,10 @@ class CartAbandonmentService(BaseVtexUseCase):
 
         Includes agent configuration in the payload:
         - image_config: Contains header_image_type for template image selection
+
+        ``execution_uuid`` is forwarded to ``task_agent_webhook`` so the
+        execution log started by the parent task is reused instead of
+        creating a second AgentExecution row.
         """
         logger.info(
             "CartAbandonmentService: executing AGENT flow for cart=%s agent=%s project=%s",
@@ -489,11 +622,25 @@ class CartAbandonmentService(BaseVtexUseCase):
                 "cart_items": cart_data.cart_items,
             }
 
-            task_agent_webhook(
+            result = task_agent_webhook(
                 integrated_agent_uuid=str(integrated_agent.uuid),
                 payload=payload,
                 params={},  # Empty params - all data is in payload
+                execution_uuid=str(execution_uuid) if execution_uuid else None,
             )
+
+            if result is None:
+                logger.info(
+                    "CartAbandonmentService: AGENT flow did not dispatch broadcast for cart=%s"
+                    " (sampling, restrictions, Lambda failure or template issue)",
+                    cart.uuid,
+                )
+                self._update_cart_status(
+                    cart,
+                    "delivered_error",
+                    "Broadcast not dispatched: agent flow returned no result.",
+                )
+                return False
 
             self._update_cart_status(cart, "delivered_success")
             logger.info(
@@ -506,6 +653,10 @@ class CartAbandonmentService(BaseVtexUseCase):
                 "CartAbandonmentService: AGENT flow failed for cart=%s error=%s",
                 cart.uuid,
                 exc,
+            )
+            self._log_execution_error(
+                f"Agent flow failed: {exc}",
+                cart_uuid=str(cart.uuid),
             )
             self._update_cart_status(cart, "delivered_error", str(exc))
             return False
@@ -651,6 +802,10 @@ class CartAbandonmentService(BaseVtexUseCase):
                 cart.uuid,
                 exc,
             )
+            self._log_execution_error(
+                f"Legacy flow failed: {exc}",
+                cart_uuid=str(cart.uuid),
+            )
             self._update_cart_status(cart, "delivered_error", str(exc))
             return False
 
@@ -741,12 +896,63 @@ class CartAbandonmentService(BaseVtexUseCase):
                 f"cart_value_brl={cart_total_brl:.2f} minimum_value_brl={minimum_value:.2f} "
                 f"final_status=skipped_below_minimum_value reason=cart_value_below_threshold"
             )
+            self._log_execution_skip(
+                "cart_value_below_minimum",
+                cart_uuid=str(cart.uuid),
+                cart_value_brl=cart_total_brl,
+                minimum_value_brl=minimum_value,
+            )
             self._update_cart_status(cart, "skipped_below_minimum_value")
             return True
 
         logger.info(
             f"[CART_SERVICE] Minimum value check passed: {log_context} "
             f"cart_value_brl={cart_total_brl:.2f} minimum_value_brl={minimum_value:.2f}"
+        )
+        return False
+
+    def _check_order_form_already_notified(self, cart: Cart) -> bool:
+        """
+        Return True when this order form already produced a successful
+        notification within ``ORDER_FORM_DEDUPLICATION_WINDOW``.
+
+        Same order form lingering on the user's browser must not trigger
+        repeated notifications. The window matches the Cart cleanup task
+        TTL so the rule degrades gracefully if the cleanup is delayed.
+        """
+        log_context = _build_log_context(cart)
+
+        if not cart.order_form_id:
+            logger.info(
+                f"[CART_SERVICE] Order form dedup skipped: {log_context} "
+                f"reason=cart_without_order_form_id"
+            )
+            return False
+
+        window_start = timezone.now() - ORDER_FORM_DEDUPLICATION_WINDOW
+        previous_cart = (
+            Cart.objects.filter(
+                order_form_id=cart.order_form_id,
+                project=cart.project,
+                status="delivered_success",
+                modified_on__gte=window_start,
+            )
+            .exclude(uuid=cart.uuid)
+            .first()
+        )
+
+        if previous_cart:
+            logger.info(
+                f"[CART_SERVICE] Order form dedup HIT: {log_context} "
+                f"previous_cart_uuid={previous_cart.uuid} "
+                f"previous_sent_at={previous_cart.modified_on} "
+                f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days}"
+            )
+            return True
+
+        logger.info(
+            f"[CART_SERVICE] Order form dedup PASSED: {log_context} "
+            f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days}"
         )
         return False
 
@@ -889,61 +1095,73 @@ class CartAbandonmentService(BaseVtexUseCase):
         )
         return False
 
+    @staticmethod
+    def _filter_invoiced_orders(recent_orders: list) -> list:
+        """Return the subset of ``recent_orders`` whose status is in ``PURCHASED_ORDER_STATUSES``."""
+        return [
+            order
+            for order in recent_orders
+            if order.get("status") in PURCHASED_ORDER_STATUSES
+        ]
+
     def _check_recent_purchases_for_cart_items(
         self, cart: Cart, recent_orders: list
     ) -> bool:
         """
         Check if any of the cart's items have been purchased in recent orders.
 
-        This method:
-        1. Extracts order IDs from recent orders
-        2. Fetches detailed order information for each order
-        3. Compares cart items with order items
-        4. Returns True if any overlap is found
+        Fetches detailed information for each order and compares its items
+        with the cart items, returning True at the first overlap found.
+
+        Callers must pre-filter ``recent_orders`` by status (see
+        ``PURCHASED_ORDER_STATUSES``); this method does not validate status.
 
         Args:
             cart (Cart): The cart being processed.
-            recent_orders (list): List of recent orders from the user.
+            recent_orders (list): Recent orders already filtered by status.
 
         Returns:
-            bool: True if any cart items were found in recent purchases.
+            bool: True if any cart item is found in a recent order.
         """
         cart_items = cart.config.get("cart_items", [])
         if not cart_items:
             logger.info(f"Cart {cart.uuid} has no products to compare")
             return False
 
-        # Extract order IDs from recent orders
-        order_ids = []
+        orders_to_fetch = []
         for order in recent_orders:
             order_id = order.get("orderId")
             if order_id:
-                order_ids.append(order_id)
+                orders_to_fetch.append(
+                    {"orderId": order_id, "status": order.get("status")}
+                )
 
-        if not order_ids:
+        if not orders_to_fetch:
             logger.info(
                 f"No valid order IDs found in recent orders for cart {cart.uuid}"
             )
             return False
 
         logger.info(
-            f"Checking {len(order_ids)} recent orders for cart {cart.uuid}: {order_ids}"
+            f"Checking {len(orders_to_fetch)} recent orders for cart {cart.uuid}: "
+            f"{[o['orderId'] for o in orders_to_fetch]}"
         )
 
         # Store recent orders details for logging/debugging
         recent_orders_details = []
 
-        # Fetch detailed order information for each order
-        for order_id in order_ids:
+        for order_meta in orders_to_fetch:
+            order_id = order_meta["orderId"]
             try:
                 logger.info(f"Fetching details for order {order_id}")
                 order_details = self._fetch_order_details_by_id(cart, order_id)
                 if order_details:
-                    # Store order details for logging
                     recent_orders_details.append(
                         {
                             "orderId": order_id,
                             "orderFormId": order_details.get("orderFormId"),
+                            "status": order_details.get("status")
+                            or order_meta.get("status"),
                             "items": order_details.get("itemMetadata", {}).get(
                                 "Items", []
                             ),
@@ -955,7 +1173,6 @@ class CartAbandonmentService(BaseVtexUseCase):
                             f"Found matching products in order {order_id} for cart {cart.uuid}"
                         )
 
-                        # Store recent orders in cart config for debugging
                         cart.config["recent_orders_checked"] = recent_orders_details
                         cart.save()
                         logger.info(
@@ -968,7 +1185,6 @@ class CartAbandonmentService(BaseVtexUseCase):
                 logger.error(f"Error fetching order details for {order_id}: {str(e)}")
                 continue
 
-        # Store recent orders in cart config even if no match found (for debugging)
         cart.config["recent_orders_checked"] = recent_orders_details
         cart.save()
         logger.info(
@@ -1164,4 +1380,31 @@ class CartAbandonmentService(BaseVtexUseCase):
         domain = self._get_account_domain(str(cart.project.uuid))
         vtex_service.set_order_form_marketing_data(
             domain, cart.order_form_id, "weniabandonedcart"
+        )
+
+    def _log_execution_skip(self, reason: str, **skip_data) -> None:
+        """Push a terminal ``skip`` to the execution buffer.
+
+        Reads the execution UUID from the contextvar set by the upstream
+        ``log_webhook_received`` call; no-op when there is no execution
+        in flight (legacy ``IntegratedFeature`` flow). Without this,
+        skip short-circuits would leave the row at ``processing`` until
+        the ZSET deadline force-finalises it as ``error='Execution
+        timed out'``.
+        """
+        self.exec_logger.log_execution_skip(
+            reason=reason,
+            skip_data=skip_data or None,
+        )
+
+    def _log_execution_error(self, message: str, **error_data) -> None:
+        """Push a terminal ``error`` to the execution buffer.
+
+        Mirrors ``_log_execution_skip`` for the swallowed-exception
+        branches that update the cart to ``delivered_error`` without
+        re-raising; the execution row would otherwise time out.
+        """
+        self.exec_logger.log_execution_error(
+            error_message=message,
+            error_data=error_data or None,
         )

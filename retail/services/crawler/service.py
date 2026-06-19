@@ -40,3 +40,22 @@ class CrawlerService:
                 f"Error {e.status_code} starting crawl for crawl_url={crawl_url}: {e}"
             )
             return None
+
+    def detect_storefront_type(self, store_url: str) -> Optional[Dict]:
+        """
+        Detects the storefront technology for a given store URL.
+
+        Args:
+            store_url: The store URL to inspect.
+
+        Returns:
+            Dict with ``store_url`` and ``storefront_type``, or None on failure.
+        """
+        try:
+            return self.crawler_client.detect_storefront_type(store_url)
+        except CustomAPIException as e:
+            logger.error(
+                f"Error {e.status_code} detecting storefront type "
+                f"for store_url={store_url}: {e}"
+            )
+            return None

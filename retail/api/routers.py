@@ -2,6 +2,7 @@ from django.urls import path
 
 from retail.api.agents.views import AgentsView
 from retail.api.features.views import FeaturesView
+from retail.api.integrated_agent.views import SendTestTemplateView
 from .integrated_feature.views import (
     IntegratedFeatureSettingsView,
     IntegratedFeatureView,
@@ -37,5 +38,10 @@ urlpatterns = [
         "nexus/integrate-agent/",
         NexusAgentIntegrationView.as_view(),
         name="integrate-nexus-agent",
+    ),
+    path(
+        "integrated-agent/<uuid:integrated_agent_uuid>/send-test-template/",
+        SendTestTemplateView.as_view(),
+        name="send-test-template",
     ),
 ]

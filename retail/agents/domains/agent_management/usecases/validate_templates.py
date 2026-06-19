@@ -1,31 +1,32 @@
 import logging
 
-from typing import Optional, TypedDict, Dict, Any
+from typing import Optional
 
 from retail.services.meta import MetaService
 from retail.interfaces.services.meta import MetaServiceInterface
-from retail.templates.adapters.template_library_to_custom_adapter import (
-    TemplateTranslationAdapter,
-)
 from retail.agents.domains.agent_management.models import Agent
+from retail.templates.usecases._meta_library_template_fetch import (
+    TemplateInfo,
+    adapt_meta_library_template_response,
+)
 
 logger = logging.getLogger(__name__)
-
-
-class TemplateInfo(TypedDict):
-    name: str
-    content: str
-    metadata: Dict[str, Any]
 
 
 class ValidatePreApprovedTemplatesUseCase:
     def __init__(
         self,
         meta_service: Optional[MetaServiceInterface] = None,
-        template_adapter: Optional[TemplateTranslationAdapter] = None,
     ):
-        self.meta_service = meta_service or MetaService()
-        self.template_adapter = template_adapter or TemplateTranslationAdapter()
+        self._meta_service = meta_service
+
+    @property
+    def meta_service(self) -> MetaServiceInterface:
+        """Lazily construct ``MetaService`` only when the validation actually
+        fires."""
+        if self._meta_service is None:
+            self._meta_service = MetaService()
+        return self._meta_service
 
     def _get_template_info(
         self, template_name: str, language: str
@@ -39,21 +40,7 @@ class ValidatePreApprovedTemplatesUseCase:
         if not data:
             return None
 
-        data_obj = data[0]
-
-        return {
-            "name": data_obj.get("name"),
-            "content": data_obj.get("body"),
-            "metadata": {
-                "header": self.template_adapter.header_transformer.transform(data_obj),
-                "body": data_obj.get("body"),
-                "body_params": data_obj.get("body_params"),
-                "footer": data_obj.get("footer"),
-                "buttons": data_obj.get("buttons"),
-                "category": data_obj.get("category"),
-                "language": data_obj.get("language"),
-            },
-        }
+        return adapt_meta_library_template_response(data[0])
 
     def execute(self, agent: Agent) -> None:
         templates = agent.templates.all()

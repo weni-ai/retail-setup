@@ -1,3 +1,4 @@
+import base64
 import json
 
 import logging
@@ -82,12 +83,33 @@ class ActiveAgent:
             logger.error(f"Error decoding JSON payload: {e}")
             return None
 
+    def parse_log_tail(self, response: Dict[str, Any]) -> Optional[str]:
+        """Decode the last ~4 KB of Lambda stdout/stderr.
+
+        AWS returns this when the invoke is made with ``LogType="Tail"``,
+        as a base64-encoded string under ``LogResult``. Output is capped
+        at roughly 4 KB by AWS, so longer logs are truncated to the tail.
+
+        Returns ``None`` when the response carries no ``LogResult``
+        (older boto3, asynchronous invokes, etc.) or when the value
+        cannot be decoded.
+        """
+        log_result = response.get("LogResult")
+        if not log_result:
+            return None
+        try:
+            return base64.b64decode(log_result).decode("utf-8", errors="replace")
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Failed to decode Lambda LogResult: {e}")
+            return None
+
     def validate_response(
         self, data: Dict[str, Any], integrated_agent: IntegratedAgent
     ) -> bool:
         """Validate lambda response for errors based on status codes."""
         status_code = data.get("status")
         error = data.get("error")
+        vtex_account = integrated_agent.project.vtex_account
 
         if status_code is not None:
             match status_code:
@@ -95,42 +117,52 @@ class ActiveAgent:
                     return True
                 case ActiveAgentResponseStatus.RULE_NOT_MATCHED:
                     logger.info(
-                        f"Rule not matched for integrated agent {integrated_agent.uuid}: {error}"
+                        f"Rule not matched for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} error={error}"
                     )
                     return False
                 case ActiveAgentResponseStatus.PRE_PROCESSING_FAILED:
                     logger.info(
-                        f"Pre-processing failed for integrated agent {integrated_agent.uuid}: {error}"
+                        f"Pre-processing failed for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} error={error}"
                     )
                     return False
                 case ActiveAgentResponseStatus.CUSTOM_RULE_FAILED:
                     logger.info(
-                        f"Custom rule failed for integrated agent {integrated_agent.uuid}: {error}"
+                        f"Custom rule failed for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} error={error}"
                     )
                     return False
                 case ActiveAgentResponseStatus.OFFICIAL_RULE_FAILED:
                     logger.info(
-                        f"Official rule failed for integrated agent {integrated_agent.uuid}: {error}"
+                        f"Official rule failed for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} error={error}"
                     )
                     return False
                 case ActiveAgentResponseStatus.GLOBAL_RULE_FAILED:
                     logger.info(
-                        f"Global rule failed for integrated agent {integrated_agent.uuid}: {error}"
+                        f"Global rule failed for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} error={error}"
                     )
                     return False
                 case ActiveAgentResponseStatus.GLOBAL_RULE_NOT_MATCHED:
                     logger.info(
-                        f"Global rule not matched for integrated agent {integrated_agent.uuid}: {error}"
+                        f"Global rule not matched for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} error={error}"
                     )
                     return False
                 case _:
                     logger.warning(
-                        f"Unknown status code for integrated agent {integrated_agent.uuid}: {status_code}"
+                        f"Unknown status code for integrated agent {integrated_agent.uuid}: "
+                        f"vtex_account={vtex_account} status_code={status_code}"
                     )
                     return False
 
         if isinstance(data, dict) and "errorMessage" in data:
-            logger.error(f"Lambda execution error: {data.get('errorMessage')}")
+            logger.error(
+                f"Lambda execution error: vtex_account={vtex_account} "
+                f"errorMessage={data.get('errorMessage')}"
+            )
             return False
 
         return False

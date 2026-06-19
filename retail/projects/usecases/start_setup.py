@@ -1,41 +1,31 @@
 import logging
-from typing import Optional
 
 from retail.projects.models import Project, ProjectOnboarding
-from retail.projects.tasks import task_wait_and_start_crawl
+from retail.projects.tasks import task_setup_channel_and_start_crawl
 from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.projects.usecases.onboarding_agents.agent_mappings import SUPPORTED_CHANNELS
-from retail.projects.usecases.onboarding_dto import StartOnboardingDTO
-from retail.projects.usecases.start_crawl import StartCrawlUseCase
-from retail.services.connect.service import ConnectService
+from retail.projects.usecases.onboarding_dto import StartSetupDTO
 
 logger = logging.getLogger(__name__)
 
 
-class StartOnboardingUseCase:
+class StartSetupUseCase:
     """
-    Initiates the crawl step of the onboarding process.
+    Initiates the setup process for a store.
 
-    If the project is already linked (via EDA), the crawl starts
-    immediately. Otherwise, a Celery task is scheduled to wait
-    until the project is linked and then start the crawl.
+    Creates/gets the onboarding record, stores channel configuration
+    (including channel_data for wpp-cloud), then schedules a single
+    background task that waits for the project link, creates the
+    channel, and starts the crawl.
+
+    The pre-crawl channel setup is dispatched unconditionally — even
+    when the project is already linked — so the task owns the channel
+    creation + crawl initiation pipeline end-to-end and the HTTP
+    response returns immediately while the (potentially slow) Meta
+    handshake runs asynchronously.
     """
 
-    def __init__(self, connect_service: Optional[ConnectService] = None):
-        self.start_crawl_usecase = StartCrawlUseCase()
-        self.connect_service = connect_service or ConnectService()
-
-    def execute(self, dto: StartOnboardingDTO) -> None:
-        """
-        Creates/gets the ProjectOnboarding record and decides whether
-        to start crawling now or schedule a wait task.
-
-        Args:
-            dto: Contains vtex_account and crawl_url.
-
-        Raises:
-            CrawlerStartError: If the crawler fails to start (immediate mode).
-        """
+    def execute(self, dto: StartSetupDTO) -> None:
         onboarding, created = ProjectOnboarding.objects.get_or_create(
             vtex_account=dto.vtex_account,
         )
@@ -56,9 +46,15 @@ class StartOnboardingUseCase:
 
         config = onboarding.config or {}
         channels = config.setdefault("channels", {})
-        channels.setdefault(dto.channel, {})
+        channel_config = channels.setdefault(dto.channel, {})
+
+        if dto.channel_data:
+            channel_config["channel_data"] = dto.channel_data
+
         onboarding.config = config
-        onboarding.save(update_fields=["config"])
+        onboarding.current_step = "PROJECT_CONFIG"
+        onboarding.progress = 0
+        onboarding.save(update_fields=["config", "current_step", "progress"])
 
         try:
             self._try_link_project(onboarding)
@@ -66,26 +62,42 @@ class StartOnboardingUseCase:
             mark_onboarding_failed(dto.vtex_account, str(exc))
             raise
 
-        if onboarding.project is not None:
-            self._send_vtex_host_store(onboarding.project, dto.crawl_url)
-            self.start_crawl_usecase.execute(dto.vtex_account, dto.crawl_url)
-            return
-
-        task_wait_and_start_crawl.delay(dto.vtex_account, dto.crawl_url)
+        task_setup_channel_and_start_crawl.delay(dto.vtex_account, dto.crawl_url)
 
         logger.info(
-            f"Project not linked yet for vtex_account={dto.vtex_account}. "
-            f"Scheduled wait task for crawl_url={dto.crawl_url}"
+            f"Scheduled pre-crawl setup task for vtex_account={dto.vtex_account} "
+            f"(project_linked={onboarding.project is not None}, "
+            f"crawl_url={dto.crawl_url})"
         )
 
     @staticmethod
     def _reset_onboarding(onboarding: ProjectOnboarding) -> None:
-        """Resets transient fields so a new crawl cycle starts clean."""
+        """
+        Resets transient fields so a new pre-crawl cycle starts clean.
+
+        Also clears any previously created channel ``app_uuid`` /
+        ``flow_object_uuid`` so the new run can re-exchange a fresh
+        ``auth_code`` without tripping the channel use case's
+        idempotency guard.
+        """
         onboarding.progress = 0
         onboarding.crawler_result = None
         onboarding.completed = False
         onboarding.failed = False
         onboarding.current_step = ""
+
+        config = onboarding.config or {}
+        config.pop("last_failure", None)
+        config.pop("reason_failed", None)
+        config.pop("background_error", None)
+
+        channels = config.get("channels", {})
+        for channel_config in channels.values():
+            channel_config.pop("app_uuid", None)
+            channel_config.pop("flow_object_uuid", None)
+
+        onboarding.config = config
+
         onboarding.save(
             update_fields=[
                 "progress",
@@ -93,6 +105,7 @@ class StartOnboardingUseCase:
                 "completed",
                 "failed",
                 "current_step",
+                "config",
             ]
         )
 
@@ -119,17 +132,3 @@ class StartOnboardingUseCase:
 
         onboarding.project = project
         onboarding.save(update_fields=["project"])
-
-    def _send_vtex_host_store(self, project: Project, crawl_url: str) -> None:
-        """Sends the crawl URL as vtex_host_store to Connect. Failures are
-        logged but do not interrupt the onboarding flow."""
-        try:
-            self.connect_service.set_vtex_host_store(
-                project_uuid=str(project.uuid),
-                vtex_host_store=crawl_url,
-            )
-        except Exception:
-            logger.exception(
-                f"Failed to send vtex_host_store to Connect for "
-                f"project={project.uuid}"
-            )

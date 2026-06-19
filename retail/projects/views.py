@@ -15,21 +15,34 @@ from retail.internal.permissions import CanCommunicateInternally
 from retail.projects.serializer import (
     ProjectSerializer,
     ProjectVtexConfigSerializer,
-    StartOnboardingSerializer,
+    RequestOnboardingSupportSerializer,
+    StartSetupSerializer,
     CrawlerWebhookSerializer,
+    InstallChannelAgentsSerializer,
     OnboardingPatchSerializer,
     ProjectOnboardingSerializer,
 )
 from retail.projects.usecases.get_project_vtex_account import (
     GetProjectVtexAccountUseCase,
 )
+from retail.projects.usecases.install_channel_agents import (
+    InstallChannelAgentsError,
+    InstallChannelAgentsUseCase,
+)
 from retail.projects.usecases.onboarding_dto import (
-    StartOnboardingDTO,
+    StartSetupDTO,
     CrawlerWebhookDTO,
+    InstallChannelAgentsDTO,
+    RequestOnboardingSupportDTO,
 )
 from retail.projects.usecases.project_vtex import ProjectVtexConfigUseCase
-from retail.projects.usecases.start_crawl import CrawlerStartError
-from retail.projects.usecases.start_onboarding import StartOnboardingUseCase
+from retail.projects.usecases.request_onboarding_support import (
+    RequestOnboardingSupportUseCase,
+)
+from retail.projects.usecases.save_onboarding_failure import (
+    SaveOnboardingFailureUseCase,
+)
+from retail.projects.usecases.start_setup import StartSetupUseCase
 from retail.projects.usecases.update_onboarding_progress import (
     UpdateOnboardingProgressUseCase,
 )
@@ -100,9 +113,13 @@ class VtexAccountLookupView(JWTModuleAuthMixin, APIView):
         return Response({"vtex_account": vtex_account})
 
 
-class StartOnboardingView(KeycloakAPIView):
+class StartSetupView(KeycloakAPIView):
     """
-    Starts the onboarding crawl process for a store.
+    Starts the setup process for a store.
+
+    Receives the crawl URL and channel type. For wpp-cloud channels,
+    also receives channel_data with Meta signup information
+    (auth_code, waba_id, phone_number_id).
 
     If the project is already linked (via EDA), the crawl starts
     immediately. Otherwise, a background task is scheduled to
@@ -110,28 +127,30 @@ class StartOnboardingView(KeycloakAPIView):
     """
 
     def post(self, request, vtex_account: str) -> Response:
-        """
-        Starts or schedules the crawl for the given vtex_account.
+        serializer = StartSetupSerializer(data=request.data)
+        if not serializer.is_valid():
+            logger.warning(
+                f"[StartSetup] Invalid payload for vtex_account={vtex_account}: "
+                f"errors={serializer.errors}"
+            )
+            SaveOnboardingFailureUseCase.execute(
+                vtex_account=vtex_account,
+                stage="start_setup_validation",
+                payload=request.data,
+                errors=serializer.errors,
+            )
+            raise ValidationError(serializer.errors)
 
-        Expects:
-            { "crawl_url": "https://www.wenipartner.com.br/" }
-        """
-        serializer = StartOnboardingSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        channel_data = serializer.validated_data.get("channel_data", {})
 
-        dto = StartOnboardingDTO(
+        dto = StartSetupDTO(
             vtex_account=vtex_account,
             crawl_url=serializer.validated_data["crawl_url"],
             channel=serializer.validated_data["channel"],
+            channel_data=channel_data,
         )
 
-        try:
-            StartOnboardingUseCase().execute(dto)
-        except CrawlerStartError as e:
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
+        StartSetupUseCase().execute(dto)
 
         return Response({"status": "started"}, status=status.HTTP_201_CREATED)
 
@@ -158,7 +177,7 @@ class CrawlerWebhookView(APIView):
         dto = CrawlerWebhookDTO(**serializer.validated_data)
 
         try:
-            onboarding = UpdateOnboardingProgressUseCase.execute(
+            onboarding = UpdateOnboardingProgressUseCase().execute(
                 str(onboarding_uuid), dto
             )
         except ProjectOnboarding.DoesNotExist:
@@ -229,3 +248,65 @@ class OnboardingPatchView(KeycloakAPIView):
             ProjectOnboardingSerializer(onboarding).data,
             status=status.HTTP_200_OK,
         )
+
+
+class InstallChannelAgentsView(KeycloakAPIView):
+    """
+    Installs agents for a specific channel on an existing onboarding.
+
+    Creates the channel via Integrations API and integrates
+    the mapped agents, skipping any already integrated ones.
+    """
+
+    def post(self, request, vtex_account: str, channel: str) -> Response:
+        serializer = InstallChannelAgentsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dto = InstallChannelAgentsDTO(
+            vtex_account=vtex_account,
+            channel=channel,
+            channel_data=serializer.validated_data["channel_data"],
+        )
+
+        try:
+            InstallChannelAgentsUseCase().execute(dto)
+        except ProjectOnboarding.DoesNotExist:
+            return Response(
+                {"detail": f"No onboarding found for vtex_account={vtex_account}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except (InstallChannelAgentsError, ValueError) as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({"success": True}, status=status.HTTP_201_CREATED)
+
+
+class OnboardingSupportContactView(KeycloakAPIView):
+    """
+    Endpoint used by the front-end when the user clicks 'Contact support'.
+
+    The body accepts a generic ``data`` payload built by the front-end with
+    whatever context it considers useful (last screen, captured error,
+    user-provided message, etc.). The endpoint enriches it with onboarding
+    metadata from the database and dispatches a Slack notification to the
+    support team.
+
+    Always returns 202 Accepted: a Slack outage or missing onboarding
+    record must not prevent the support request from reaching the team.
+    """
+
+    def post(self, request, vtex_account: str) -> Response:
+        serializer = RequestOnboardingSupportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dto = RequestOnboardingSupportDTO(
+            vtex_account=vtex_account,
+            data=serializer.validated_data["data"],
+        )
+
+        RequestOnboardingSupportUseCase().execute(dto)
+
+        return Response({"status": "received"}, status=status.HTTP_202_ACCEPTED)

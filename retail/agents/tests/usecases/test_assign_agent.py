@@ -300,6 +300,197 @@ class AssignAgentUseCaseTest(TestCase):
         mock_use_case_instance.execute.assert_called_once()
         mock_use_case_instance.notify_integrations.assert_called_once()
 
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
+    )
+    def test_create_templates_with_url_button_sets_needs_button_edit(
+        self, mock_create_library_use_case
+    ):
+        mock_integrations_service = MagicMock()
+        mock_integrations_service.fetch_templates_from_user.return_value = {}
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
+
+        integrated_agent = IntegratedAgent.objects.create(
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=uuid.uuid4(),
+            is_active=True,
+        )
+
+        pre_approved = MagicMock()
+        pre_approved.is_valid = True
+        pre_approved.metadata = {
+            "name": "Test Template",
+            "category": "UTILITY",
+            "language": "pt_BR",
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Gerir encomenda",
+                    "url": "https://www.example.com",
+                }
+            ],
+        }
+        pre_approved.start_condition = "test_condition"
+        pre_approved.slug = "test-template"
+        pre_approved.config = {}
+
+        pre_approveds = MagicMock()
+        filtered_queryset = MagicMock()
+        filtered_queryset.filter.side_effect = lambda is_valid: (
+            [pre_approved] if is_valid else []
+        )
+        pre_approveds.exclude.return_value = filtered_queryset
+
+        mock_template = MagicMock()
+        mock_version = MagicMock()
+        mock_version.template_name = "Test Template"
+        mock_version.uuid = uuid.uuid4()
+
+        mock_use_case_instance = mock_create_library_use_case.return_value
+        mock_use_case_instance.execute.return_value = (mock_template, mock_version)
+
+        use_case._create_templates(
+            integrated_agent=integrated_agent,
+            pre_approveds=pre_approveds,
+            project_uuid=self.project.uuid,
+            app_uuid=uuid.uuid4(),
+            ignore_templates=[],
+        )
+
+        mock_use_case_instance.execute.assert_called_once()
+        mock_use_case_instance.notify_integrations.assert_not_called()
+        self.assertTrue(mock_template.needs_button_edit)
+
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
+    )
+    def test_create_templates_with_non_url_button_notifies_integrations(
+        self, mock_create_library_use_case
+    ):
+        mock_integrations_service = MagicMock()
+        mock_integrations_service.fetch_templates_from_user.return_value = {}
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
+
+        integrated_agent = IntegratedAgent.objects.create(
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=uuid.uuid4(),
+            is_active=True,
+        )
+
+        pre_approved = MagicMock()
+        pre_approved.is_valid = True
+        pre_approved.metadata = {
+            "name": "Test Template",
+            "category": "UTILITY",
+            "language": "pt_BR",
+            "buttons": [
+                {
+                    "type": "QUICK_REPLY",
+                    "text": "Confirmar",
+                }
+            ],
+        }
+        pre_approved.start_condition = "test_condition"
+        pre_approved.slug = "test-template"
+        pre_approved.config = {}
+
+        pre_approveds = MagicMock()
+        filtered_queryset = MagicMock()
+        filtered_queryset.filter.side_effect = lambda is_valid: (
+            [pre_approved] if is_valid else []
+        )
+        pre_approveds.exclude.return_value = filtered_queryset
+
+        mock_template = MagicMock()
+        mock_version = MagicMock()
+        mock_version.template_name = "Test Template"
+        mock_version.uuid = uuid.uuid4()
+
+        mock_use_case_instance = mock_create_library_use_case.return_value
+        mock_use_case_instance.execute.return_value = (mock_template, mock_version)
+
+        use_case._create_templates(
+            integrated_agent=integrated_agent,
+            pre_approveds=pre_approveds,
+            project_uuid=self.project.uuid,
+            app_uuid=uuid.uuid4(),
+            ignore_templates=[],
+        )
+
+        mock_use_case_instance.execute.assert_called_once()
+        mock_use_case_instance.notify_integrations.assert_called_once()
+
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
+    )
+    def test_create_templates_with_null_buttons_notifies_integrations(
+        self, mock_create_library_use_case
+    ):
+        """Regression: some Meta library specs ship `"buttons": null` instead of
+        omitting the key. The use case must treat that as "no buttons" and not
+        crash trying to iterate over `None`."""
+        mock_integrations_service = MagicMock()
+        mock_integrations_service.fetch_templates_from_user.return_value = {}
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
+
+        integrated_agent = IntegratedAgent.objects.create(
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=uuid.uuid4(),
+            is_active=True,
+        )
+
+        pre_approved = MagicMock()
+        pre_approved.is_valid = True
+        pre_approved.metadata = {
+            "name": "Order Invoiced",
+            "category": "UTILITY",
+            "language": "pt_BR",
+            "buttons": None,
+        }
+        pre_approved.start_condition = "test_condition"
+        pre_approved.slug = "order-invoiced"
+        pre_approved.config = {}
+
+        pre_approveds = MagicMock()
+        filtered_queryset = MagicMock()
+        filtered_queryset.filter.side_effect = lambda is_valid: (
+            [pre_approved] if is_valid else []
+        )
+        pre_approveds.exclude.return_value = filtered_queryset
+
+        mock_template = MagicMock()
+        mock_template.needs_button_edit = False
+        mock_version = MagicMock()
+        mock_version.template_name = "Order Invoiced"
+        mock_version.uuid = uuid.uuid4()
+
+        mock_use_case_instance = mock_create_library_use_case.return_value
+        mock_use_case_instance.execute.return_value = (mock_template, mock_version)
+
+        use_case._create_templates(
+            integrated_agent=integrated_agent,
+            pre_approveds=pre_approveds,
+            project_uuid=self.project.uuid,
+            app_uuid=uuid.uuid4(),
+            ignore_templates=[],
+        )
+
+        mock_use_case_instance.execute.assert_called_once()
+        mock_use_case_instance.notify_integrations.assert_called_once()
+        self.assertFalse(mock_template.needs_button_edit)
+
     def test_get_ignore_templates(self):
         template1 = PreApprovedTemplate.objects.create(
             agent=self.agent,
@@ -466,7 +657,7 @@ class AssignAgentUseCaseTest(TestCase):
     @patch(
         "retail.agents.domains.agent_integration.usecases.assign.TemplateBuilderMixin"
     )
-    def test_create_invalid_templates_success(self, mock_template_builder):
+    def test_adopt_customer_templates_success(self, mock_template_builder):
         integrated_agent = IntegratedAgent.objects.create(
             agent=self.agent,
             project=self.project,
@@ -474,20 +665,20 @@ class AssignAgentUseCaseTest(TestCase):
             is_active=True,
         )
 
-        invalid_template1 = MagicMock()
-        invalid_template1.name = "template_invalid_1"
-        invalid_template1.start_condition = "start_condition_1"
-        invalid_template1.display_name = "Template Inválido 1"
+        pre_approved_1 = MagicMock()
+        pre_approved_1.name = "pre_approved_1"
+        pre_approved_1.start_condition = "start_condition_1"
+        pre_approved_1.display_name = "Pre-approved 1"
 
-        invalid_template2 = MagicMock()
-        invalid_template2.name = "template_invalid_2"
-        invalid_template2.start_condition = "start_condition_2"
-        invalid_template2.display_name = "Template Inválido 2"
+        pre_approved_2 = MagicMock()
+        pre_approved_2.name = "pre_approved_2"
+        pre_approved_2.start_condition = "start_condition_2"
+        pre_approved_2.display_name = "Pre-approved 2"
 
-        invalid_pre_approveds = [invalid_template1, invalid_template2]
+        customer_sourced_pre_approveds = [pre_approved_1, pre_approved_2]
 
         mock_translations = {
-            "template_invalid_1": {
+            "pre_approved_1": {
                 "header": "Header 1",
                 "body": "Body 1",
                 "footer": "Footer 1",
@@ -510,14 +701,14 @@ class AssignAgentUseCaseTest(TestCase):
         project_uuid = self.project.uuid
         app_uuid = uuid.uuid4()
 
-        self.use_case._create_invalid_templates(
-            integrated_agent, invalid_pre_approveds, project_uuid, app_uuid
+        self.use_case._adopt_customer_templates(
+            integrated_agent, customer_sourced_pre_approveds, project_uuid, app_uuid
         )
 
         self.use_case.integrations_service.fetch_templates_from_user.assert_called_once_with(
             app_uuid,
             str(project_uuid),
-            ["template_invalid_1", "template_invalid_2"],
+            ["pre_approved_1", "pre_approved_2"],
             self.agent.language,
         )
 
@@ -526,7 +717,7 @@ class AssignAgentUseCaseTest(TestCase):
     @patch(
         "retail.agents.domains.agent_integration.usecases.assign.TemplateBuilderMixin"
     )
-    def test_create_invalid_templates_no_translations_found(
+    def test_adopt_customer_templates_no_translations_found(
         self, mock_template_builder
     ):
         integrated_agent = IntegratedAgent.objects.create(
@@ -536,9 +727,9 @@ class AssignAgentUseCaseTest(TestCase):
             is_active=True,
         )
 
-        invalid_template = MagicMock()
-        invalid_template.name = "template_not_found"
-        invalid_pre_approveds = [invalid_template]
+        pre_approved = MagicMock()
+        pre_approved.name = "template_not_found"
+        customer_sourced_pre_approveds = [pre_approved]
 
         self.use_case.integrations_service.fetch_templates_from_user = MagicMock(
             return_value={}
@@ -547,8 +738,8 @@ class AssignAgentUseCaseTest(TestCase):
         project_uuid = self.project.uuid
         app_uuid = uuid.uuid4()
 
-        self.use_case._create_invalid_templates(
-            integrated_agent, invalid_pre_approveds, project_uuid, app_uuid
+        self.use_case._adopt_customer_templates(
+            integrated_agent, customer_sourced_pre_approveds, project_uuid, app_uuid
         )
 
         self.use_case.integrations_service.fetch_templates_from_user.assert_called_once_with(
@@ -642,13 +833,13 @@ class AssignAgentUseCaseTest(TestCase):
             is_active=True,
         )
 
-        invalid_template = MagicMock()
-        invalid_template.name = "test_template"
+        pre_approved = MagicMock()
+        pre_approved.name = "test_template"
 
         mock_integrations_service.fetch_templates_from_user.return_value = {}
 
-        use_case_with_mock._create_invalid_templates(
-            integrated_agent, [invalid_template], self.project.uuid, uuid.uuid4()
+        use_case_with_mock._adopt_customer_templates(
+            integrated_agent, [pre_approved], self.project.uuid, uuid.uuid4()
         )
 
         mock_integrations_service.fetch_templates_from_user.assert_called_once()
@@ -726,6 +917,91 @@ class AssignAgentUseCaseTest(TestCase):
 
         mock_integrations_service.fetch_templates_from_user.assert_called_once_with(
             app_uuid, str(self.project.uuid), ["invalid_template"], self.agent.language
+        )
+
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
+    )
+    def test_legacy_assignment_preserves_direct_send_absent_and_integrations_calls(
+        self, mock_create_library_use_case
+    ):
+        """Legacy assignment preserves config + integrations calls. Anchor: FR-001 / FR-005."""
+        mock_integrations_service = MagicMock()
+        mock_integrations_service.get_channel_app.return_value = {
+            "config": {"direct_send": False}
+        }
+        mock_integrations_service.fetch_templates_from_user.return_value = {}
+
+        order_status_agent_uuid = uuid.uuid4()
+        order_status_agent = Agent.objects.create(
+            uuid=order_status_agent_uuid,
+            name="OrderStatus",
+            lambda_arn="arn:aws:lambda:order-status",
+            project=self.project,
+            language="pt_BR",
+            credentials={},
+        )
+
+        library_template = PreApprovedTemplate.objects.create(
+            agent=order_status_agent,
+            uuid=uuid.uuid4(),
+            slug="weni-order-invoiced",
+            name="weni_order_invoiced",
+            display_name="Order Invoiced",
+            is_valid=True,
+            start_condition="invoiced",
+            metadata={"category": "UTILITY", "language": "pt_BR"},
+        )
+        customer_template = PreApprovedTemplate.objects.create(
+            agent=order_status_agent,
+            uuid=uuid.uuid4(),
+            slug="weni-customer-template",
+            name="weni_customer_template",
+            display_name="Customer Template",
+            is_valid=False,
+            start_condition="custom",
+            metadata={"category": "UTILITY"},
+        )
+
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
+
+        mock_template = MagicMock()
+        mock_version = MagicMock()
+        mock_version.template_name = "weni_order_invoiced"
+        mock_version.uuid = uuid.uuid4()
+        mock_use_case_instance = mock_create_library_use_case.return_value
+        mock_use_case_instance.execute.return_value = (mock_template, mock_version)
+
+        app_uuid = uuid.uuid4()
+        channel_uuid = uuid.uuid4()
+
+        with self.settings(ORDER_STATUS_AGENT_UUID=str(order_status_agent_uuid)):
+            integrated_agent = use_case.execute(
+                agent=order_status_agent,
+                project_uuid=self.project.uuid,
+                app_uuid=app_uuid,
+                channel_uuid=channel_uuid,
+                credentials={},
+                include_templates=[
+                    str(library_template.uuid),
+                    str(customer_template.uuid),
+                ],
+            )
+
+        self.assertIsInstance(integrated_agent, IntegratedAgent)
+        self.assertNotIn("direct_send", integrated_agent.config)
+        self.assertFalse(integrated_agent.config.get("direct_send", False))
+
+        mock_use_case_instance.execute.assert_called_once()
+        mock_use_case_instance.notify_integrations.assert_called_once()
+        mock_integrations_service.fetch_templates_from_user.assert_called_once_with(
+            app_uuid,
+            str(self.project.uuid),
+            ["weni_customer_template"],
+            order_status_agent.language,
         )
 
     @patch(

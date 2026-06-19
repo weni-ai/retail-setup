@@ -1,3 +1,160 @@
+# 5.31.1
+- fix: Use Meta WABA template name in agent logs CSV export
+- fix: Split broadcast build/send error logging by phase
+
+# 5.31.0
+- feat: Add endpoint to link a project to a VTEX account
+
+# 5.30.0
+- feat: Expose integrated agent channel_uuid on agent GET
+
+# 5.29.1
+- fix: Serve agent-logs export download via signed redirect
+
+# 5.29.0
+- feat: set 100% rollout for order status agent on assignment
+- feat: Add position attribute to WWC webchat onboarding config
+
+# 5.28.0
+- feat: implement agent execution logging and S3 trace storage
+
+# 5.27.1
+- chore: Improve vtex_host_store propagation logging and add vtex_account
+
+# 5.27.0
+- feat: enhance AssignAgentUseCase to drop non-interactive headers footers
+- refactor: Decouple crawl and Nexus upload from onboarding wizard
+
+# 5.26.0
+- feat: Skip Fulfillment order events and add vtex_account to lambda logs
+
+# 5.25.0
+- feat: add WhatsApp Direct Send dispatch path for OrderStatus
+- feat: add Direct Send incorrect-category webhook
+- feat: add Direct Send template sample validation endpoint
+- refactor: streamline exception messages and improve documentation
+
+# 5.24.1
+- fix: Make One-Click Payment Meta Flow name unique per channel
+
+# 5.24.0
+- feat: Adds One-Click Payment configuration to WPP Cloud onboarding
+- feat: Adds One-Click Payment agent with wpp_flow_uuid credential
+- chore: Adopt GitHub Spec Kit with Cursor integration
+
+# 5.23.0
+- feat: Add endpoint that sends onboarding support requests to Slack
+- feat: Refactor onboarding process with pre-crawl channel setup
+
+# 5.22.0
+- feat: Support multi-agent OR check on agent-active endpoint
+
+# 5.21.0
+- fix: handle null buttons metadata when assigning library templates
+
+# 5.20.0
+- chore: Standardize order status and webhook logs for Loki filtering
+- fix: Downgrade non-broadcast send event log from error to debug
+
+# 5.19.0
+- feat: Link broadcast conversion to source broadcast and cache PR agent lookup
+- refactor: Centralize integrated agent cache invalidation
+- feat: Restrict broadcast conversion to payment recovery agent
+- feat(payment-recovery): set 100% rollout and 5min delay as defaults
+
+# 5.18.0
+- feat: Add conversion tracking for broadcast-driven sales
+- refactor: Change primary key of BroadcastMessage from UUID to auto-incrementing integer
+
+# 5.17.0
+- feat: Track broadcasts and enforce trial broadcast limit
+
+# 5.16.0
+- fix: Skip duplicate order status events
+- fix: Skip abandoned cart notification when order form already notified
+
+# 5.15.0
+- fix: Only treat invoiced VTEX orders as confirmed purchase
+
+# 5.14.0
+- refactor: Clarify pre-approved template source naming
+- fix: Prevent customer templates from shadowing defaults
+
+# 5.13.1
+- fix: Preserve payment_recovery config when creating VTEX hook
+
+# 5.13.0
+- feat: Persist start-setup failure snapshot in onboarding config
+- feat: Handle crawl.url_redirected webhook event
+
+# 5.12.3
+- fix: Add User-Agent header to VTEX webhook hook config
+
+# 5.12.2
+- fix: Set payment recovery template category to MARKETING and standardize logs
+
+# 5.12.1
+- feat: Add GET health check to payment recovery webhook
+- fix: Starts onboarding progress at 10% to avoid visual stall at 0%
+
+# 5.12.0
+- feat: Expose template language in metadata serialization
+- feat: Implement storefront type detection and initiate crawl use case
+
+# 5.11.0
+- feat: Updates WWC config with new titles, subtitle and fullscreen option
+- fix: Shorten payment recovery button text to comply with Meta limit
+- fix: Unifies WWC widget color using mainColor instead of custom
+
+# 5.10.0
+- feat: Add WhatsApp Payment Recovery agent with VTEX hook integration
+- refactor: Load passive onboarding agents from environment variables
+- feat: Add payment_request button support in broadcast message builder
+- feat: Update WWC channel config with addToCart and simplified widget colors
+
+# 5.9.0
+- fix: Restrict needs_button_edit flag to URL-type buttons only
+- feat: Add Payment Gateway proxy endpoint (retail → IO)
+
+# 5.8.1
+- fix: Pass app_uuid and channel_uuid to AgentContext in install-agents
+
+# 5.8.0
+- fix: Use dedicated endpoint for wpp-cloud channel creation
+- fix: Update MANAGER_PERSONALITY to use English term "friendly"
+
+# 5.7.0
+- feat: Add payment transaction proxy endpoint for agentic-cx
+- feat: Add endpoint to install agents for a new channel on existing onboarding
+- feat: Adds WhatsApp Cloud channel integration to the setup flow
+- feat: Adds WPP Cloud activate endpoint for abandoned cart
+- feat: Add endpoint to send test template via WhatsApp broadcast
+- fix: Adjust WWC config defaults and add conversationStartersPDP
+
+# 5.6.0
+- feat: Add vtex_account field to ActivateWebchatSerializer
+
+# 5.5.1
+- feat: Add order_details support for WhatsApp payment broadcasts
+
+# 5.5.0
+- feat: Notify VTEX IO to activate Agentic CX script when onboarding completes
+
+# 5.4.0
+- feat: Add endpoint to check onboarding completion for VTEX account
+
+# 5.3.0
+- feat: Add endpoint to check if agent type is active for VTEX account
+
+# 5.2.0
+- fix: Rename Slack setting to SLACK_LEAD_NOTIFICATION_CHANNEL
+- feat: Adds lead capture endpoint with Slack notification
+
+# 5.1.0
+- feat: Add SendCatalog Agent to onboarding
+- feat: Add skipped field, unique constraint, and deletion tracing to ProjectOnboarding
+- feat: Adds endpoint to retrieve store URL from project config
+
 # 5.0.0
 - fix: Centralizes template language resolution to prevent null language
 - feat: Sends vtex_host_store to Connect and consumes config EDA

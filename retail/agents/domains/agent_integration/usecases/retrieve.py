@@ -39,10 +39,12 @@ class RetrieveIntegratedAgentUseCase:
             )
 
         if not show_all:
-            queryset = Template.objects.filter(is_active=True)
+            queryset = Template.objects.filter(is_active=True).prefetch_related(
+                "versions"
+            )
             return Prefetch("templates", queryset=queryset)
 
-        queryset = Template.objects.all()
+        queryset = Template.objects.all().prefetch_related("versions")
 
         if start and end:
             queryset = queryset.exclude(deleted_at__date__range=[start, end])

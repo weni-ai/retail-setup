@@ -16,13 +16,33 @@ class ProjectVtexConfigSerializer(serializers.Serializer):
     vtex_store_type = serializers.CharField(required=True)
 
 
-class StartOnboardingSerializer(serializers.Serializer):
-    """Serializer to validate the start onboarding (crawl) request."""
+class ChannelDataSerializer(serializers.Serializer):
+    """Serializer to validate WPP Cloud channel data from Meta signup."""
+
+    auth_code = serializers.CharField(required=True)
+    waba_id = serializers.CharField(required=True)
+    phone_number_id = serializers.CharField(required=True)
+
+
+class StartSetupSerializer(serializers.Serializer):
+    """Serializer to validate the start-setup request."""
 
     crawl_url = serializers.URLField(required=True)
     channel = serializers.ChoiceField(
         choices=["wwc", "wpp-cloud"],
     )
+    channel_data = ChannelDataSerializer(required=False, default=dict)
+
+    def validate(self, attrs):
+        channel = attrs.get("channel")
+        channel_data = attrs.get("channel_data")
+
+        if channel == "wpp-cloud" and not channel_data:
+            raise serializers.ValidationError(
+                {"channel_data": "Required when channel is 'wpp-cloud'."}
+            )
+
+        return attrs
 
 
 class CrawlerWebhookSerializer(serializers.Serializer):
@@ -41,7 +61,19 @@ class OnboardingPatchSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ProjectOnboarding
-        fields = ["completed", "current_page"]
+        fields = ["completed", "current_page", "skipped"]
+
+
+class InstallChannelAgentsSerializer(serializers.Serializer):
+    """Serializer to validate the install channel agents request."""
+
+    channel_data = serializers.DictField(required=True)
+
+
+class RequestOnboardingSupportSerializer(serializers.Serializer):
+    """Generic support contact payload sent by the front-end."""
+
+    data = serializers.DictField(required=False, default=dict)
 
 
 class ProjectOnboardingSerializer(serializers.Serializer):
@@ -53,6 +85,7 @@ class ProjectOnboardingSerializer(serializers.Serializer):
     current_page = serializers.CharField(read_only=True)
     completed = serializers.BooleanField(read_only=True)
     failed = serializers.BooleanField(read_only=True)
+    skipped = serializers.BooleanField(read_only=True)
     progress = serializers.IntegerField(read_only=True)
     current_step = serializers.CharField(read_only=True)
     crawler_result = serializers.CharField(read_only=True, allow_null=True)

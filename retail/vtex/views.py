@@ -12,8 +12,12 @@ from retail.internal.views import KeycloakAPIView
 from retail.vtex.dtos.register_order_form_dto import RegisterOrderFormDTO
 from retail.vtex.serializers import (
     CreateProjectUserSerializer,
+    LeadSerializer,
+    LinkProjectSerializer,
     OrderFormTrackingSerializer,
     OrdersQueryParamsSerializer,
+    PaymentGatewayProxySerializer,
+    ProxyPaymentTransactionSerializer,
     VtexProxySerializer,
 )
 from retail.services.vtex_io.service import VtexIOService
@@ -21,11 +25,27 @@ from retail.vtex.usecases.create_project_user import (
     CreateProjectUserDTO,
     CreateProjectUserUseCase,
 )
+from retail.vtex.usecases.link_project import (
+    LinkProjectDTO,
+    LinkProjectUseCase,
+)
 from retail.vtex.usecases.get_account_identifier import GetAccountIdentifierUsecase
+from retail.vtex.usecases.get_store_url import GetStoreUrlUseCase
 from retail.vtex.usecases.get_order_detail import GetOrderDetailsUsecase
 from retail.vtex.usecases.get_orders import GetOrdersUsecase
 from retail.vtex.usecases.register_order_form import RegisterOrderFormUseCase
+from retail.vtex.usecases.register_lead import (
+    RegisterLeadDTO,
+    RegisterLeadUseCase,
+)
 from retail.vtex.usecases.proxy_vtex import ProxyVtexUsecase
+from retail.vtex.usecases.proxy_payment_transaction import (
+    ProxyPaymentTransactionUseCase,
+)
+from retail.vtex.usecases.proxy_payment_gateway import ProxyPaymentGatewayUseCase
+from retail.vtex.dtos.proxy_payment_transaction_dto import ProxyPaymentTransactionDTO
+from retail.vtex.dtos.proxy_payment_gateway_dto import ProxyPaymentGatewayDTO
+from retail.vtex.tasks import task_notify_lead
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +134,25 @@ class AccountIdentifierProxyView(BaseVtexProxyView):
             return Response(result, status=status.HTTP_200_OK)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class StoreUrlView(BaseVtexProxyView):
+    """
+    GET endpoint to retrieve the store URL from the project configuration.
+    """
+
+    def get(self, request: Request) -> Response:
+        """
+        Retrieves the store URL (vtex_host_store) using the project UUID from JWT token.
+
+        Args:
+            request (Request): The incoming HTTP request.
+
+        Returns:
+            Response: Store URL or 400 if not configured.
+        """
+        result = GetStoreUrlUseCase().execute(project_uuid=self.project_uuid)
+        return Response(result, status=status.HTTP_200_OK)
 
 
 class OrderDetailsProxyView(BaseVtexProxyView):
@@ -267,6 +306,127 @@ class VtexProxyView(BaseVtexProxyView):
         return Response(result, status=status.HTTP_200_OK)
 
 
+class PaymentTransactionProxyView(BaseVtexProxyView):
+    """
+    POST endpoint that proxies payment transaction data to the VTEX IO
+    agentic-cx proxy-payment-transaction route.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._usecase = None
+
+    @property
+    def usecase(self) -> ProxyPaymentTransactionUseCase:
+        if not self._usecase:
+            self._usecase = ProxyPaymentTransactionUseCase(
+                vtex_io_service=VtexIOService()
+            )
+        return self._usecase
+
+    def post(self, request: Request) -> Response:
+        """
+        Forwards a payment transaction to the VTEX IO proxy-payment-transaction route.
+
+        Args:
+            request (Request): The incoming request with transactionId and payments.
+
+        Returns:
+            Response: The response from VTEX IO.
+        """
+        serializer = ProxyPaymentTransactionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dto = ProxyPaymentTransactionDTO(
+            transaction_id=serializer.validated_data["transaction_id"],
+            payments=tuple(serializer.validated_data["payments"]),
+        )
+
+        result = self.usecase.execute(dto=dto, project_uuid=self.project_uuid)
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class PaymentGatewayProxyView(BaseVtexProxyView):
+    """
+    POST endpoint that proxies requests to the VTEX IO Payment Gateway
+    proxy route (/_v/proxy-payment-gateway).
+
+    Targets the {account}.vtexpayments.com.br host for read operations
+    on transactions, interactions, payments and settlements.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._usecase = None
+
+    @property
+    def usecase(self) -> ProxyPaymentGatewayUseCase:
+        if not self._usecase:
+            self._usecase = ProxyPaymentGatewayUseCase(vtex_io_service=VtexIOService())
+        return self._usecase
+
+    def post(self, request: Request) -> Response:
+        """
+        Forwards a Payment Gateway request to the VTEX IO proxy-payment-gateway route.
+
+        Args:
+            request (Request): The incoming request with method, path, and optional params.
+
+        Returns:
+            Response: The response from VTEX IO.
+        """
+        serializer = PaymentGatewayProxySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        validated = serializer.validated_data
+
+        dto = ProxyPaymentGatewayDTO(
+            method=validated["method"],
+            path=validated["path"],
+            headers=validated.get("headers"),
+            data=validated.get("data"),
+            params=validated.get("params"),
+        )
+
+        result = self.usecase.execute(dto=dto, project_uuid=self.project_uuid)
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class LeadView(KeycloakAPIView):
+    """
+    Registers or updates a sales lead for a VTEX account.
+
+    First call creates the record; subsequent calls update the plan,
+    metrics data, and refresh the timestamp. Each call triggers a Slack
+    Block Kit notification to the internal team.
+    """
+
+    def post(self, request: Request) -> Response:
+        serializer = LeadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dto = RegisterLeadDTO(
+            user_email=serializer.validated_data["user"],
+            plan=serializer.validated_data["plan"],
+            vtex_account=serializer.validated_data["vtex_account"],
+            data=serializer.validated_data.get("data", {}),
+        )
+
+        use_case = RegisterLeadUseCase()
+        lead = use_case.execute(dto)
+
+        task_notify_lead.delay(str(lead.uuid))
+
+        return Response(
+            {
+                "vtex_account": lead.vtex_account,
+                "plan": lead.plan,
+                "region": lead.region,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class CreateProjectUserView(KeycloakAPIView):
     """
     Proxies project creation to Connect with automatic language detection.
@@ -290,6 +450,40 @@ class CreateProjectUserView(KeycloakAPIView):
         except CustomAPIException as e:
             logger.error(
                 f"[CreateProjectUser] Connect error: "
+                f"vtex_account={vtex_account} detail={e.detail}"
+            )
+            return Response(
+                {"detail": e.detail},
+                status=e.status_code or status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class LinkProjectView(KeycloakAPIView):
+    """
+    Links an existing project to a VTEX account.
+
+    The IO front-end calls this route to attach a project_uuid to the
+    vtex_account in the path. The vtex_account uniqueness validations are
+    enforced at the root (Connect), which also triggers the Insights
+    migration; this view then mirrors the link locally.
+    """
+
+    def post(self, request: Request, vtex_account: str) -> Response:
+        serializer = LinkProjectSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dto = LinkProjectDTO(
+            vtex_account=vtex_account,
+            project_uuid=str(serializer.validated_data["project_uuid"]),
+        )
+
+        try:
+            result = LinkProjectUseCase().execute(dto)
+        except CustomAPIException as e:
+            logger.error(
+                f"[LinkProject] Connect error: "
                 f"vtex_account={vtex_account} detail={e.detail}"
             )
             return Response(

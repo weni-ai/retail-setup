@@ -1,17 +1,27 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-
-from django.conf import settings
+from typing import Optional
 
 from retail.services.nexus.service import NexusService
 
 
-@dataclass
+@dataclass(frozen=True)
 class AgentContext:
-    """Shared context passed to every agent during integration."""
+    """Shared context passed to every agent during integration.
+
+    Immutable so agents cannot mutate state seen by the next agent
+    in the integration sequence. Core fields are always set;
+    channel-specific fields (app_uuid, channel_uuid, flow_id) are
+    populated when the channel provides them — e.g. wpp-cloud stores
+    app_uuid + channel_uuid after the channel is created, and
+    flow_id after the One-Click Payment Meta Flow is created.
+    """
 
     project_uuid: str
     vtex_account: str
+    app_uuid: Optional[str] = None
+    channel_uuid: Optional[str] = None
+    flow_id: Optional[str] = None
 
 
 class OnboardingAgent(ABC):
@@ -22,24 +32,16 @@ class OnboardingAgent(ABC):
     logic following the rule_mappings pattern: a registry maps channel
     codes to lists of agent instances, and each agent knows how to
     integrate itself.
-
-    The UUID is resolved automatically from ONBOARDING_AGENT_UUIDS
-    using the class name as key.
     """
 
     uuid: str = ""
     name: str
 
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        agent_uuids = getattr(settings, "ONBOARDING_AGENT_UUIDS", {})
-        cls.uuid = agent_uuids.get(cls.__name__, cls.uuid)
-
     def _validate_uuid(self) -> None:
         if not self.uuid:
             raise ValueError(
                 f"Agent '{self.name}' ({self.__class__.__name__}) has no UUID "
-                f"configured. Check ONBOARDING_AGENT_UUIDS in environment variables."
+                f"configured."
             )
 
     @abstractmethod
@@ -48,7 +50,18 @@ class OnboardingAgent(ABC):
 
 
 class PassiveAgent(OnboardingAgent):
-    """Integrated via Nexus app-assign endpoint (simple toggle)."""
+    """Integrated via Nexus app-assign endpoint (simple toggle).
+
+    Instantiated directly with a UUID loaded from environment variables.
+    """
+
+    name = "Passive Agent"
+
+    def __init__(self, uuid: str = "", name: str = ""):
+        if uuid:
+            self.uuid = uuid
+        if name:
+            self.name = name
 
     def integrate(self, context: AgentContext, nexus_service: NexusService) -> dict:
         self._validate_uuid()
@@ -57,15 +70,20 @@ class PassiveAgent(OnboardingAgent):
 
 class ActiveAgent(OnboardingAgent):
     """
-    Integrated via Retail assign endpoint with templates/credentials.
+    Integrated via AssignAgentUseCase with templates and credentials.
 
-    Structure ready for future use; no concrete active agents exist yet.
+    Requires app_uuid and channel_uuid in the AgentContext.
     Subclasses must override ``integrate`` with the specific payload.
     """
 
-    templates: list = []
+    def _validate_channel_context(self, context: AgentContext) -> None:
+        if not context.app_uuid or not context.channel_uuid:
+            raise ValueError(
+                f"Active agent '{self.name}' requires app_uuid and channel_uuid "
+                f"in the context. Ensure the channel was created before "
+                f"agent integration."
+            )
 
+    @abstractmethod
     def integrate(self, context: AgentContext, nexus_service: NexusService) -> dict:
-        raise NotImplementedError(
-            f"Active agent integration not implemented for {self.name}"
-        )
+        pass

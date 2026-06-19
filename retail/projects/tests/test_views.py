@@ -15,18 +15,18 @@ def _auth_bypass(original_cls):
     )
 
 
-class TestStartOnboardingView(TestCase):
+class TestStartSetupView(TestCase):
     def setUp(self):
         self.client = APIClient()
 
     @_auth_bypass(None)
-    @patch("retail.projects.views.StartOnboardingUseCase")
+    @patch("retail.projects.views.StartSetupUseCase")
     def test_returns_201_on_success(self, mock_usecase_cls, _mock_auth):
         mock_instance = MagicMock()
         mock_usecase_cls.return_value = mock_instance
 
         response = self.client.post(
-            "/api/onboard/mystore/start-crawling/",
+            "/api/onboard/mystore/start-setup/",
             {"crawl_url": "https://www.mystore.com.br/", "channel": "wwc"},
             format="json",
         )
@@ -38,7 +38,7 @@ class TestStartOnboardingView(TestCase):
     @_auth_bypass(None)
     def test_returns_400_when_crawl_url_missing(self, _mock_auth):
         response = self.client.post(
-            "/api/onboard/mystore/start-crawling/",
+            "/api/onboard/mystore/start-setup/",
             {},
             format="json",
         )
@@ -46,22 +46,64 @@ class TestStartOnboardingView(TestCase):
         self.assertEqual(response.status_code, 400)
 
     @_auth_bypass(None)
-    @patch("retail.projects.views.StartOnboardingUseCase")
-    def test_returns_502_when_crawler_fails(self, mock_usecase_cls, _mock_auth):
-        from retail.projects.usecases.start_crawl import CrawlerStartError
-
+    @patch("retail.projects.views.StartSetupUseCase")
+    def test_returns_201_with_wpp_cloud_channel_data(
+        self, mock_usecase_cls, _mock_auth
+    ):
         mock_instance = MagicMock()
-        mock_instance.execute.side_effect = CrawlerStartError("Crawler down")
         mock_usecase_cls.return_value = mock_instance
 
         response = self.client.post(
-            "/api/onboard/mystore/start-crawling/",
-            {"crawl_url": "https://www.mystore.com.br/", "channel": "wwc"},
+            "/api/onboard/mystore/start-setup/",
+            {
+                "crawl_url": "https://www.mystore.com.br/",
+                "channel": "wpp-cloud",
+                "channel_data": {
+                    "auth_code": "abc123",
+                    "waba_id": "waba456",
+                    "phone_number_id": "phone789",
+                },
+            },
             format="json",
         )
 
-        self.assertEqual(response.status_code, 502)
-        self.assertIn("Crawler down", response.json()["detail"])
+        self.assertEqual(response.status_code, 201)
+        mock_instance.execute.assert_called_once()
+
+    @_auth_bypass(None)
+    def test_returns_400_when_wpp_cloud_without_channel_data(self, _mock_auth):
+        response = self.client.post(
+            "/api/onboard/mystore/start-setup/",
+            {
+                "crawl_url": "https://www.mystore.com.br/",
+                "channel": "wpp-cloud",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    @_auth_bypass(None)
+    def test_stores_failure_snapshot_on_validation_error(self, _mock_auth):
+        """When the payload is invalid, the snapshot must be persisted in config."""
+        payload = {
+            "crawl_url": "https://www.mystore.com.br/",
+            "channel": "wpp-cloud",
+        }
+
+        response = self.client.post(
+            "/api/onboard/mystore/start-setup/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        onboarding = ProjectOnboarding.objects.get(vtex_account="mystore")
+        last_failure = onboarding.config["last_failure"]
+        self.assertEqual(last_failure["stage"], "start_setup_validation")
+        self.assertEqual(last_failure["payload"], payload)
+        self.assertIn("channel_data", last_failure["errors"])
 
 
 class TestCrawlerWebhookView(TestCase):
@@ -80,8 +122,20 @@ class TestCrawlerWebhookView(TestCase):
         "retail.projects.usecases.update_onboarding_progress.acquire_task_lock",
         return_value=True,
     )
-    @patch("retail.projects.usecases.update_onboarding_progress.task_configure_nexus")
+    @patch(
+        "retail.projects.usecases.update_onboarding_progress.task_upload_nexus_contents"
+    )
     def test_returns_200_on_valid_webhook(self, mock_task, mock_lock):
+        """
+        Background crawl progress events do NOT touch the main
+        ``progress`` -- the response reflects the onboarding's current
+        main progress (set by the inline orchestrator path), not the
+        crawl-local percentage in the webhook payload.
+        """
+        self.onboarding.progress = 100
+        self.onboarding.current_step = "NEXUS_CONFIG"
+        self.onboarding.save(update_fields=["progress", "current_step"])
+
         response = self.client.post(
             f"/api/onboard/{self.onboarding.uuid}/webhook/",
             {
@@ -95,7 +149,7 @@ class TestCrawlerWebhookView(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["progress"], 50)
+        self.assertEqual(response.json()["progress"], 100)
 
     def test_returns_404_for_unknown_project(self):
         response = self.client.post(
@@ -180,7 +234,8 @@ class TestOnboardingPatchView(TestCase):
         )
 
     @_auth_bypass(None)
-    def test_patches_completed_field(self, _mock_auth):
+    @patch("retail.projects.tasks.task_activate_agentic_cx_script")
+    def test_patches_completed_field(self, _mock_task, _mock_auth):
         response = self.client.patch(
             "/api/onboard/mystore/",
             {"completed": True},
@@ -204,7 +259,8 @@ class TestOnboardingPatchView(TestCase):
         self.assertEqual(self.onboarding.current_page, "setup_channel")
 
     @_auth_bypass(None)
-    def test_partial_patch_only_completed(self, _mock_auth):
+    @patch("retail.projects.tasks.task_activate_agentic_cx_script")
+    def test_partial_patch_only_completed(self, _mock_task, _mock_auth):
         self.onboarding.current_page = "initial_page"
         self.onboarding.save()
 
@@ -220,7 +276,8 @@ class TestOnboardingPatchView(TestCase):
         self.assertEqual(self.onboarding.current_page, "initial_page")
 
     @_auth_bypass(None)
-    def test_returns_404_for_unknown_vtex_account(self, _mock_auth):
+    @patch("retail.projects.tasks.task_activate_agentic_cx_script")
+    def test_returns_404_for_unknown_vtex_account(self, _mock_task, _mock_auth):
         response = self.client.patch(
             "/api/onboard/unknown/",
             {"completed": True},
@@ -228,3 +285,55 @@ class TestOnboardingPatchView(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+
+class TestOnboardingSupportContactView(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    @_auth_bypass(None)
+    @patch("retail.projects.views.RequestOnboardingSupportUseCase")
+    def test_returns_202_and_dispatches_use_case(self, mock_use_case_cls, _mock_auth):
+        mock_instance = MagicMock()
+        mock_use_case_cls.return_value = mock_instance
+
+        response = self.client.post(
+            "/api/onboard/mystore/support-contact/",
+            {"data": {"message": "stuck on channel setup", "screen": "wpp_setup"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"status": "received"})
+        mock_instance.execute.assert_called_once()
+        dto = mock_instance.execute.call_args.args[0]
+        self.assertEqual(dto.vtex_account, "mystore")
+        self.assertEqual(
+            dto.data, {"message": "stuck on channel setup", "screen": "wpp_setup"}
+        )
+
+    @_auth_bypass(None)
+    @patch("retail.projects.views.RequestOnboardingSupportUseCase")
+    def test_accepts_empty_body(self, mock_use_case_cls, _mock_auth):
+        mock_instance = MagicMock()
+        mock_use_case_cls.return_value = mock_instance
+
+        response = self.client.post(
+            "/api/onboard/mystore/support-contact/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        dto = mock_instance.execute.call_args.args[0]
+        self.assertEqual(dto.data, {})
+
+    @_auth_bypass(None)
+    def test_returns_400_when_data_is_not_an_object(self, _mock_auth):
+        response = self.client.post(
+            "/api/onboard/mystore/support-contact/",
+            {"data": "not-a-dict"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)

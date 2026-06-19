@@ -22,21 +22,27 @@ class TestPublishWebchatScriptUseCase(TestCase):
         self.dto = ActivateWebchatDTO(
             app_uuid="a1b2c3d4-e5f6-7890-abcd-ef1234567890",
             account_id="b1165658e9e54790881952eb99341e51",
+            vtex_account="mystore",
         )
 
     def test_execute_success(self):
         self.integrations_service.get_channel_app.return_value = {
             "config": {"script": "https://example.com/wwc.js"}
         }
-        self.webchat_push_service.publish_webchat_script.return_value = (
-            "https://bucket.s3.amazonaws.com/webchat.js"
-        )
+        self.webchat_push_service.publish_webchat_script.return_value = [
+            "https://bucket.s3.amazonaws.com/account_id/webchat.js",
+            "https://bucket.s3.amazonaws.com/vtex_account/webchat.js",
+        ]
 
         result = self.usecase.execute(self.dto)
 
         self.assertIsInstance(result, PublishWebchatResult)
         self.assertEqual(
-            result.script_url, "https://bucket.s3.amazonaws.com/webchat.js"
+            result.script_urls,
+            [
+                "https://bucket.s3.amazonaws.com/account_id/webchat.js",
+                "https://bucket.s3.amazonaws.com/vtex_account/webchat.js",
+            ],
         )
         self.integrations_service.get_channel_app.assert_called_once_with(
             apptype="wwc", app_uuid=self.dto.app_uuid
@@ -44,6 +50,7 @@ class TestPublishWebchatScriptUseCase(TestCase):
         self.webchat_push_service.publish_webchat_script.assert_called_once_with(
             script_url="https://example.com/wwc.js",
             account_id=self.dto.account_id,
+            vtex_account=self.dto.vtex_account,
         )
 
     def test_execute_raises_validation_error_when_app_not_found(self):
@@ -80,8 +87,8 @@ class TestPublishWebchatScriptUseCase(TestCase):
             self.usecase.execute(self.dto)
 
     def test_result_to_dict(self):
-        result = PublishWebchatResult(script_url="https://example.com/webchat.js")
+        result = PublishWebchatResult(script_urls=["https://example.com/webchat.js"])
 
         self.assertEqual(
-            result.to_dict(), {"script_url": "https://example.com/webchat.js"}
+            result.to_dict(), {"script_urls": ["https://example.com/webchat.js"]}
         )

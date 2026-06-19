@@ -14,7 +14,7 @@ class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
 
     Handles:
       - updated: syncs name, language, and config to the local Project.
-      - deleted: removes the local Project (cascades to ProjectOnboarding).
+      - deleted: soft-deletes the local Project (sets is_active=False).
     """
 
     def consume(self, message: amqp.Message):
@@ -69,11 +69,19 @@ class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
                 f"for project {project_uuid}"
             )
 
+        if config and "vtex_host_store" in config:
+            logger.info(
+                f"[ProjectUpdateConsumer] - vtex_host_store echoed back from "
+                f"Connect and persisted for project {project_uuid} "
+                f"vtex_account={project.vtex_account}: "
+                f"host={config['vtex_host_store']!r}"
+            )
+
     def _handle_delete(self, body: dict) -> None:
         project_uuid = body.get("project_uuid")
 
         try:
-            project = Project.objects.get(uuid=project_uuid)
+            project = Project.all_objects.get(uuid=project_uuid)
         except Project.DoesNotExist:
             logger.warning(
                 f"[ProjectUpdateConsumer] - Project {project_uuid} not found, "
@@ -81,5 +89,17 @@ class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
             )
             return
 
-        project.delete()
-        logger.info(f"[ProjectUpdateConsumer] - Deleted project {project_uuid}")
+        if not project.is_active:
+            logger.info(
+                f"[ProjectUpdateConsumer] - Project {project_uuid} already "
+                "inactive, skipping soft delete."
+            )
+            return
+
+        project.is_active = False
+        project.save(update_fields=["is_active"])
+        project.clear_cache()
+        logger.info(
+            f"[ProjectUpdateConsumer] - Soft-deleted project {project_uuid} "
+            f"(is_active=False)"
+        )

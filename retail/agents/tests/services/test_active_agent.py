@@ -1,3 +1,5 @@
+import base64
+
 from django.test import TestCase
 
 from unittest.mock import MagicMock, patch
@@ -123,6 +125,34 @@ class ActiveAgentTest(TestCase):
 
         self.assertIsNone(result)
 
+    def test_parse_log_tail_decodes_base64_log_result(self):
+        log_text = "START RequestId: abc\nhello from print\nEND RequestId: abc\n"
+        response = {
+            "LogResult": base64.b64encode(log_text.encode("utf-8")).decode("ascii"),
+        }
+
+        result = self.handler.parse_log_tail(response)
+
+        self.assertEqual(result, log_text)
+
+    def test_parse_log_tail_returns_none_when_log_result_missing(self):
+        # Older boto3 / async invokes don't include LogResult; the parser
+        # must degrade gracefully rather than blowing up the exec_logger.
+        result = self.handler.parse_log_tail({"Payload": MagicMock()})
+
+        self.assertIsNone(result)
+
+    def test_parse_log_tail_returns_none_for_invalid_base64(self):
+        response = {"LogResult": "!!!not-base64!!!"}
+
+        with patch(
+            "retail.agents.domains.agent_webhook.services.active_agent.logger"
+        ) as mock_logger:
+            result = self.handler.parse_log_tail(response)
+
+        self.assertIsNone(result)
+        mock_logger.warning.assert_called_once()
+
     def test_validate_response_rule_matched(self):
         data = {"status": ActiveAgentResponseStatus.RULE_MATCHED}
 
@@ -197,12 +227,60 @@ class ActiveAgentTest(TestCase):
 
         self.assertFalse(result)
 
+    def test_validate_response_rejection_log_includes_vtex_account(self):
+        data = {
+            "status": ActiveAgentResponseStatus.RULE_NOT_MATCHED,
+            "error": "No rule matched",
+        }
+
+        with self.assertLogs(
+            "retail.agents.domains.agent_webhook.services.active_agent",
+            level="INFO",
+        ) as captured:
+            self.handler.validate_response(data, self.mock_agent)
+
+        self.assertTrue(
+            any(
+                "Rule not matched" in line and "vtex_account=test_account" in line
+                for line in captured.output
+            ),
+            captured.output,
+        )
+
+    def test_validate_response_unknown_status_log_includes_vtex_account(self):
+        data = {"status": 999, "error": "Unknown error"}
+
+        with self.assertLogs(
+            "retail.agents.domains.agent_webhook.services.active_agent",
+            level="WARNING",
+        ) as captured:
+            self.handler.validate_response(data, self.mock_agent)
+
+        self.assertTrue(
+            any("vtex_account=test_account" in line for line in captured.output),
+            captured.output,
+        )
+
     def test_validate_response_error_message(self):
         data = {"errorMessage": "Some error"}
 
         result = self.handler.validate_response(data, self.mock_agent)
 
         self.assertFalse(result)
+
+    def test_validate_response_error_message_log_includes_vtex_account(self):
+        data = {"errorMessage": "Some error"}
+
+        with self.assertLogs(
+            "retail.agents.domains.agent_webhook.services.active_agent",
+            level="ERROR",
+        ) as captured:
+            self.handler.validate_response(data, self.mock_agent)
+
+        self.assertTrue(
+            any("vtex_account=test_account" in line for line in captured.output),
+            captured.output,
+        )
 
     def test_validate_response_no_status_no_error_message(self):
         data = {"template": "order_update", "contact_urn": "whatsapp:123"}

@@ -26,7 +26,16 @@ class TestLinkProjectToOnboardingUseCase(TestCase):
         onboarding.refresh_from_db()
         self.assertEqual(onboarding.project, self.project)
 
-    def test_sets_project_config_step_and_100_progress(self):
+    def test_sets_project_config_step_and_partial_progress(self):
+        """
+        Linking the project advances PROJECT_CONFIG to a partial progress
+        value; the remaining progress is driven by the pre-crawl channel
+        setup task before the CRAWL transition.
+        """
+        from retail.projects.usecases.link_project_to_onboarding import (
+            PROJECT_LINKED_PROGRESS,
+        )
+
         onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
         )
@@ -35,7 +44,8 @@ class TestLinkProjectToOnboardingUseCase(TestCase):
 
         onboarding.refresh_from_db()
         self.assertEqual(onboarding.current_step, "PROJECT_CONFIG")
-        self.assertEqual(onboarding.progress, 100)
+        self.assertEqual(onboarding.progress, PROJECT_LINKED_PROGRESS)
+        self.assertLess(onboarding.progress, 100)
 
     def test_does_nothing_when_no_pending_onboarding(self):
         # Should not raise any exception

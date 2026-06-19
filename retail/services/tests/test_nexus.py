@@ -143,3 +143,44 @@ class TestNexusService(TestCase):
         result = self.service.configure_agent_attributes(self.project_uuid, payload)
 
         self.assertIsNone(result)
+
+    def test_create_agent_credentials_success(self):
+        credentials = [
+            {
+                "name": "wpp_flow_uuid",
+                "label": "WhatsApp Flow UUID",
+                "is_confidential": True,
+                "value": "flow-meta-123",
+            }
+        ]
+        expected = {
+            "message": "Credentials created successfully",
+            "created_credentials": ["wpp_flow_uuid"],
+        }
+        self.mock_nexus_client.create_agent_credentials.return_value = expected
+
+        result = self.service.create_agent_credentials(
+            project_uuid=self.project_uuid,
+            agent_uuid=self.agent_uuid,
+            credentials=credentials,
+        )
+
+        self.mock_nexus_client.create_agent_credentials.assert_called_once_with(
+            project_uuid=self.project_uuid,
+            agent_uuid=self.agent_uuid,
+            credentials=credentials,
+        )
+        self.assertEqual(result, expected)
+
+    def test_create_agent_credentials_returns_none_on_api_exception(self):
+        self.mock_nexus_client.create_agent_credentials.side_effect = (
+            CustomAPIException(status_code=502, detail="bad gateway")
+        )
+
+        result = self.service.create_agent_credentials(
+            project_uuid=self.project_uuid,
+            agent_uuid=self.agent_uuid,
+            credentials=[],
+        )
+
+        self.assertIsNone(result)
