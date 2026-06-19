@@ -16,7 +16,9 @@ class ListIntegratedAgentUseCase:
         )
 
         return IntegratedAgent.objects.filter(
-            project__uuid=project_uuid, is_active=True
+            project__uuid=project_uuid,
+            project__is_active=True,
+            is_active=True,
         ).prefetch_related(templates_prefetch)
 
     def execute(self, project_uuid: UUID) -> QuerySet[IntegratedAgent]:

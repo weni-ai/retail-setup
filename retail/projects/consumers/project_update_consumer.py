@@ -2,6 +2,9 @@ import amqp
 import logging
 
 from retail.projects.models import Project
+from retail.projects.usecases.onboarding_access import (
+    deactivate_onboardings_for_project,
+)
 
 from weni.eda.parsers import JSONParser
 from weni.eda.django.consumers import EDAConsumer
@@ -10,11 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
-    """Consumes project update events from update-projects.topic.
+    """Consumes project events from update-projects.topic.
 
-    Performs an additive merge on the local Project.config:
-    creates new keys, updates existing ones, never deletes
-    keys that only exist locally.
+    Handles:
+      - updated: syncs name, language, and config to the local Project.
+      - deleted: soft-deletes the local Project (sets is_active=False).
     """
 
     def consume(self, message: amqp.Message):
@@ -23,27 +26,59 @@ class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
         )
         body = JSONParser.parse(message.body)
         action = body.get("action")
-        project_uuid = body.get("project_uuid")
-        config = body.get("config")
 
-        if action != "updated" or config is None:
-            self.ack()
-            return
+        if action == "updated":
+            self._handle_update(body)
+        elif action == "deleted":
+            self._handle_delete(body)
+        else:
+            logger.info(f"[ProjectUpdateConsumer] - Ignoring action={action}")
+
+        self.ack()
+
+    def _handle_update(self, body: dict) -> None:
+        project_uuid = body.get("project_uuid")
 
         try:
-            project = Project.objects.get(uuid=project_uuid)
+            project = Project.all_objects.get(uuid=project_uuid)
         except Project.DoesNotExist:
             logger.warning(
                 f"[ProjectUpdateConsumer] - Project {project_uuid} not found, "
-                "skipping config update."
+                "skipping update."
             )
-            self.ack()
             return
 
-        project.config.update(config)
-        project.save(update_fields=["config"])
+        if not project.is_active:
+            logger.warning(
+                f"[ProjectUpdateConsumer] - Updating inactive project "
+                f"{project_uuid}"
+            )
 
-        if "vtex_host_store" in config:
+        updated_fields = []
+
+        name = body.get("name")
+        if name:
+            project.name = name
+            updated_fields.append("name")
+
+        language = body.get("language")
+        if language:
+            project.language = language
+            updated_fields.append("language")
+
+        config = body.get("config")
+        if config:
+            project.config.update(config)
+            updated_fields.append("config")
+
+        if updated_fields:
+            project.save(update_fields=updated_fields)
+            logger.info(
+                f"[ProjectUpdateConsumer] - Updated {updated_fields} "
+                f"for project {project_uuid}"
+            )
+
+        if config and "vtex_host_store" in config:
             logger.info(
                 f"[ProjectUpdateConsumer] - vtex_host_store echoed back from "
                 f"Connect and persisted for project {project_uuid} "
@@ -51,8 +86,35 @@ class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
                 f"host={config['vtex_host_store']!r}"
             )
 
+    def _handle_delete(self, body: dict) -> None:
+        project_uuid = body.get("project_uuid")
+
+        try:
+            project = Project.all_objects.get(uuid=project_uuid)
+        except Project.DoesNotExist:
+            logger.warning(
+                f"[ProjectUpdateConsumer] - Project {project_uuid} not found, "
+                "skipping deletion."
+            )
+            return
+
+        if not project.is_active:
+            logger.info(
+                f"[ProjectUpdateConsumer] - Project {project_uuid} already "
+                "inactive, skipping soft delete."
+            )
+            return
+
+        project.is_active = False
+        project.save(update_fields=["is_active"])
+        project.clear_cache()
+        deactivated = deactivate_onboardings_for_project(project)
+        if deactivated:
+            logger.info(
+                f"[ProjectUpdateConsumer] - Soft-deleted {deactivated} onboarding "
+                f"record(s) for project {project_uuid}"
+            )
         logger.info(
-            f"[ProjectUpdateConsumer] - Config updated for project {project_uuid} "
-            f"vtex_account={project.vtex_account} (keys={list(config.keys())})"
+            f"[ProjectUpdateConsumer] - Soft-deleted project {project_uuid} "
+            f"(is_active=False)"
         )
-        self.ack()

@@ -21,6 +21,7 @@ from retail.agents.domains.agent_execution.row_mapper import (
     resolve_currency,
     resolve_has_json,
     resolve_log_status,
+    resolve_meta_template_name,
     resolve_summary,
     resolve_template_name,
     resolve_template_uuid,
@@ -103,6 +104,33 @@ class TemplateResolutionTests(SimpleTestCase):
         execution = _stub_execution(template=None, template_id=None)
         self.assertIsNone(resolve_template_name(execution))
         self.assertIsNone(resolve_template_uuid(execution))
+
+
+class MetaTemplateNameResolutionTests(SimpleTestCase):
+    def test_returns_current_version_template_name_when_present(self):
+        version = SimpleNamespace(template_name="weni_order_shipped_1739284723")
+        template = SimpleNamespace(
+            name="order_shipped",
+            display_name="Order shipped",
+            current_version=version,
+        )
+        execution = _stub_execution(template=template)
+        self.assertEqual(
+            resolve_meta_template_name(execution), "weni_order_shipped_1739284723"
+        )
+
+    def test_falls_back_to_template_name_when_no_current_version(self):
+        template = SimpleNamespace(
+            name="order_shipped",
+            display_name="Order shipped",
+            current_version=None,
+        )
+        execution = _stub_execution(template=template)
+        self.assertEqual(resolve_meta_template_name(execution), "order_shipped")
+
+    def test_returns_none_when_no_template(self):
+        execution = _stub_execution(template=None)
+        self.assertIsNone(resolve_meta_template_name(execution))
 
 
 class AmountAndCurrencyResolutionTests(SimpleTestCase):

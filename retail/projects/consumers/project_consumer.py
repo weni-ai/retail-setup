@@ -1,7 +1,6 @@
 import amqp
 import logging
 
-from retail.projects.models import Project
 from retail.projects.usecases.project_dto import ProjectCreationDTO
 from retail.projects.usecases.project_creation import ProjectCreationUseCase
 from retail.projects.usecases.link_project_to_onboarding import (
@@ -28,13 +27,18 @@ class ProjectConsumer(EDAConsumer):  # pragma: no cover
                 vtex_account=body.get("vtex_account", ""),
                 language=body.get("language"),
             )
-            ProjectCreationUseCase.create_project(project_dto)
+            project = ProjectCreationUseCase.create_project(project_dto)
             logger.info(
                 f"[ProjectConsumer] - Successfully processed project: {project_dto.uuid}"
             )
 
-            project = Project.objects.get(uuid=project_dto.uuid)
-            LinkProjectToOnboardingUseCase.execute(project)
+            if project.is_active:
+                LinkProjectToOnboardingUseCase.execute(project)
+            else:
+                logger.warning(
+                    f"[ProjectConsumer] - Project {project_dto.uuid} is inactive, "
+                    "skipping onboarding link."
+                )
 
             self.ack()
         except Exception as e:

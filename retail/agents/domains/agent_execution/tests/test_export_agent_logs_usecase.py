@@ -28,6 +28,7 @@ from retail.agents.domains.agent_execution.usecases.export_agent_logs import (
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_management.models import Agent
 from retail.projects.models import Project
+from retail.templates.models import Template, Version
 
 
 class _FakeS3Service:
@@ -173,6 +174,37 @@ class ExportAgentLogsUseCaseTests(TestCase):
         self.assertEqual(len(rows), 2, "header + one in-range execution")
         data_row = dict(zip(rows[0], rows[1]))
         self.assertEqual(data_row["uuid"], str(inside.uuid))
+
+    def test_template_name_uses_meta_waba_name_not_display_name(self):
+        app_uuid = uuid4()
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="order_shipped",
+            display_name="Order shipped",
+            integrated_agent=self.integrated_agent,
+        )
+        version = Version.objects.create(
+            template=template,
+            template_name="weni_order_shipped_1739284723",
+            integrations_app_uuid=app_uuid,
+            project=self.project,
+            status="APPROVED",
+        )
+        template.current_version = version
+        template.save(update_fields=["current_version"])
+
+        _make_execution(self.integrated_agent, template=template)
+
+        self.use_case.execute(self._filter())
+
+        _, content, _ = self.fake_s3.upload_calls[0]
+        rows = self._csv_rows(content)
+        self.assertEqual(rows[0], CSV_HEADER)
+        self.assertNotIn("template_uuid", rows[0])
+        self.assertNotIn("summary", rows[0])
+        data_row = dict(zip(rows[0], rows[1]))
+        self.assertEqual(data_row["template_name"], "weni_order_shipped_1739284723")
+        self.assertNotEqual(data_row["template_name"], "Order shipped")
 
 
 class ExportAgentLogsBucketResolutionTests(TestCase):

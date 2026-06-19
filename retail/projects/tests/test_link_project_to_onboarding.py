@@ -57,20 +57,53 @@ class TestLinkProjectToOnboardingUseCase(TestCase):
         # Should not raise any exception
         LinkProjectToOnboardingUseCase.execute(project)
 
-    def test_ignores_onboarding_already_linked_to_project(self):
-        other_project = Project.objects.create(
-            name="Other", uuid=uuid4(), vtex_account="otherstore"
+    def test_ignores_onboarding_already_linked_to_same_project(self):
+        onboarding = ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+            project=self.project,
+            progress=99,
         )
-        ProjectOnboarding.objects.create(
+
+        LinkProjectToOnboardingUseCase.execute(self.project)
+
+        onboarding.refresh_from_db()
+        self.assertEqual(onboarding.project, self.project)
+        self.assertEqual(onboarding.progress, 99)
+
+    def test_relinks_when_onboarding_points_to_different_active_project(self):
+        other_project = Project.objects.create(
+            name="Other",
+            uuid=uuid4(),
+            vtex_account="otherstore",
+        )
+        onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=other_project,
         )
 
         LinkProjectToOnboardingUseCase.execute(self.project)
 
-        # The existing onboarding should remain linked to other_project
-        onboarding = ProjectOnboarding.objects.get(vtex_account="mystore")
-        self.assertEqual(onboarding.project, other_project)
+        onboarding.refresh_from_db()
+        self.assertEqual(onboarding.project, self.project)
+
+    def test_skips_inactive_onboarding(self):
+        inactive_project = Project.all_objects.create(
+            name="Inactive",
+            uuid=uuid4(),
+            vtex_account="mystore",
+            is_active=False,
+        )
+        onboarding = ProjectOnboarding.all_objects.create(
+            vtex_account="mystore",
+            project=inactive_project,
+            is_active=False,
+        )
+
+        LinkProjectToOnboardingUseCase.execute(self.project)
+
+        onboarding.refresh_from_db()
+        self.assertFalse(onboarding.is_active)
+        self.assertEqual(onboarding.project_id, inactive_project.id)
 
     def test_does_not_link_when_vtex_account_is_none(self):
         project = Project.objects.create(
