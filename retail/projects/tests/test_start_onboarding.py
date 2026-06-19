@@ -1,59 +1,61 @@
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.test import TestCase
 
 from retail.projects.models import Project, ProjectOnboarding
-from retail.projects.usecases.onboarding_dto import StartOnboardingDTO
-from retail.projects.usecases.start_onboarding import StartOnboardingUseCase
+from retail.projects.usecases.onboarding_dto import StartSetupDTO
+from retail.projects.usecases.start_setup import StartSetupUseCase
 
 
-class TestStartOnboardingUseCase(TestCase):
+class TestStartSetupUseCase(TestCase):
     def setUp(self):
-        self.dto = StartOnboardingDTO(
+        self.dto = StartSetupDTO(
             vtex_account="mystore",
             crawl_url="https://www.mystore.com.br/",
             channel="wwc",
         )
 
-    @patch("retail.projects.usecases.start_onboarding.task_wait_and_start_crawl")
-    def test_creates_onboarding_and_schedules_wait_task_when_no_project(
+    @patch("retail.projects.usecases.start_setup.task_setup_channel_and_start_crawl")
+    def test_creates_onboarding_and_schedules_setup_task_when_no_project(
         self, mock_task
     ):
-        """When no project exists, should schedule task_wait_and_start_crawl."""
-        usecase = StartOnboardingUseCase()
+        """When no project exists, should schedule the pre-crawl setup task."""
+        usecase = StartSetupUseCase()
 
         usecase.execute(self.dto)
 
         onboarding = ProjectOnboarding.objects.get(vtex_account="mystore")
         self.assertIsNone(onboarding.project)
+        self.assertEqual(onboarding.current_step, "PROJECT_CONFIG")
+        self.assertEqual(onboarding.progress, 0)
         mock_task.delay.assert_called_once_with(
             "mystore", "https://www.mystore.com.br/"
         )
 
-    @patch("retail.projects.usecases.start_onboarding.StartCrawlUseCase")
-    def test_starts_crawl_immediately_when_project_exists(self, mock_crawl_cls):
-        """When a project is linked, should start crawl immediately."""
-        project = Project.objects.create(
-            name="Test", uuid=uuid4(), vtex_account="mystore"
-        )
+    @patch("retail.projects.usecases.start_setup.task_setup_channel_and_start_crawl")
+    def test_schedules_setup_task_when_project_already_linked(self, mock_task):
+        """
+        When a project is already linked at start-setup time, the task is
+        still dispatched (no inline crawl initiation). The task owns the
+        full pre-crawl pipeline regardless of link timing.
+        """
+        Project.objects.create(name="Test", uuid=uuid4(), vtex_account="mystore")
 
-        mock_crawl_instance = MagicMock()
-        mock_crawl_cls.return_value = mock_crawl_instance
-
-        usecase = StartOnboardingUseCase()
-        usecase.start_crawl_usecase = mock_crawl_instance
-
+        usecase = StartSetupUseCase()
         usecase.execute(self.dto)
 
         onboarding = ProjectOnboarding.objects.get(vtex_account="mystore")
-        self.assertEqual(onboarding.project, project)
-        mock_crawl_instance.execute.assert_called_once_with(
+        self.assertIsNotNone(onboarding.project)
+        self.assertEqual(onboarding.current_step, "PROJECT_CONFIG")
+        self.assertEqual(onboarding.progress, 0)
+        mock_task.delay.assert_called_once_with(
             "mystore", "https://www.mystore.com.br/"
         )
 
-    @patch("retail.projects.usecases.start_onboarding.task_wait_and_start_crawl")
-    def test_resets_existing_onboarding_on_retry(self, mock_task):
+    @patch("retail.projects.usecases.start_setup.task_setup_channel_and_start_crawl")
+    @patch("retail.projects.tasks.task_activate_agentic_cx_script")
+    def test_resets_existing_onboarding_on_retry(self, _mock_agentic, mock_task):
         """When an onboarding already exists, should reset transient fields."""
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
@@ -61,16 +63,59 @@ class TestStartOnboardingUseCase(TestCase):
             progress=80,
             crawler_result=ProjectOnboarding.SUCCESS,
             completed=True,
+            config={
+                "last_failure": {"stage": "start_setup_validation"},
+                "reason_failed": "previous error",
+                "background_error": {
+                    "stage": "nexus_upload",
+                    "error": "previous background error",
+                },
+            },
         )
 
-        usecase = StartOnboardingUseCase()
+        usecase = StartSetupUseCase()
         usecase.execute(self.dto)
 
         onboarding = ProjectOnboarding.objects.get(vtex_account="mystore")
+        self.assertEqual(onboarding.current_step, "PROJECT_CONFIG")
         self.assertEqual(onboarding.progress, 0)
-        self.assertEqual(onboarding.current_step, "")
         self.assertIsNone(onboarding.crawler_result)
         self.assertFalse(onboarding.completed)
+        self.assertNotIn("last_failure", onboarding.config)
+        self.assertNotIn("reason_failed", onboarding.config)
+        self.assertNotIn("background_error", onboarding.config)
+
+    @patch("retail.projects.usecases.start_setup.task_setup_channel_and_start_crawl")
+    def test_reset_clears_previous_channel_app_uuid(self, _mock_task):
+        """
+        Re-running start-setup must clear previously persisted app_uuid /
+        flow_object_uuid so the pre-crawl channel use case can re-create
+        the channel with a fresh auth_code.
+        """
+        ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+            config={
+                "channels": {
+                    "wwc": {
+                        "app_uuid": "old-app",
+                        "flow_object_uuid": "old-flow",
+                    },
+                    "wpp-cloud": {
+                        "channel_data": {"auth_code": "old"},
+                        "app_uuid": "old-wpp",
+                        "flow_object_uuid": "old-flow-wpp",
+                    },
+                }
+            },
+        )
+
+        usecase = StartSetupUseCase()
+        usecase.execute(self.dto)
+
+        onboarding = ProjectOnboarding.objects.get(vtex_account="mystore")
+        for channel_config in onboarding.config["channels"].values():
+            self.assertNotIn("app_uuid", channel_config)
+            self.assertNotIn("flow_object_uuid", channel_config)
 
     def test_try_link_project_finds_existing_project(self):
         """_try_link_project should link a matching project."""
@@ -79,7 +124,7 @@ class TestStartOnboardingUseCase(TestCase):
         )
         onboarding = ProjectOnboarding.objects.create(vtex_account="mystore")
 
-        StartOnboardingUseCase._try_link_project(onboarding)
+        StartSetupUseCase._try_link_project(onboarding)
 
         self.assertEqual(onboarding.project, project)
 
@@ -87,7 +132,7 @@ class TestStartOnboardingUseCase(TestCase):
         """_try_link_project should do nothing if no project matches."""
         onboarding = ProjectOnboarding.objects.create(vtex_account="nostore")
 
-        StartOnboardingUseCase._try_link_project(onboarding)
+        StartSetupUseCase._try_link_project(onboarding)
 
         self.assertIsNone(onboarding.project)
 
@@ -100,8 +145,7 @@ class TestStartOnboardingUseCase(TestCase):
             vtex_account="mystore", project=project
         )
 
-        # Should not raise or change anything
-        StartOnboardingUseCase._try_link_project(onboarding)
+        StartSetupUseCase._try_link_project(onboarding)
         self.assertEqual(onboarding.project, project)
 
     def test_try_link_project_raises_on_multiple_projects(self):
@@ -111,45 +155,27 @@ class TestStartOnboardingUseCase(TestCase):
         onboarding = ProjectOnboarding.objects.create(vtex_account="mystore")
 
         with self.assertRaises(Project.MultipleObjectsReturned):
-            StartOnboardingUseCase._try_link_project(onboarding)
+            StartSetupUseCase._try_link_project(onboarding)
 
-    @patch("retail.projects.usecases.start_onboarding.StartCrawlUseCase")
-    def test_sends_vtex_host_store_when_project_linked(self, mock_crawl_cls):
-        """When a project is linked, should call set_vtex_host_store on ConnectService."""
-        Project.objects.create(name="Test", uuid=uuid4(), vtex_account="mystore")
-
-        mock_crawl = MagicMock()
-        mock_crawl_cls.return_value = mock_crawl
-
-        mock_connect = Mock()
-        usecase = StartOnboardingUseCase(connect_service=mock_connect)
-        usecase.start_crawl_usecase = mock_crawl
-
-        usecase.execute(self.dto)
-
-        mock_connect.set_vtex_host_store.assert_called_once()
-        call_kwargs = mock_connect.set_vtex_host_store.call_args
-        self.assertEqual(
-            call_kwargs.kwargs["vtex_host_store"],
-            "https://www.mystore.com.br/",
+    @patch("retail.projects.usecases.start_setup.task_setup_channel_and_start_crawl")
+    def test_stores_channel_data_in_config(self, mock_task):
+        """When channel_data is provided, it should be stored in onboarding config."""
+        dto = StartSetupDTO(
+            vtex_account="mystore",
+            crawl_url="https://www.mystore.com.br/",
+            channel="wpp-cloud",
+            channel_data={
+                "auth_code": "abc123",
+                "waba_id": "waba456",
+                "phone_number_id": "phone789",
+            },
         )
 
-    @patch("retail.projects.usecases.start_onboarding.StartCrawlUseCase")
-    def test_continues_crawl_if_vtex_host_store_fails(self, mock_crawl_cls):
-        """If set_vtex_host_store fails, the crawl should still proceed."""
-        Project.objects.create(name="Test", uuid=uuid4(), vtex_account="mystore")
+        usecase = StartSetupUseCase()
+        usecase.execute(dto)
 
-        mock_crawl = MagicMock()
-        mock_crawl_cls.return_value = mock_crawl
-
-        mock_connect = Mock()
-        mock_connect.set_vtex_host_store.side_effect = Exception("connect down")
-
-        usecase = StartOnboardingUseCase(connect_service=mock_connect)
-        usecase.start_crawl_usecase = mock_crawl
-
-        usecase.execute(self.dto)
-
-        mock_crawl.execute.assert_called_once_with(
-            "mystore", "https://www.mystore.com.br/"
-        )
+        onboarding = ProjectOnboarding.objects.get(vtex_account="mystore")
+        channel_data = onboarding.config["channels"]["wpp-cloud"]["channel_data"]
+        self.assertEqual(channel_data["auth_code"], "abc123")
+        self.assertEqual(channel_data["waba_id"], "waba456")
+        self.assertEqual(channel_data["phone_number_id"], "phone789")

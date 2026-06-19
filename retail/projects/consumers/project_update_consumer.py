@@ -69,6 +69,14 @@ class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
                 f"for project {project_uuid}"
             )
 
+        if config and "vtex_host_store" in config:
+            logger.info(
+                f"[ProjectUpdateConsumer] - vtex_host_store echoed back from "
+                f"Connect and persisted for project {project_uuid} "
+                f"vtex_account={project.vtex_account}: "
+                f"host={config['vtex_host_store']!r}"
+            )
+
     def _handle_delete(self, body: dict) -> None:
         project_uuid = body.get("project_uuid")
 

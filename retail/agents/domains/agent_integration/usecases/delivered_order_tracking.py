@@ -177,7 +177,10 @@ class DeliveredOrderTrackingConfigUseCase:
                     "expression": '$count(packageAttachment.packages[courierStatus.deliveredDate != "" or courierStatus.finished = true]) > 0',  # noqa: E501
                     "disableSingleFire": False,
                 },
-                "hook": {"url": tracking_config["webhook_url"]},
+                "hook": {
+                    "url": tracking_config["webhook_url"],
+                    "headers": {"User-Agent": "vtex-retail/0.0.0"},
+                },
             }
 
             # Prepare headers for VTEX API
@@ -290,17 +293,21 @@ class DeliveredOrderTrackingWebhookUseCase:
         Returns:
             Dict containing processing result
         """
+        vtex_account = integrated_agent.project.vtex_account
+        agent_uuid = integrated_agent.uuid
+
         try:
-            # Validate tracking is enabled
             self.validate_tracking_enabled(integrated_agent)
 
-            # Log the received data
             logger.info(
-                f"Received VTEX delivered order tracking webhook for agent {integrated_agent.uuid}: {webhook_data}"
+                f"[DELIVERED_TRACKING] received: "
+                f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
+                f"data={webhook_data}"
             )
 
-            # Process the notification
-            self._process_delivered_order_notification(integrated_agent, webhook_data)
+            self._process_delivered_order_notification(
+                integrated_agent, webhook_data, vtex_account
+            )
 
             return {
                 "status": "success",
@@ -311,33 +318,46 @@ class DeliveredOrderTrackingWebhookUseCase:
             raise
         except Exception as e:
             logger.exception(
-                f"Error processing delivered order tracking notification for agent {integrated_agent.uuid}: {e}"
+                f"[DELIVERED_TRACKING] processing_failed: "
+                f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
+                f"data={webhook_data} error={e}"
             )
             raise
 
     def _process_delivered_order_notification(
-        self, integrated_agent: IntegratedAgent, webhook_data: Dict[str, Any]
+        self,
+        integrated_agent: IntegratedAgent,
+        webhook_data: Dict[str, Any],
+        vtex_account: str,
     ) -> None:
         """
-        Process the delivered order tracking notification from VTEX.
+        Build an OrderStatusDTO with ``currentState="delivered"``
+        and delegate to AgentOrderStatusUpdateUsecase.
+
+        The raw VTEX state is stored as ``lastState`` while
+        ``currentState`` is hardcoded because this hook only fires
+        for orders confirmed as delivered.
 
         Args:
-            integrated_agent: The integrated agent instance
-            webhook_data: Data received from VTEX webhook
+            integrated_agent: The integrated agent instance.
+            webhook_data: Data received from VTEX webhook.
+            vtex_account: The VTEX account identifier for the project.
         """
+        agent_uuid = integrated_agent.uuid
+        order_id = webhook_data.get("OrderId")
+
         try:
             logger.info(
-                f"Processing delivered order tracking notification for agent {integrated_agent.uuid}"
+                f"[DELIVERED_TRACKING] converting_state: "
+                f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
+                f"mapped_state=delivered data={webhook_data}"
             )
-
-            # Get VTEX account from integrated agent's project
-            vtex_account = integrated_agent.project.vtex_account
 
             # Create OrderStatusDTO with "delivered" status
             order_status_dto = OrderStatusDTO(
                 recorder={},
                 domain="OrdersDocumentUpdated",
-                orderId=webhook_data.get("OrderId"),
+                orderId=order_id,
                 currentState="delivered",  # Force delivered status
                 lastState=webhook_data.get("State"),  # Original state
                 currentChangeDate=webhook_data.get("CurrentChange"),
@@ -345,20 +365,21 @@ class DeliveredOrderTrackingWebhookUseCase:
                 vtexAccount=vtex_account,
             )
 
-            logger.info(
-                f"Created OrderStatusDTO for delivered order: {order_status_dto.orderId} - {order_status_dto}"
-            )
-
             # Use AgentOrderStatusUpdateUsecase to update order status
             order_status_usecase = AgentOrderStatusUpdateUsecase()
             order_status_usecase.execute(integrated_agent, order_status_dto)
 
             logger.info(
-                f"Successfully processed delivered order notification for agent {integrated_agent.uuid}"
+                f"[DELIVERED_TRACKING] completed: "
+                f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
+                f"current_state=delivered order_id={order_id} "
+                f"data={webhook_data}"
             )
 
         except Exception as e:
             logger.exception(
-                f"Error processing delivered order tracking notification: {e}"
+                f"[DELIVERED_TRACKING] notification_failed: "
+                f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
+                f"order_id={order_id} error={e}"
             )
             raise

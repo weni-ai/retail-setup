@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     "retail.vtex",
     "retail.templates",
     "retail.agents",
+    "retail.broadcasts",
 ]
 
 MIDDLEWARE = [
@@ -179,6 +180,9 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 USE_EDA = env.bool("USE_EDA", default=False)
 
+# Per-project cap of delivered broadcasts; on reach, triggers trial suspension.
+RETAIL_TRIAL_BROADCAST_LIMIT = env.int("RETAIL_TRIAL_BROADCAST_LIMIT", default=100)
+
 ACTION_TYPES = env.json("ACTION_TYPES", default={})
 
 # CORS configurations
@@ -235,11 +239,97 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 
+# Master switch for agent execution logging. When ``False`` the
+# ExecutionLoggerService becomes a no-op: no AgentExecution rows are
+# created, no traces are buffered in Redis, nothing is written to S3.
+# With nothing stored, the periodic flush/sweep/cleanup tasks have
+# nothing to process.
+AGENT_EXECUTION_LOGGING_ENABLED = env.bool(
+    "AGENT_EXECUTION_LOGGING_ENABLED", default=True
+)
+
+# Maximum number of executions a single flush tick drains from the
+# Redis ZSET. Caps per-tick S3 + DB cost; remaining entries are
+# picked up on the next tick.
+AGENT_EXECUTION_FLUSH_BATCH_SIZE = env.int(
+    "AGENT_EXECUTION_FLUSH_BATCH_SIZE", default=500
+)
+
+# Maximum number of AgentExecution rows the retention sweep deletes
+# per iteration. Bounds the per-statement runtime so the daily
+# cleanup task does not hit Postgres ``statement_timeout`` or the
+# Celery soft/hard timeout on tables with millions of rows. The use
+# case loops until no rows older than the retention horizon remain.
+AGENT_EXECUTION_CLEANUP_BATCH_SIZE = env.int(
+    "AGENT_EXECUTION_CLEANUP_BATCH_SIZE", default=5000
+)
+
+# Beat cadence for ``task_flush_execution_logs``. Each tick drains
+# ready entries from the queue and (every Nth tick) runs the SQL
+# stuck sweep. Empty ticks are no-ops.
+AGENT_EXECUTION_FLUSH_INTERVAL_SECONDS = env.float(
+    "AGENT_EXECUTION_FLUSH_INTERVAL_SECONDS", default=1.0
+)
+
+# An execution sits in the flush queue with a deadline of
+# ``now + max_wait_seconds``. Reaching a terminal status bumps the
+# deadline to ``now`` so the next flush picks it up immediately. If
+# the deadline expires without a terminal status, the flush
+# force-finalises the row as ``error='Execution timed out'``.
+AGENT_EXECUTION_MAX_WAIT_SECONDS = env.int(
+    "AGENT_EXECUTION_MAX_WAIT_SECONDS", default=600
+)
+
+# Every Nth flush tick the same task additionally runs a SQL sweep
+# for rows still ``processing`` past the stuck threshold. At the
+# default 1s tick interval, ``60`` means "run the sweep once per
+# minute".
+AGENT_EXECUTION_STUCK_SWEEP_EVERY_N_TICKS = env.int(
+    "AGENT_EXECUTION_STUCK_SWEEP_EVERY_N_TICKS", default=60
+)
+
+# DB rows still ``processing`` with ``updated_on`` older than this
+# threshold are force-finalised by the SQL stuck sweep. Catches the
+# rare case where Redis lost the queue entry (eviction, restart) but
+# the DB row is still in flight.
+AGENT_EXECUTION_STUCK_THRESHOLD_SECONDS = env.int(
+    "AGENT_EXECUTION_STUCK_THRESHOLD_SECONDS", default=600
+)
+
+# Maximum number of parallel S3 PUT workers the flush task uses for
+# trace files. Each PUT is a per-execution write so this is the
+# upper bound on concurrent uploads per tick.
+AGENT_EXECUTION_S3_PARALLEL_PUTS = env.int(
+    "AGENT_EXECUTION_S3_PARALLEL_PUTS", default=10
+)
+
+# Dedicated Celery queue for agent-execution maintenance tasks
+# (cleanup + flush). Isolating these from the default ``celery``
+# queue prevents the high-frequency flush loop from blocking
+# unrelated jobs. Requires a worker started with
+# ``celery-worker <queue-name>`` consuming this queue.
+AGENT_EXECUTION_CELERY_QUEUE = env.str(
+    "AGENT_EXECUTION_CELERY_QUEUE", default="agent-executions"
+)
+
 CELERY_BEAT_SCHEDULE = {
     "task-cleanup-old-carts": {
         "task": "task_cleanup_old_carts",
         "schedule": crontab(minute=0, hour=2),
     },
+    "task-cleanup-old-executions": {
+        "task": "task_cleanup_old_executions",
+        "schedule": crontab(minute=30, hour=2),
+    },
+    "task-flush-execution-logs": {
+        "task": "task_flush_execution_logs",
+        "schedule": AGENT_EXECUTION_FLUSH_INTERVAL_SECONDS,
+    },
+}
+
+CELERY_TASK_ROUTES = {
+    "task_cleanup_old_executions": {"queue": AGENT_EXECUTION_CELERY_QUEUE},
+    "task_flush_execution_logs": {"queue": AGENT_EXECUTION_CELERY_QUEUE},
 }
 
 
@@ -277,9 +367,10 @@ CRAWLER_REST_ENDPOINT = env.str("CRAWLER_REST_ENDPOINT", "")
 # WWC (Weni Web Chat) default profile avatar
 WWC_PROFILE_AVATAR_URL = env.str("WWC_PROFILE_AVATAR_URL", "")
 
-# Onboarding agent UUIDs — passive and active (vary between staging and production)
-# Format: {"OrdersAgentCommerceIO": "uuid", "FeedbackRecorder": "uuid", ...}
-ONBOARDING_AGENT_UUIDS = env.json("ONBOARDING_AGENT_UUIDS", default={})
+# Passive agent UUIDs per channel — JSON dict mapping agent name to UUID
+# Format: {"Order Status": "136eb450-...", "Product Concierge": "3e51cf10-...", ...}
+PASSIVE_AGENTS_WWC = env.json("PASSIVE_AGENTS_WWC", default={})
+PASSIVE_AGENTS_WPP_CLOUD = env.json("PASSIVE_AGENTS_WPP_CLOUD", default={})
 
 
 # VTEX IO workspace configuration
@@ -306,6 +397,19 @@ if USE_LAMBDA:
 if USE_S3:
     AWS_STORAGE_BUCKET_NAME = env.str("AWS_STORAGE_BUCKET_NAME")
 
+# S3 bucket for storing agent execution traces
+# Defaults to AWS_STORAGE_BUCKET_NAME if not specified
+EXECUTION_TRACES_BUCKET = env.str(
+    "EXECUTION_TRACES_BUCKET",
+    default=env.str("AWS_STORAGE_BUCKET_NAME", default=""),
+)
+
+# Retention horizon (in days) for AgentExecution rows. The
+# task_cleanup_old_executions Celery beat task deletes rows older
+# than this. The matching S3 lifecycle rule on the executions/
+# prefix of EXECUTION_TRACES_BUCKET is configured outside Django.
+AGENT_EXECUTION_RETENTION_DAYS = env.int("AGENT_EXECUTION_RETENTION_DAYS", default=30)
+
 # Webchat Push S3 — bucket used by the VTEX pixel app to load the webchat loader
 WEBCHAT_PUSH_S3_BUCKET_NAME = env.str("WEBCHAT_PUSH_S3_BUCKET_NAME", default="")
 WEBCHAT_PUSH_S3_REGION = env.str("WEBCHAT_PUSH_S3_REGION", default="")
@@ -320,9 +424,29 @@ USE_META = env.bool("USE_LAMBDA", default=False)
 if USE_META:
     META_SYSTEM_USER_ACCESS_TOKEN = env.str("META_SYSTEM_USER_ACCESS_TOKEN")
     META_VERSION = env.str("META_VERSION", default="v20.0")
-    META_API_URL = urllib.parse.urljoin(
-        env.str("WHATSAPP_API_URL", default="https://graph.facebook.com/"), META_VERSION
-    )
+
+    # Meta's Graph API has two URL shapes that we both consume:
+    #
+    #   META_GRAPH_BASE_URL → https://graph.facebook.com
+    #     Used by endpoints that are mounted directly on a resource id,
+    #     without the version segment. Example:
+    #       POST /{phone_number_id}/whatsapp_business_encryption
+    #
+    #   META_API_URL → https://graph.facebook.com/{META_VERSION}
+    #     Used by every other versioned endpoint. Example:
+    #       POST /{waba_id}/flows
+    #       POST /{flow_id}/publish
+    #
+    # We read WHATSAPP_API_URL once and derive both, so changing the
+    # host or version only requires touching the env variables.
+    META_GRAPH_BASE_URL = env.str(
+        "WHATSAPP_API_URL", default="https://graph.facebook.com/"
+    ).rstrip("/")
+    META_API_URL = urllib.parse.urljoin(f"{META_GRAPH_BASE_URL}/", META_VERSION)
+
+# One-Click Payment microservice (WhatsApp Cloud onboarding final step).
+PAYMENT_REST_ENDPOINT = env.str("PAYMENT_REST_ENDPOINT", default="")
+PAYMENT_FLOW_NAME = env.str("PAYMENT_FLOW_NAME", default="payment_confirmation_flow")
 
 ORDER_STATUS_AGENT_UUID = env.str("ORDER_STATUS_AGENT_UUID", default="")
 ABANDONED_CART_AGENT_UUID = env.str("ABANDONED_CART_AGENT_UUID", default="")
@@ -330,8 +454,21 @@ ABANDONED_CART_DEFAULT_IMAGE_URL = env.str(
     "ABANDONED_CART_DEFAULT_IMAGE_URL",
     default="https://placehold.co/1200x628/png?text=Your+Product",
 )
+PAYMENT_RECOVERY_AGENT_UUID = env.str("PAYMENT_RECOVERY_AGENT_UUID", default="")
+
+# Time window (in seconds) to ignore repeated order status events.
+# An identical event (same project, agent, order, and current state) arriving
+# twice within this window is processed only once. This prevents duplicate
+# broadcasts caused by upstream retries.
+ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = env.int(
+    "ORDER_STATUS_DUPLICATE_WINDOW_SECONDS", default=60
+)
 
 CONNECT_REST_ENDPOINT = env.str("CONNECT_REST_ENDPOINT", default="")
+
+# Slack notifications (hire intent)
+SLACK_BOT_TOKEN = env.str("SLACK_BOT_TOKEN", default="")
+SLACK_LEAD_NOTIFICATION_CHANNEL = env.str("SLACK_LEAD_NOTIFICATION_CHANNEL", default="")
 
 # Path to the JWT public key
 JWT_PUBLIC_KEY_PATH = BASE_DIR / "retail" / "jwt_keys" / "public_key.pem"
@@ -354,6 +491,11 @@ DATALAKE_SERVER_ADDRESS = env.str("DATALAKE_SERVER_ADDRESS", default="")
 IGNORE_EMPTY_CARTS_FOR_PROJECTS = env.list(
     "IGNORE_EMPTY_CARTS_FOR_PROJECTS", default=[]
 )
+
+# Channel that receives onboarding support requests triggered by the
+# front-end (Contact support button) so the team can investigate the
+# underlying error with full onboarding context.
+SLACK_ONBOARDING_ERROR_CHANNEL = env.str("SLACK_ONBOARDING_ERROR_CHANNEL", default="")
 
 # APM
 

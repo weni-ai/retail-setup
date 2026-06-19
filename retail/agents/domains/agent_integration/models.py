@@ -5,6 +5,14 @@ from uuid import uuid4
 
 
 class IntegratedAgent(models.Model):
+    # TODO: Migrate the primary key from UUID to integer auto-increment
+    # and keep ``uuid`` as a separate unique field (the canonical
+    # public identifier). The pattern was already applied to
+    # ``BroadcastMessage`` — see
+    # ``retail/broadcasts/migrations/0003_broadcastmessage_integer_pk.py``
+    # for the SQL + state_operations recipe. Smaller indexes and faster
+    # joins, especially in ``BroadcastMessage`` and ``BroadcastConversion``
+    # which carry FKs back here.
     uuid = models.UUIDField(primary_key=True, blank=True, default=uuid4)
     channel_uuid = models.UUIDField(null=True)
     agent = models.ForeignKey(
@@ -25,6 +33,13 @@ class IntegratedAgent(models.Model):
         null=True,
         blank=True,
     )
+
+    # Timestamp of when the agent was integrated into the project.
+    created_on = models.DateTimeField(auto_now_add=True)
+    # Running total of broadcasts delivered by this integrated agent.
+    # Incremented atomically alongside ProjectBroadcastCounter on each
+    # DELIVERED transition handled by the broadcast status consumer.
+    broadcasts_delivered = models.PositiveBigIntegerField(default=0)
 
     def __str__(self):
         return f"{self.agent} - {self.project}"

@@ -178,6 +178,26 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         response = self.make_request(url, method="GET", headers=headers)
         return response.json()
 
+    def activate_agentic_cx_script(
+        self, account_domain: str, vtex_account: str
+    ) -> dict:
+        """
+        Notifies the VTEX IO app that the Agentic CX script can be installed.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            vtex_account (str): VTEX account for JWT token generation.
+
+        Returns:
+            dict: Response from VTEX IO.
+        """
+        url = self._get_url(account_domain, "/agentic-cx/settings")
+        headers = self._get_jwt_headers(vtex_account)
+        response = self.make_request(
+            url, method="PATCH", json={"agentic_cx_script": True}, headers=headers
+        )
+        return response.json()
+
     def proxy_vtex(
         self,
         account_domain: str,
@@ -246,5 +266,87 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         response = self.make_request(
             url, method="POST", json=payload, headers=jwt_headers
         )
+
+        return response.json()
+
+    def proxy_payment_gateway(
+        self,
+        account_domain: str,
+        vtex_account: str,
+        method: str,
+        path: str,
+        headers: dict = None,
+        data: Union[dict, list] = None,
+        params: dict = None,
+    ) -> dict:
+        """
+        Proxies requests to the VTEX IO Payment Gateway proxy route.
+
+        Forwards method, path and optional headers/params/data to the
+        /_v/proxy-payment-gateway route, which calls the VTEX Payment
+        Gateway API ({account}.vtexpayments.com.br).
+
+        Args:
+            account_domain (str): VTEX account domain.
+            vtex_account (str): VTEX account for JWT token generation.
+            method (str): HTTP method (GET, POST, PUT).
+            path (str): Payment Gateway API path.
+            headers (dict, optional): Additional headers.
+            data (Union[dict, list], optional): Request body data.
+            params (dict, optional): Query parameters.
+
+        Returns:
+            dict: Response from the VTEX IO proxy-payment-gateway route.
+        """
+        url = self._get_url(account_domain, "/proxy-payment-gateway")
+
+        payload = {
+            "method": method.upper(),
+            "path": path,
+        }
+
+        if headers:
+            payload["headers"] = headers
+        if data:
+            payload["data"] = data
+        if params:
+            payload["params"] = params
+
+        jwt_headers = self._get_jwt_headers(vtex_account)
+        response = self.make_request(
+            url, method="POST", json=payload, headers=jwt_headers
+        )
+
+        return response.json()
+
+    def proxy_payment_transaction(
+        self,
+        account_domain: str,
+        vtex_account: str,
+        transaction_id: str,
+        payments: list,
+    ) -> dict:
+        """
+        Proxies a payment transaction request to the VTEX IO agentic-cx app.
+
+        Forwards transactionId and payments to the /_v/proxy-payment-transaction
+        route, which in turn calls the VTEX Vault payments API.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            vtex_account (str): VTEX account for JWT token generation.
+            transaction_id (str): The payment transaction ID.
+            payments (list): Non-empty list of payment objects.
+
+        Returns:
+            dict: Response from the VTEX IO proxy-payment-transaction route.
+        """
+        url = self._get_url(account_domain, "/proxy-payment-transaction")
+        payload = {
+            "transactionId": transaction_id,
+            "payments": payments,
+        }
+        headers = self._get_jwt_headers(vtex_account)
+        response = self.make_request(url, method="POST", json=payload, headers=headers)
 
         return response.json()

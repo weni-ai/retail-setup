@@ -23,6 +23,12 @@ class CreateProjectUserSerializer(serializers.Serializer):
     user_email = serializers.EmailField(required=True)
 
 
+class LinkProjectSerializer(serializers.Serializer):
+    """Validates the payload for linking a project to a VTEX account."""
+
+    project_uuid = serializers.UUIDField(required=True)
+
+
 class VtexProxySerializer(serializers.Serializer):
     """
     Validates the payload for VTEX proxy requests.
@@ -34,6 +40,36 @@ class VtexProxySerializer(serializers.Serializer):
     method = serializers.ChoiceField(
         choices=["GET", "POST", "PUT", "PATCH"], required=True
     )
+    path = serializers.CharField(required=True)
+    headers = serializers.DictField(required=False, allow_null=True)
+    data = serializers.JSONField(required=False, allow_null=True)
+    params = serializers.DictField(required=False, allow_null=True)
+
+
+class LeadSerializer(serializers.Serializer):
+    """Validates the payload for registering a sales lead from a VTEX account."""
+
+    user = serializers.EmailField(required=True)
+    plan = serializers.CharField(max_length=100, required=True)
+    vtex_account = serializers.CharField(max_length=100, required=True)
+    data = serializers.DictField(required=False, default=dict)
+
+
+class ProxyPaymentTransactionSerializer(serializers.Serializer):
+    """Validates the payload for proxying a payment transaction to VTEX IO."""
+
+    transaction_id = serializers.CharField(required=True)
+    payments = serializers.ListField(
+        child=serializers.DictField(),
+        required=True,
+        allow_empty=False,
+    )
+
+
+class PaymentGatewayProxySerializer(serializers.Serializer):
+    """Validates the payload for proxying requests to the VTEX Payment Gateway."""
+
+    method = serializers.ChoiceField(choices=["GET", "POST", "PUT"], required=True)
     path = serializers.CharField(required=True)
     headers = serializers.DictField(required=False, allow_null=True)
     data = serializers.JSONField(required=False, allow_null=True)

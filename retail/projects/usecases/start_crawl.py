@@ -6,23 +6,35 @@ from retail.clients.crawler.client import CrawlerClient
 from retail.interfaces.clients.crawler.client import CrawlerClientInterface
 from retail.projects.models import ProjectOnboarding
 from retail.projects.usecases.manager_defaults import get_manager_defaults
-from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.projects.usecases.onboarding_defaults import get_instructions
+from retail.projects.usecases.save_background_failure import (
+    SaveBackgroundFailureUseCase,
+)
 from retail.services.crawler.service import CrawlerService
 
 logger = logging.getLogger(__name__)
 
 
-class CrawlerStartError(Exception):
-    """Raised when the Crawler MS fails to start."""
+CRAWL_KICKOFF_PROGRESS = 100
 
 
 class StartCrawlUseCase:
     """
-    Starts the crawl by calling the Crawler MS.
+    Kicks off the crawl by calling the Crawler MS.
 
-    Sets current_step to CRAWL, resets progress, builds the webhook URL
-    using the onboarding UUID, and forwards the request to the crawler.
+    Sets ``current_step`` to ``CRAWL`` with ``progress=100`` to signal
+    that the crawl phase is done from the wizard's perspective the
+    moment the crawler is kicked off. The actual long-running crawl
+    runs in background and its real outcome lands in
+    ``crawler_result`` (``SUCCESS`` / ``FAIL``), NOT in ``progress``.
+
+    The orchestrator that runs immediately after this use case will
+    overwrite ``current_step`` with ``NEXUS_CONFIG`` in the same Celery
+    task, so the ``CRAWL`` step is visible only transiently.
+
+    Soft-fails on crawler-comms errors: the main onboarding must still
+    be able to complete even when the crawler cannot be reached -- the
+    crawl is no longer mandatory for the wizard to finish.
     """
 
     def __init__(
@@ -40,16 +52,13 @@ class StartCrawlUseCase:
         Args:
             vtex_account: The VTEX account identifier.
             crawl_url: The store URL to crawl.
-
-        Raises:
-            CrawlerStartError: If the crawler fails to start.
         """
         onboarding = ProjectOnboarding.objects.select_related("project").get(
             vtex_account=vtex_account,
         )
 
         onboarding.current_step = "CRAWL"
-        onboarding.progress = 0
+        onboarding.progress = CRAWL_KICKOFF_PROGRESS
         onboarding.save(update_fields=["current_step", "progress"])
 
         onboarding_uuid = str(onboarding.uuid)
@@ -72,8 +81,13 @@ class StartCrawlUseCase:
             onboarding.save(update_fields=["crawler_result"])
 
             error_msg = "Failed to communicate with the Crawler service."
-            mark_onboarding_failed(vtex_account, error_msg)
-            raise CrawlerStartError(error_msg)
+            SaveBackgroundFailureUseCase.execute(
+                vtex_account, "crawler_start", error_msg
+            )
+            logger.error(
+                f"Crawler start failed for vtex_account={vtex_account}: {error_msg}"
+            )
+            return
 
         logger.info(
             f"Crawl started for vtex_account={vtex_account} crawl_url={crawl_url}"

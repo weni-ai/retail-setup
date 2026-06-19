@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from django.test import TestCase
@@ -8,6 +8,7 @@ from retail.projects.usecases.onboarding_dto import CrawlerWebhookDTO
 from retail.projects.usecases.update_onboarding_progress import (
     COMPLETED_EVENT,
     FAILED_EVENT,
+    URL_REDIRECTED_EVENT,
     UpdateOnboardingProgressUseCase,
 )
 
@@ -22,13 +23,24 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
         self.onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=self.project,
-            current_step="CRAWL",
+            current_step="NEXUS_CONFIG",
+            progress=75,
         )
         self.onboarding_uuid = str(self.onboarding.uuid)
+        self.connect_service = MagicMock()
+        self.use_case = UpdateOnboardingProgressUseCase(
+            connect_service=self.connect_service
+        )
 
     # ── Progress handling ──────────────────────────────────────────
 
-    def test_updates_progress_on_generic_event(self):
+    def test_does_not_touch_main_progress_on_generic_event(self):
+        """
+        Crawl webhook progress events run in background and must NOT
+        push the main wizard ``progress`` -- by the time these arrive
+        the inline orchestrator may already be advancing
+        ``NEXUS_CONFIG`` (or have completed).
+        """
         dto = CrawlerWebhookDTO(
             task_id="task-1",
             event="crawl.subpage.progress",
@@ -37,53 +49,40 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             progress=35,
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
+        result = self.use_case.execute(self.onboarding_uuid, dto)
 
-        self.assertEqual(result.progress, 35)
+        self.assertEqual(result.progress, 75)
 
-    def test_does_not_decrease_progress(self):
-        """Multi-threaded crawler may send out-of-order events."""
-        self.onboarding.progress = 50
-        self.onboarding.save()
-
+    def test_does_not_overwrite_higher_main_progress(self):
         dto = CrawlerWebhookDTO(
             task_id="task-1",
             event="crawl.subpage.progress",
             timestamp="2026-01-01T00:00:00Z",
             url="https://mystore.com.br/",
-            progress=49,
+            progress=10,
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
+        result = self.use_case.execute(self.onboarding_uuid, dto)
 
-        self.assertEqual(result.progress, 50)
-
-    def test_increases_progress(self):
-        self.onboarding.progress = 30
-        self.onboarding.save()
-
-        dto = CrawlerWebhookDTO(
-            task_id="task-1",
-            event="crawl.subpage.progress",
-            timestamp="2026-01-01T00:00:00Z",
-            url="https://mystore.com.br/",
-            progress=60,
-        )
-
-        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
-
-        self.assertEqual(result.progress, 60)
+        self.assertEqual(result.progress, 75)
 
     # ── Completed event ────────────────────────────────────────────
 
-    @patch("retail.projects.usecases.update_onboarding_progress.task_configure_nexus")
+    @patch(
+        "retail.projects.usecases.update_onboarding_progress.task_upload_nexus_contents"
+    )
     @patch(
         "retail.projects.usecases.update_onboarding_progress.acquire_task_lock",
         return_value=True,
     )
-    def test_completed_sets_progress_100_and_dispatches_task(
+    def test_completed_records_success_and_dispatches_upload_task(
         self, mock_lock, mock_task
     ):
+        """
+        Completion must record ``crawler_result=SUCCESS`` and dispatch
+        the background nexus upload task -- WITHOUT touching the main
+        ``progress``.
+        """
         contents = [
             {"link": "https://mystore.com.br/", "title": "Home", "content": "Welcome"},
         ]
@@ -96,14 +95,16 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             data={"contents": contents},
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
+        result = self.use_case.execute(self.onboarding_uuid, dto)
 
-        self.assertEqual(result.progress, 100)
+        self.assertEqual(result.progress, 75)
         self.assertEqual(result.crawler_result, ProjectOnboarding.SUCCESS)
-        mock_lock.assert_called_once_with("configure_nexus", "mystore")
+        mock_lock.assert_called_once_with("upload_nexus_contents", "mystore")
         mock_task.delay.assert_called_once_with("mystore", contents)
 
-    @patch("retail.projects.usecases.update_onboarding_progress.task_configure_nexus")
+    @patch(
+        "retail.projects.usecases.update_onboarding_progress.task_upload_nexus_contents"
+    )
     @patch(
         "retail.projects.usecases.update_onboarding_progress.acquire_task_lock",
         return_value=False,
@@ -118,15 +119,26 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             data={"contents": []},
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
+        result = self.use_case.execute(self.onboarding_uuid, dto)
 
-        self.assertEqual(result.progress, 100)
         self.assertEqual(result.crawler_result, ProjectOnboarding.SUCCESS)
         mock_task.delay.assert_not_called()
 
     # ── Failed event ───────────────────────────────────────────────
 
-    def test_handles_failed_event(self):
+    @patch(
+        "retail.projects.usecases.update_onboarding_progress."
+        "SaveBackgroundFailureUseCase"
+    )
+    def test_failed_records_soft_failure_without_flipping_failed(
+        self, mock_save_background_cls
+    ):
+        """
+        Background crawl failures are soft -- ``onboarding.failed``
+        must stay False (the main wizard is decoupled from the crawl
+        outcome) and the error lands in ``config["background_error"]``
+        via ``SaveBackgroundFailureUseCase``.
+        """
         dto = CrawlerWebhookDTO(
             task_id="task-1",
             event=FAILED_EVENT,
@@ -136,9 +148,109 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
             data={"error": "Connection timeout"},
         )
 
-        result = UpdateOnboardingProgressUseCase.execute(self.onboarding_uuid, dto)
+        result = self.use_case.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.crawler_result, ProjectOnboarding.FAIL)
+        self.assertFalse(result.failed)
+        mock_save_background_cls.execute.assert_called_once_with(
+            "mystore", "crawl", "Connection timeout"
+        )
+
+    # ── URL redirected event ───────────────────────────────────────
+
+    def test_url_redirected_persists_resolved_url_and_notifies_connect(self):
+        dto = CrawlerWebhookDTO(
+            task_id="task-1",
+            event=URL_REDIRECTED_EVENT,
+            timestamp="2026-01-01T00:00:00Z",
+            url="https://mystore.com/",
+            data={
+                "original_url": "https://mystore.com/",
+                "resolved_url": "https://www.mystore.com/",
+            },
+        )
+
+        result = self.use_case.execute(self.onboarding_uuid, dto)
+
+        self.assertEqual(
+            result.config.get("vtex_host_store"), "https://www.mystore.com/"
+        )
+        self.connect_service.update_project_config.assert_called_once_with(
+            project_uuid=str(self.project.uuid),
+            config={"vtex_host_store": "https://www.mystore.com/"},
+        )
+
+    def test_url_redirected_preserves_existing_config(self):
+        self.onboarding.config = {"channels": {"wwc": {"channel_data": {"x": 1}}}}
+        self.onboarding.save()
+
+        dto = CrawlerWebhookDTO(
+            task_id="task-1",
+            event=URL_REDIRECTED_EVENT,
+            timestamp="2026-01-01T00:00:00Z",
+            url="https://mystore.com/",
+            data={
+                "original_url": "https://mystore.com/",
+                "resolved_url": "https://www.mystore.com/",
+            },
+        )
+
+        result = self.use_case.execute(self.onboarding_uuid, dto)
+
+        self.assertEqual(result.config["vtex_host_store"], "https://www.mystore.com/")
+        self.assertEqual(result.config["channels"]["wwc"]["channel_data"], {"x": 1})
+
+    def test_url_redirected_skips_when_resolved_url_missing(self):
+        dto = CrawlerWebhookDTO(
+            task_id="task-1",
+            event=URL_REDIRECTED_EVENT,
+            timestamp="2026-01-01T00:00:00Z",
+            url="https://mystore.com/",
+            data={"original_url": "https://mystore.com/"},
+        )
+
+        result = self.use_case.execute(self.onboarding_uuid, dto)
+
+        self.assertNotIn("vtex_host_store", result.config or {})
+        self.connect_service.update_project_config.assert_not_called()
+
+    def test_url_redirected_skips_connect_when_no_project_linked(self):
+        self.onboarding.project = None
+        self.onboarding.save()
+
+        dto = CrawlerWebhookDTO(
+            task_id="task-1",
+            event=URL_REDIRECTED_EVENT,
+            timestamp="2026-01-01T00:00:00Z",
+            url="https://mystore.com/",
+            data={
+                "original_url": "https://mystore.com/",
+                "resolved_url": "https://www.mystore.com/",
+            },
+        )
+
+        result = self.use_case.execute(self.onboarding_uuid, dto)
+
+        self.assertEqual(result.config["vtex_host_store"], "https://www.mystore.com/")
+        self.connect_service.update_project_config.assert_not_called()
+
+    def test_url_redirected_swallows_connect_failure(self):
+        self.connect_service.update_project_config.side_effect = RuntimeError("boom")
+
+        dto = CrawlerWebhookDTO(
+            task_id="task-1",
+            event=URL_REDIRECTED_EVENT,
+            timestamp="2026-01-01T00:00:00Z",
+            url="https://mystore.com/",
+            data={
+                "original_url": "https://mystore.com/",
+                "resolved_url": "https://www.mystore.com/",
+            },
+        )
+
+        result = self.use_case.execute(self.onboarding_uuid, dto)
+
+        self.assertEqual(result.config["vtex_host_store"], "https://www.mystore.com/")
 
     # ── Edge cases ─────────────────────────────────────────────────
 
@@ -152,4 +264,4 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
         )
 
         with self.assertRaises(ProjectOnboarding.DoesNotExist):
-            UpdateOnboardingProgressUseCase.execute(str(uuid4()), dto)
+            self.use_case.execute(str(uuid4()), dto)

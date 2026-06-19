@@ -1,4 +1,4 @@
-from typing import Protocol, Tuple, Dict, Optional
+from typing import Protocol, Tuple, Dict, List, Optional
 
 
 class ConnectServiceInterface(Protocol):
@@ -17,9 +17,26 @@ class ConnectServiceInterface(Protocol):
     ) -> Dict:
         ...
 
-    def set_vtex_host_store(
+    def link_vtex_account(self, project_uuid: str, vtex_account: str) -> Dict:
+        ...
+
+    def send_data_export_email(
+        self,
+        user_email: str,
+        file_url: str,
+        start_date: str,
+        end_date: str,
+        template: str,
+        status: List[str],
+    ) -> Optional[Dict]:
+        ...
+
+    def update_project_config(
         self,
         project_uuid: str,
-        vtex_host_store: str,
+        config: Dict,
     ) -> Dict:
+        ...
+
+    def get_project_plan_status(self, project_uuid: str) -> Dict:
         ...

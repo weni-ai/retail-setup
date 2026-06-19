@@ -16,6 +16,10 @@ class Cart(models.Model):
         ("skipped_identical_cart", "Skipped Identical Cart"),
         ("skipped_abandoned_cart_cooldown", "Skipped Abandoned Cart Cooldown"),
         ("skipped_below_minimum_value", "Skipped Below Minimum Value"),
+        (
+            "skipped_order_form_already_notified",
+            "Skipped Order Form Already Notified",
+        ),
     ]
 
     uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
@@ -23,7 +27,7 @@ class Cart(models.Model):
     created_on = models.DateTimeField(auto_now_add=True)
     modified_on = models.DateTimeField(auto_now=True)
     status = models.CharField(
-        max_length=35,
+        max_length=50,
         choices=STATUS_CHOICES,
         default="created",
         verbose_name="Status of Cart",
@@ -64,4 +68,35 @@ class Cart(models.Model):
             models.Index(fields=["phone_number"]),
             models.Index(fields=["phone_number", "status", "modified_on"]),
             models.Index(fields=["phone_number", "project", "modified_on"]),
+        ]
+
+
+class Lead(models.Model):
+    """
+    Sales lead from a VTEX account interested in hiring Weni services.
+
+    First interaction creates the record; subsequent interactions update
+    the plan, metrics data, and refresh the timestamp.
+    """
+
+    uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
+    user_email = models.EmailField()
+    vtex_account = models.CharField(max_length=100, unique=True)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="leads",
+    )
+    plan = models.CharField(max_length=100)
+    region = models.CharField(max_length=20, blank=True, default="")
+    data = models.JSONField(default=dict)
+    created_on = models.DateTimeField(auto_now_add=True)
+    modified_on = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Lead: {self.vtex_account} ({self.user_email}) - {self.plan}"
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["vtex_account"]),
         ]

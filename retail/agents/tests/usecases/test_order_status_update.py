@@ -9,6 +9,7 @@ from retail.agents.domains.agent_webhook.usecases.order_status import (
     adapt_order_status_to_webhook_payload,
 )
 from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.agents.shared.cache import AgentRole
 from retail.projects.models import Project
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
@@ -17,36 +18,39 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
     """Test cases for AgentOrderStatusUpdateUsecase functionality."""
 
     def setUp(self):
-        self.usecase = AgentOrderStatusUpdateUsecase()
+        self.exec_logger = MagicMock()
+        self.mock_cache_handler = MagicMock()
+        self.usecase = AgentOrderStatusUpdateUsecase(
+            cache_handler=self.mock_cache_handler,
+            exec_logger=self.exec_logger
+        )
         self.mock_project = MagicMock(spec=Project)
         self.mock_project.uuid = uuid4()
         self.mock_integrated_agent = MagicMock(spec=IntegratedAgent)
         self.mock_integrated_agent.uuid = uuid4()
+        self.mock_integrated_agent.project_id = 12345
         self.mock_integrated_agent.ignore_templates = False
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
-    def test_get_integrated_agent_if_exists_returns_from_cache(
-        self, mock_cache, mock_settings
-    ):
+    def test_get_integrated_agent_if_exists_returns_from_cache(self, mock_settings):
         mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
-        mock_cache.get.return_value = self.mock_integrated_agent
+        self.mock_cache_handler.get_role_agent.return_value = self.mock_integrated_agent
 
         result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
 
         self.assertEqual(result, self.mock_integrated_agent)
-        mock_cache.get.assert_called_once_with(
-            f"order_status_agent_{str(self.mock_project.uuid)}"
+        self.mock_cache_handler.get_role_agent.assert_called_once_with(
+            self.mock_project.uuid, AgentRole.ORDER_STATUS
         )
+        self.mock_cache_handler.set_role_agent.assert_not_called()
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.IntegratedAgent")
     def test_get_integrated_agent_if_exists_fetches_and_sets_cache(
-        self, mock_integrated_agent_cls, mock_cache, mock_settings
+        self, mock_integrated_agent_cls, mock_settings
     ):
         mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
-        mock_cache.get.return_value = None
+        self.mock_cache_handler.get_role_agent.return_value = None
         mock_obj = MagicMock()
         mock_integrated_agent_cls.objects.get.return_value = mock_obj
 
@@ -58,103 +62,87 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
             project=self.mock_project,
             is_active=True,
         )
-        mock_cache.set.assert_called_once_with(
-            f"order_status_agent_{str(self.mock_project.uuid)}",
-            mock_obj,
-            timeout=21600,
+        self.mock_cache_handler.set_role_agent.assert_called_once_with(
+            mock_obj, AgentRole.ORDER_STATUS
         )
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.IntegratedAgent")
     def test_get_integrated_agent_if_exists_returns_none_if_not_found(
-        self, mock_integrated_agent_cls, mock_cache, mock_settings
+        self, mock_integrated_agent_cls, mock_settings
     ):
         mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
-        mock_cache.get.return_value = None
+        self.mock_cache_handler.get_role_agent.return_value = None
 
-        # Create a proper exception class that inherits from BaseException
         does_not_exist_exception = type("DoesNotExist", (Exception,), {})
         mock_integrated_agent_cls.DoesNotExist = does_not_exist_exception
-
-        # Both calls (official agent and parent_agent_uuid search) raise DoesNotExist
         mock_integrated_agent_cls.objects.get.side_effect = [
-            does_not_exist_exception(),  # Official agent not found
-            does_not_exist_exception(),  # Agent with parent_agent_uuid not found
+            does_not_exist_exception(),
+            does_not_exist_exception(),
         ]
 
         result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
 
         self.assertIsNone(result)
-        # Should be called twice: once for official agent, once for parent_agent_uuid search
         self.assertEqual(mock_integrated_agent_cls.objects.get.call_count, 2)
+        self.mock_cache_handler.set_role_agent.assert_not_called()
 
-        # Verify the first call was for official agent
         first_call_args = mock_integrated_agent_cls.objects.get.call_args_list[0]
         self.assertEqual(first_call_args[1]["agent__uuid"], "test-agent-uuid")
         self.assertEqual(first_call_args[1]["project"], self.mock_project)
         self.assertEqual(first_call_args[1]["is_active"], True)
 
-        # Verify the second call was for parent_agent_uuid search
         second_call_args = mock_integrated_agent_cls.objects.get.call_args_list[1]
         self.assertEqual(second_call_args[1]["parent_agent_uuid__isnull"], False)
         self.assertEqual(second_call_args[1]["project"], self.mock_project)
         self.assertEqual(second_call_args[1]["is_active"], True)
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.IntegratedAgent")
     def test_get_integrated_agent_if_exists_finds_agent_with_parent_agent_uuid(
-        self, mock_integrated_agent_cls, mock_cache, mock_settings
+        self, mock_integrated_agent_cls, mock_settings
     ):
         mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
-        mock_cache.get.return_value = None
+        self.mock_cache_handler.get_role_agent.return_value = None
 
-        # Mock official agent not found
         does_not_exist_exception = type("DoesNotExist", (Exception,), {})
         mock_integrated_agent_cls.DoesNotExist = does_not_exist_exception
 
-        # First call (official agent) raises DoesNotExist
-        # Second call (agent with parent_agent_uuid) returns a mock agent
         mock_agent_with_parent = MagicMock()
         mock_agent_with_parent.parent_agent_uuid = "parent-uuid-123"
         mock_integrated_agent_cls.objects.get.side_effect = [
-            does_not_exist_exception(),  # Official agent not found
-            mock_agent_with_parent,  # Agent with parent_agent_uuid found
+            does_not_exist_exception(),
+            mock_agent_with_parent,
         ]
 
         result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
 
         self.assertEqual(result, mock_agent_with_parent)
-        # Should be called twice: once for official agent, once for agent with parent_agent_uuid
         self.assertEqual(mock_integrated_agent_cls.objects.get.call_count, 2)
+        self.mock_cache_handler.set_role_agent.assert_called_once_with(
+            mock_agent_with_parent, AgentRole.ORDER_STATUS
+        )
 
-        # Verify the second call was for parent_agent_uuid__isnull=False
         second_call_args = mock_integrated_agent_cls.objects.get.call_args_list[1]
         self.assertEqual(second_call_args[1]["parent_agent_uuid__isnull"], False)
         self.assertEqual(second_call_args[1]["project"], self.mock_project)
         self.assertEqual(second_call_args[1]["is_active"], True)
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
-    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.IntegratedAgent")
     def test_get_integrated_agent_if_exists_raises_error_on_multiple_parent_agents(
-        self, mock_integrated_agent_cls, mock_cache, mock_settings
+        self, mock_integrated_agent_cls, mock_settings
     ):
         mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
-        mock_cache.get.return_value = None
+        self.mock_cache_handler.get_role_agent.return_value = None
 
-        # Mock official agent not found
         does_not_exist_exception = type("DoesNotExist", (Exception,), {})
         multiple_objects_exception = type("MultipleObjectsReturned", (Exception,), {})
         mock_integrated_agent_cls.DoesNotExist = does_not_exist_exception
         mock_integrated_agent_cls.MultipleObjectsReturned = multiple_objects_exception
-
-        # First call (official agent) raises DoesNotExist
-        # Second call (agents with parent_agent_uuid) raises MultipleObjectsReturned
         mock_integrated_agent_cls.objects.get.side_effect = [
-            does_not_exist_exception(),  # Official agent not found
-            multiple_objects_exception(),  # Multiple agents with parent_agent_uuid found
+            does_not_exist_exception(),
+            multiple_objects_exception(),
         ]
 
         with self.assertRaises(ValidationError) as context:
@@ -164,7 +152,6 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
             context.exception.detail["error"],
             "Multiple agents with parent_agent_uuid found for this project",
         )
-        # The code is stored in the ErrorDetail object within detail
         self.assertEqual(
             context.exception.detail["error"].code, "multiple_parent_agents"
         )
@@ -176,6 +163,7 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         result = self.usecase.get_integrated_agent_if_exists(self.mock_project)
 
         self.assertIsNone(result)
+        self.mock_cache_handler.get_role_agent.assert_not_called()
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.Project")
@@ -249,13 +237,22 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
             vtex_account="vtex_account"
         )
 
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
     @patch(
         "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
     )
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.RequestData")
     def test_execute_calls_agent_webhook_use_case(
-        self, mock_request_data_cls, mock_agent_webhook_use_case_cls
+        self,
+        mock_request_data_cls,
+        mock_agent_webhook_use_case_cls,
+        mock_cache,
+        mock_settings,
     ):
+        mock_settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = 60
+        mock_cache.add.return_value = True
+
         mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
         mock_order_status_dto.orderId = "order-id"
         mock_order_status_dto.domain = "test-domain"
@@ -293,6 +290,202 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         mock_agent_webhook_use_case.execute.assert_called_once_with(
             self.mock_integrated_agent, mock_request_data
         )
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
+    )
+    def test_execute_skips_duplicate_event_within_window(
+        self,
+        mock_agent_webhook_use_case_cls,
+        mock_cache,
+        mock_settings,
+    ):
+        mock_settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = 60
+        mock_cache.add.return_value = False
+
+        mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
+        mock_order_status_dto.orderId = "order-id"
+        mock_order_status_dto.currentState = "invoiced"
+        mock_order_status_dto.domain = "Marketplace"
+        mock_order_status_dto.vtexAccount = "test-account"
+
+        mock_agent_webhook_use_case = MagicMock()
+        mock_agent_webhook_use_case_cls.return_value = mock_agent_webhook_use_case
+
+        self.usecase.execute(self.mock_integrated_agent, mock_order_status_dto)
+
+        mock_agent_webhook_use_case_cls.assert_not_called()
+        mock_agent_webhook_use_case.execute.assert_not_called()
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
+    )
+    def test_execute_skips_fulfillment_domain_before_dedup(
+        self, mock_agent_webhook_use_case_cls, mock_cache
+    ):
+        mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
+        mock_order_status_dto.orderId = "order-id"
+        mock_order_status_dto.currentState = "invoiced"
+        mock_order_status_dto.domain = "Fulfillment"
+        mock_order_status_dto.vtexAccount = "test-account"
+
+        self.usecase.execute(self.mock_integrated_agent, mock_order_status_dto)
+
+        mock_cache.add.assert_not_called()
+        mock_agent_webhook_use_case_cls.assert_not_called()
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
+    )
+    def test_fulfillment_domain_pushes_terminal_skip_status(
+        self, mock_agent_webhook_use_case_cls, mock_cache
+    ):
+        """When the event belongs to the ``Fulfillment`` domain, the
+        execution row opened upstream must be closed with a
+        ``log_execution_skip`` call so it never times out."""
+        mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
+        mock_order_status_dto.orderId = "order-id"
+        mock_order_status_dto.currentState = "invoiced"
+        mock_order_status_dto.domain = "Fulfillment"
+        mock_order_status_dto.vtexAccount = "test-account"
+
+        self.usecase.execute(self.mock_integrated_agent, mock_order_status_dto)
+
+        self.exec_logger.log_execution_skip.assert_called_once()
+        kwargs = self.exec_logger.log_execution_skip.call_args.kwargs
+        self.assertEqual(kwargs.get("reason"), "fulfillment_domain_event")
+        self.assertEqual(
+            kwargs.get("skip_data"),
+            {
+                "order_id": "order-id",
+                "current_state": "invoiced",
+                "vtex_account": "test-account",
+            },
+        )
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    def test_duplicate_event_pushes_terminal_skip_status(
+        self, mock_cache, mock_settings
+    ):
+        """When ``_is_duplicate_event`` short-circuits, the
+        execution row opened upstream must be closed with a
+        ``log_execution_skip`` call so it never times out."""
+        mock_settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = 60
+        # ``cache.add`` returning False signals the event was already
+        # registered → duplicate → we expect the skip path.
+        mock_cache.add.return_value = False
+
+        mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
+        mock_order_status_dto.orderId = "order-id"
+        mock_order_status_dto.currentState = "invoiced"
+        mock_order_status_dto.domain = "Marketplace"
+        mock_order_status_dto.vtexAccount = "test-account"
+
+        self.usecase.execute(self.mock_integrated_agent, mock_order_status_dto)
+
+        self.exec_logger.log_execution_skip.assert_called_once()
+        kwargs = self.exec_logger.log_execution_skip.call_args.kwargs
+        self.assertEqual(
+            kwargs.get("reason"), "duplicate_order_status_event_within_window"
+        )
+        self.assertEqual(
+            kwargs.get("skip_data"),
+            {
+                "order_id": "order-id",
+                "current_state": "invoiced",
+                "vtex_account": "test-account",
+            },
+        )
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
+    )
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.RequestData")
+    def test_execute_uses_cache_key_with_all_required_components(
+        self,
+        mock_request_data_cls,
+        mock_agent_webhook_use_case_cls,
+        mock_cache,
+        mock_settings,
+    ):
+        mock_settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = 90
+        mock_cache.add.return_value = True
+
+        mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
+        mock_order_status_dto.orderId = "1628250823413-01"
+        mock_order_status_dto.currentState = "order-created"
+        mock_order_status_dto.lastState = "not-started"
+        mock_order_status_dto.domain = "Marketplace"
+        mock_order_status_dto.vtexAccount = "citerol"
+
+        mock_agent_webhook_use_case_cls.return_value._addapt_credentials.return_value = (
+            {}
+        )
+
+        self.usecase.execute(self.mock_integrated_agent, mock_order_status_dto)
+
+        expected_cache_key = (
+            f"order_status_event:"
+            f"{self.mock_integrated_agent.project_id}:"
+            f"{self.mock_integrated_agent.uuid}:"
+            f"1628250823413-01:"
+            f"order-created"
+        )
+        mock_cache.add.assert_called_once_with(
+            expected_cache_key,
+            1,
+            timeout=90,
+        )
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
+    )
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.RequestData")
+    def test_execute_different_states_produce_different_cache_keys(
+        self,
+        mock_request_data_cls,
+        mock_agent_webhook_use_case_cls,
+        mock_cache,
+        mock_settings,
+    ):
+        mock_settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = 60
+        mock_cache.add.return_value = True
+        mock_agent_webhook_use_case_cls.return_value._addapt_credentials.return_value = (
+            {}
+        )
+
+        first_dto = MagicMock(spec=OrderStatusDTO)
+        first_dto.orderId = "order-1"
+        first_dto.currentState = "approve-payment"
+        first_dto.lastState = "payment-pending"
+        first_dto.domain = "Marketplace"
+        first_dto.vtexAccount = "test-account"
+
+        second_dto = MagicMock(spec=OrderStatusDTO)
+        second_dto.orderId = "order-1"
+        second_dto.currentState = "payment-approved"
+        second_dto.lastState = "approve-payment"
+        second_dto.domain = "Marketplace"
+        second_dto.vtexAccount = "test-account"
+
+        self.usecase.execute(self.mock_integrated_agent, first_dto)
+        self.usecase.execute(self.mock_integrated_agent, second_dto)
+
+        self.assertEqual(mock_cache.add.call_count, 2)
+        first_key = mock_cache.add.call_args_list[0][0][0]
+        second_key = mock_cache.add.call_args_list[1][0][0]
+        self.assertNotEqual(first_key, second_key)
+        self.assertTrue(first_key.endswith(":approve-payment"))
+        self.assertTrue(second_key.endswith(":payment-approved"))
 
     def test_adapt_order_status_to_webhook_payload(self):
         mock_order_status_dto = MagicMock(spec=OrderStatusDTO)

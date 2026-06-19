@@ -7,6 +7,10 @@ Connect's project.language field (e.g. "pt-br" → "pt").
 Falls back to "en" when the prefix is not found.
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 FALLBACK_LANGUAGE = "en"
 
 # ---------------------------------------------------------------------------
@@ -78,21 +82,24 @@ INSTRUCTIONS_BY_LANGUAGE = {
 
 
 # ---------------------------------------------------------------------------
-# WWC channel translated fields (title + input placeholder)
+# WWC channel translated fields (title, subtitle, input placeholder)
 # ---------------------------------------------------------------------------
 
 WWC_TRANSLATIONS = {
     "pt": {
-        "title": "Assistente inteligente",
-        "inputTextFieldHint": "Como posso ajudar?",
+        "title": "Assistente de compras",
+        "subtitle": "Como posso te ajudar hoje?",
+        "inputTextFieldHint": "Digite uma mensagem",
     },
     "en": {
-        "title": "Smart Assistant",
-        "inputTextFieldHint": "How can I help?",
+        "title": "Shopping assistant",
+        "subtitle": "How can I help you today?",
+        "inputTextFieldHint": "Type a message",
     },
     "es": {
-        "title": "Asistente inteligente",
-        "inputTextFieldHint": "¿Cómo posso ajudarte?",
+        "title": "Asistente de compras",
+        "subtitle": "¿Cómo puedo ayudarte hoy?",
+        "inputTextFieldHint": "Escribe un mensaje",
     },
 }
 
@@ -109,18 +116,48 @@ def get_instructions(language: str) -> list[str]:
         language: Connect project language (e.g. "pt-br", "en-us", "es").
     """
     prefix = _resolve_prefix(language)
-    return INSTRUCTIONS_BY_LANGUAGE.get(
-        prefix, INSTRUCTIONS_BY_LANGUAGE[FALLBACK_LANGUAGE]
-    )
+
+    if not prefix:
+        logger.warning(
+            f"Project language is empty or None (received '{language}'). "
+            f"Falling back to '{FALLBACK_LANGUAGE}' for crawler instructions."
+        )
+        return INSTRUCTIONS_BY_LANGUAGE[FALLBACK_LANGUAGE]
+
+    instructions = INSTRUCTIONS_BY_LANGUAGE.get(prefix)
+    if instructions is None:
+        logger.warning(
+            f"Unsupported language prefix '{prefix}' (from '{language}'). "
+            f"Falling back to '{FALLBACK_LANGUAGE}' for crawler instructions."
+        )
+        return INSTRUCTIONS_BY_LANGUAGE[FALLBACK_LANGUAGE]
+
+    return instructions
 
 
 def get_wwc_translations(language: str) -> dict:
     """
-    Returns the translated WWC fields (title, inputTextFieldHint)
+    Returns the translated WWC fields (title, subtitle, inputTextFieldHint)
     for the given project language.
 
     Args:
         language: Connect project language (e.g. "pt-br", "en-us", "es").
     """
     prefix = _resolve_prefix(language)
-    return WWC_TRANSLATIONS.get(prefix, WWC_TRANSLATIONS[FALLBACK_LANGUAGE])
+
+    if not prefix:
+        logger.warning(
+            f"Project language is empty or None (received '{language}'). "
+            f"Falling back to '{FALLBACK_LANGUAGE}' for WWC translations."
+        )
+        return WWC_TRANSLATIONS[FALLBACK_LANGUAGE]
+
+    translations = WWC_TRANSLATIONS.get(prefix)
+    if translations is None:
+        logger.warning(
+            f"Unsupported language prefix '{prefix}' (from '{language}'). "
+            f"Falling back to '{FALLBACK_LANGUAGE}' for WWC translations."
+        )
+        return WWC_TRANSLATIONS[FALLBACK_LANGUAGE]
+
+    return translations

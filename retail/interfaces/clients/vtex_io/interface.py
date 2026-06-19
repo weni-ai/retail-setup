@@ -86,6 +86,22 @@ class VtexIOClientInterface(ABC):
         pass
 
     @abstractmethod
+    def activate_agentic_cx_script(
+        self, account_domain: str, vtex_account: str
+    ) -> dict:
+        """
+        Notifies the VTEX IO app that the Agentic CX script can be installed.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            vtex_account (str): VTEX account for JWT token generation.
+
+        Returns:
+            dict: Response from VTEX IO.
+        """
+        pass
+
+    @abstractmethod
     def proxy_vtex(
         self,
         account_domain: str,
@@ -110,5 +126,55 @@ class VtexIOClientInterface(ABC):
 
         Returns:
             dict: Response data from VTEX platform.
+        """
+        pass
+
+    @abstractmethod
+    def proxy_payment_transaction(
+        self,
+        account_domain: str,
+        vtex_account: str,
+        transaction_id: str,
+        payments: list,
+    ) -> dict:
+        """
+        Proxies a payment transaction request to the VTEX IO agentic-cx app.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            vtex_account (str): VTEX account for JWT token generation.
+            transaction_id (str): The payment transaction ID.
+            payments (list): Non-empty list of payment objects.
+
+        Returns:
+            dict: Response from the VTEX IO proxy-payment-transaction route.
+        """
+        pass
+
+    @abstractmethod
+    def proxy_payment_gateway(
+        self,
+        account_domain: str,
+        vtex_account: str,
+        method: str,
+        path: str,
+        headers: dict = None,
+        data: Union[dict, list] = None,
+        params: dict = None,
+    ) -> dict:
+        """
+        Proxies requests to the VTEX IO Payment Gateway proxy route.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            vtex_account (str): VTEX account for JWT token generation.
+            method (str): HTTP method (GET, POST, PUT).
+            path (str): Payment Gateway API path.
+            headers (dict, optional): Additional headers.
+            data (Union[dict, list], optional): Request body data.
+            params (dict, optional): Query parameters.
+
+        Returns:
+            dict: Response from the VTEX IO proxy-payment-gateway route.
         """
         pass

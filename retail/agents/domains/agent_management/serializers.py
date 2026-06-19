@@ -93,24 +93,34 @@ class ReadAgentSerializer(serializers.Serializer):
 class GalleryAgentSerializer(ReadAgentSerializer):
     assigned = serializers.SerializerMethodField("get_is_assigned")
     assigned_agent_uuid = serializers.SerializerMethodField("get_assigned_agent_uuid")
+    channel_uuid = serializers.SerializerMethodField()
     credentials = serializers.JSONField()
 
-    def get_is_assigned(self, obj) -> bool:
+    def _get_assigned_integrated_agent(self, obj):
         project_uuid = self.context.get("project_uuid")
-        return obj.integrateds.filter(
-            project__uuid=project_uuid, is_active=True
-        ).exists()
-
-    def get_assigned_agent_uuid(self, obj):
-        project_uuid = self.context.get("project_uuid")
-        assigned = obj.integrateds.filter(
-            project__uuid=project_uuid, is_active=True
-        ).first()
-
-        if not assigned:
+        if not project_uuid:
             return None
 
-        return str(assigned.uuid)
+        for integrated in obj.integrateds.all():
+            if integrated.is_active and str(integrated.project.uuid) == str(
+                project_uuid
+            ):
+                return integrated
+
+        return None
+
+    def get_is_assigned(self, obj) -> bool:
+        return self._get_assigned_integrated_agent(obj) is not None
+
+    def get_assigned_agent_uuid(self, obj):
+        assigned = self._get_assigned_integrated_agent(obj)
+        return str(assigned.uuid) if assigned else None
+
+    def get_channel_uuid(self, obj):
+        assigned = self._get_assigned_integrated_agent(obj)
+        return (
+            str(assigned.channel_uuid) if assigned and assigned.channel_uuid else None
+        )
 
 
 class PreApprovedTemplateSerializer(serializers.Serializer):

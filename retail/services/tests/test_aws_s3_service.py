@@ -43,6 +43,15 @@ class TestS3Service(TestCase):
         S3Service()
         mock_s3_client.assert_called_once()
 
+    @patch("retail.services.aws_s3.service.S3Client")
+    def test_init_forwards_bucket_name_to_client(self, mock_s3_client):
+        """Allowing the service to be bound to a specific bucket lets
+        callers (e.g. the agent execution traces storage) reuse the
+        service layer instead of instantiating ``S3Client`` directly.
+        """
+        S3Service(bucket_name="custom-bucket")
+        mock_s3_client.assert_called_once_with(bucket_name="custom-bucket")
+
     def test_upload_file_success(self):
         expected_key = "uploaded/file.jpg"
         self.mock_client.upload_file.return_value = expected_key
@@ -235,3 +244,104 @@ class TestS3Service(TestCase):
         self.mock_client.upload_file.assert_called_once_with(
             large_file, "large/file.bin"
         )
+
+    def test_get_object_passes_key_and_returns_client_bytes(self):
+        """The service is a thin pass-through to the injected client and must
+        not alter the bytes returned by S3 (used by the traces download flow).
+        """
+        self.mock_client.get_object.return_value = b'{"trace": true}'
+
+        result = self.service.get_object(self.test_key)
+
+        self.mock_client.get_object.assert_called_once_with(self.test_key)
+        self.assertEqual(result, b'{"trace": true}')
+
+    def test_get_object_returns_none_when_client_returns_none(self):
+        """When the underlying object is missing the client surfaces ``None``
+        and the service must propagate it unchanged so callers can branch on
+        it (e.g. show an empty trace view).
+        """
+        self.mock_client.get_object.return_value = None
+
+        result = self.service.get_object("missing/key.json")
+
+        self.mock_client.get_object.assert_called_once_with("missing/key.json")
+        self.assertIsNone(result)
+
+    def test_get_object_propagates_client_error(self):
+        self.mock_client.get_object.side_effect = Exception("boom")
+
+        with self.assertRaises(Exception) as context:
+            self.service.get_object(self.test_key)
+
+        self.assertIn("boom", str(context.exception))
+        self.mock_client.get_object.assert_called_once_with(self.test_key)
+
+    def test_put_object_default_content_type(self):
+        expected_key = "traces/out.json"
+        self.mock_client.put_object.return_value = expected_key
+
+        result = self.service.put_object(expected_key, b"{}")
+
+        self.mock_client.put_object.assert_called_once_with(
+            expected_key, b"{}", "application/json"
+        )
+        self.assertEqual(result, expected_key)
+
+    def test_put_object_custom_content_type(self):
+        expected_key = "logs/line.txt"
+        self.mock_client.put_object.return_value = expected_key
+
+        result = self.service.put_object(
+            expected_key, b"hello", content_type="text/plain"
+        )
+
+        self.mock_client.put_object.assert_called_once_with(
+            expected_key, b"hello", "text/plain"
+        )
+        self.assertEqual(result, expected_key)
+
+    def test_put_object_propagates_client_error(self):
+        self.mock_client.put_object.side_effect = Exception("put failed")
+
+        with self.assertRaises(Exception) as context:
+            self.service.put_object("bad/key.json", b"{}")
+
+        self.assertIn("put failed", str(context.exception))
+        self.mock_client.put_object.assert_called_once_with(
+            "bad/key.json", b"{}", "application/json"
+        )
+
+    def test_upload_fileobj_default_content_type(self):
+        expected_key = "exports/out.csv"
+        self.mock_client.upload_fileobj.return_value = expected_key
+        fileobj = BytesIO(b"col\nval\n")
+
+        result = self.service.upload_fileobj(fileobj, expected_key)
+
+        self.mock_client.upload_fileobj.assert_called_once_with(
+            fileobj, expected_key, "application/octet-stream"
+        )
+        self.assertEqual(result, expected_key)
+
+    def test_upload_fileobj_custom_content_type(self):
+        expected_key = "exports/out.csv"
+        self.mock_client.upload_fileobj.return_value = expected_key
+        fileobj = BytesIO(b"col\nval\n")
+
+        result = self.service.upload_fileobj(
+            fileobj, expected_key, content_type="text/csv"
+        )
+
+        self.mock_client.upload_fileobj.assert_called_once_with(
+            fileobj, expected_key, "text/csv"
+        )
+        self.assertEqual(result, expected_key)
+
+    def test_upload_fileobj_propagates_client_error(self):
+        self.mock_client.upload_fileobj.side_effect = Exception("stream failed")
+
+        with self.assertRaises(Exception) as context:
+            self.service.upload_fileobj(BytesIO(b"x"), "bad/key.csv")
+
+        self.assertIn("stream failed", str(context.exception))

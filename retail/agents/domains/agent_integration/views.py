@@ -40,7 +40,13 @@ from retail.agents.domains.agent_integration.usecases.update import (
 from retail.agents.domains.agent_integration.usecases.delivered_order_tracking import (
     DeliveredOrderTrackingConfigUseCase,
 )
-from retail.agents.tasks import task_delivered_order_tracking_webhook
+from retail.agents.tasks import (
+    task_delivered_order_tracking_webhook,
+    task_payment_recovery_webhook,
+)
+from retail.agents.domains.agent_integration.usecases.payment_recovery import (
+    PaymentRecoveryWebhookUseCase,
+)
 
 from retail.internal.permissions import HasProjectPermission
 
@@ -338,4 +344,41 @@ class DeliveredOrderTrackingWebhookView(APIView):
                 f"Error queuing delivered order tracking webhook for agent {pk}: {e}"
             )
 
+            return Response({"message": "Webhook received"}, status=status.HTTP_200_OK)
+
+
+class PaymentRecoveryWebhookView(APIView):
+    """Webhook endpoint for receiving VTEX payment recovery notifications."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request: Request, pk: UUID) -> Response:
+        logger.info(f"[PaymentRecovery] Health check received - agent={pk}")
+        return Response({"message": "Webhook available"}, status=status.HTTP_200_OK)
+
+    def post(self, request: Request, pk: UUID) -> Response:
+        if request.data.get("hookConfig") == "ping":
+            logger.info(f"[PaymentRecovery] VTEX ping received - agent={pk}")
+            return Response({"message": "Webhook available"}, status=status.HTTP_200_OK)
+
+        try:
+            use_case = PaymentRecoveryWebhookUseCase()
+            countdown = use_case.get_delay_seconds(pk)
+
+            task_payment_recovery_webhook.apply_async(
+                args=[pk, request.data],
+                countdown=countdown,
+                queue="vtex-io-orders-update-events",
+            )
+
+            logger.info(
+                f"[PaymentRecovery] Webhook scheduled for processing - "
+                f"agent={pk} countdown={countdown}s"
+            )
+            return Response({"message": "Webhook received"}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.exception(
+                f"[PaymentRecovery] Error queuing webhook - agent={pk}: {e}"
+            )
             return Response({"message": "Webhook received"}, status=status.HTTP_200_OK)

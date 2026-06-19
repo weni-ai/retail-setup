@@ -80,3 +80,49 @@ class UpdateTemplateUseCaseTest(TestCase):
         self.template.refresh_from_db()
         self.assertEqual(self.version.status, "REJECTED")
         self.assertNotEqual(self.template.current_version, self.version)
+
+    def test_execute_persists_paused_as_is_and_does_not_promote_current_version(
+        self,
+    ):
+        """PAUSED is persisted as-is, no promotion. Anchor: FR-026."""
+        previous_current_version = self.template.current_version
+
+        payload = {"version_uuid": str(self.version_uuid), "status": "PAUSED"}
+        result = self.use_case.execute(payload)
+
+        self.assertEqual(result, self.template)
+        self.version.refresh_from_db()
+        self.template.refresh_from_db()
+        self.assertEqual(self.version.status, "PAUSED")
+        self.assertEqual(self.template.current_version, previous_current_version)
+        self.assertNotEqual(self.template.current_version, self.version)
+
+    def test_execute_persists_flagged_as_is_and_does_not_promote_current_version(
+        self,
+    ):
+        """FLAGGED same contract as PAUSED. Anchor: FR-026."""
+        previous_current_version = self.template.current_version
+
+        payload = {"version_uuid": str(self.version_uuid), "status": "FLAGGED"}
+        result = self.use_case.execute(payload)
+
+        self.assertEqual(result, self.template)
+        self.version.refresh_from_db()
+        self.template.refresh_from_db()
+        self.assertEqual(self.version.status, "FLAGGED")
+        self.assertEqual(self.template.current_version, previous_current_version)
+        self.assertNotEqual(self.template.current_version, self.version)
+
+    def test_execute_persists_pending_as_is_and_does_not_promote_current_version(
+        self,
+    ):
+        """PENDING contract regression. Anchor: FR-026."""
+        previous_current_version = self.template.current_version
+
+        payload = {"version_uuid": str(self.version_uuid), "status": "PENDING"}
+        self.use_case.execute(payload)
+
+        self.version.refresh_from_db()
+        self.template.refresh_from_db()
+        self.assertEqual(self.version.status, "PENDING")
+        self.assertEqual(self.template.current_version, previous_current_version)

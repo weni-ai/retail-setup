@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlparse
 
 from retail.api.tasks import check_templates_synchronization
 from retail.clients.exceptions import CustomAPIException
@@ -37,8 +38,14 @@ class InstallActions:
         project_uuid = data["project_uuid"]
 
         if "create_abandoned_cart_template" in actions:
-            domain = integrated_feature.project.vtex_account
-            domain += ".vtexcommercestable.com.br"
+            vtex_host_store = integrated_feature.project.config.get("vtex_host_store")
+            if vtex_host_store:
+                domain = urlparse(vtex_host_store).netloc
+            else:
+                domain = (
+                    f"{integrated_feature.project.vtex_account}"
+                    f".vtexcommercestable.com.br"
+                )
             self._create_abandoned_cart_template(
                 integrated_feature=integrated_feature,
                 project_uuid=project_uuid,

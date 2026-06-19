@@ -1,7 +1,7 @@
 import os
 import logging
 
-from typing import Optional
+from typing import Optional, List
 
 from django.conf import settings
 
@@ -27,7 +27,7 @@ class WebchatPushService:
         template = template.replace("<SCRIPT_URL>", script_url)
         return template
 
-    def publish_webchat_script(self, script_url: str, account_id: str) -> str:
+    def publish_webchat_script(self, script_url: str, account_id: str, vtex_account: str) -> List[str]:
         """
         Builds the webchat loader script and uploads it to the push-webchat bucket.
 
@@ -35,14 +35,17 @@ class WebchatPushService:
             WebchatPublishError: If the upload to S3 fails.
         """
         loader_script = self._build_loader_script(script_url)
-        key = f"VTEXApp/accounts/{account_id}/webchat.js"
+        keys = [f"VTEXApp/accounts/{account_id}/webchat.js", f"VTEXApp/accounts/{vtex_account}/webchat.js"]
 
+        uploaded_urls = []
         try:
-            uploaded_url = self.client.upload_script(
-                key=key,
-                script_content=loader_script,
-                redirect_url=script_url,
-            )
+            for key in keys:
+                uploaded_url = self.client.upload_script(
+                    key=key,
+                    script_content=loader_script,
+                    redirect_url=script_url,
+                )
+                uploaded_urls.append(uploaded_url)
         except Exception as exc:
             logger.error(
                 f"Failed to upload webchat script for account_id={account_id}: {exc}"
@@ -51,8 +54,8 @@ class WebchatPushService:
                 f"Could not upload webchat script: {exc}"
             ) from exc
 
-        logger.info(f"Published webchat script at {uploaded_url}")
-        return uploaded_url
+        logger.info(f"Published webchat script at {uploaded_urls}")
+        return uploaded_urls
 
 
 class WebchatPublishError(Exception):

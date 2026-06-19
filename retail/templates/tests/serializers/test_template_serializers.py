@@ -14,9 +14,10 @@ from retail.templates.serializers import (
     CreateCustomTemplateSerializer,
     TemplateMetricsRequestSerializer,
     ParameterSerializer,
+    ValidateTemplateSampleSerializer,
 )
 from retail.templates.models import Template, Version
-from retail.agents.models import PreApprovedTemplate, Agent
+from retail.agents.domains.agent_management.models import PreApprovedTemplate, Agent
 from retail.projects.models import Project
 from retail.services.aws_s3.service import S3Service
 
@@ -108,6 +109,7 @@ class TestTemplateMetadataSerializer(TestCase):
             "footer": "Footer text",
             "buttons": [{"type": "QUICK_REPLY", "text": "Reply"}],
             "category": "UTILITY",
+            "language": "pt_BR",
         }
 
         serializer = TemplateMetadataSerializer(
@@ -120,6 +122,7 @@ class TestTemplateMetadataSerializer(TestCase):
         self.assertEqual(result["footer"], "Footer text")
         self.assertEqual(result["buttons"], [{"type": "QUICK_REPLY", "text": "Reply"}])
         self.assertEqual(result["category"], "UTILITY")
+        self.assertEqual(result["language"], "pt_BR")
         self.assertIsNotNone(result["header"])
 
     def test_metadata_serialization_with_image_header(self):
@@ -158,6 +161,17 @@ class TestTemplateMetadataSerializer(TestCase):
         result = serializer.data
         self.assertIsNone(result["header"])
 
+    def test_metadata_serialization_without_language(self):
+        metadata = {"body": "Test body", "category": "UTILITY"}
+
+        serializer = TemplateMetadataSerializer(
+            metadata, s3_service=self.mock_s3_service
+        )
+
+        result = serializer.data
+        self.assertEqual(result["body"], "Test body")
+        self.assertIsNone(result.get("language"))
+
 
 class TestReadTemplateSerializer(TestCase):
     def setUp(self):
@@ -179,7 +193,6 @@ class TestReadTemplateSerializer(TestCase):
             name="test_template",
             parent=self.parent,
             rule_code="def test(): pass",
-            is_custom=False,
             needs_button_edit=False,
             is_active=True,
             variables=["var1", "var2"],
@@ -203,7 +216,6 @@ class TestReadTemplateSerializer(TestCase):
             display_name="Custom Display Name",
             start_condition="custom condition",
             rule_code="def custom(): pass",
-            is_custom=True,
             metadata={"body": "Custom body"},
         )
 
@@ -230,6 +242,31 @@ class TestReadTemplateSerializer(TestCase):
         result = serializer.data
 
         self.assertEqual(result["status"], "APPROVED")
+
+    def test_template_app_uuid_from_first_version(self):
+        app_uuid = uuid4()
+        template = Template.objects.create(
+            uuid=uuid4(), name="test_template", parent=self.parent
+        )
+
+        Version.objects.create(
+            template=template,
+            template_name="weni_test_template",
+            integrations_app_uuid=app_uuid,
+            project=self.project,
+            status="APPROVED",
+        )
+
+        serializer = ReadTemplateSerializer(template)
+        self.assertEqual(serializer.data["app_uuid"], str(app_uuid))
+
+    def test_template_app_uuid_without_version(self):
+        template = Template.objects.create(
+            uuid=uuid4(), name="test_template", parent=self.parent
+        )
+
+        serializer = ReadTemplateSerializer(template)
+        self.assertIsNone(serializer.data["app_uuid"])
 
     def test_template_status_without_version(self):
         template = Template.objects.create(
@@ -463,3 +500,178 @@ class TestTemplateMetricsRequestSerializer(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn("start", serializer.errors)
         self.assertIn("end", serializer.errors)
+
+
+class TestValidateTemplateSampleSerializer(TestCase):
+    def setUp(self):
+        self.project_uuid = str(uuid4())
+        self.app_uuid = str(uuid4())
+        self.base_data = {
+            "template_body": "Olá",
+            "app_uuid": self.app_uuid,
+            "project_uuid": self.project_uuid,
+        }
+
+    def _serializer(self, data, *, request=None):
+        context = {"request": request} if request is not None else {}
+        return ValidateTemplateSampleSerializer(data=data, context=context)
+
+    def _request_with_header(self, project_uuid):
+        request = Mock()
+        request.headers = {"Project-Uuid": project_uuid}
+        return request
+
+    def test_body_at_1024_chars_passes(self):
+        data = {**self.base_data, "template_body": "x" * 1024}
+        serializer = self._serializer(data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_body_at_1025_chars_fails(self):
+        data = {**self.base_data, "template_body": "x" * 1025}
+        serializer = self._serializer(data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("template_body", serializer.errors)
+
+    def test_text_header_at_60_chars_passes(self):
+        data = {**self.base_data, "template_header": "x" * 60}
+        serializer = self._serializer(data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_text_header_at_61_chars_fails(self):
+        data = {**self.base_data, "template_header": "x" * 61}
+        serializer = self._serializer(data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("template_header", serializer.errors)
+
+    def test_image_url_header_longer_than_60_chars_passes(self):
+        long_url = "https://example.com/" + ("a" * 80) + ".png"
+        data = {**self.base_data, "template_header": long_url}
+        serializer = self._serializer(data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_base64_data_uri_header_longer_than_60_chars_passes(self):
+        base64_blob = "A" * 148
+        data = {
+            **self.base_data,
+            "template_header": f"data:image/png;base64,{base64_blob}",
+        }
+        serializer = self._serializer(data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_footer_at_60_chars_passes(self):
+        data = {**self.base_data, "template_footer": "x" * 60}
+        serializer = self._serializer(data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_footer_at_61_chars_fails(self):
+        data = {**self.base_data, "template_footer": "x" * 61}
+        serializer = self._serializer(data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("template_footer", serializer.errors)
+
+    def test_button_text_at_20_chars_passes(self):
+        data = {
+            **self.base_data,
+            "template_button": [{"type": "QUICK_REPLY", "text": "x" * 20}],
+        }
+        serializer = self._serializer(data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_button_text_at_21_chars_fails(self):
+        data = {
+            **self.base_data,
+            "template_button": [{"type": "QUICK_REPLY", "text": "x" * 21}],
+        }
+        serializer = self._serializer(data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("template_button", serializer.errors)
+
+    def test_single_url_button_passes(self):
+        data = {
+            **self.base_data,
+            "template_button": [
+                {"type": "URL", "text": "Open", "url": "https://example.com"}
+            ],
+        }
+        serializer = self._serializer(data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_two_url_buttons_fail(self):
+        data = {
+            **self.base_data,
+            "template_button": [
+                {"type": "URL", "text": "A", "url": "https://a.com"},
+                {"type": "URL", "text": "B", "url": "https://b.com"},
+            ],
+        }
+        serializer = self._serializer(data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("template_button", serializer.errors)
+
+    def test_three_quick_reply_buttons_pass(self):
+        data = {
+            **self.base_data,
+            "template_button": [
+                {"type": "QUICK_REPLY", "text": "Sim"},
+                {"type": "QUICK_REPLY", "text": "Não"},
+                {"type": "QUICK_REPLY", "text": "Talvez"},
+            ],
+        }
+        serializer = self._serializer(data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_four_quick_reply_buttons_fail(self):
+        data = {
+            **self.base_data,
+            "template_button": [
+                {"type": "QUICK_REPLY", "text": "A"},
+                {"type": "QUICK_REPLY", "text": "B"},
+                {"type": "QUICK_REPLY", "text": "C"},
+                {"type": "QUICK_REPLY", "text": "D"},
+            ],
+        }
+        serializer = self._serializer(data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("template_button", serializer.errors)
+
+    def test_mixed_url_and_quick_reply_fails_with_disjointness_message(self):
+        data = {
+            **self.base_data,
+            "template_button": [
+                {"type": "URL", "text": "Open", "url": "https://example.com"},
+                {"type": "QUICK_REPLY", "text": "Reply"},
+            ],
+        }
+        serializer = self._serializer(data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("template_button", serializer.errors)
+        self.assertIn(
+            "Cannot mix URL and QUICK_REPLY buttons in a single sample.",
+            str(serializer.errors["template_button"]),
+        )
+
+    def test_inherited_validation_requires_at_least_one_content_field(self):
+        data = {"app_uuid": self.app_uuid, "project_uuid": self.project_uuid}
+        serializer = self._serializer(data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("non_field_errors", serializer.errors)
+
+    def test_project_uuid_header_matches_body_passes(self):
+        request = self._request_with_header(self.project_uuid)
+        serializer = self._serializer(self.base_data, request=request)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_project_uuid_header_differs_from_body_fails(self):
+        request = self._request_with_header(str(uuid4()))
+        serializer = self._serializer(self.base_data, request=request)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("project_uuid", serializer.errors)
+        error = serializer.errors["project_uuid"][0]
+        self.assertEqual(error.code, "project_uuid_mismatch")
+        self.assertIn("Project-Uuid header does not match", str(error))
+
+    def test_project_uuid_header_absent_is_permissive(self):
+        request = Mock()
+        request.headers = {}
+        serializer = self._serializer(self.base_data, request=request)
+        self.assertTrue(serializer.is_valid(), serializer.errors)

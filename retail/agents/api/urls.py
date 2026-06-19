@@ -2,6 +2,12 @@ from django.urls import path
 
 from rest_framework.routers import SimpleRouter
 
+from retail.agents.domains.agent_execution.views import (
+    AgentLogJsonView,
+    AgentLogsExportDownloadView,
+    AgentLogsExportView,
+    AgentLogsView,
+)
 from retail.agents.domains.agent_management.views import AgentViewSet, PushAgentView
 
 from retail.agents.domains.agent_integration.views import (
@@ -12,6 +18,7 @@ from retail.agents.domains.agent_integration.views import (
     DeliveredOrderTrackingEnableView,
     DeliveredOrderTrackingDisableView,
     DeliveredOrderTrackingWebhookView,
+    PaymentRecoveryWebhookView,
     TemplateLanguagesView,
 )
 from retail.agents.domains.agent_webhook.views import AgentWebhookView
@@ -56,6 +63,31 @@ urlpatterns = [
         "delivered-order-tracking/<uuid:pk>/",
         DeliveredOrderTrackingWebhookView.as_view(),
         name="delivered-order-tracking-webhook",
+    ),
+    path(
+        "payment-recovery-webhook/<uuid:pk>/",
+        PaymentRecoveryWebhookView.as_view(),
+        name="payment-recovery-webhook",
+    ),
+    path(
+        "assigneds/<uuid:agent_uuid>/logs/",
+        AgentLogsView.as_view(),
+        name="agent-logs",
+    ),
+    path(
+        "assigneds/<uuid:agent_uuid>/logs/export/",
+        AgentLogsExportView.as_view(),
+        name="agent-logs-export",
+    ),
+    path(
+        "logs/export/download/",
+        AgentLogsExportDownloadView.as_view(),
+        name="agent-logs-export-download",
+    ),
+    path(
+        "assigneds/<uuid:agent_uuid>/logs/<uuid:log_uuid>/json/",
+        AgentLogJsonView.as_view(),
+        name="agent-log-json",
     ),
 ]
 

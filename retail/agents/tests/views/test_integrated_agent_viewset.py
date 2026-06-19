@@ -18,7 +18,7 @@ from retail.agents.domains.agent_management.models import (
     PreApprovedTemplate,
 )
 from retail.projects.models import Project
-from retail.templates.models import Template
+from retail.templates.models import Template, Version
 from retail.internal.test_mixins import (
     BaseTestMixin,
     ConnectServicePermissionScenarios,
@@ -82,6 +82,7 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
             uuid=uuid4(),
             agent=self.agent1,
             project=self.project1,
+            channel_uuid=uuid4(),
         )
         self.integrated_agent2 = IntegratedAgent.objects.create(
             uuid=uuid4(),
@@ -222,6 +223,46 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
         returned_uuids = {agent["uuid"] for agent in response.json()}
         self.assertIn(str(self.integrated_agent1.uuid), returned_uuids)
         self.assertIn(str(self.integrated_agent2.uuid), returned_uuids)
+
+    def test_list_integrated_agents_returns_channel_uuid(self):
+        """Integrated agent list must expose channel_uuid from the model."""
+        self.integrated_agent1.channel_uuid = uuid4()
+        self.integrated_agent1.save(update_fields=["channel_uuid"])
+
+        response = self._make_list_request(project_uuid=self.project1.uuid)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        agents_by_uuid = {item["uuid"]: item for item in response.json()}
+        self.assertEqual(
+            agents_by_uuid[str(self.integrated_agent1.uuid)]["channel_uuid"],
+            str(self.integrated_agent1.channel_uuid),
+        )
+        self.assertIsNone(
+            agents_by_uuid[str(self.integrated_agent2.uuid)]["channel_uuid"]
+        )
+
+    def test_list_integrated_agents_returns_template_app_uuid(self):
+        app_uuid = uuid4()
+        template = self._create_template("order_status", self.integrated_agent1)
+        Version.objects.create(
+            template=template,
+            template_name="weni_order_status",
+            integrations_app_uuid=app_uuid,
+            project=self.project1,
+            status="APPROVED",
+        )
+
+        response = self._make_list_request(project_uuid=self.project1.uuid)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        agents_by_uuid = {item["uuid"]: item for item in response.json()}
+        templates = agents_by_uuid[str(self.integrated_agent1.uuid)]["templates"]
+        template_payload = next(
+            item for item in templates if item["uuid"] == str(template.uuid)
+        )
+        self.assertEqual(template_payload["app_uuid"], str(app_uuid))
 
     def test_list_integrated_agents_missing_project_uuid_header(self):
         """Test listing integrated agents fails when Project-UUID header is missing"""
