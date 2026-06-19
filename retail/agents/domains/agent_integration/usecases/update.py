@@ -24,6 +24,7 @@ class AbandonedCartConfigData(TypedDict, total=False):
 
 class PaymentRecoveryConfigData(TypedDict, total=False):
     minimum_order_value: Optional[float]
+    delay_minutes: int
 
 
 class UpdateIntegratedAgentData(TypedDict, total=False):
@@ -205,6 +206,9 @@ class UpdateIntegratedAgentUseCase:
 
         if "minimum_order_value" in config_data:
             payment_recovery["minimum_order_value"] = config_data["minimum_order_value"]
+
+        if "delay_minutes" in config_data:
+            payment_recovery["delay_minutes"] = config_data["delay_minutes"]
 
         integrated_agent.config["payment_recovery"] = payment_recovery
 

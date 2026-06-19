@@ -4,6 +4,9 @@ from django.conf import settings
 
 from retail.templates.serializers import ReadTemplateSerializer
 from retail.agents.domains.agent_management.usecases.push import PushAgentUseCase
+from retail.agents.domains.agent_integration.usecases.payment_recovery import (
+    DEFAULT_DELAY_MINUTES,
+)
 
 
 class DeliveredOrderTrackingEnableSerializer(serializers.Serializer):
@@ -81,6 +84,10 @@ class PaymentRecoveryConfigSerializer(PartialUpdateSerializer):
         required=False,
         allow_null=True,
         min_value=0,
+    )
+    delay_minutes = serializers.IntegerField(
+        required=False,
+        min_value=1,
     )
 
 
@@ -189,6 +196,9 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
 
         return {
             "minimum_order_value": payment_recovery_config.get("minimum_order_value"),
+            "delay_minutes": payment_recovery_config.get(
+                "delay_minutes", DEFAULT_DELAY_MINUTES
+            ),
         }
 
 
