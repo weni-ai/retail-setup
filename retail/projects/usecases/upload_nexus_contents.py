@@ -12,6 +12,11 @@ from retail.projects.usecases.agent_builder_helpers import (
     ensure_agent_manager_configured,
     load_onboarding_with_linked_project,
 )
+from retail.projects.usecases.content_base_progress_helpers import (
+    STATUS_COMPLETE,
+    STATUS_UPLOADING,
+    persist_content_base_progress,
+)
 from retail.services.nexus.service import NexusService
 
 logger = logging.getLogger(__name__)
@@ -93,7 +98,7 @@ class UploadNexusContentsUseCase:
             f"Uploading {total} content files to Nexus for project={project_uuid}"
         )
 
-        for filename, file_bytes, content_type in files:
+        for index, (filename, file_bytes, content_type) in enumerate(files):
             response = self.nexus_service.upload_content_base_file(
                 project_uuid=project_uuid,
                 file=(filename, file_bytes, content_type),
@@ -113,6 +118,18 @@ class UploadNexusContentsUseCase:
             if file_uuid:
                 self._wait_for_processing(project_uuid, file_uuid, filename)
 
+            upload_percent = round((index + 1) / total * 100)
+            persist_content_base_progress(
+                onboarding,
+                upload_percent=upload_percent,
+                status=STATUS_UPLOADING,
+            )
+
+        persist_content_base_progress(
+            onboarding,
+            upload_percent=100,
+            status=STATUS_COMPLETE,
+        )
         logger.info(
             f"Content base upload completed for project={project_uuid} "
             f"({total} files uploaded)"

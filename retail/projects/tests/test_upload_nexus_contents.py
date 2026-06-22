@@ -151,6 +151,9 @@ class TestUploadNexusContentsUseCase(TestCase):
 
         self.onboarding.refresh_from_db()
         self.assertEqual(self.onboarding.progress, 100)
+        snapshot = self.onboarding.config["content_base_progress"]
+        self.assertEqual(snapshot["upload_percent"], 100)
+        self.assertEqual(snapshot["status"], "complete")
 
     def test_stops_on_upload_failure(self):
         self.mock_nexus_service.upload_content_base_file.side_effect = [

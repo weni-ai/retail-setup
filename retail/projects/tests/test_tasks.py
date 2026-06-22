@@ -269,6 +269,15 @@ class TestTaskUploadNexusContents(TestCase):
     def test_soft_fails_and_records_background_failure(
         self, mock_release, mock_upload_cls, mock_save_background_cls
     ):
+        self.onboarding.config = {
+            "content_base_progress": {
+                "crawl_percent": 100,
+                "upload_percent": 50,
+                "status": "uploading",
+            }
+        }
+        self.onboarding.save(update_fields=["config"])
+
         mock_upload = MagicMock()
         mock_upload.execute.side_effect = RuntimeError("nexus down")
         mock_upload_cls.return_value = mock_upload
@@ -281,6 +290,10 @@ class TestTaskUploadNexusContents(TestCase):
             "mystore", "nexus_upload", "nexus down"
         )
         mock_release.assert_called_once_with("upload_nexus_contents", "mystore")
+        self.onboarding.refresh_from_db()
+        snapshot = self.onboarding.config["content_base_progress"]
+        self.assertEqual(snapshot["status"], "failed")
+        self.assertEqual(snapshot["upload_percent"], 50)
 
     @patch("retail.projects.tasks.UploadNexusContentsUseCase")
     @patch("retail.projects.tasks.release_task_lock")

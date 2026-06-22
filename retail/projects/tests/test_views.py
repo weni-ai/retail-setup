@@ -226,6 +226,35 @@ class TestOnboardingStatusView(TestCase):
         self.assertIn("channels", response.json()["config"])
 
 
+class TestContentBaseProgressView(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    @_auth_bypass(None)
+    def test_returns_weighted_progress(self, _mock_auth):
+        ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+            config={
+                "content_base_progress": {
+                    "crawl_percent": 100,
+                    "upload_percent": 50,
+                    "status": "uploading",
+                }
+            },
+        )
+
+        response = self.client.get("/api/onboard/mystore/content-base-progress/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"progress": 66})
+
+    @_auth_bypass(None)
+    def test_returns_404_when_onboarding_missing(self, _mock_auth):
+        response = self.client.get("/api/onboard/unknown/content-base-progress/")
+
+        self.assertEqual(response.status_code, 404)
+
+
 class TestOnboardingPatchView(TestCase):
     def setUp(self):
         self.client = APIClient()
