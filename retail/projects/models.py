@@ -11,6 +11,16 @@ from retail.agents.shared.cache import IntegratedAgentCacheHandlerRedis
 logger = logging.getLogger(__name__)
 
 
+class ActiveProjectManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_active=True)
+
+
+class ActiveOnboardingManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_active=True)
+
+
 class Project(models.Model):
     name = models.CharField(max_length=256)
     uuid = models.UUIDField(unique=True)
@@ -19,11 +29,18 @@ class Project(models.Model):
     language = models.CharField(max_length=64, null=True, blank=True)
     config = models.JSONField(default=dict)
     is_blocked = models.BooleanField(default=False, db_index=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    modified_on = models.DateTimeField(auto_now=True)
+
+    objects = ActiveProjectManager()
+    all_objects = models.Manager()
 
     def __str__(self) -> str:
         return f"{self.name} [VTEX] {self.vtex_account}"
 
     class Meta:
+        default_manager_name = "objects"
+        base_manager_name = "all_objects"
         indexes = [
             models.Index(fields=["uuid"]),
             models.Index(fields=["vtex_account"]),
@@ -63,7 +80,7 @@ class ProjectOnboarding(models.Model):
     FAIL = "FAIL"
 
     uuid = models.UUIDField(default=uuid_lib.uuid4, unique=True, editable=False)
-    vtex_account = models.CharField(max_length=100, unique=True)
+    vtex_account = models.CharField(max_length=100, db_index=True)
     project = models.OneToOneField(
         Project,
         on_delete=models.CASCADE,
@@ -71,6 +88,7 @@ class ProjectOnboarding(models.Model):
         null=True,
         blank=True,
     )
+    is_active = models.BooleanField(default=True, db_index=True)
     created_on = models.DateTimeField(auto_now_add=True)
     current_page = models.CharField(max_length=255, blank=True, default="")
     completed = models.BooleanField(default=False)
@@ -85,6 +103,20 @@ class ProjectOnboarding(models.Model):
         default=None,
     )
     config = models.JSONField(default=dict, blank=True)
+
+    objects = ActiveOnboardingManager()
+    all_objects = models.Manager()
+
+    class Meta:
+        default_manager_name = "objects"
+        base_manager_name = "all_objects"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["vtex_account"],
+                condition=models.Q(is_active=True),
+                name="projects_onboarding_unique_active_vtex_account",
+            ),
+        ]
 
     def __str__(self) -> str:
         return (
@@ -103,7 +135,7 @@ def snapshot_previous_completed(sender, instance, **kwargs):
     """
     if instance.pk:
         try:
-            previous = ProjectOnboarding.objects.get(pk=instance.pk)
+            previous = ProjectOnboarding.all_objects.get(pk=instance.pk)
             instance._previous_completed = previous.completed
         except ProjectOnboarding.DoesNotExist:
             instance._previous_completed = False

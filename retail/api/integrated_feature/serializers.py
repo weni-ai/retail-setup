@@ -18,7 +18,10 @@ class IntegratedFeatureSerializer(serializers.Serializer):
 
     def get_globals(self, obj):
         project_uuid = self.context.get("project_uuid")
-        integrated_features = obj.integrated_features.filter(project__uuid=project_uuid)
+        integrated_features = obj.integrated_features.filter(
+            project__uuid=project_uuid,
+            project__is_active=True,
+        )
 
         globals_list = []
         for integrated_feature in integrated_features:
@@ -34,7 +37,10 @@ class IntegratedFeatureSerializer(serializers.Serializer):
 
     def get_sectors(self, obj):
         project_uuid = self.context.get("project_uuid")
-        integrated_features = obj.integrated_features.filter(project__uuid=project_uuid)
+        integrated_features = obj.integrated_features.filter(
+            project__uuid=project_uuid,
+            project__is_active=True,
+        )
 
         sectors_list = []
         for integrated_feature in integrated_features:

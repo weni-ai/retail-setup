@@ -165,6 +165,7 @@ class DirectSendCategoryWebhookUseCase:
     def _lookup_integrated_agents(self, dto: DirectSendCategoryDTO):
         return IntegratedAgent.objects.filter(
             project__uuid=dto.project_uuid,
+            project__is_active=True,
             templates__versions__integrations_app_uuid=dto.app_uuid,
         ).distinct()
 

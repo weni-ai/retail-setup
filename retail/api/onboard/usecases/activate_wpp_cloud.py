@@ -25,6 +25,7 @@ class ActivateWppCloudUseCase:
             integrated_agent = IntegratedAgent.objects.get(
                 agent__uuid=abandoned_cart_uuid,
                 project__uuid=dto.project_uuid,
+                project__is_active=True,
                 is_active=True,
             )
         except IntegratedAgent.DoesNotExist:
