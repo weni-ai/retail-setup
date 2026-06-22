@@ -59,7 +59,7 @@ class TestStartSetupUseCase(TestCase):
         """When an onboarding already exists, should reset transient fields."""
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
-            current_step="CRAWL",
+            current_step="NEXUS_CONFIG",
             progress=80,
             crawler_result=ProjectOnboarding.SUCCESS,
             completed=True,

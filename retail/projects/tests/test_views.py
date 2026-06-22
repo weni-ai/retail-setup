@@ -115,7 +115,7 @@ class TestCrawlerWebhookView(TestCase):
         self.onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=self.project,
-            current_step="CRAWL",
+            current_step="NEXUS_CONFIG",
         )
 
     @patch(
@@ -188,7 +188,7 @@ class TestOnboardingStatusView(TestCase):
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=project,
-            current_step="CRAWL",
+            current_step="NEXUS_CONFIG",
             progress=50,
         )
 
@@ -198,7 +198,7 @@ class TestOnboardingStatusView(TestCase):
         data = response.json()
         self.assertEqual(data["vtex_account"], "mystore")
         self.assertEqual(data["progress"], 50)
-        self.assertEqual(data["current_step"], "CRAWL")
+        self.assertEqual(data["current_step"], "NEXUS_CONFIG")
         self.assertEqual(data["project_uuid"], str(project.uuid))
 
     @_auth_bypass(None)

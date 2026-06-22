@@ -4,7 +4,6 @@ from celery import shared_task
 from django.core.cache import cache
 
 from retail.projects.models import ProjectOnboarding
-from retail.projects.usecases.initiate_crawl import InitiateCrawlUseCase
 from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.projects.usecases.onboarding_orchestrator import OnboardingOrchestrator
 from retail.projects.usecases.pre_crawl_channel import PreCrawlChannelUseCase
@@ -58,11 +57,10 @@ def _run_setup_channel_and_start_crawl(task, vtex_account: str, crawl_url: str) 
     Pipeline order (single Celery task, sequential):
       1. Wait until the project is linked (retries up to ~10 minutes).
       2. Pre-crawl channel setup (WWC or WPP Cloud).
-      3. Kick off the crawl (fire-and-forget; soft-fails internally).
-      4. Run the post-crawl orchestrator inline (manager + payment +
-         agents -- no content upload). The wizard completes here; the
-         content upload happens in background later when the crawler
-         webhook arrives.
+      3. Run the NEXUS_CONFIG orchestrator inline (crawl kickoff +
+         manager + payment + agents -- no content upload). The wizard
+         completes here; the content upload happens in background later
+         when the crawler webhook arrives.
 
     Args:
         task: The bound Celery task instance (provides ``retry`` /
@@ -111,9 +109,7 @@ def _run_setup_channel_and_start_crawl(task, vtex_account: str, crawl_url: str) 
         mark_onboarding_failed(vtex_account, f"Channel creation failed: {exc}")
         raise
 
-    InitiateCrawlUseCase().execute(onboarding.project, vtex_account, crawl_url)
-
-    OnboardingOrchestrator().execute(vtex_account)
+    OnboardingOrchestrator().execute(vtex_account, crawl_url)
 
 
 @shared_task(
@@ -123,19 +119,19 @@ def _run_setup_channel_and_start_crawl(task, vtex_account: str, crawl_url: str) 
 )
 def task_setup_channel_and_start_crawl(self, vtex_account: str, crawl_url: str) -> None:
     """
-    Pre-crawl + post-crawl orchestration: wait for project link, create
-    channel, kick off the crawl, then run the post-crawl orchestrator
-    inline so the wizard completes without waiting for the crawl.
+    Pre-crawl + NEXUS_CONFIG orchestration: wait for project link, create
+    channel, then run the NEXUS_CONFIG orchestrator inline (crawl kickoff +
+    manager + payment + agents) so the wizard completes without waiting
+    for the crawl.
 
     The Facebook ``auth_code`` from Embedded Signup is short-lived, so the
     channel must be created (and the code exchanged on the
     integrations-engine side) before the long-running crawl can expire it.
 
-    Retries while the project is not linked. Once linked, runs the
-    channel use case (resolves wwc or wpp-cloud), kicks off the crawl
-    (background), and runs the orchestrator. If channel creation fails,
-    the onboarding is marked failed and the orchestrator is not invoked
-    -- the user must redo Embedded Signup.
+    Retries while the project is not linked. Once linked, runs the channel
+    use case (resolves wwc or wpp-cloud) and the orchestrator. If channel
+    creation fails, the onboarding is marked failed and the orchestrator is
+    not invoked -- the user must redo Embedded Signup.
     """
     return _run_setup_channel_and_start_crawl(self, vtex_account, crawl_url)
 

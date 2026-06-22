@@ -28,11 +28,13 @@ from retail.projects.usecases.onboarding_dto import (
     CrawlerWebhookDTO,
     StartSetupDTO,
 )
-from retail.projects.usecases.onboarding_orchestrator import OnboardingOrchestrator
-from retail.projects.usecases.start_crawl import (
+from retail.projects.usecases.initiate_crawl import InitiateCrawlUseCase
+from retail.projects.usecases.onboarding_orchestrator import (
     CRAWL_KICKOFF_PROGRESS,
-    StartCrawlUseCase,
+    NEXUS_CONFIG_START_PROGRESS,
+    OnboardingOrchestrator,
 )
+from retail.projects.usecases.start_crawl import StartCrawlUseCase
 from retail.projects.usecases.start_setup import StartSetupUseCase
 from retail.projects.usecases.update_onboarding_progress import (
     UpdateOnboardingProgressUseCase,
@@ -51,16 +53,17 @@ class TestFullOnboardingFlow(TestCase):
       1. Front-end calls start-setup (project not linked yet) -> PROJECT_CONFIG 0%
       2. EDA links the project                                -> PROJECT_CONFIG 30%
       3. Pre-crawl channel setup runs                         -> PROJECT_CONFIG 100%
-      4. Crawl kicked off (fire-and-forget)                   -> CRAWL 100%
-      5. Orchestrator: agent manager configured               -> NEXUS_CONFIG 10 -> 75
-      6. Orchestrator: agent integration                      -> NEXUS_CONFIG 100
+      4. Orchestrator: NEXUS_CONFIG starts                    -> NEXUS_CONFIG 0%
+      5. Orchestrator: crawl kickoff                          -> NEXUS_CONFIG 40%
+      6. Orchestrator: agent manager configured               -> NEXUS_CONFIG 75%
+      7. Orchestrator: agent integration                      -> NEXUS_CONFIG 100%
 
     Background path (decoupled from the wizard):
-      7. Crawler sends progress events                        -> NO main progress change
-      8. Crawler sends crawl.completed                        -> crawler_result=SUCCESS,
+      8. Crawler sends progress events                        -> NO main progress change
+      9. Crawler sends crawl.completed                        -> crawler_result=SUCCESS,
                                                                  task_upload_nexus_contents
                                                                  dispatched
-      9. task_upload_nexus_contents uploads contents to Nexus -> NO main progress change
+     10. task_upload_nexus_contents uploads contents to Nexus -> NO main progress change
     """
 
     def setUp(self):
@@ -122,58 +125,71 @@ class TestFullOnboardingFlow(TestCase):
             self.channel_app_uuid,
         )
 
-        # -- Step 4: Crawl kicked off (background, CRAWL 100%) --
+        # -- Step 4: Orchestrator marks NEXUS_CONFIG started --
+        OnboardingOrchestrator._mark_nexus_config_started(self.vtex_account)
+
+        onboarding.refresh_from_db()
+        self.assertEqual(onboarding.current_step, "NEXUS_CONFIG")
+        self.assertEqual(onboarding.progress, NEXUS_CONFIG_START_PROGRESS)
+
+        # -- Step 5: Crawl kickoff --
         mock_crawler_service = MagicMock()
         mock_crawler_service.start_crawling.return_value = {"status": "started"}
 
-        crawl_usecase = StartCrawlUseCase(crawler_client=MagicMock())
-        crawl_usecase.crawler_service = mock_crawler_service
-        crawl_usecase.execute(self.vtex_account, self.crawl_url)
+        start_crawl_usecase = StartCrawlUseCase(crawler_client=MagicMock())
+        start_crawl_usecase.crawler_service = mock_crawler_service
+
+        initiate_crawl_usecase = InitiateCrawlUseCase(connect_service=MagicMock())
+        initiate_crawl_usecase.start_crawl_usecase = start_crawl_usecase
+        initiate_crawl_usecase.detect_storefront_usecase = MagicMock()
+
+        initiate_crawl_usecase.execute(project, self.vtex_account, self.crawl_url)
+        OnboardingOrchestrator._mark_crawl_kickoff(self.vtex_account)
 
         onboarding.refresh_from_db()
-        self.assertEqual(onboarding.current_step, "CRAWL")
+        self.assertEqual(onboarding.current_step, "NEXUS_CONFIG")
         self.assertEqual(onboarding.progress, CRAWL_KICKOFF_PROGRESS)
+        mock_crawler_service.start_crawling.assert_called_once()
 
-        # -- Steps 5 + 6: Inline orchestrator runs the post-crawl steps --
+        # -- Step 6: Agent manager configured --
         mock_nexus_service = MagicMock()
         mock_nexus_service.check_agent_builder_exists.return_value = {
             "data": {"has_agent": False}
         }
         mock_nexus_service.configure_agent_attributes.return_value = {"ok": True}
 
+        agent_usecase = ConfigureAgentBuilderUseCase(nexus_client=MagicMock())
+        agent_usecase.nexus_service = mock_nexus_service
+        agent_usecase.execute(self.vtex_account)
+
+        onboarding.refresh_from_db()
+        self.assertEqual(onboarding.current_step, "NEXUS_CONFIG")
+        self.assertEqual(onboarding.progress, MANAGER_DONE_PROGRESS)
+        mock_nexus_service.configure_agent_attributes.assert_called_once()
+        mock_nexus_service.upload_content_base_file.assert_not_called()
+
+        # -- Step 7: Agent integration completes the wizard --
         mock_nexus_service_agents = MagicMock()
         mock_nexus_service_agents.integrate_agent.return_value = {"ok": True}
 
+        integrate_usecase = IntegrateAgentsUseCase(nexus_client=MagicMock())
+        integrate_usecase.nexus_service = mock_nexus_service_agents
+
         with patch(
-            "retail.projects.usecases.onboarding_orchestrator.ConfigureAgentBuilderUseCase"
-        ) as mock_agent_cls, patch(
-            "retail.projects.usecases.onboarding_orchestrator.IntegrateAgentsUseCase"
-        ) as mock_integrate_cls:
-            agent_usecase = ConfigureAgentBuilderUseCase(nexus_client=MagicMock())
-            agent_usecase.nexus_service = mock_nexus_service
-            mock_agent_cls.return_value = agent_usecase
-
-            integrate_usecase = IntegrateAgentsUseCase(nexus_client=MagicMock())
-            integrate_usecase.nexus_service = mock_nexus_service_agents
-            mock_integrate_cls.return_value = integrate_usecase
-
-            with patch(
-                "retail.projects.usecases.integrate_agents.get_channel_agents",
-                return_value=[],
-            ):
-                OnboardingOrchestrator().execute(self.vtex_account)
+            "retail.projects.usecases.integrate_agents.get_channel_agents",
+            return_value=[],
+        ):
+            integrate_usecase.execute(self.vtex_account)
 
         onboarding.refresh_from_db()
         self.assertEqual(onboarding.current_step, "NEXUS_CONFIG")
         self.assertEqual(onboarding.progress, 100)
-        mock_nexus_service.configure_agent_attributes.assert_called_once()
-        mock_nexus_service.upload_content_base_file.assert_not_called()
 
         # The wizard is effectively done here; main onboarding is complete
         # from the user's perspective. The background phase below MUST
         # NOT regress current_step or progress.
 
-        # -- Step 7: Crawler sends progress (background, ignored by main) --
+        # -- Step 8: Crawler sends progress (background, ignored by main) --
         progress_dto = CrawlerWebhookDTO(
             task_id="task-1",
             event="crawl.subpage.progress",
@@ -187,7 +203,7 @@ class TestFullOnboardingFlow(TestCase):
         self.assertEqual(result.current_step, "NEXUS_CONFIG")
         self.assertEqual(result.progress, 100)
 
-        # -- Step 8: Crawler sends crawl.completed (background) --
+        # -- Step 9: Crawler sends crawl.completed (background) --
         crawled_contents = [
             {
                 "link": "https://www.flowstore.com.br/",
@@ -226,7 +242,7 @@ class TestFullOnboardingFlow(TestCase):
             self.vtex_account, crawled_contents
         )
 
-        # -- Step 9: Background upload runs -- NO main progress change --
+        # -- Step 10: Background upload runs -- NO main progress change --
         background_nexus = MagicMock()
         background_nexus.check_agent_builder_exists.return_value = {
             "data": {"has_agent": True}

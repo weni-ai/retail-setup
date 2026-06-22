@@ -16,8 +16,8 @@ class LinkProjectToOnboardingUseCase:
     Called from the EDA consumer when a project creation event is received.
     Sets ``current_step = "PROJECT_CONFIG"`` and a partial progress
     (``PROJECT_LINKED_PROGRESS``) so the pre-crawl channel setup task
-    can drive progress the rest of the way to 100% before transitioning
-    to CRAWL.
+    can drive progress the rest of the way to 100% before the
+    NEXUS_CONFIG orchestrator runs.
     """
 
     @staticmethod
