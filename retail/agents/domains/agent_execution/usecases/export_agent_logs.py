@@ -197,6 +197,7 @@ class ExportAgentLogsUseCase:
         ).filter(
             integrated_agent_id=dto.agent_uuid,
             integrated_agent__project__uuid=dto.project_uuid,
+            integrated_agent__project__is_active=True,
         )
 
         if dto.search:

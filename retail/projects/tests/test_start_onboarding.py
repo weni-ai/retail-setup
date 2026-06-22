@@ -148,6 +148,48 @@ class TestStartSetupUseCase(TestCase):
         StartSetupUseCase._try_link_project(onboarding)
         self.assertEqual(onboarding.project, project)
 
+    def test_try_link_project_relinks_when_onboarding_points_to_inactive_project(self):
+        """_try_link_project should link to the active project when onboarding is stale."""
+        inactive_project = Project.all_objects.create(
+            name="Inactive",
+            uuid=uuid4(),
+            vtex_account="mystore",
+            is_active=False,
+        )
+        active_project = Project.objects.create(
+            name="Active",
+            uuid=uuid4(),
+            vtex_account="mystore",
+        )
+        onboarding = ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+            project=inactive_project,
+        )
+
+        StartSetupUseCase._try_link_project(onboarding)
+
+        onboarding.refresh_from_db()
+        self.assertEqual(onboarding.project, active_project)
+
+    def test_execute_creates_new_onboarding_when_only_inactive_exists(self):
+        """start-setup must not reuse channel config from a soft-deleted onboarding."""
+        inactive_onboarding = ProjectOnboarding.all_objects.create(
+            vtex_account="mystore",
+            is_active=False,
+            config={"channels": {"wwc": {"app_uuid": "stale"}}},
+        )
+
+        with patch(
+            "retail.projects.usecases.start_setup.task_setup_channel_and_start_crawl"
+        ):
+            StartSetupUseCase().execute(self.dto)
+
+        active_onboardings = ProjectOnboarding.objects.filter(vtex_account="mystore")
+        self.assertEqual(active_onboardings.count(), 1)
+        self.assertNotEqual(active_onboardings.get().pk, inactive_onboarding.pk)
+        inactive_onboarding.refresh_from_db()
+        self.assertFalse(inactive_onboarding.is_active)
+
     def test_try_link_project_raises_on_multiple_projects(self):
         """_try_link_project should raise when multiple projects share a vtex_account."""
         Project.objects.create(name="First", uuid=uuid4(), vtex_account="mystore")

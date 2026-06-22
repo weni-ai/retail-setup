@@ -43,7 +43,8 @@ class IntegratedFeatureView(BaseServiceView):
         try:
             category = request.query_params.get("category", None)
             integrated_features = IntegratedFeature.objects.filter(
-                project__uuid=project_uuid
+                project__uuid=project_uuid,
+                project__is_active=True,
             ).values_list("feature__uuid", flat=True)
 
             features = Feature.objects.filter(uuid__in=integrated_features)
@@ -158,7 +159,10 @@ class IntegratedFeatureSettingsView(views.APIView):
         integration_settings = request.data["integration_settings"]
 
         integrated_feature: IntegratedFeature = get_object_or_404(
-            IntegratedFeature, feature__uuid=feature_uuid, project__uuid=project_uuid
+            IntegratedFeature,
+            feature__uuid=feature_uuid,
+            project__uuid=project_uuid,
+            project__is_active=True,
         )
 
         config = integrated_feature.config
@@ -175,7 +179,8 @@ class AppIntegratedFeatureView(BaseServiceView):
         try:
             category = request.query_params.get("category", None)
             integrated_features = IntegratedFeature.objects.filter(
-                project__uuid=project_uuid
+                project__uuid=project_uuid,
+                project__is_active=True,
             )
 
             if category:

@@ -41,6 +41,7 @@ def _get_retail_uuids(project_uuid: str) -> Set[str]:
         str(uuid)
         for uuid in IntegratedAgent.objects.filter(
             project__uuid=project_uuid,
+            project__is_active=True,
             is_active=True,
         )
         .values_list("agent__uuid", flat=True)
