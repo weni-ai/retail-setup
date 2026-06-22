@@ -28,6 +28,12 @@ from retail.projects.usecases.onboarding_dto import (
     CrawlerWebhookDTO,
     StartSetupDTO,
 )
+from retail.projects.usecases.content_base_progress_helpers import (
+    compute_overall_percent,
+)
+from retail.projects.usecases.get_content_base_progress import (
+    GetContentBaseProgressUseCase,
+)
 from retail.projects.usecases.initiate_crawl import InitiateCrawlUseCase
 from retail.projects.usecases.onboarding_orchestrator import (
     CRAWL_KICKOFF_PROGRESS,
@@ -202,6 +208,11 @@ class TestFullOnboardingFlow(TestCase):
         )
         self.assertEqual(result.current_step, "NEXUS_CONFIG")
         self.assertEqual(result.progress, 100)
+        onboarding.refresh_from_db()
+        self.assertEqual(
+            compute_overall_percent(onboarding.config["content_base_progress"]),
+            16,
+        )
 
         # -- Step 9: Crawler sends crawl.completed (background) --
         crawled_contents = [
@@ -241,6 +252,8 @@ class TestFullOnboardingFlow(TestCase):
         mock_nexus_task.delay.assert_called_once_with(
             self.vtex_account, crawled_contents
         )
+        onboarding.refresh_from_db()
+        self.assertEqual(GetContentBaseProgressUseCase().execute(self.vtex_account), 33)
 
         # -- Step 10: Background upload runs -- NO main progress change --
         background_nexus = MagicMock()
@@ -265,6 +278,9 @@ class TestFullOnboardingFlow(TestCase):
         self.assertEqual(onboarding.current_step, "NEXUS_CONFIG")
         self.assertEqual(onboarding.progress, 100)
         self.assertEqual(background_nexus.upload_content_base_file.call_count, 2)
+        self.assertEqual(
+            GetContentBaseProgressUseCase().execute(self.vtex_account), 100
+        )
 
         # -- Final state check --
         self.assertFalse(onboarding.completed)

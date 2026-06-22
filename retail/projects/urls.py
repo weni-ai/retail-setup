@@ -54,6 +54,11 @@ urlpatterns = [
         name="onboarding-support-contact",
     ),
     path(
+        "onboard/<str:vtex_account>/content-base-progress/",
+        project_views.ContentBaseProgressView.as_view(),
+        name="onboarding-content-base-progress",
+    ),
+    path(
         "onboard/<str:vtex_account>/",
         project_views.OnboardingPatchView.as_view(),
         name="onboarding-patch",
