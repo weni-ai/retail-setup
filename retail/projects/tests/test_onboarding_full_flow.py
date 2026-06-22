@@ -172,7 +172,7 @@ class TestFullOnboardingFlow(TestCase):
         self.assertEqual(onboarding.current_step, "NEXUS_CONFIG")
         self.assertEqual(onboarding.progress, MANAGER_DONE_PROGRESS)
         mock_nexus_service.configure_agent_attributes.assert_called_once()
-        mock_nexus_service.upload_content_base_file.assert_not_called()
+        mock_nexus_service.upload_content_base_files_batch.assert_not_called()
 
         # -- Step 7: Agent integration completes the wizard --
         mock_nexus_service_agents = MagicMock()
@@ -260,11 +260,19 @@ class TestFullOnboardingFlow(TestCase):
         background_nexus.check_agent_builder_exists.return_value = {
             "data": {"has_agent": True}
         }
-        background_nexus.upload_content_base_file.return_value = {
-            "uuid": str(uuid4()),
-            "extension_file": "txt",
+        background_nexus.upload_content_base_files_batch.return_value = {
+            "files": [
+                {"uuid": str(uuid4()), "extension_file": "txt", "filename": "a.txt"},
+                {"uuid": str(uuid4()), "extension_file": "txt", "filename": "b.txt"},
+            ]
         }
-        background_nexus.get_content_base_file_status.return_value = {
+        background_nexus.get_content_base_batch_progress.return_value = {
+            "total": 2,
+            "completed": 2,
+            "failed": 0,
+            "remaining": 0,
+            "progress_percentage": 100,
+            "is_complete": True,
             "status": "success",
         }
 
@@ -277,7 +285,7 @@ class TestFullOnboardingFlow(TestCase):
         onboarding.refresh_from_db()
         self.assertEqual(onboarding.current_step, "NEXUS_CONFIG")
         self.assertEqual(onboarding.progress, 100)
-        self.assertEqual(background_nexus.upload_content_base_file.call_count, 2)
+        self.assertEqual(background_nexus.upload_content_base_files_batch.call_count, 1)
         self.assertEqual(
             GetContentBaseProgressUseCase().execute(self.vtex_account), 100
         )
