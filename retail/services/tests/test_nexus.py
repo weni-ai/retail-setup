@@ -184,3 +184,67 @@ class TestNexusService(TestCase):
         )
 
         self.assertIsNone(result)
+
+    def test_upload_content_base_files_batch_success(self):
+        files = [("page.txt", b"content", "text/plain")]
+        expected = {
+            "files": [
+                {
+                    "uuid": "file-uuid-1",
+                    "extension_file": "txt",
+                    "filename": "page.txt",
+                }
+            ]
+        }
+        self.mock_nexus_client.upload_content_base_files_batch.return_value = expected
+
+        result = self.service.upload_content_base_files_batch(self.project_uuid, files)
+
+        self.mock_nexus_client.upload_content_base_files_batch.assert_called_once_with(
+            self.project_uuid, files, "txt"
+        )
+        self.assertEqual(result, expected)
+
+    def test_upload_content_base_files_batch_api_exception(self):
+        files = [("page.txt", b"content", "text/plain")]
+        self.mock_nexus_client.upload_content_base_files_batch.side_effect = (
+            CustomAPIException(status_code=400, detail="Bad request")
+        )
+
+        result = self.service.upload_content_base_files_batch(self.project_uuid, files)
+
+        self.assertIsNone(result)
+
+    def test_get_content_base_batch_progress_success(self):
+        file_uuids = ["uuid-1", "uuid-2"]
+        expected = {
+            "total": 2,
+            "completed": 1,
+            "failed": 0,
+            "remaining": 1,
+            "progress_percentage": 50,
+            "is_complete": False,
+            "status": "processing",
+        }
+        self.mock_nexus_client.get_content_base_batch_progress.return_value = expected
+
+        result = self.service.get_content_base_batch_progress(
+            self.project_uuid, file_uuids
+        )
+
+        self.mock_nexus_client.get_content_base_batch_progress.assert_called_once_with(
+            self.project_uuid, file_uuids
+        )
+        self.assertEqual(result, expected)
+
+    def test_get_content_base_batch_progress_api_exception(self):
+        file_uuids = ["uuid-1"]
+        self.mock_nexus_client.get_content_base_batch_progress.side_effect = (
+            CustomAPIException(status_code=500, detail="Error")
+        )
+
+        result = self.service.get_content_base_batch_progress(
+            self.project_uuid, file_uuids
+        )
+
+        self.assertIsNone(result)
