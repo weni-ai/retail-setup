@@ -9,6 +9,7 @@ from retail.projects.usecases.content_base_progress_helpers import (
     STATUS_FAILED,
     STATUS_UPLOADING,
     compute_overall_percent,
+    compute_upload_percent,
     persist_content_base_progress,
 )
 
@@ -56,6 +57,20 @@ class TestComputeOverallPercent(TestCase):
             "status": STATUS_FAILED,
         }
         self.assertEqual(compute_overall_percent(snapshot), 20)
+
+
+class TestComputeUploadPercent(TestCase):
+    def test_single_batch_partial_progress(self):
+        self.assertEqual(compute_upload_percent(0, 25, 25, 40), 40)
+
+    def test_first_batch_complete_with_multiple_batches(self):
+        self.assertEqual(compute_upload_percent(0, 25, 30, 100), 83)
+
+    def test_second_batch_complete(self):
+        self.assertEqual(compute_upload_percent(1, 5, 30, 100), 100)
+
+    def test_returns_zero_when_no_files(self):
+        self.assertEqual(compute_upload_percent(0, 25, 0, 50), 0)
 
 
 class TestPersistContentBaseProgress(TestCase):
