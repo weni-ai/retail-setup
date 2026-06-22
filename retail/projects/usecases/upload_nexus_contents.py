@@ -15,6 +15,7 @@ from retail.projects.usecases.agent_builder_helpers import (
 from retail.projects.usecases.content_base_progress_helpers import (
     STATUS_COMPLETE,
     STATUS_UPLOADING,
+    compute_upload_percent,
     persist_content_base_progress,
 )
 from retail.services.nexus.service import NexusService
@@ -135,20 +136,13 @@ class UploadNexusContentsUseCase:
                 f"project={project_uuid}: file_uuids={batch_file_uuids}"
             )
 
-            batch_progress_pct = self._wait_for_batch_processing(
-                project_uuid, batch_file_uuids, batch_index
-            )
-
-            files_before_batch = batch_index * BATCH_MAX_FILES
-            overall_upload_percent = round(
-                (files_before_batch + batch_progress_pct * len(batch) / 100)
-                / total
-                * 100
-            )
-            persist_content_base_progress(
+            self._wait_for_batch_processing(
                 onboarding,
-                upload_percent=min(overall_upload_percent, 100),
-                status=STATUS_UPLOADING,
+                project_uuid,
+                batch_file_uuids,
+                batch_index=batch_index,
+                batch_size=len(batch),
+                total_files=total,
             )
 
         if not uploaded_file_uuids:
@@ -168,15 +162,20 @@ class UploadNexusContentsUseCase:
 
     def _wait_for_batch_processing(
         self,
+        onboarding: ProjectOnboarding,
         project_uuid: str,
         file_uuids: List[str],
+        *,
         batch_index: int,
+        batch_size: int,
+        total_files: int,
     ) -> int:
         """
         Polls Nexus until the batch reaches a terminal state.
 
-        Returns the final ``progress_percentage`` from Nexus.
-        Partial and failed batches are logged but do not raise.
+        Persists ``upload_percent`` on every successful poll so clients
+        see real-time progress. Returns the final ``progress_percentage``
+        from Nexus. Partial and failed batches are logged but do not raise.
         """
         for attempt in range(1, BATCH_STATUS_MAX_ATTEMPTS + 1):
             time.sleep(BATCH_STATUS_POLL_INTERVAL)
@@ -197,9 +196,19 @@ class UploadNexusContentsUseCase:
             progress_pct = progress_response.get("progress_percentage", 0)
             is_complete = progress_response.get("is_complete", False)
 
+            upload_percent = compute_upload_percent(
+                batch_index, batch_size, total_files, progress_pct
+            )
+            persist_content_base_progress(
+                onboarding,
+                upload_percent=upload_percent,
+                status=STATUS_UPLOADING,
+            )
+
             logger.info(
                 f"Batch {batch_index + 1} progress for project={project_uuid}: "
                 f"status={status} progress={progress_pct}% "
+                f"upload_percent={upload_percent}% "
                 f"(attempt {attempt}/{BATCH_STATUS_MAX_ATTEMPTS})"
             )
 

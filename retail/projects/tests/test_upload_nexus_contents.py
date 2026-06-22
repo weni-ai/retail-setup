@@ -262,6 +262,70 @@ class TestUploadNexusContentsUseCase(TestCase):
             self.mock_nexus_service.get_content_base_batch_progress.call_count, 2
         )
 
+    @patch("retail.projects.usecases.upload_nexus_contents.persist_content_base_progress")
+    @patch("retail.projects.usecases.upload_nexus_contents.time.sleep")
+    def test_persists_progress_during_batch_polling(
+        self, _mock_sleep, mock_persist
+    ):
+        upload_uuid = str(uuid4())
+        self.mock_nexus_service.upload_content_base_files_batch.return_value = (
+            _batch_upload_response(upload_uuid)
+        )
+        self.mock_nexus_service.get_content_base_batch_progress.side_effect = [
+            _batch_progress_response(
+                is_complete=False, status="processing", progress_percentage=0
+            ),
+            _batch_progress_response(
+                is_complete=False, status="processing", progress_percentage=50
+            ),
+            _batch_progress_response(),
+        ]
+
+        contents = [{"link": "https://a.com", "title": "A", "content": "a"}]
+
+        self.usecase.execute("mystore", contents)
+
+        upload_percents = [
+            call.kwargs["upload_percent"]
+            for call in mock_persist.call_args_list
+            if call.kwargs.get("status") == "uploading"
+        ]
+        self.assertEqual(upload_percents, [0, 50, 100])
+
+    @patch("retail.projects.usecases.upload_nexus_contents.persist_content_base_progress")
+    @patch("retail.projects.usecases.upload_nexus_contents.time.sleep")
+    def test_multi_batch_persists_mid_batch_before_second_batch_starts(
+        self, _mock_sleep, mock_persist
+    ):
+        first_batch_uuids = [str(uuid4()) for _ in range(BATCH_MAX_FILES)]
+        second_batch_uuid = str(uuid4())
+
+        self.mock_nexus_service.upload_content_base_files_batch.side_effect = [
+            _batch_upload_response(*first_batch_uuids),
+            _batch_upload_response(second_batch_uuid),
+        ]
+        self.mock_nexus_service.get_content_base_batch_progress.side_effect = [
+            _batch_progress_response(
+                is_complete=False, status="processing", progress_percentage=50
+            ),
+            _batch_progress_response(),
+            _batch_progress_response(),
+        ]
+
+        contents = [
+            {"link": f"https://a{i}.com", "title": f"Page {i}", "content": f"c{i}"}
+            for i in range(BATCH_MAX_FILES + 1)
+        ]
+
+        self.usecase.execute("mystore", contents)
+
+        uploading_percents = [
+            call.kwargs["upload_percent"]
+            for call in mock_persist.call_args_list
+            if call.kwargs.get("status") == "uploading"
+        ]
+        self.assertEqual(uploading_percents[0], 48)
+
     @patch(
         "retail.projects.usecases.upload_nexus_contents.BATCH_STATUS_MAX_ATTEMPTS", 2
     )
