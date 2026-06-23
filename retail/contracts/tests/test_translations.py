@@ -4,11 +4,14 @@ from django.test import TestCase
 
 from retail.contracts.translations import (
     CONTRACT_PDF_TRANSLATIONS,
+    ORDER_FORM_PARTIALS,
+    apply_local_offset,
     build_contract_email,
     build_electronic_acceptance_notice,
-    apply_local_offset,
+    format_acceptance_date_only,
     format_acceptance_datetime,
     get_contract_pdf_labels,
+    get_order_form_partial,
     resolve_language_prefix,
 )
 
@@ -38,6 +41,26 @@ class ContractTranslationsTests(TestCase):
         en_keys = set(CONTRACT_PDF_TRANSLATIONS["en"])
         for lang in ("pt", "es"):
             self.assertEqual(set(CONTRACT_PDF_TRANSLATIONS[lang]), en_keys)
+
+    def test_get_order_form_partial_returns_language_specific_template(self):
+        self.assertEqual(
+            get_order_form_partial("pt-br"),
+            ORDER_FORM_PARTIALS["pt"],
+        )
+        self.assertEqual(
+            get_order_form_partial("en-US"),
+            ORDER_FORM_PARTIALS["en"],
+        )
+        self.assertEqual(
+            get_order_form_partial("es-MX"),
+            ORDER_FORM_PARTIALS["es"],
+        )
+
+    def test_get_order_form_partial_falls_back_to_english(self):
+        self.assertEqual(
+            get_order_form_partial("fr-FR"),
+            ORDER_FORM_PARTIALS["en"],
+        )
 
     def test_build_contract_email_localizes_subject_body_and_date(self):
         accepted_at = datetime(2026, 6, 10, 14, 32, tzinfo=dt_timezone.utc)
@@ -108,3 +131,24 @@ class ContractTranslationsTests(TestCase):
         self.assertIn("acceptance-uuid", notice)
         self.assertIn("14h32min", notice)
         self.assertIn("VTEX CX", notice)
+
+    def test_format_acceptance_date_only_portuguese(self):
+        accepted_at = datetime(2025, 6, 10, 17, 32, tzinfo=dt_timezone.utc)
+
+        formatted = format_acceptance_date_only(accepted_at, "-03:00", "pt-br")
+
+        self.assertEqual(formatted, "10 de junho de 2025")
+
+    def test_format_acceptance_date_only_english(self):
+        accepted_at = datetime(2025, 6, 10, 17, 32, tzinfo=dt_timezone.utc)
+
+        formatted = format_acceptance_date_only(accepted_at, "-03:00", "en-US")
+
+        self.assertEqual(formatted, "June 10, 2025")
+
+    def test_format_acceptance_date_only_spanish(self):
+        accepted_at = datetime(2025, 6, 10, 17, 32, tzinfo=dt_timezone.utc)
+
+        formatted = format_acceptance_date_only(accepted_at, "-03:00", "es-MX")
+
+        self.assertEqual(formatted, "10 de junio de 2025")
