@@ -30,7 +30,7 @@ class TestLinkProjectToOnboardingUseCase(TestCase):
         """
         Linking the project advances PROJECT_CONFIG to a partial progress
         value; the remaining progress is driven by the pre-crawl channel
-        setup task before the CRAWL transition.
+        setup task before the NEXUS_CONFIG orchestrator runs.
         """
         from retail.projects.usecases.link_project_to_onboarding import (
             PROJECT_LINKED_PROGRESS,

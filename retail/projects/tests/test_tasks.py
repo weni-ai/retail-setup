@@ -54,10 +54,9 @@ class TestTaskSetupChannelAndStartCrawl(TestCase):
         )
 
     @patch("retail.projects.tasks.OnboardingOrchestrator")
-    @patch("retail.projects.tasks.InitiateCrawlUseCase")
     @patch("retail.projects.tasks.PreCrawlChannelUseCase")
-    def test_runs_channel_crawl_and_orchestrator_when_project_linked(
-        self, mock_channel_cls, mock_initiate_cls, mock_orch_cls
+    def test_runs_channel_and_orchestrator_when_project_linked(
+        self, mock_channel_cls, mock_orch_cls
     ):
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
@@ -67,33 +66,27 @@ class TestTaskSetupChannelAndStartCrawl(TestCase):
 
         mock_channel = MagicMock()
         mock_channel_cls.return_value = mock_channel
-        mock_initiate = MagicMock()
-        mock_initiate_cls.return_value = mock_initiate
         mock_orch = MagicMock()
         mock_orch_cls.return_value = mock_orch
 
         call_order = []
         mock_channel.execute.side_effect = lambda *_: call_order.append("channel")
-        mock_initiate.execute.side_effect = lambda *_: call_order.append("crawl")
         mock_orch.execute.side_effect = lambda *_: call_order.append("orchestrator")
 
         from retail.projects.tasks import task_setup_channel_and_start_crawl
 
-        task_setup_channel_and_start_crawl("mystore", "https://mystore.com.br/")
+        crawl_url = "https://mystore.com.br/"
+        task_setup_channel_and_start_crawl("mystore", crawl_url)
 
         mock_channel.execute.assert_called_once_with("mystore")
-        mock_initiate.execute.assert_called_once_with(
-            self.project, "mystore", "https://mystore.com.br/"
-        )
-        mock_orch.execute.assert_called_once_with("mystore")
+        mock_orch.execute.assert_called_once_with("mystore", crawl_url)
 
-        self.assertEqual(call_order, ["channel", "crawl", "orchestrator"])
+        self.assertEqual(call_order, ["channel", "orchestrator"])
 
     @patch("retail.projects.tasks.OnboardingOrchestrator")
-    @patch("retail.projects.tasks.InitiateCrawlUseCase")
     @patch("retail.projects.tasks.PreCrawlChannelUseCase")
     def test_sets_project_linked_progress_before_channel_setup(
-        self, mock_channel_cls, _mock_initiate, _mock_orch
+        self, mock_channel_cls, _mock_orch
     ):
         """When start-setup linked the project inline, the task still bumps progress."""
         ProjectOnboarding.objects.create(
@@ -125,10 +118,9 @@ class TestTaskSetupChannelAndStartCrawl(TestCase):
         self.assertEqual(progress_at_channel_time["step"], "PROJECT_CONFIG")
 
     @patch("retail.projects.tasks.OnboardingOrchestrator")
-    @patch("retail.projects.tasks.InitiateCrawlUseCase")
     @patch("retail.projects.tasks.PreCrawlChannelUseCase")
     def test_does_not_regress_progress_when_eda_linked_project(
-        self, mock_channel_cls, _mock_initiate, _mock_orch
+        self, mock_channel_cls, _mock_orch
     ):
         """When EDA already set progress >= 30, the task must not regress it."""
         ProjectOnboarding.objects.create(
@@ -179,12 +171,10 @@ class TestTaskSetupChannelAndStartCrawl(TestCase):
 
     @patch("retail.projects.tasks.mark_onboarding_failed")
     @patch("retail.projects.tasks.OnboardingOrchestrator")
-    @patch("retail.projects.tasks.InitiateCrawlUseCase")
     @patch("retail.projects.tasks.PreCrawlChannelUseCase")
-    def test_marks_failed_and_skips_crawl_when_channel_fails(
+    def test_marks_failed_and_skips_orchestrator_when_channel_fails(
         self,
         mock_channel_cls,
-        mock_initiate_cls,
         mock_orch_cls,
         mock_mark_failed,
     ):
@@ -198,9 +188,6 @@ class TestTaskSetupChannelAndStartCrawl(TestCase):
         mock_channel.execute.side_effect = RuntimeError("auth_code expired")
         mock_channel_cls.return_value = mock_channel
 
-        mock_initiate = MagicMock()
-        mock_initiate_cls.return_value = mock_initiate
-
         mock_orch = MagicMock()
         mock_orch_cls.return_value = mock_orch
 
@@ -212,7 +199,6 @@ class TestTaskSetupChannelAndStartCrawl(TestCase):
         mock_mark_failed.assert_called_once()
         called_with_reason = mock_mark_failed.call_args[0][1]
         self.assertIn("Channel creation failed", called_with_reason)
-        mock_initiate.execute.assert_not_called()
         mock_orch.execute.assert_not_called()
 
 
@@ -225,11 +211,8 @@ class TestTaskWaitAndStartCrawlAlias(TestCase):
         )
 
     @patch("retail.projects.tasks.OnboardingOrchestrator")
-    @patch("retail.projects.tasks.InitiateCrawlUseCase")
     @patch("retail.projects.tasks.PreCrawlChannelUseCase")
-    def test_alias_runs_channel_crawl_and_orchestrator(
-        self, mock_channel_cls, mock_initiate_cls, mock_orch_cls
-    ):
+    def test_alias_runs_channel_and_orchestrator(self, mock_channel_cls, mock_orch_cls):
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=self.project,
@@ -238,20 +221,16 @@ class TestTaskWaitAndStartCrawlAlias(TestCase):
 
         mock_channel = MagicMock()
         mock_channel_cls.return_value = mock_channel
-        mock_initiate = MagicMock()
-        mock_initiate_cls.return_value = mock_initiate
         mock_orch = MagicMock()
         mock_orch_cls.return_value = mock_orch
 
         from retail.projects.tasks import task_wait_and_start_crawl
 
-        task_wait_and_start_crawl("mystore", "https://mystore.com.br/")
+        crawl_url = "https://mystore.com.br/"
+        task_wait_and_start_crawl("mystore", crawl_url)
 
         mock_channel.execute.assert_called_once_with("mystore")
-        mock_initiate.execute.assert_called_once_with(
-            self.project, "mystore", "https://mystore.com.br/"
-        )
-        mock_orch.execute.assert_called_once_with("mystore")
+        mock_orch.execute.assert_called_once_with("mystore", crawl_url)
 
 
 class TestTaskUploadNexusContents(TestCase):
@@ -290,6 +269,15 @@ class TestTaskUploadNexusContents(TestCase):
     def test_soft_fails_and_records_background_failure(
         self, mock_release, mock_upload_cls, mock_save_background_cls
     ):
+        self.onboarding.config = {
+            "content_base_progress": {
+                "crawl_percent": 100,
+                "upload_percent": 50,
+                "status": "uploading",
+            }
+        }
+        self.onboarding.save(update_fields=["config"])
+
         mock_upload = MagicMock()
         mock_upload.execute.side_effect = RuntimeError("nexus down")
         mock_upload_cls.return_value = mock_upload
@@ -302,6 +290,10 @@ class TestTaskUploadNexusContents(TestCase):
             "mystore", "nexus_upload", "nexus down"
         )
         mock_release.assert_called_once_with("upload_nexus_contents", "mystore")
+        self.onboarding.refresh_from_db()
+        snapshot = self.onboarding.config["content_base_progress"]
+        self.assertEqual(snapshot["status"], "failed")
+        self.assertEqual(snapshot["upload_percent"], 50)
 
     @patch("retail.projects.tasks.UploadNexusContentsUseCase")
     @patch("retail.projects.tasks.release_task_lock")
@@ -332,9 +324,7 @@ class TestTaskConfigureNexusDeprecatedAlias(TestCase):
 
     @patch("retail.projects.tasks.UploadNexusContentsUseCase")
     @patch("retail.projects.tasks.release_task_lock")
-    def test_alias_delegates_to_upload_use_case(
-        self, mock_release, mock_upload_cls
-    ):
+    def test_alias_delegates_to_upload_use_case(self, mock_release, mock_upload_cls):
         mock_upload = MagicMock()
         mock_upload_cls.return_value = mock_upload
 

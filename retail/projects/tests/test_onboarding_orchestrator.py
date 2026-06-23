@@ -5,9 +5,11 @@ from django.test import TestCase
 
 from retail.projects.models import Project, ProjectOnboarding
 from retail.projects.usecases.onboarding_orchestrator import (
-    NEXUS_CONFIG_START_PROGRESS,
+    CRAWL_KICKOFF_PROGRESS,
     OnboardingOrchestrator,
 )
+
+CRAWL_URL = "https://www.mystore.com.br/"
 
 
 class TestOnboardingOrchestrator(TestCase):
@@ -20,7 +22,7 @@ class TestOnboardingOrchestrator(TestCase):
         self.onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=self.project,
-            current_step="CRAWL",
+            current_step="PROJECT_CONFIG",
             progress=100,
             config={
                 "channels": {
@@ -31,31 +33,39 @@ class TestOnboardingOrchestrator(TestCase):
             },
         )
 
+    @patch("retail.projects.usecases.onboarding_orchestrator.InitiateCrawlUseCase")
     @patch("retail.projects.usecases.onboarding_orchestrator.IntegrateAgentsUseCase")
     @patch(
         "retail.projects.usecases.onboarding_orchestrator.ConfigureAgentBuilderUseCase"
     )
-    def test_runs_agent_builder_then_integrate(
-        self, mock_agent_builder_cls, mock_integrate_cls
+    def test_runs_crawl_agent_builder_then_integrate(
+        self, mock_agent_builder_cls, mock_integrate_cls, mock_initiate_cls
     ):
+        mock_initiate = MagicMock()
+        mock_initiate_cls.return_value = mock_initiate
         mock_agent_builder = MagicMock()
         mock_agent_builder_cls.return_value = mock_agent_builder
         mock_integrate = MagicMock()
         mock_integrate_cls.return_value = mock_integrate
 
-        OnboardingOrchestrator().execute("mystore")
+        OnboardingOrchestrator().execute("mystore", CRAWL_URL)
 
+        mock_initiate.execute.assert_called_once_with(
+            self.project, "mystore", CRAWL_URL
+        )
         mock_agent_builder.execute.assert_called_once_with("mystore")
         mock_integrate.execute.assert_called_once_with("mystore")
 
+    @patch("retail.projects.usecases.onboarding_orchestrator.InitiateCrawlUseCase")
     @patch("retail.projects.usecases.onboarding_orchestrator.IntegrateAgentsUseCase")
     @patch(
         "retail.projects.usecases.onboarding_orchestrator.ConfigureAgentBuilderUseCase"
     )
-    def test_transitions_to_nexus_config_step(
-        self, mock_agent_builder_cls, _mock_integrate_cls
+    def test_transitions_to_nexus_config_and_marks_crawl_kickoff(
+        self, mock_agent_builder_cls, _mock_integrate_cls, mock_initiate_cls
     ):
-        """The orchestrator must mark NEXUS_CONFIG so the UI advances."""
+        """The orchestrator must mark NEXUS_CONFIG and crawl kickoff progress."""
+        mock_initiate_cls.return_value = MagicMock()
         progress_at_agent_time = {}
 
         def capture(vtex_account):
@@ -67,14 +77,13 @@ class TestOnboardingOrchestrator(TestCase):
         mock_agent_builder.execute.side_effect = capture
         mock_agent_builder_cls.return_value = mock_agent_builder
 
-        OnboardingOrchestrator().execute("mystore")
+        OnboardingOrchestrator().execute("mystore", CRAWL_URL)
 
         self.assertEqual(progress_at_agent_time["step"], "NEXUS_CONFIG")
-        self.assertEqual(
-            progress_at_agent_time["progress"], NEXUS_CONFIG_START_PROGRESS
-        )
+        self.assertEqual(progress_at_agent_time["progress"], CRAWL_KICKOFF_PROGRESS)
 
     @patch("retail.projects.usecases.onboarding_orchestrator.mark_onboarding_failed")
+    @patch("retail.projects.usecases.onboarding_orchestrator.InitiateCrawlUseCase")
     @patch("retail.projects.usecases.onboarding_orchestrator.IntegrateAgentsUseCase")
     @patch(
         "retail.projects.usecases.onboarding_orchestrator.ConfigureAgentBuilderUseCase"
@@ -83,8 +92,10 @@ class TestOnboardingOrchestrator(TestCase):
         self,
         mock_agent_builder_cls,
         mock_integrate_cls,
+        mock_initiate_cls,
         mock_mark_failed,
     ):
+        mock_initiate_cls.return_value = MagicMock()
         mock_agent_builder = MagicMock()
         mock_agent_builder.execute.side_effect = RuntimeError("nexus down")
         mock_agent_builder_cls.return_value = mock_agent_builder
@@ -93,12 +104,13 @@ class TestOnboardingOrchestrator(TestCase):
         mock_integrate_cls.return_value = mock_integrate
 
         with self.assertRaises(RuntimeError):
-            OnboardingOrchestrator().execute("mystore")
+            OnboardingOrchestrator().execute("mystore", CRAWL_URL)
 
         mock_mark_failed.assert_called_once()
         mock_integrate.execute.assert_not_called()
 
     @patch("retail.projects.usecases.onboarding_orchestrator.mark_onboarding_failed")
+    @patch("retail.projects.usecases.onboarding_orchestrator.InitiateCrawlUseCase")
     @patch("retail.projects.usecases.onboarding_orchestrator.IntegrateAgentsUseCase")
     @patch(
         "retail.projects.usecases.onboarding_orchestrator.ConfigureAgentBuilderUseCase"
@@ -107,8 +119,10 @@ class TestOnboardingOrchestrator(TestCase):
         self,
         mock_agent_builder_cls,
         mock_integrate_cls,
+        mock_initiate_cls,
         mock_mark_failed,
     ):
+        mock_initiate_cls.return_value = MagicMock()
         mock_agent_builder = MagicMock()
         mock_agent_builder_cls.return_value = mock_agent_builder
 
@@ -117,7 +131,7 @@ class TestOnboardingOrchestrator(TestCase):
         mock_integrate_cls.return_value = mock_integrate
 
         with self.assertRaises(RuntimeError):
-            OnboardingOrchestrator().execute("mystore")
+            OnboardingOrchestrator().execute("mystore", CRAWL_URL)
 
         mock_mark_failed.assert_called_once()
 
@@ -153,12 +167,14 @@ class TestOnboardingOrchestratorPaymentRouting(TestCase):
     """Verifies the One-Click Payment step is wired only for wpp-cloud."""
 
     ORCHESTRATOR_PATH = "retail.projects.usecases.onboarding_orchestrator"
+    CRAWL_URL = CRAWL_URL
 
     def setUp(self):
         self.project = Project.objects.create(
             name="Test", uuid=uuid4(), vtex_account="mystore"
         )
 
+        self._patch_target("InitiateCrawlUseCase")
         self._patch_target("ConfigureAgentBuilderUseCase")
         self.mock_integrate_cls = self._patch_target("IntegrateAgentsUseCase")
         self.mock_payment_cls = self._patch_target("ConfigureOneClickPaymentUseCase")
@@ -187,7 +203,7 @@ class TestOnboardingOrchestratorPaymentRouting(TestCase):
     def test_runs_payment_step_for_wpp_cloud(self):
         self._make_onboarding("wpp-cloud")
 
-        OnboardingOrchestrator().execute("mystore")
+        OnboardingOrchestrator().execute("mystore", self.CRAWL_URL)
 
         self.mock_payment_cls.assert_called_once_with()
         self.mock_payment_cls.return_value.execute.assert_called_once_with("mystore")
@@ -195,7 +211,7 @@ class TestOnboardingOrchestratorPaymentRouting(TestCase):
     def test_skips_payment_step_for_wwc(self):
         self._make_onboarding("wwc")
 
-        OnboardingOrchestrator().execute("mystore")
+        OnboardingOrchestrator().execute("mystore", self.CRAWL_URL)
 
         self.mock_payment_cls.assert_not_called()
 
@@ -211,7 +227,7 @@ class TestOnboardingOrchestratorPaymentRouting(TestCase):
             lambda *_: call_order.append("integrate")
         )
 
-        OnboardingOrchestrator().execute("mystore")
+        OnboardingOrchestrator().execute("mystore", self.CRAWL_URL)
 
         self.assertEqual(call_order, ["ocp", "integrate"])
 
@@ -222,7 +238,7 @@ class TestOnboardingOrchestratorPaymentRouting(TestCase):
         with patch(
             "retail.projects.usecases.onboarding_orchestrator.mark_onboarding_failed"
         ) as mock_mark_failed, self.assertRaises(RuntimeError):
-            OnboardingOrchestrator().execute("mystore")
+            OnboardingOrchestrator().execute("mystore", self.CRAWL_URL)
 
         mock_mark_failed.assert_called_once_with("mystore", "boom")
 
@@ -236,6 +252,6 @@ class TestOnboardingOrchestratorPaymentRouting(TestCase):
         with patch(
             "retail.projects.usecases.onboarding_orchestrator.mark_onboarding_failed"
         ), self.assertRaises(ValueError) as ctx:
-            OnboardingOrchestrator().execute("mystore")
+            OnboardingOrchestrator().execute("mystore", self.CRAWL_URL)
 
         self.assertIn("No channel configured", str(ctx.exception))

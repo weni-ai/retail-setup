@@ -15,25 +15,17 @@ from retail.services.crawler.service import CrawlerService
 logger = logging.getLogger(__name__)
 
 
-CRAWL_KICKOFF_PROGRESS = 100
-
-
 class StartCrawlUseCase:
     """
     Kicks off the crawl by calling the Crawler MS.
 
-    Sets ``current_step`` to ``CRAWL`` with ``progress=100`` to signal
-    that the crawl phase is done from the wizard's perspective the
-    moment the crawler is kicked off. The actual long-running crawl
-    runs in background and its real outcome lands in
-    ``crawler_result`` (``SUCCESS`` / ``FAIL``), NOT in ``progress``.
-
-    The orchestrator that runs immediately after this use case will
-    overwrite ``current_step`` with ``NEXUS_CONFIG`` in the same Celery
-    task, so the ``CRAWL`` step is visible only transiently.
+    Invoked as the first sub-phase of ``NEXUS_CONFIG`` by
+    ``OnboardingOrchestrator`` (via ``InitiateCrawlUseCase``). Does not
+    own ``current_step`` or ``progress`` transitions — the orchestrator
+    sets those before and after this call.
 
     Soft-fails on crawler-comms errors: the main onboarding must still
-    be able to complete even when the crawler cannot be reached -- the
+    be able to complete even when the crawler cannot be reached — the
     crawl is no longer mandatory for the wizard to finish.
     """
 
@@ -56,10 +48,6 @@ class StartCrawlUseCase:
         onboarding = ProjectOnboarding.objects.select_related("project").get(
             vtex_account=vtex_account,
         )
-
-        onboarding.current_step = "CRAWL"
-        onboarding.progress = CRAWL_KICKOFF_PROGRESS
-        onboarding.save(update_fields=["current_step", "progress"])
 
         onboarding_uuid = str(onboarding.uuid)
         language = onboarding.project.language or "" if onboarding.project else ""
