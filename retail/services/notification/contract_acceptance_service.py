@@ -14,6 +14,8 @@ from retail.services.slack.service import SlackService
 
 logger = logging.getLogger(__name__)
 
+CONTRACT_ACCEPTANCE_SOURCE = "app auto service"
+
 
 class ContractAcceptanceNotificationService:
     """Notifies the internal team when a customer accepts the contract."""
@@ -65,11 +67,15 @@ class ContractAcceptanceNotificationService:
                 "fields": [
                     {
                         "type": "mrkdwn",
+                        "text": f"*from*\n{CONTRACT_ACCEPTANCE_SOURCE}",
+                    },
+                    {
+                        "type": "mrkdwn",
                         "text": f"*Company*\n{acceptance_data['company_name']}",
                     },
                     {
                         "type": "mrkdwn",
-                        "text": f"*VTEX account*\n{acceptance_data['vtex_account']}",
+                        "text": f"*vtex_account*\n{acceptance_data['vtex_account']}",
                     },
                     {
                         "type": "mrkdwn",

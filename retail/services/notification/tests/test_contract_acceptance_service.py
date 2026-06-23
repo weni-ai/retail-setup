@@ -48,6 +48,8 @@ class ContractAcceptanceNotificationServiceTests(TestCase):
         self.assertIn("Até 5.000 conversas", serialized)
         self.assertIn("v2.1", serialized)
         self.assertIn("a1b2c3d4-e5f6-7890-abcd-ef1234567890", serialized)
+        self.assertIn("app auto service", serialized)
+        self.assertIn("vtex_account", serialized)
 
     def test_notify_defaults_geo_country_when_missing(self):
         self.service.notify(_acceptance_data(geo_country=""))
