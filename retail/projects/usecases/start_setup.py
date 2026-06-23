@@ -4,6 +4,10 @@ from retail.projects.models import Project, ProjectOnboarding
 from retail.projects.tasks import task_setup_channel_and_start_crawl
 from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.projects.usecases.onboarding_agents.agent_mappings import SUPPORTED_CHANNELS
+from retail.projects.usecases.onboarding_access import (
+    get_or_create_active_onboarding,
+    onboarding_linked_to_active_project_record,
+)
 from retail.projects.usecases.onboarding_dto import StartSetupDTO
 
 logger = logging.getLogger(__name__)
@@ -26,9 +30,7 @@ class StartSetupUseCase:
     """
 
     def execute(self, dto: StartSetupDTO) -> None:
-        onboarding, created = ProjectOnboarding.objects.get_or_create(
-            vtex_account=dto.vtex_account,
-        )
+        onboarding, created = get_or_create_active_onboarding(dto.vtex_account)
 
         if not created:
             self._reset_onboarding(onboarding)
@@ -66,7 +68,7 @@ class StartSetupUseCase:
 
         logger.info(
             f"Scheduled pre-crawl setup task for vtex_account={dto.vtex_account} "
-            f"(project_linked={onboarding.project is not None}, "
+            f"(project_linked={onboarding.project_id is not None}, "
             f"crawl_url={dto.crawl_url})"
         )
 
@@ -112,11 +114,10 @@ class StartSetupUseCase:
     @staticmethod
     def _try_link_project(onboarding: ProjectOnboarding) -> None:
         """
-        If no project is linked yet, tries to find the unique one
-        by vtex_account. Raises if more than one project matches,
-        since the business rule is 1 vtex_account → 1 project.
+        Skips when project_id already points to an active Project. A stale
+        FK to a soft-deleted project is replaced by the active match.
         """
-        if onboarding.project is not None:
+        if onboarding_linked_to_active_project_record(onboarding):
             return
 
         try:
