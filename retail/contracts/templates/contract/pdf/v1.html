@@ -4,36 +4,111 @@
     <meta charset="utf-8" />
     <title>{{ labels.title }}</title>
     <style>
-        @page { size: A4; margin: 2.5cm; }
+        @page { size: A4; margin: 2cm 2.5cm; }
         body {
             font-family: "DejaVu Sans", sans-serif;
-            font-size: 12px;
+            font-size: 11px;
             color: #1a1a1a;
-            line-height: 1.5;
+            line-height: 1.45;
         }
-        h1 { font-size: 20px; margin-bottom: 4px; }
-        .meta { margin: 24px 0; }
-        .meta dt { font-weight: bold; }
-        .meta dd { margin: 0 0 8px 0; }
-        .acceptance { margin-top: 32px; padding-top: 16px; border-top: 1px solid #ccc; }
-        .label { font-style: italic; }
+        h1.order-form-title {
+            font-size: 16px;
+            text-align: center;
+            margin: 0 0 20px 0;
+            letter-spacing: 0.3px;
+        }
+        h2 {
+            font-size: 12px;
+            margin: 18px 0 8px 0;
+        }
+        p { margin: 0 0 10px 0; text-align: justify; }
+        ul { margin: 0 0 10px 18px; padding: 0; }
+        li { margin-bottom: 4px; }
+        .pricing-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 8px 0 12px 0;
+            font-size: 10px;
+        }
+        .pricing-table th,
+        .pricing-table td {
+            border: 1px solid #ccc;
+            padding: 6px 8px;
+            text-align: left;
+        }
+        .pricing-table th { background: #f5f5f5; }
+        .price-adjustment { margin-top: 16px; }
+        .signature-section {
+            margin-top: 36px;
+            page-break-inside: avoid;
+        }
+        .location-date {
+            text-align: center;
+            margin: 24px 0 28px 0;
+            font-size: 12px;
+        }
+        .signature-columns {
+            display: table;
+            width: 100%;
+            margin-bottom: 8px;
+        }
+        .signature-party {
+            display: table-cell;
+            width: 50%;
+            vertical-align: bottom;
+            padding: 0 12px;
+            text-align: center;
+        }
+        .electronic-signature {
+            min-height: 72px;
+            margin-bottom: 8px;
+            font-size: 10px;
+            line-height: 1.4;
+        }
+        .electronic-signature p { margin: 0 0 4px 0; text-align: center; }
+        .electronic-signature .meta-label {
+            font-weight: bold;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: #444;
+            margin-bottom: 6px;
+        }
+        .signature-line {
+            border-top: 1px solid #1a1a1a;
+            width: 85%;
+            margin: 0 auto 6px auto;
+        }
+        .signature-label {
+            font-weight: bold;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            margin: 0;
+        }
+        .page-footer {
+            margin-top: 28px;
+            text-align: center;
+            font-size: 10px;
+            color: #888;
+        }
+        .page-break { page-break-before: always; }
         .record {
-            margin-top: 48px;
-            padding-top: 24px;
+            margin-top: 24px;
+            padding-top: 16px;
             border-top: 2px solid #333;
             page-break-inside: avoid;
         }
         .record-title {
             text-align: center;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: bold;
             letter-spacing: 0.5px;
-            margin-bottom: 24px;
+            margin-bottom: 20px;
         }
         .record-columns {
             display: table;
             width: 100%;
-            margin-bottom: 24px;
+            margin-bottom: 20px;
         }
         .record-column {
             display: table-cell;
@@ -44,48 +119,65 @@
         .record-column:last-child { padding-right: 0; padding-left: 16px; }
         .record-heading {
             font-weight: bold;
-            font-size: 11px;
-            margin-bottom: 12px;
+            font-size: 10px;
+            margin-bottom: 10px;
         }
-        .record-field { margin-bottom: 10px; }
+        .record-field { margin-bottom: 8px; font-size: 10px; }
         .record-field-label { font-weight: bold; display: block; }
         .acceptance-id { color: #0066cc; word-break: break-all; }
         .legal-notice {
             color: #555;
-            font-size: 11px;
+            font-size: 10px;
             text-align: justify;
-            margin-top: 16px;
+            margin-top: 12px;
         }
-        .footer {
-            margin-top: 32px;
-            padding-top: 16px;
-            border-top: 1px solid #ccc;
-            text-align: center;
-            font-size: 11px;
-            color: #666;
+        .checkbox-acceptance {
+            margin-top: 12px;
+            font-size: 10px;
+            font-style: italic;
+            color: #444;
         }
     </style>
 </head>
 <body>
-    <h1>{{ labels.title }}</h1>
-    <p>{{ labels.version }} {{ contract_version }}</p>
+    {% include order_form_partial %}
 
-    <dl class="meta">
-        <dt>{{ labels.plan }}</dt>
-        <dd>{{ plan|default:"-" }}</dd>
+    <section class="signature-section">
+        <p class="location-date">
+            {{ labels.location_city }}, {{ accepted_at_date_only }}
+        </p>
 
-        <dt>{{ labels.company }}</dt>
-        <dd>{{ company_name }}</dd>
+        <div class="signature-columns">
+            <div class="signature-party">
+                <div class="electronic-signature">
+                    <p class="meta-label">{{ labels.electronic_acceptance_label }}</p>
+                    <p>{{ company_name }}</p>
+                    <p>{{ user_name }}</p>
+                    <p>{{ email }}</p>
+                    <p>{{ accepted_at_formatted }}</p>
+                </div>
+                <div class="signature-line"></div>
+                <p class="signature-label">{{ labels.contractor_heading }}</p>
+            </div>
 
-        <dt>{{ labels.email }}</dt>
-        <dd>{{ email }}</dd>
-    </dl>
+            <div class="signature-party">
+                <div class="electronic-signature">
+                    <p class="meta-label">{{ labels.provider_heading }}</p>
+                    <p>{{ contractor.company }}</p>
+                    <p>{{ contractor.tax_id }}</p>
+                    <p>{{ labels.contract_version }} {{ contract_version }}</p>
+                </div>
+                <div class="signature-line"></div>
+                <p class="signature-label">{{ labels.provider_heading }}</p>
+            </div>
+        </div>
 
-    <div class="acceptance">
-        <p class="label">{{ checkbox_label_text }}</p>
-    </div>
+        <p class="checkbox-acceptance">{{ checkbox_label_text }}</p>
+    </section>
 
-    <section class="record">
+    <div class="page-footer">{{ contractor.footer }}</div>
+
+    <section class="record page-break">
         <div class="record-title">{{ labels.record_title }}</div>
 
         <div class="record-columns">
@@ -144,8 +236,6 @@
         </div>
 
         <p class="legal-notice">{{ legal_notice }}</p>
-
-        <div class="footer">{{ contractor.footer }}</div>
     </section>
 </body>
 </html>

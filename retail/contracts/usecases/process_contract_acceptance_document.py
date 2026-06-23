@@ -18,8 +18,10 @@ from retail.contracts.translations import (
     CONTRACTOR_LEGAL,
     build_contract_email,
     build_electronic_acceptance_notice,
+    format_acceptance_date_only,
     format_acceptance_datetime,
     get_contract_pdf_labels,
+    get_order_form_partial,
     resolve_language_prefix,
 )
 from retail.interfaces.services.aws_s3 import S3ServiceInterface
@@ -90,6 +92,7 @@ class ProcessContractAcceptanceDocumentUseCase:
         return {
             "labels": labels,
             "lang_code": resolve_language_prefix(language),
+            "order_form_partial": get_order_form_partial(language),
             "email": acceptance.email_at_acceptance,
             "company_name": acceptance.company_name,
             "user_name": acceptance.user_name,
@@ -99,6 +102,11 @@ class ProcessContractAcceptanceDocumentUseCase:
             "plan_snapshot": acceptance.plan_snapshot,
             "contract_version": acceptance.contract_version,
             "accepted_at": acceptance.accepted_at,
+            "accepted_at_date_only": format_acceptance_date_only(
+                acceptance.accepted_at,
+                acceptance.accepted_at_local_offset,
+                language,
+            ),
             "accepted_at_formatted": format_acceptance_datetime(
                 acceptance.accepted_at,
                 acceptance.accepted_at_local_offset,

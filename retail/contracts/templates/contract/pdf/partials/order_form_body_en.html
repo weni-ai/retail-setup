@@ -1,0 +1,90 @@
+<section class="order-form-body">
+    <h1 class="order-form-title">ORDER FORM - VTEX CX PLATFORM</h1>
+
+    <p>
+        This Order Form ("Order Form") is an integral part of and is fully governed by the
+        terms and conditions of the Master Services Agreement currently in effect between
+        <strong>{{ company_name }}</strong> and VTEX Brasil Tecnologia para E-commerce Ltda.
+        ("VTEX") ("MSA").
+    </p>
+    <p>
+        All provisions of the Master Services Agreement remain unchanged; this document
+        applies only to the commercial terms of the additional solution described below.
+    </p>
+
+    <h2>1. Contracted Solution</h2>
+    <p>
+        VTEX CX Platform, provided as Software as a Service, which includes:
+    </p>
+    <ul>
+        <li>
+            <strong>Modules:</strong> Analytics, Agent Builder, Agent Marketplace,
+            WhatsApp Campaigns, Live Desk, Audit, Contact Management, WebChat, and
+            Integrations.
+        </li>
+        <li>
+            <strong>Included services:</strong> Platform environment setup, hosting,
+            up to 2 hours of training, support for activating contracted channels, and
+            VTEX CX platform support.
+        </li>
+    </ul>
+    <p><strong>Selected plan:</strong> {{ plan|default:"-" }}</p>
+
+    <h2>2. Term and Termination</h2>
+    <ul>
+        <li><strong>Start:</strong> within 5 business days after acceptance of this term.</li>
+        <li><strong>Initial term:</strong> 12 months.</li>
+        <li>
+            <strong>Renewal:</strong> automatic for equal periods, unless 30 days' prior
+            notice is given.
+        </li>
+    </ul>
+
+    <h2>3. Pricing</h2>
+    <table class="pricing-table">
+        <thead>
+            <tr>
+                <th>Usage</th>
+                <th>Price per conversation</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>On demand</td><td>R$ 2.20</td></tr>
+            <tr><td>Minimum of 1,000 conversations/month</td><td>R$ 1.90</td></tr>
+            <tr><td>Minimum of 5,000 conversations/month</td><td>R$ 1.55</td></tr>
+            <tr><td>Minimum of 20,000 conversations/month</td><td>R$ 1.40</td></tr>
+            <tr><td>Minimum of 50,000 conversations/month</td><td>R$ 1.20</td></tr>
+        </tbody>
+    </table>
+    <p>
+        <strong>Conversation definition:</strong> A continuous exchange of inbound messages
+        (from the customer) or outbound messages (from an agent or system), subject to two
+        rules:
+    </p>
+    <ul>
+        <li>
+            <strong>Daily reset:</strong> the conversation is measured within a calendar day
+            (00:00–23:59). Interactions that cross midnight count as two conversations.
+        </li>
+        <li>
+            <strong>Per channel:</strong> the conversation is tied to the originating
+            channel. Migration between channels (e.g., Webchat → WhatsApp) is counted as
+            two separate conversations.
+        </li>
+    </ul>
+    <p><strong>Not included in the price:</strong></p>
+    <ul>
+        <li>
+            <strong>WhatsApp outbound notifications:</strong> Outbound WhatsApp messages
+            (Meta Marketing and Utility categories) are outside the contracted allowance
+            and billed on demand.
+        </li>
+        <li>
+            <strong>Data access (CX Data Pipeline API):</strong> Optional add-on at
+            R$ 5,000.00 per month, per data model.
+        </li>
+    </ul>
+    <p class="price-adjustment">
+        Amounts due under this Order Form will be adjusted annually according to IGP-M.
+    </p>
+</section>

@@ -19,6 +19,10 @@ TASK_PATH = (
     "retail.contracts.usecases.register_contract_acceptance."
     "task_process_contract_acceptance_document"
 )
+NOTIFY_TASK_PATH = (
+    "retail.contracts.usecases.register_contract_acceptance."
+    "task_notify_contract_acceptance"
+)
 
 
 class RegisterContractAcceptanceUseCaseTests(TestCase):
@@ -47,8 +51,11 @@ class RegisterContractAcceptanceUseCaseTests(TestCase):
         defaults.update(overrides)
         return RegisterContractAcceptanceDTO(**defaults)
 
+    @patch(NOTIFY_TASK_PATH)
     @patch(TASK_PATH)
-    def test_execute_persists_record_with_deterministic_key(self, mock_task):
+    def test_execute_persists_record_with_deterministic_key(
+        self, mock_task, mock_notify_task
+    ):
         acceptance = self.usecase.execute(self._build_dto())
 
         self.assertEqual(ContractAcceptance.objects.count(), 1)
@@ -60,9 +67,11 @@ class RegisterContractAcceptanceUseCaseTests(TestCase):
             f"contratos/teststore/{acceptance.uuid}.pdf",
         )
         mock_task.delay.assert_called_once_with(str(acceptance.uuid))
+        mock_notify_task.delay.assert_called_once_with(str(acceptance.uuid))
 
+    @patch(NOTIFY_TASK_PATH)
     @patch(TASK_PATH)
-    def test_execute_uses_latest_active_template(self, _mock_task):
+    def test_execute_uses_latest_active_template(self, _mock_task, _mock_notify):
         latest = ContractTemplate.objects.create(
             version="v3.0", template_name="contract/pdf/v1.html"
         )
@@ -72,47 +81,56 @@ class RegisterContractAcceptanceUseCaseTests(TestCase):
         self.assertEqual(acceptance.contract_template, latest)
         self.assertEqual(acceptance.contract_version, "v3.0")
 
+    @patch(NOTIFY_TASK_PATH)
     @patch(TASK_PATH)
-    def test_execute_freezes_plan_from_dto_in_snapshot(self, _mock_task):
+    def test_execute_freezes_plan_from_dto_in_snapshot(self, _mock_task, _mock_notify):
         acceptance = self.usecase.execute(self._build_dto(plan="Enterprise"))
 
         self.assertEqual(acceptance.plan_snapshot, {"plan": "Enterprise"})
 
+    @patch(NOTIFY_TASK_PATH)
     @patch(TASK_PATH)
-    def test_execute_defaults_company_name_to_project_name(self, _mock_task):
+    def test_execute_defaults_company_name_to_project_name(
+        self, _mock_task, _mock_notify
+    ):
         acceptance = self.usecase.execute(self._build_dto())
 
         self.assertEqual(acceptance.company_name, "Test Store")
 
+    @patch(NOTIFY_TASK_PATH)
     @patch(TASK_PATH)
     @patch(
         "retail.contracts.usecases.register_contract_acceptance.timezone.now",
         return_value=datetime(2026, 6, 10, 14, 32, tzinfo=dt_timezone.utc),
     )
     def test_execute_resolves_local_offset_from_acceptance_timezone(
-        self, _mock_now, _mock_task
+        self, _mock_now, _mock_task, _mock_notify
     ):
         acceptance = self.usecase.execute(self._build_dto())
 
         self.assertEqual(acceptance.accepted_at_local_offset, "-03:00")
 
+    @patch(NOTIFY_TASK_PATH)
     @patch(TASK_PATH)
-    def test_execute_persists_explicit_company_name(self, _mock_task):
+    def test_execute_persists_explicit_company_name(self, _mock_task, _mock_notify):
         acceptance = self.usecase.execute(
             self._build_dto(company_name="Magazine Luiza S.A.")
         )
 
         self.assertEqual(acceptance.company_name, "Magazine Luiza S.A.")
 
+    @patch(NOTIFY_TASK_PATH)
     @patch(TASK_PATH)
-    def test_execute_raises_when_project_not_found(self, mock_task):
+    def test_execute_raises_when_project_not_found(self, mock_task, mock_notify):
         with self.assertRaises(ProjectNotFoundError):
             self.usecase.execute(self._build_dto(vtex_account="missing"))
 
         mock_task.delay.assert_not_called()
+        mock_notify.delay.assert_not_called()
 
+    @patch(NOTIFY_TASK_PATH)
     @patch(TASK_PATH)
-    def test_execute_raises_when_no_active_template(self, _mock_task):
+    def test_execute_raises_when_no_active_template(self, _mock_task, _mock_notify):
         self.template.is_active = False
         self.template.save(update_fields=["is_active"])
 

@@ -62,9 +62,14 @@ class ProcessContractAcceptanceDocumentUseCaseTests(TestCase):
         rendered_template, context = self.pdf_renderer.render.call_args[0]
         self.assertEqual(rendered_template, "contract/pdf/v1.html")
         self.assertEqual(context["lang_code"], "es")
+        self.assertEqual(
+            context["order_form_partial"],
+            "contract/pdf/partials/order_form_body_es.html",
+        )
         self.assertEqual(context["labels"]["title"], "Contrato de adhesión")
         self.assertIn("acceptance_id", context)
         self.assertIn("legal_notice", context)
+        self.assertIn("accepted_at_date_only", context)
         self.assertEqual(context["company_name"], "Test Store")
 
         expected_date = self.acceptance.accepted_at.strftime("%d/%m/%Y")

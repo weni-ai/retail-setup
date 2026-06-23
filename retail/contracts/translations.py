@@ -45,6 +45,8 @@ CONTRACT_PDF_TRANSLATIONS = {
         "tax_id": "Tax ID",
         "contract_version": "Contract version",
         "acceptance_id": "Acceptance ID",
+        "location_city": "São Paulo",
+        "electronic_acceptance_label": "Electronic acceptance",
         "legal_notice": (
             "This document was accepted electronically on {accepted_at_formatted} "
             "by checking the agreement checkbox on the {platform_name} platform. "
@@ -71,6 +73,8 @@ CONTRACT_PDF_TRANSLATIONS = {
         "tax_id": "CNPJ",
         "contract_version": "Versão do contrato",
         "acceptance_id": "ID do aceite",
+        "location_city": "São Paulo",
+        "electronic_acceptance_label": "Aceite eletrônico",
         "legal_notice": (
             "Este documento foi aceito eletronicamente em {accepted_at_formatted} "
             "mediante marcação de checkbox de concordância na plataforma "
@@ -100,6 +104,8 @@ CONTRACT_PDF_TRANSLATIONS = {
         "tax_id": "CNPJ",
         "contract_version": "Versión del contrato",
         "acceptance_id": "ID de aceptación",
+        "location_city": "São Paulo",
+        "electronic_acceptance_label": "Aceptación electrónica",
         "legal_notice": (
             "Este documento fue aceptado electrónicamente el "
             "{accepted_at_formatted} mediante la selección del checkbox de "
@@ -156,6 +162,13 @@ EN_MONTHS = (
 )
 
 
+ORDER_FORM_PARTIALS = {
+    "en": "contract/pdf/partials/order_form_body_en.html",
+    "pt": "contract/pdf/partials/order_form_body_pt.html",
+    "es": "contract/pdf/partials/order_form_body_es.html",
+}
+
+
 CONTRACT_EMAIL_TRANSLATIONS = {
     "en": {
         "subject": "Your contract",
@@ -208,6 +221,11 @@ def get_contract_pdf_labels(language: str) -> dict:
     return CONTRACT_PDF_TRANSLATIONS[resolve_language_prefix(language)]
 
 
+def get_order_form_partial(language: str) -> str:
+    """Return the Order Form body partial template for the given language."""
+    return ORDER_FORM_PARTIALS[resolve_language_prefix(language)]
+
+
 def apply_local_offset(accepted_at: datetime, local_offset: str) -> datetime:
     """Shift a UTC timestamp by the subscriber's UTC offset string."""
     match = UTC_OFFSET_PATTERN.match(local_offset or "")
@@ -223,6 +241,25 @@ def apply_local_offset(accepted_at: datetime, local_offset: str) -> datetime:
     if dj_timezone.is_naive(base):
         base = dj_timezone.make_aware(base, dt_timezone.utc)
     return base + delta
+
+
+def format_acceptance_date_only(
+    accepted_at: datetime, local_offset: str, language: str
+) -> str:
+    """Format the acceptance date for the Order Form signature line."""
+    local_dt = apply_local_offset(accepted_at, local_offset)
+    prefix = resolve_language_prefix(language)
+
+    if prefix == "pt":
+        month = PT_MONTHS[local_dt.month - 1]
+        return f"{local_dt.day} de {month} de {local_dt.year}"
+
+    if prefix == "es":
+        month = ES_MONTHS[local_dt.month - 1]
+        return f"{local_dt.day} de {month} de {local_dt.year}"
+
+    month = EN_MONTHS[local_dt.month - 1]
+    return f"{month} {local_dt.day}, {local_dt.year}"
 
 
 def format_acceptance_datetime(

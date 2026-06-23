@@ -1,3 +1,7 @@
+# 5.40.0
+- feat: Syncs all project fields and handles delete on update consumer
+- fix: Soft-delete projects and guard active vtex_account conflicts
+
 # 5.31.1
 - fix: Use Meta WABA template name in agent logs CSV export
 - fix: Split broadcast build/send error logging by phase
