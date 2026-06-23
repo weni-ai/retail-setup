@@ -13,7 +13,10 @@ from retail.contracts.exceptions import (
     ProjectNotFoundError,
 )
 from retail.contracts.models import ContractAcceptance, ContractTemplate
-from retail.contracts.tasks import task_process_contract_acceptance_document
+from retail.contracts.tasks import (
+    task_notify_contract_acceptance,
+    task_process_contract_acceptance_document,
+)
 from retail.projects.models import Project
 
 logger = logging.getLogger(__name__)
@@ -85,6 +88,7 @@ class RegisterContractAcceptanceUseCase:
         )
 
         task_process_contract_acceptance_document.delay(str(acceptance.uuid))
+        task_notify_contract_acceptance.delay(str(acceptance.uuid))
 
         return acceptance
 
