@@ -24,7 +24,7 @@ class TestRequestOnboardingSupportUseCase(TestCase):
         onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=project,
-            current_step="CRAWL",
+            current_step="NEXUS_CONFIG",
             current_page="setup_channel",
             progress=42,
             failed=True,
@@ -50,7 +50,7 @@ class TestRequestOnboardingSupportUseCase(TestCase):
         self.assertEqual(snapshot["uuid"], str(onboarding.uuid))
         self.assertEqual(snapshot["project_name"], "My Store")
         self.assertEqual(snapshot["project_uuid"], str(project.uuid))
-        self.assertEqual(snapshot["current_step"], "CRAWL")
+        self.assertEqual(snapshot["current_step"], "NEXUS_CONFIG")
         self.assertEqual(snapshot["current_page"], "setup_channel")
         self.assertEqual(snapshot["progress"], 42)
         self.assertTrue(snapshot["failed"])

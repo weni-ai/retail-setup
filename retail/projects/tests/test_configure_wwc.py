@@ -67,7 +67,7 @@ class TestConfigureWWCUseCase(TestCase):
         """
         existing_app_uuid = str(uuid4())
         self.onboarding.config = {"channels": {"wwc": {"app_uuid": existing_app_uuid}}}
-        self.onboarding.current_step = "CRAWL"
+        self.onboarding.current_step = "NEXUS_CONFIG"
         self.onboarding.progress = 50
         self.onboarding.save()
 
@@ -76,7 +76,7 @@ class TestConfigureWWCUseCase(TestCase):
         self.mock_integrations_service.create_channel_app.assert_not_called()
         self.mock_integrations_service.configure_channel_app.assert_not_called()
         self.onboarding.refresh_from_db()
-        self.assertEqual(self.onboarding.current_step, "CRAWL")
+        self.assertEqual(self.onboarding.current_step, "NEXUS_CONFIG")
         self.assertEqual(self.onboarding.progress, 50)
         self.assertEqual(
             self.onboarding.config["channels"]["wwc"]["app_uuid"], existing_app_uuid

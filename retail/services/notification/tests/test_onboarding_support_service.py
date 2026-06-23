@@ -12,7 +12,7 @@ def _snapshot(**overrides) -> dict:
         "uuid": "onboarding-uuid",
         "project_name": "My Store",
         "project_uuid": "project-uuid",
-        "current_step": "CRAWL",
+        "current_step": "NEXUS_CONFIG",
         "current_page": "setup_channel",
         "progress": 42,
         "completed": False,
@@ -52,7 +52,7 @@ class TestOnboardingSupportNotificationService(TestCase):
         serialized = str(self.slack_service.send_blocks.call_args.kwargs["blocks"])
         self.assertIn("mystore", serialized)
         self.assertIn("My Store", serialized)
-        self.assertIn("CRAWL", serialized)
+        self.assertIn("NEXUS_CONFIG", serialized)
         self.assertIn("setup_channel", serialized)
         self.assertIn("42%", serialized)
         self.assertIn("failed", serialized)
@@ -140,7 +140,7 @@ class TestOnboardingSupportNotificationService(TestCase):
     def test_notify_omits_ids_block_when_snapshot_has_no_uuids(self):
         self.service.notify(
             vtex_account="mystore",
-            onboarding={"current_step": "CRAWL"},
+            onboarding={"current_step": "NEXUS_CONFIG"},
         )
 
         serialized = str(self.slack_service.send_blocks.call_args.kwargs["blocks"])

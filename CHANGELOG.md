@@ -1,3 +1,7 @@
+# 5.31.1
+- fix: Use Meta WABA template name in agent logs CSV export
+- fix: Split broadcast build/send error logging by phase
+
 # 5.31.0
 - feat: Add endpoint to link a project to a VTEX account
 

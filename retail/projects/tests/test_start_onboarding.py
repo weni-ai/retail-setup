@@ -59,7 +59,7 @@ class TestStartSetupUseCase(TestCase):
         """When an onboarding already exists, should reset transient fields."""
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
-            current_step="CRAWL",
+            current_step="NEXUS_CONFIG",
             progress=80,
             crawler_result=ProjectOnboarding.SUCCESS,
             completed=True,
@@ -69,6 +69,11 @@ class TestStartSetupUseCase(TestCase):
                 "background_error": {
                     "stage": "nexus_upload",
                     "error": "previous background error",
+                },
+                "content_base_progress": {
+                    "crawl_percent": 100,
+                    "upload_percent": 50,
+                    "status": "uploading",
                 },
             },
         )
@@ -84,6 +89,7 @@ class TestStartSetupUseCase(TestCase):
         self.assertNotIn("last_failure", onboarding.config)
         self.assertNotIn("reason_failed", onboarding.config)
         self.assertNotIn("background_error", onboarding.config)
+        self.assertNotIn("content_base_progress", onboarding.config)
 
     @patch("retail.projects.usecases.start_setup.task_setup_channel_and_start_crawl")
     def test_reset_clears_previous_channel_app_uuid(self, _mock_task):
