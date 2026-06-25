@@ -45,7 +45,7 @@ _BROADCAST_CONVERSION_RECREATE = [
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("broadcasts", "0004_broadcastconversion_broadcast"),
+        ("broadcasts", "0005_broadcastconversion_order_payment_metadata"),
         ("agents", "0028_integratedagent_child_fks_agents"),
     ]
 

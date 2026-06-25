@@ -16,7 +16,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("agents", "0028_integratedagent_child_fks_agents"),
-        ("broadcasts", "0005_integratedagent_integer_fk"),
+        ("broadcasts", "0006_integratedagent_integer_fk"),
         ("templates", "0018_integratedagent_integer_fk"),
         ("vtex", "0011_integratedagent_integer_fk"),
     ]
