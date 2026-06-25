@@ -195,7 +195,7 @@ class ExportAgentLogsUseCase:
             "integrated_agent",
             "broadcast_message",
         ).filter(
-            integrated_agent_id=dto.agent_uuid,
+            integrated_agent__uuid=dto.agent_uuid,
             integrated_agent__project__uuid=dto.project_uuid,
             integrated_agent__project__is_active=True,
         )
