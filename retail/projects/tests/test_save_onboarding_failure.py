@@ -89,7 +89,7 @@ class TestSaveOnboardingFailureUseCase(TestCase):
         """Persistence errors must be logged but never propagated."""
         with patch(
             "retail.projects.usecases.save_onboarding_failure."
-            "ProjectOnboarding.objects.get_or_create",
+            "get_or_create_active_onboarding",
             side_effect=RuntimeError("DB down"),
         ):
             SaveOnboardingFailureUseCase.execute(

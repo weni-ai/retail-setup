@@ -80,6 +80,7 @@ class GetAgentLogJsonUseCase:
                 uuid=dto.log_uuid,
                 integrated_agent__uuid=dto.agent_uuid,
                 integrated_agent__project__uuid=dto.project_uuid,
+                integrated_agent__project__is_active=True,
             )
         except AgentExecution.DoesNotExist:
             raise NotFound(f"Log not found: {dto.log_uuid}")

@@ -3,7 +3,7 @@ from typing import Any, Mapping, Optional
 
 from django.utils import timezone
 
-from retail.projects.models import ProjectOnboarding
+from retail.projects.usecases.onboarding_access import get_or_create_active_onboarding
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +39,7 @@ class SaveOnboardingFailureUseCase:
             errors: The validation or processing errors (serializable).
         """
         try:
-            onboarding, _ = ProjectOnboarding.objects.get_or_create(
-                vtex_account=vtex_account,
-            )
+            onboarding, _ = get_or_create_active_onboarding(vtex_account=vtex_account)
             config = onboarding.config or {}
             config["last_failure"] = {
                 "timestamp": timezone.now().isoformat(),

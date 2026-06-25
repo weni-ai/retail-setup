@@ -31,7 +31,10 @@ class UnassignAgentUseCase:
     def _get_integrated_agent(self, agent: Agent, project_uuid: str) -> IntegratedAgent:
         try:
             return IntegratedAgent.objects.get(
-                agent=agent, project__uuid=project_uuid, is_active=True
+                agent=agent,
+                project__uuid=project_uuid,
+                project__is_active=True,
+                is_active=True,
             )
         except IntegratedAgent.DoesNotExist:
             raise NotFound("Integrated agent not found")

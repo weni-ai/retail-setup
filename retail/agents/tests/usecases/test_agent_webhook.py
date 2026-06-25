@@ -563,9 +563,7 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
 
         self.usecase.execute(self.mock_agent, self._build_request_data())
 
-        self.mock_lambda_handler.parse_log_tail.assert_called_once_with(
-            invoke_response
-        )
+        self.mock_lambda_handler.parse_log_tail.assert_called_once_with(invoke_response)
         self.exec_logger.log_lambda_response.assert_called_once_with(
             response_data=parsed,
             log_tail="START RequestId: abc\nhello from print\nEND RequestId: abc\n",
@@ -671,7 +669,12 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
 
         self.exec_logger.log_execution_error.assert_called_once_with(
             error_message="Failed to build broadcast message",
-            error_data={"payload_data": {"template": "missing_one", "contact_urn": "whatsapp:123"}},
+            error_data={
+                "payload_data": {
+                    "template": "missing_one",
+                    "contact_urn": "whatsapp:123",
+                }
+            },
         )
         self.mock_broadcast_handler.send_message.assert_not_called()
 
@@ -687,7 +690,12 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
 
         self.exec_logger.log_execution_error.assert_called_once_with(
             error_message="Failed to build broadcast message",
-            error_data={"payload_data": {"template": "order_update", "contact_urn": "whatsapp:123"}},
+            error_data={
+                "payload_data": {
+                    "template": "order_update",
+                    "contact_urn": "whatsapp:123",
+                }
+            },
         )
         self.mock_broadcast_handler.send_message.assert_not_called()
 
@@ -783,7 +791,8 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
         self.usecase.execute(self.mock_agent, self._build_request_data())
 
         self.exec_logger.log_execution_error.assert_called_once_with(
-            error_message="Error building/sending broadcast: kaboom",
+            error_message="Error building broadcast message: kaboom",
+            error_data={"phase": "broadcast_build"},
         )
         self.exec_logger.log_broadcast_sent.assert_not_called()
         self.mock_broadcast_handler.send_message.assert_not_called()
@@ -802,7 +811,31 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
         self.usecase.execute(self.mock_agent, self._build_request_data())
 
         self.exec_logger.log_execution_error.assert_called_once_with(
-            error_message="Error building/sending broadcast: flows down",
+            error_message="Error sending broadcast message: flows down",
+            error_data={"phase": "broadcast_send"},
+        )
+        self.exec_logger.log_broadcast_sent.assert_not_called()
+
+    def test_execute_logs_error_when_get_current_template_raises(self):
+        parsed = {"template": "order_update", "contact_urn": "whatsapp:123"}
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = parsed
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
+        self.mock_broadcast_handler.send_message.return_value = _dispatch_result(
+            response={"id": 7},
+            broadcast_message_uuid=uuid4(),
+        )
+        self.mock_broadcast_handler.get_current_template.side_effect = RuntimeError(
+            "template lookup failed"
+        )
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.log_execution_error.assert_called_once_with(
+            error_message="Error resolving broadcast template: template lookup failed",
+            error_data={"phase": "broadcast_template_resolve"},
         )
         self.exec_logger.log_broadcast_sent.assert_not_called()
 

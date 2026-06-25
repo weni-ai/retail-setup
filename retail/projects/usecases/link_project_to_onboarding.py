@@ -29,17 +29,29 @@ class LinkProjectToOnboardingUseCase:
         Args:
             project: The newly created/updated Project instance.
         """
-        if not project.vtex_account:
+        if not project.vtex_account or not project.is_active:
             return
 
         try:
             onboarding = ProjectOnboarding.objects.get(
                 vtex_account=project.vtex_account,
-                project__isnull=True,
             )
         except ProjectOnboarding.DoesNotExist:
             logger.info(
-                f"No pending onboarding found for vtex_account={project.vtex_account}"
+                f"No active onboarding found for vtex_account={project.vtex_account}"
+            )
+            return
+
+        if (
+            onboarding.project_id
+            and Project.objects.filter(
+                pk=onboarding.project_id,
+                uuid=project.uuid,
+            ).exists()
+        ):
+            logger.info(
+                f"Onboarding already linked to project {project.uuid} for "
+                f"vtex_account={project.vtex_account}"
             )
             return
 
