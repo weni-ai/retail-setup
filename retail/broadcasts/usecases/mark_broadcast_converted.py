@@ -1,6 +1,8 @@
 import logging
+import re
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -35,6 +37,8 @@ _BROADCAST_STATUSES_INELIGIBLE_FOR_CONVERSION = (
     BroadcastStatus.UNKNOWN,
 )
 
+_VTEX_DATETIME_FRACTION = re.compile(r"(\.\d{6})\d+(?=[Z+-]|$)")
+
 
 @dataclass(frozen=True)
 class _OrderConversionDetails:
@@ -43,11 +47,29 @@ class _OrderConversionDetails:
     Empty / ``None`` fields signal "VTEX lookup did not return that
     information" and translate to leaving the corresponding column on
     the ``BroadcastConversion`` row NULL or empty.
+
+    Datetime fields come from VTEX ``creationDate`` (order placed) and
+    ``authorizedDate`` (payment approved). ``payment_type`` is the first
+    ``paymentSystemName`` under ``paymentData.transactions``.
     """
 
     order_form_id: Optional[str]
     value: Optional[Decimal]
     currency: str
+    order_created_at: Optional[datetime]
+    payment_at: Optional[datetime]
+    payment_type: str
+
+    @classmethod
+    def empty(cls) -> "_OrderConversionDetails":
+        return cls(
+            order_form_id=None,
+            value=None,
+            currency="",
+            order_created_at=None,
+            payment_at=None,
+            payment_type="",
+        )
 
 
 class MarkBroadcastConvertedUseCase:
@@ -56,9 +78,10 @@ class MarkBroadcastConvertedUseCase:
     The trigger is the VTEX ``invoiced`` event arriving on
     ``task_order_status_update``. The use case follows three steps:
 
-    1. Pull the canonical ``order_form_id`` / ``value`` / ``currency``
-       from VTEX so the conversion row is filled with authoritative
-       data even if the originating broadcast only knew one identifier.
+    1. Pull the canonical ``order_form_id`` / ``value`` / ``currency`` /
+       ``order_created_at`` / ``payment_at`` / ``payment_type`` from VTEX
+       so the conversion row is filled with authoritative data even if the
+       originating broadcast only knew one identifier.
     2. Pick the last-touch broadcast from the **payment recovery agent**
        (most recent non-failed dispatch that matches by ``order_id`` or
        ``order_form_id``). Only payment recovery dispatches are eligible;
@@ -168,18 +191,10 @@ class MarkBroadcastConvertedUseCase:
                 f"[CONVERSION_TRACKING] conversion_vtex_lookup_failed: "
                 f"project_uuid={project.uuid} order_id={order_id} error={exc}"
             )
-            return _OrderConversionDetails(
-                order_form_id=None,
-                value=None,
-                currency="",
-            )
+            return _OrderConversionDetails.empty()
 
         if not order_details:
-            return _OrderConversionDetails(
-                order_form_id=None,
-                value=None,
-                currency="",
-            )
+            return _OrderConversionDetails.empty()
 
         order_form_id = order_details.get("orderFormId")
         store_preferences = order_details.get("storePreferencesData") or {}
@@ -189,6 +204,11 @@ class MarkBroadcastConvertedUseCase:
             order_form_id=str(order_form_id) if order_form_id else None,
             value=self._extract_value(order_details),
             currency=currency,
+            order_created_at=self._parse_vtex_datetime(
+                order_details.get("creationDate")
+            ),
+            payment_at=self._parse_vtex_datetime(order_details.get("authorizedDate")),
+            payment_type=self._extract_payment_type(order_details),
         )
 
     @staticmethod
@@ -206,6 +226,40 @@ class MarkBroadcastConvertedUseCase:
             return (Decimal(raw_value) / Decimal(100)).quantize(Decimal("0.01"))
         except (TypeError, ValueError, ArithmeticError):
             return None
+
+    @staticmethod
+    def _parse_vtex_datetime(raw_value: object) -> Optional[datetime]:
+        """Parse VTEX ISO-8601 timestamps into aware ``datetime`` objects.
+
+        VTEX may return fractional seconds with more than six digits or a
+        trailing ``Z`` suffix, both of which ``datetime.fromisoformat`` can
+        reject on some Python versions.
+        """
+        if not raw_value or not isinstance(raw_value, str):
+            return None
+
+        normalized = raw_value.strip().replace("Z", "+00:00")
+        normalized = _VTEX_DATETIME_FRACTION.sub(r"\1", normalized)
+        try:
+            return datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _extract_payment_type(order_details: dict) -> str:
+        """Return the first payment system name reported by VTEX."""
+        transactions = (order_details.get("paymentData") or {}).get(
+            "transactions"
+        ) or []
+        if not transactions:
+            return ""
+
+        payments = transactions[0].get("payments") or []
+        if not payments:
+            return ""
+
+        payment_system_name = payments[0].get("paymentSystemName")
+        return str(payment_system_name) if payment_system_name else ""
 
     def _select_last_touch_broadcast(
         self,
@@ -309,6 +363,9 @@ class MarkBroadcastConvertedUseCase:
                 "order_form_id": order_form_id,
                 "value": details.value,
                 "currency": details.currency,
+                "order_created_at": details.order_created_at,
+                "payment_at": details.payment_at,
+                "payment_type": details.payment_type,
             },
         )
 
@@ -329,5 +386,8 @@ class MarkBroadcastConvertedUseCase:
             f"order_id={conversion.order_id} "
             f"order_form_id={conversion.order_form_id} "
             f"value={conversion.value} currency={conversion.currency} "
+            f"order_created_at={conversion.order_created_at} "
+            f"payment_at={conversion.payment_at} "
+            f"payment_type={conversion.payment_type} "
             f"broadcast_uuid={last_touch_broadcast.uuid}"
         )
