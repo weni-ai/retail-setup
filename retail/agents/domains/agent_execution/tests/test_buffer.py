@@ -50,6 +50,10 @@ from retail.agents.domains.agent_execution.types import ExecutionTraceType
 from retail.agents.domains.agent_execution.usecases.flush_executions import (
     FlushExecutionsUseCase,
 )
+from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.agents.domains.agent_management.models import Agent
+from retail.broadcasts.models import BroadcastMessage, BroadcastStatus
+from retail.projects.models import Project
 
 
 @override_settings(EXECUTION_TRACES_BUCKET="test-traces-bucket")
@@ -582,11 +586,6 @@ class ExecutionBufferLifecycleTests(_BufferTestBase):
         translated to the ``broadcast_message_id`` column at flush
         time, linking the AgentExecution row to the BroadcastMessage
         persisted by ``RecordBroadcastSentUseCase`` at dispatch."""
-        from retail.agents.domains.agent_integration.models import IntegratedAgent
-        from retail.agents.domains.agent_management.models import Agent
-        from retail.broadcasts.models import BroadcastMessage, BroadcastStatus
-        from retail.projects.models import Project
-
         project = Project.objects.create(name="P", uuid=uuid4())
         agent = Agent.objects.create(
             uuid=uuid4(),
@@ -621,6 +620,80 @@ class ExecutionBufferLifecycleTests(_BufferTestBase):
         row = AgentExecution.objects.get(uuid=execution_uuid)
         self.assertEqual(row.broadcast_message_id, broadcast_message.uuid)
         self.assertEqual(row.broadcast_id, 42)
+        self.assertEqual(row.integrated_agent_id, integrated_agent.pk)
+
+    def test_start_execution_links_integrated_agent_by_integer_pk(self):
+        project = Project.objects.create(name="P", uuid=uuid4())
+        agent = Agent.objects.create(
+            uuid=uuid4(),
+            name="A",
+            slug="a",
+            description="",
+            project=project,
+        )
+        integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(), agent=agent, project=project
+        )
+
+        execution_uuid = self.buffer.start_execution(
+            integrated_agent_uuid=integrated_agent.uuid,
+            contact_urn="whatsapp:+5511999999999",
+            webhook_payload={},
+        )
+
+        row = AgentExecution.objects.get(uuid=execution_uuid)
+        self.assertEqual(row.integrated_agent_id, integrated_agent.pk)
+        self.assertIsInstance(row.integrated_agent_id, int)
+
+    def test_start_execution_logs_warning_for_unknown_integrated_agent_uuid(self):
+        unknown_uuid = uuid4()
+
+        with self.assertLogs(
+            logger="retail.agents.domains.agent_execution.services.buffer",
+            level="WARNING",
+        ) as logs:
+            execution_uuid = self.buffer.start_execution(
+                integrated_agent_uuid=unknown_uuid,
+                contact_urn="whatsapp:+5511999999999",
+                webhook_payload={},
+            )
+
+        row = AgentExecution.objects.get(uuid=execution_uuid)
+        self.assertIsNone(row.integrated_agent_id)
+        self.assertTrue(
+            any(
+                f"uuid={unknown_uuid}" in record.getMessage() for record in logs.records
+            )
+        )
+
+    def test_flush_resolves_integrated_agent_uuid_to_integer_pk(self):
+        project = Project.objects.create(name="P", uuid=uuid4())
+        agent = Agent.objects.create(
+            uuid=uuid4(),
+            name="A",
+            slug="a",
+            description="",
+            project=project,
+        )
+        integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(), agent=agent, project=project
+        )
+
+        execution_uuid = self.buffer.start_execution(
+            integrated_agent_uuid=None,
+            contact_urn="whatsapp:+5511999999999",
+            webhook_payload={},
+        )
+        self.buffer.update_metadata(
+            execution_uuid=execution_uuid,
+            status=AgentExecutionStatus.SUCCESS,
+            integrated_agent_uuid=integrated_agent.uuid,
+        )
+
+        self._flush()
+
+        row = AgentExecution.objects.get(uuid=execution_uuid)
+        self.assertEqual(row.integrated_agent_id, integrated_agent.pk)
 
     def test_flush_unlinks_redis_state_after_success(self):
         execution_uuid = self.buffer.start_execution(

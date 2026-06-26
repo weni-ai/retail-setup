@@ -318,7 +318,7 @@ class HandleStatusUpdateUseCase:
     def _increment_broadcast_counter_and_maybe_block(
         self,
         project_id: int,
-        integrated_agent_id: Optional[str],
+        integrated_agent_id: Optional[int],
         broadcast_uuid,
     ) -> None:
         """Increment the delivered counters and re-evaluate the block guard.
@@ -341,11 +341,11 @@ class HandleStatusUpdateUseCase:
 
         agent_total: Optional[int] = None
         if integrated_agent_id is not None:
-            IntegratedAgent.objects.filter(uuid=integrated_agent_id).update(
+            IntegratedAgent.objects.filter(pk=integrated_agent_id).update(
                 broadcasts_delivered=F("broadcasts_delivered") + 1,
             )
             agent_total = (
-                IntegratedAgent.objects.filter(uuid=integrated_agent_id)
+                IntegratedAgent.objects.filter(pk=integrated_agent_id)
                 .values_list("broadcasts_delivered", flat=True)
                 .first()
             )
@@ -357,7 +357,7 @@ class HandleStatusUpdateUseCase:
             f"broadcast_uuid={broadcast_uuid} "
             f"project_uuid={counter.project.uuid} "
             f"project_total_delivered={counter.total_delivered} "
-            f"agent_uuid={integrated_agent_id} "
+            f"agent_id={integrated_agent_id} "
             f"agent_total_delivered={agent_total}"
         )
 

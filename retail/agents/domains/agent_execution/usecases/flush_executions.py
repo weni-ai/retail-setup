@@ -16,6 +16,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_execution.flush_helpers import (
     mark_processing_as_timed_out,
     parse_traces,
@@ -53,14 +54,37 @@ _ORM_DIRECT_FIELDS: Tuple[str, ...] = (
     "traces_s3_key",
 )
 
-# FK shortcuts. The buffer stores a UUID under the ``*_uuid`` field
-# name; the flush translates it to the model's ``*_id`` column so
-# Django persists it without a related-object lookup.
+# FK shortcuts. The buffer stores UUIDs under ``*_uuid`` field names;
+# the flush translates them to the model's ``*_id`` columns. Integrated
+# agent ids are integer PKs; template and broadcast_message ids remain
+# UUIDs (legacy PK / to_field).
 _ORM_FK_TRANSLATIONS = {
     "integrated_agent_uuid": "integrated_agent_id",
     "template_uuid": "template_id",
     "broadcast_message_uuid": "broadcast_message_id",
 }
+
+
+def _collect_integrated_agent_uuids(
+    entries: List[Tuple[str, Dict[str, Any]]],
+) -> set[UUID]:
+    uuids: set[UUID] = set()
+    for _, data in entries:
+        agent_uuid = _coerce_uuid(data.get("integrated_agent_uuid"))
+        if agent_uuid is not None:
+            uuids.add(agent_uuid)
+    return uuids
+
+
+def _build_integrated_agent_pk_map(uuids: set[UUID]) -> Dict[UUID, int]:
+    if not uuids:
+        return {}
+    return {
+        agent_uuid: pk
+        for agent_uuid, pk in IntegratedAgent.objects.filter(
+            uuid__in=uuids
+        ).values_list("uuid", "pk")
+    }
 
 
 def _coerce_uuid(value: Any) -> Optional[UUID]:
@@ -74,13 +98,17 @@ def _coerce_uuid(value: Any) -> Optional[UUID]:
         return None
 
 
-def _extract_orm_fields(data: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_orm_fields(
+    data: Dict[str, Any],
+    *,
+    integrated_agent_pk_map: Dict[UUID, int],
+) -> Dict[str, Any]:
     """Pick the kwargs from a Redis hash that map onto ``AgentExecution``.
 
     ``None`` and empty-string values are dropped so the UPDATE never
-    clobbers an existing column with an absent value. FK shortcuts use
-    the model's ``*_id`` form so Django stores the UUID directly
-    without a related-object lookup.
+    clobbers an existing column with an absent value. FK shortcuts map
+    buffer UUIDs onto the ORM ``*_id`` columns (integer for integrated
+    agent, UUID for template and broadcast_message).
     """
     out: Dict[str, Any] = {}
     for key in _ORM_DIRECT_FIELDS:
@@ -89,6 +117,13 @@ def _extract_orm_fields(data: Dict[str, Any]) -> Dict[str, Any]:
             continue
         out[key] = value
     for src, dst in _ORM_FK_TRANSLATIONS.items():
+        if src == "integrated_agent_uuid":
+            agent_uuid = _coerce_uuid(data.get(src))
+            if agent_uuid is not None:
+                resolved_pk = integrated_agent_pk_map.get(agent_uuid)
+                if resolved_pk is not None:
+                    out[dst] = resolved_pk
+            continue
         value = _coerce_uuid(data.get(src))
         if value is not None:
             out[dst] = value
@@ -257,7 +292,9 @@ class FlushExecutionsUseCase:
             try:
                 cleanup_pipe = redis_client.pipeline(transaction=False)
                 for u in successful:
-                    cleanup_pipe.unlink(self.buffer.data_key(u), self.buffer.traces_key(u))
+                    cleanup_pipe.unlink(
+                        self.buffer.data_key(u), self.buffer.traces_key(u)
+                    )
                 cleanup_pipe.zrem(ExecutionBufferService.FLUSH_QUEUE_KEY, *successful)
                 cleanup_pipe.execute()
             except Exception:
@@ -279,8 +316,14 @@ class FlushExecutionsUseCase:
         not safe when the buffer's hash is intentionally sparse.
         """
         now = timezone.now()
+        integrated_agent_pk_map = _build_integrated_agent_pk_map(
+            _collect_integrated_agent_uuids(terminal_entries)
+        )
         for uuid_str, data in terminal_entries:
-            update_fields = _extract_orm_fields(data)
+            update_fields = _extract_orm_fields(
+                data,
+                integrated_agent_pk_map=integrated_agent_pk_map,
+            )
             if not update_fields:
                 continue
             update_fields["updated_on"] = now

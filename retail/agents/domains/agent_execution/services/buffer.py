@@ -36,6 +36,7 @@ from django.utils import timezone
 from django_redis import get_redis_connection
 from redis.exceptions import RedisError
 
+from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_execution.constants import UNKNOWN_CONTACT_URN
 from retail.agents.domains.agent_execution.models import (
     AgentExecution,
@@ -258,9 +259,21 @@ class ExecutionBufferService(ExecutionBufferInterface):
     ) -> None:
         """Insert the ``AgentExecution`` row at ``status='processing'``."""
         traces_s3_key = self.traces_storage.get_traces_key(execution_uuid)
+        integrated_agent = None
+        if integrated_agent_uuid is not None:
+            try:
+                integrated_agent = IntegratedAgent.objects.get(
+                    uuid=integrated_agent_uuid
+                )
+            except IntegratedAgent.DoesNotExist:
+                logger.warning(
+                    f"[EXEC_LOG] IntegratedAgent not found for "
+                    f"uuid={integrated_agent_uuid}; creating AgentExecution "
+                    f"without integrated_agent link"
+                )
         AgentExecution.objects.create(
             uuid=execution_uuid,
-            integrated_agent_id=integrated_agent_uuid,
+            integrated_agent=integrated_agent,
             contact_urn=contact_urn or UNKNOWN_CONTACT_URN,
             status=AgentExecutionStatus.PROCESSING,
             order_id=order_id,
