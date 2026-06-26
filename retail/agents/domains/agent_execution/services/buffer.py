@@ -261,10 +261,11 @@ class ExecutionBufferService(ExecutionBufferInterface):
         traces_s3_key = self.traces_storage.get_traces_key(execution_uuid)
         integrated_agent = None
         if integrated_agent_uuid is not None:
-            integrated_agent = IntegratedAgent.objects.filter(
-                uuid=integrated_agent_uuid
-            ).first()
-            if integrated_agent is None:
+            try:
+                integrated_agent = IntegratedAgent.objects.get(
+                    uuid=integrated_agent_uuid
+                )
+            except IntegratedAgent.DoesNotExist:
                 logger.warning(
                     f"[EXEC_LOG] IntegratedAgent not found for "
                     f"uuid={integrated_agent_uuid}; creating AgentExecution "
