@@ -1,3 +1,8 @@
+# 5.41.0
+- refactor: Migrate IntegratedAgent PK from UUID to integer
+- feat: Add broadcast dispatch and conversion report APIs
+- feat: Persist payment and order timestamps on broadcast conversions
+
 # 5.40.0
 - feat: Syncs all project fields and handles delete on update consumer
 - fix: Soft-delete projects and guard active vtex_account conflicts
