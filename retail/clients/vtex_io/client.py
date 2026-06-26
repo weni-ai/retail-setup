@@ -7,9 +7,14 @@ from django.conf import settings
 from retail.clients.base import RequestClient
 from retail.interfaces.clients.vtex_io.interface import VtexIOClientInterface
 from retail.jwt_keys.usecases.generate_jwt import JWTUsecase
+from retail.observability.vtex_io import build_vtex_io_proxy_sentry_metadata
 
 
 JWT_EXPIRATION_MINUTES = 1
+
+VTEX_IO_PROXY_SERVICE = "vtex_io_proxy"
+VTEX_IO_PROXY_PAYMENT_GATEWAY_SERVICE = "vtex_io_proxy_payment_gateway"
+VTEX_IO_PROXY_PAYMENT_TRANSACTION_SERVICE = "vtex_io_proxy_payment_transaction"
 
 
 class VtexIOClient(RequestClient, VtexIOClientInterface):
@@ -65,6 +70,21 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
             "Content-Type": "application/json; charset: utf-8",
             "X-Weni-Auth": token,
         }
+
+    def _proxy_sentry_metadata(
+        self,
+        *,
+        service: str,
+        vtex_account: str,
+        method: str,
+        path: str = None,
+    ) -> dict:
+        return build_vtex_io_proxy_sentry_metadata(
+            service=service,
+            vtex_account=vtex_account,
+            method=method,
+            path=path,
+        )
 
     def get_order_form_details(
         self, account_domain: str, vtex_account: str, order_form_id: str
@@ -263,8 +283,18 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
             payload["params"] = params
 
         jwt_headers = self._get_jwt_headers(vtex_account)
+        sentry_metadata = self._proxy_sentry_metadata(
+            service=VTEX_IO_PROXY_SERVICE,
+            vtex_account=vtex_account,
+            method=method,
+            path=path,
+        )
         response = self.make_request(
-            url, method="POST", json=payload, headers=jwt_headers
+            url,
+            method="POST",
+            json=payload,
+            headers=jwt_headers,
+            **sentry_metadata,
         )
 
         return response.json()
@@ -313,8 +343,18 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
             payload["params"] = params
 
         jwt_headers = self._get_jwt_headers(vtex_account)
+        sentry_metadata = self._proxy_sentry_metadata(
+            service=VTEX_IO_PROXY_PAYMENT_GATEWAY_SERVICE,
+            vtex_account=vtex_account,
+            method=method,
+            path=path,
+        )
         response = self.make_request(
-            url, method="POST", json=payload, headers=jwt_headers
+            url,
+            method="POST",
+            json=payload,
+            headers=jwt_headers,
+            **sentry_metadata,
         )
 
         return response.json()
@@ -347,6 +387,17 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
             "payments": payments,
         }
         headers = self._get_jwt_headers(vtex_account)
-        response = self.make_request(url, method="POST", json=payload, headers=headers)
+        sentry_metadata = self._proxy_sentry_metadata(
+            service=VTEX_IO_PROXY_PAYMENT_TRANSACTION_SERVICE,
+            vtex_account=vtex_account,
+            method="POST",
+        )
+        response = self.make_request(
+            url,
+            method="POST",
+            json=payload,
+            headers=headers,
+            **sentry_metadata,
+        )
 
         return response.json()
