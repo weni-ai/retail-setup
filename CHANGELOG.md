@@ -1,3 +1,6 @@
+# 5.41.1
+- feat: Add minimum order value rule to PIX recovery automation
+
 # 5.41.0
 - refactor: Migrate IntegratedAgent PK from UUID to integer
 - feat: Add broadcast dispatch and conversion report APIs
