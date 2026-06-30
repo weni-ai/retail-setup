@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 import os
+import logging
 import environ
 import sentry_sdk
 import urllib
@@ -18,6 +19,7 @@ import urllib
 from pathlib import Path
 
 from sentry_sdk.integrations.django import DjangoIntegration
+from sentry_sdk.integrations.logging import LoggingIntegration
 
 from corsheaders.defaults import default_headers, default_methods
 
@@ -53,10 +55,20 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = [f"https://*.{SERVICE_HOST}"]
 
 SENTRY_DSN = env.str("SENTRY_DSN", default="")
+SENTRY_ENVIRONMENT = env.str("SENTRY_ENVIRONMENT", default="production")
+SENTRY_RELEASE = env.str("SENTRY_RELEASE", default="")
+
+_sentry_logging = LoggingIntegration(
+    level=logging.INFO,
+    event_level=logging.ERROR,
+)
 
 sentry_sdk.init(
     dsn=SENTRY_DSN,
-    integrations=[DjangoIntegration()],
+    integrations=[DjangoIntegration(), _sentry_logging],
+    environment=SENTRY_ENVIRONMENT,
+    release=SENTRY_RELEASE or None,
+    send_default_pii=False,
 )
 
 REST_FRAMEWORK = {
