@@ -15,6 +15,7 @@ from retail.projects.usecases.agent_builder_helpers import (
 from retail.projects.usecases.content_base_progress_helpers import (
     STATUS_COMPLETE,
     STATUS_UPLOADING,
+    compute_upload_percent,
     persist_content_base_progress,
 )
 from retail.services.nexus.service import NexusService
@@ -22,28 +23,28 @@ from retail.services.nexus.service import NexusService
 logger = logging.getLogger(__name__)
 
 
-class FileProcessingError(Exception):
-    """Raised when Nexus reports a file processing failure."""
-
-
 class FileUploadError(Exception):
     """Raised when a file upload to Nexus fails."""
 
 
-FILE_STATUS_POLL_INTERVAL = 3  # seconds between status checks
-FILE_STATUS_MAX_ATTEMPTS = 60  # ~3 minutes max wait per file
+BATCH_MAX_FILES = 25
+BATCH_STATUS_POLL_INTERVAL = 3  # seconds between status checks
+BATCH_STATUS_MAX_ATTEMPTS = 300  # ~15 minutes max wait per batch
 
 
 class UploadNexusContentsUseCase:
     """
     Background-only upload of crawled content files to the Nexus
-    content base.
+    content base via the inline batch direct-ingest API.
 
     Invoked by ``task_upload_nexus_contents`` when the crawl webhook
     arrives with ``crawl.completed``. Calls ``ensure_agent_manager_configured``
     first so the upload is safe to run even if the inline manager step
     (``ConfigureAgentBuilderUseCase``) has not yet completed -- e.g.
     the webhook arrived early.
+
+    Partial ingestion failures within a batch are logged but do not
+    abort the upload when at least one file succeeds (best-effort).
 
     Background path: does NOT touch ``onboarding.progress`` -- the main
     wizard is decoupled from the crawl outcome.
@@ -80,7 +81,8 @@ class UploadNexusContentsUseCase:
         contents: list,
     ) -> None:
         """
-        Converts crawled content to .txt files and uploads them to Nexus.
+        Converts crawled content to .txt files and uploads them to Nexus
+        in batches of up to 25 files.
 
         Background-only: does NOT update ``onboarding.progress``. The
         ``onboarding`` argument is kept for log context.
@@ -93,36 +95,59 @@ class UploadNexusContentsUseCase:
 
         files = self._build_files_from_contents(contents)
         total = len(files)
+        batches = _chunk_files(files, BATCH_MAX_FILES)
+        uploaded_file_uuids: List[str] = []
 
         logger.info(
-            f"Uploading {total} content files to Nexus for project={project_uuid}"
+            f"Uploading {total} content files to Nexus for project={project_uuid} "
+            f"in {len(batches)} batch(es)"
         )
 
-        for index, (filename, file_bytes, content_type) in enumerate(files):
-            response = self.nexus_service.upload_content_base_file(
+        for batch_index, batch in enumerate(batches):
+            response = self.nexus_service.upload_content_base_files_batch(
                 project_uuid=project_uuid,
-                file=(filename, file_bytes, content_type),
+                files=batch,
             )
 
             if response is None:
                 raise FileUploadError(
-                    f"Failed to upload {filename} to Nexus for project={project_uuid}"
+                    f"Failed to batch upload files to Nexus for project={project_uuid}"
                 )
 
-            file_uuid = response.get("uuid")
+            uploaded_files = response.get("files") or []
+            if not uploaded_files:
+                raise FileUploadError(
+                    f"No files were uploaded to Nexus for project={project_uuid}"
+                )
+
+            for error in response.get("errors") or []:
+                logger.warning(
+                    f"Batch upload error for project={project_uuid}: "
+                    f"filename={error.get('filename')} message={error.get('message')}"
+                )
+
+            batch_file_uuids = [
+                entry["uuid"] for entry in uploaded_files if entry.get("uuid")
+            ]
+            uploaded_file_uuids.extend(batch_file_uuids)
+
             logger.info(
-                f"Uploaded {filename} to Nexus for project={project_uuid}: "
-                f"file_uuid={file_uuid}, response={response}"
+                f"Batch {batch_index + 1}/{len(batches)} uploaded for "
+                f"project={project_uuid}: file_uuids={batch_file_uuids}"
             )
 
-            if file_uuid:
-                self._wait_for_processing(project_uuid, file_uuid, filename)
-
-            upload_percent = round((index + 1) / total * 100)
-            persist_content_base_progress(
+            self._wait_for_batch_processing(
                 onboarding,
-                upload_percent=upload_percent,
-                status=STATUS_UPLOADING,
+                project_uuid,
+                batch_file_uuids,
+                batch_index=batch_index,
+                batch_size=len(batch),
+                total_files=total,
+            )
+
+        if not uploaded_file_uuids:
+            raise FileUploadError(
+                f"No file UUIDs returned from Nexus for project={project_uuid}"
             )
 
         persist_content_base_progress(
@@ -132,50 +157,83 @@ class UploadNexusContentsUseCase:
         )
         logger.info(
             f"Content base upload completed for project={project_uuid} "
-            f"({total} files uploaded)"
+            f"({len(uploaded_file_uuids)} files uploaded)"
         )
 
-    def _wait_for_processing(
-        self, project_uuid: str, file_uuid: str, filename: str
-    ) -> None:
+    def _wait_for_batch_processing(
+        self,
+        onboarding: ProjectOnboarding,
+        project_uuid: str,
+        file_uuids: List[str],
+        *,
+        batch_index: int,
+        batch_size: int,
+        total_files: int,
+    ) -> int:
         """
-        Polls Nexus until the uploaded file reaches a terminal status
-        (``success`` or ``failed``) before allowing the next upload.
-        """
-        for attempt in range(1, FILE_STATUS_MAX_ATTEMPTS + 1):
-            time.sleep(FILE_STATUS_POLL_INTERVAL)
+        Polls Nexus until the batch reaches a terminal state.
 
-            status_response = self.nexus_service.get_content_base_file_status(
-                project_uuid, file_uuid
+        Persists ``upload_percent`` on every successful poll so clients
+        see real-time progress. Returns the final ``progress_percentage``
+        from Nexus. Partial and failed batches are logged but do not raise.
+        """
+        for attempt in range(1, BATCH_STATUS_MAX_ATTEMPTS + 1):
+            time.sleep(BATCH_STATUS_POLL_INTERVAL)
+
+            progress_response = self.nexus_service.get_content_base_batch_progress(
+                project_uuid, file_uuids
             )
 
-            if status_response is None:
+            if progress_response is None:
                 logger.warning(
-                    f"Could not fetch status for file_uuid={file_uuid} "
-                    f"(attempt {attempt}/{FILE_STATUS_MAX_ATTEMPTS})"
+                    f"Could not fetch batch progress for project={project_uuid} "
+                    f"batch={batch_index + 1} "
+                    f"(attempt {attempt}/{BATCH_STATUS_MAX_ATTEMPTS})"
                 )
                 continue
 
-            status = status_response.get("status", "").lower()
+            status = progress_response.get("status", "").lower()
+            progress_pct = progress_response.get("progress_percentage", 0)
+            is_complete = progress_response.get("is_complete", False)
 
-            logger.info(
-                f"File {filename} (uuid={file_uuid}) status={status} "
-                f"(attempt {attempt}/{FILE_STATUS_MAX_ATTEMPTS})"
+            upload_percent = compute_upload_percent(
+                batch_index, batch_size, total_files, progress_pct
+            )
+            persist_content_base_progress(
+                onboarding,
+                upload_percent=upload_percent,
+                status=STATUS_UPLOADING,
             )
 
-            if status == "success":
-                return
+            logger.info(
+                f"Batch {batch_index + 1} progress for project={project_uuid}: "
+                f"status={status} progress={progress_pct}% "
+                f"upload_percent={upload_percent}% "
+                f"(attempt {attempt}/{BATCH_STATUS_MAX_ATTEMPTS})"
+            )
 
-            if status == "failed":
-                raise FileProcessingError(
-                    f"Nexus reported processing failure for "
-                    f"file_uuid={file_uuid} ({filename})"
+            if not is_complete:
+                continue
+
+            if status == "partial":
+                failed_files = progress_response.get("failed_files") or []
+                logger.warning(
+                    f"Batch {batch_index + 1} completed with partial failures "
+                    f"for project={project_uuid}: failed_files={failed_files}"
+                )
+            elif status == "failed":
+                logger.error(
+                    f"Batch {batch_index + 1} ingestion failed for "
+                    f"project={project_uuid}: file_uuids={file_uuids}"
                 )
 
+            return progress_pct
+
         logger.error(
-            f"Timed out waiting for file_uuid={file_uuid} ({filename}) "
-            f"after {FILE_STATUS_MAX_ATTEMPTS} attempts"
+            f"Timed out waiting for batch {batch_index + 1} "
+            f"project={project_uuid} after {BATCH_STATUS_MAX_ATTEMPTS} attempts"
         )
+        return 0
 
     @staticmethod
     def _build_files_from_contents(
@@ -204,6 +262,12 @@ class UploadNexusContentsUseCase:
             files.append((filename, file_bytes, "text/plain"))
 
         return files
+
+
+def _chunk_files(
+    files: List[Tuple[str, bytes, str]], chunk_size: int
+) -> List[List[Tuple[str, bytes, str]]]:
+    return [files[i : i + chunk_size] for i in range(0, len(files), chunk_size)]  # noqa: E203
 
 
 def _sanitize_filename(title: str, index: int) -> str:
