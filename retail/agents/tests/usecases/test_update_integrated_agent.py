@@ -243,6 +243,96 @@ class UpdateIntegratedAgentUseCaseTest(TestCase):
             str(self.mock_integrated_agent.uuid), self.mock_cache_handler.cache
         )
 
+    def test_execute_sets_payment_recovery_minimum_order_value(self):
+        """Test setting the PIX minimum order value persists into config."""
+        self.mock_integrated_agent.config = {"payment_recovery": {"hook_created": True}}
+        data = {"payment_recovery_config": {"minimum_order_value": 100.0}}
+
+        self.usecase.execute(self.mock_integrated_agent, data)
+
+        self.assertEqual(
+            self.mock_integrated_agent.config["payment_recovery"][
+                "minimum_order_value"
+            ],
+            100.0,
+        )
+        # Infrastructure keys must be preserved.
+        self.assertTrue(
+            self.mock_integrated_agent.config["payment_recovery"]["hook_created"]
+        )
+        self.mock_integrated_agent.save.assert_called_once()
+
+    def test_execute_sets_payment_recovery_delay_minutes(self):
+        """Test setting PIX delay_minutes persists into config."""
+        self.mock_integrated_agent.config = {
+            "payment_recovery": {"hook_created": True, "delay_minutes": 5}
+        }
+        data = {"payment_recovery_config": {"delay_minutes": 15}}
+
+        self.usecase.execute(self.mock_integrated_agent, data)
+
+        self.assertEqual(
+            self.mock_integrated_agent.config["payment_recovery"]["delay_minutes"],
+            15,
+        )
+        self.assertTrue(
+            self.mock_integrated_agent.config["payment_recovery"]["hook_created"]
+        )
+
+    def test_execute_clears_payment_recovery_minimum_order_value(self):
+        """Test that sending null removes the minimum (any value fires)."""
+        self.mock_integrated_agent.config = {
+            "payment_recovery": {"hook_created": True, "minimum_order_value": 100.0}
+        }
+        data = {"payment_recovery_config": {"minimum_order_value": None}}
+
+        self.usecase.execute(self.mock_integrated_agent, data)
+
+        self.assertIsNone(
+            self.mock_integrated_agent.config["payment_recovery"]["minimum_order_value"]
+        )
+
+    def test_execute_initializes_payment_recovery_config_when_absent(self):
+        """Test that the payment_recovery namespace is created when missing."""
+        self.mock_integrated_agent.config = {}
+        data = {"payment_recovery_config": {"minimum_order_value": 50.0}}
+
+        self.usecase.execute(self.mock_integrated_agent, data)
+
+        self.assertEqual(
+            self.mock_integrated_agent.config["payment_recovery"][
+                "minimum_order_value"
+            ],
+            50.0,
+        )
+
+    def test_execute_initializes_config_dict_when_config_is_none(self):
+        """Test that a null config is initialized before writing PIX config."""
+        self.mock_integrated_agent.config = None
+        data = {"payment_recovery_config": {"minimum_order_value": 50.0}}
+
+        self.usecase.execute(self.mock_integrated_agent, data)
+
+        self.assertEqual(
+            self.mock_integrated_agent.config["payment_recovery"][
+                "minimum_order_value"
+            ],
+            50.0,
+        )
+
+    def test_execute_payment_recovery_config_none_is_noop(self):
+        """Test that a null payment_recovery_config leaves config untouched."""
+        self.mock_integrated_agent.config = {"payment_recovery": {"hook_created": True}}
+        data = {"payment_recovery_config": None}
+
+        self.usecase.execute(self.mock_integrated_agent, data)
+
+        self.assertNotIn(
+            "minimum_order_value",
+            self.mock_integrated_agent.config["payment_recovery"],
+        )
+        self.mock_integrated_agent.save.assert_called_once()
+
     def test_cache_handler_default_initialization(self):
         """Test that cache handler is properly initialized with default if not provided"""
         usecase_without_cache = UpdateIntegratedAgentUseCase(
