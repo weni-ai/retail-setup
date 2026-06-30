@@ -105,6 +105,34 @@ class ConnectClient(RequestClient, ConnectClientInterface):
         )
         return response.json()
 
+    def send_contract_acceptance_email(
+        self,
+        user_email: str,
+        acceptance_id: str,
+        subject: str,
+        body_html: str,
+        file_name: str,
+        file_base64: str,
+    ) -> Dict:
+        url = f"{self.base_url}/v2/commerce/send-contract-acceptance-email/"
+
+        payload: Dict = {
+            "user_email": user_email,
+            "acceptance_id": acceptance_id,
+            "subject": subject,
+            "body_html": body_html,
+            "file_name": file_name,
+            "file_base64": file_base64,
+        }
+
+        response = self.make_request(
+            url=url,
+            method="POST",
+            json=payload,
+            headers=self.internal_authentication.headers,
+        )
+        return response.json()
+
     def update_project_config(
         self,
         project_uuid: str,

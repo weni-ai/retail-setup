@@ -23,6 +23,7 @@ urlpatterns = [
     path("api/v3/templates/", include("retail.templates.urls")),
     path("api/v3/agents/", include("retail.agents.api.urls")),
     path("api/v3/broadcasts/", include("retail.broadcasts.api.urls")),
+    path("api/v3/contracts/", include("retail.contracts.urls")),
     path("vtex/", include(vtex_urls)),
     path("docs/", swagger_view, name="swagger"),
 ]

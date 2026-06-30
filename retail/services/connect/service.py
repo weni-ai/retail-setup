@@ -65,6 +65,30 @@ class ConnectService(ConnectServiceInterface):
             logger.error(f"Failed to send data export email to {user_email}: {exc}")
             return None
 
+    def send_contract_acceptance_email(
+        self,
+        user_email: str,
+        acceptance_id: str,
+        subject: str,
+        body_html: str,
+        file_name: str,
+        file_base64: str,
+    ) -> Optional[Dict]:
+        try:
+            return self.connect_client.send_contract_acceptance_email(
+                user_email=user_email,
+                acceptance_id=acceptance_id,
+                subject=subject,
+                body_html=body_html,
+                file_name=file_name,
+                file_base64=file_base64,
+            )
+        except Exception as exc:
+            logger.error(
+                f"Failed to send contract acceptance email to {user_email}: {exc}"
+            )
+            return None
+
     def update_project_config(
         self,
         project_uuid: str,
