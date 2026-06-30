@@ -7,13 +7,15 @@ from retail.projects.usecases.configure_agent_builder import (
 from retail.projects.usecases.configure_one_click_payment import (
     ConfigureOneClickPaymentUseCase,
 )
+from retail.projects.usecases.initiate_crawl import InitiateCrawlUseCase
 from retail.projects.usecases.integrate_agents import IntegrateAgentsUseCase
 from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 
 logger = logging.getLogger(__name__)
 
 
-NEXUS_CONFIG_START_PROGRESS = 10
+NEXUS_CONFIG_START_PROGRESS = 0
+CRAWL_KICKOFF_PROGRESS = 40
 
 # Channels that require the One-Click Payment configuration step.
 # Kept as a registry so future channels can opt in (or out) without
@@ -23,44 +25,59 @@ CHANNELS_WITH_ONE_CLICK_PAYMENT = {"wpp-cloud"}
 
 class OnboardingOrchestrator:
     """
-    Orchestrates post-crawl configuration that runs INLINE in the main
-    onboarding flow (right after the crawler is kicked off):
+    Orchestrates the NEXUS_CONFIG step inline in the main onboarding flow:
 
-      1. Nexus manager configuration (10-75%) -- configures the agent
-                                                  manager attributes ONLY.
-                                                  Content upload happens
-                                                  in background later, when
-                                                  the crawl webhook arrives.
-      2. One-Click Payment (wpp-cloud)        -- registers keys + creates
-                                                  + publishes Meta Flow
-                                                  (runs BEFORE agent
-                                                  integration so the
-                                                  One-Click Payment agent
-                                                  can consume the published
-                                                  flow_id as a credential)
-      3. Agent integration (75-100%)          -- integrates Nexus agents
-                                                  for the channel
+      1. Crawl kickoff (0-40%)               -- sends the store URL to the
+                                               Crawler MS (fire-and-forget;
+                                               soft-fails internally).
+      2. Nexus manager configuration (75%)  -- configures the agent manager
+                                               attributes ONLY. Content upload
+                                               happens in background later, when
+                                               the crawl webhook arrives.
+      3. One-Click Payment (wpp-cloud)      -- registers keys + creates +
+                                               publishes Meta Flow (runs BEFORE
+                                               agent integration so the
+                                               One-Click Payment agent can
+                                               consume the published flow_id as
+                                               a credential)
+      4. Agent integration (75-100%)        -- integrates Nexus agents for
+                                               the channel
 
-    Channel creation runs before the crawl (see ``PreCrawlChannelUseCase``)
-    so the short-lived Facebook ``auth_code`` is not exposed to the
-    crawl's runtime. Both channels' ``app_uuid`` / ``flow_object_uuid``
-    are already persisted by the time this orchestrator runs.
+    Channel creation runs before this orchestrator (see
+    ``PreCrawlChannelUseCase``) so the short-lived Facebook ``auth_code`` is
+    not exposed to the crawl's runtime. Both channels' ``app_uuid`` /
+    ``flow_object_uuid`` are already persisted by the time this orchestrator
+    runs.
 
-    Crawl + Nexus content upload run in the background and do NOT affect
-    the main onboarding progress: the user-visible wizard completes once
-    this orchestrator returns. The content upload to Nexus is dispatched
-    by ``UpdateOnboardingProgressUseCase`` when the ``crawl.completed``
-    webhook arrives.
+    The actual long-running crawl and Nexus content upload run in the
+    background and do NOT affect the main onboarding progress: the
+    user-visible wizard completes once this orchestrator returns. The content
+    upload to Nexus is dispatched by ``UpdateOnboardingProgressUseCase``
+    when the ``crawl.completed`` webhook arrives.
 
-    Each step is sequential. If any step fails, progress freezes
-    at the last saved value and the error propagates.
+    Each step is sequential. If any step fails, progress freezes at the last
+    saved value and the error propagates.
     """
 
-    def execute(self, vtex_account: str) -> None:
-        logger.info(f"Starting post-crawl config for vtex_account={vtex_account}")
+    def execute(self, vtex_account: str, crawl_url: str) -> None:
+        logger.info(
+            f"Starting NEXUS_CONFIG for vtex_account={vtex_account} "
+            f"crawl_url={crawl_url}"
+        )
 
         try:
+            onboarding = ProjectOnboarding.objects.select_related("project").get(
+                vtex_account=vtex_account,
+            )
+            if onboarding.project is None:
+                raise ValueError(
+                    f"Onboarding for vtex_account={vtex_account} has no project linked."
+                )
+
             self._mark_nexus_config_started(vtex_account)
+
+            InitiateCrawlUseCase().execute(onboarding.project, vtex_account, crawl_url)
+            self._mark_crawl_kickoff(vtex_account)
 
             ConfigureAgentBuilderUseCase().execute(vtex_account)
 
@@ -82,6 +99,13 @@ class OnboardingOrchestrator:
         onboarding.current_step = "NEXUS_CONFIG"
         onboarding.progress = NEXUS_CONFIG_START_PROGRESS
         onboarding.save(update_fields=["current_step", "progress"])
+
+    @staticmethod
+    def _mark_crawl_kickoff(vtex_account: str) -> None:
+        """Records that the crawler was kicked off within NEXUS_CONFIG."""
+        onboarding = ProjectOnboarding.objects.get(vtex_account=vtex_account)
+        onboarding.progress = CRAWL_KICKOFF_PROGRESS
+        onboarding.save(update_fields=["progress"])
 
     @staticmethod
     def _resolve_channel_code(vtex_account: str) -> str:
