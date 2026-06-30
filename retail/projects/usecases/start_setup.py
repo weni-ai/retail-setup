@@ -92,6 +92,7 @@ class StartSetupUseCase:
         config.pop("last_failure", None)
         config.pop("reason_failed", None)
         config.pop("background_error", None)
+        config.pop("content_base_progress", None)
 
         channels = config.get("channels", {})
         for channel_config in channels.values():

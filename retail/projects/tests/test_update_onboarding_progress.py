@@ -52,6 +52,10 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
         result = self.use_case.execute(self.onboarding_uuid, dto)
 
         self.assertEqual(result.progress, 75)
+        self.onboarding.refresh_from_db()
+        snapshot = self.onboarding.config["content_base_progress"]
+        self.assertEqual(snapshot["crawl_percent"], 35)
+        self.assertEqual(snapshot["status"], "crawling")
 
     def test_does_not_overwrite_higher_main_progress(self):
         dto = CrawlerWebhookDTO(
@@ -101,6 +105,12 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
         self.assertEqual(result.crawler_result, ProjectOnboarding.SUCCESS)
         mock_lock.assert_called_once_with("upload_nexus_contents", "mystore")
         mock_task.delay.assert_called_once_with("mystore", contents)
+        self.onboarding.refresh_from_db()
+        snapshot = self.onboarding.config["content_base_progress"]
+        self.assertEqual(snapshot["crawl_percent"], 100)
+        self.assertEqual(snapshot["upload_percent"], 0)
+        self.assertEqual(snapshot["status"], "uploading")
+        self.assertEqual(snapshot["total_files"], 1)
 
     @patch(
         "retail.projects.usecases.update_onboarding_progress.task_upload_nexus_contents"
@@ -123,6 +133,10 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
 
         self.assertEqual(result.crawler_result, ProjectOnboarding.SUCCESS)
         mock_task.delay.assert_not_called()
+        self.onboarding.refresh_from_db()
+        snapshot = self.onboarding.config["content_base_progress"]
+        self.assertEqual(snapshot["status"], "complete")
+        self.assertEqual(snapshot["upload_percent"], 100)
 
     # ── Failed event ───────────────────────────────────────────────
 
@@ -154,6 +168,10 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
         self.assertFalse(result.failed)
         mock_save_background_cls.execute.assert_called_once_with(
             "mystore", "crawl", "Connection timeout"
+        )
+        self.onboarding.refresh_from_db()
+        self.assertEqual(
+            self.onboarding.config["content_base_progress"]["status"], "failed"
         )
 
     # ── URL redirected event ───────────────────────────────────────

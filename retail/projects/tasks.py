@@ -10,6 +10,10 @@ from retail.projects.usecases.pre_crawl_channel import PreCrawlChannelUseCase
 from retail.projects.usecases.save_background_failure import (
     SaveBackgroundFailureUseCase,
 )
+from retail.projects.usecases.content_base_progress_helpers import (
+    STATUS_FAILED,
+    persist_content_base_progress,
+)
 from retail.projects.usecases.upload_nexus_contents import UploadNexusContentsUseCase
 from retail.services.vtex_io.service import VtexIOService
 
@@ -192,6 +196,14 @@ def _run_upload_nexus_contents(vtex_account: str, contents: list) -> None:
             f"Background nexus upload failed for vtex_account={vtex_account}"
         )
         SaveBackgroundFailureUseCase.execute(vtex_account, "nexus_upload", str(exc))
+        try:
+            onboarding = ProjectOnboarding.objects.get(vtex_account=vtex_account)
+            persist_content_base_progress(onboarding, status=STATUS_FAILED)
+        except ProjectOnboarding.DoesNotExist:
+            logger.warning(
+                f"Could not persist content base failure for "
+                f"vtex_account={vtex_account}: onboarding not found"
+            )
     finally:
         release_task_lock(UPLOAD_NEXUS_LOCK_NAME, vtex_account)
 
