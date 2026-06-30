@@ -33,6 +33,9 @@ class NormalizeProxyPathTest(TestCase):
         self.assertEqual(normalize_proxy_path(""), "/")
         self.assertEqual(normalize_proxy_path("   "), "/")
 
+    def test_returns_root_for_slash_only_path(self):
+        self.assertEqual(normalize_proxy_path("/"), "/")
+
 
 class BuildVtexIoProxySentryMetadataTest(TestCase):
     def test_builds_tags_and_fingerprint_for_generic_proxy(self):
