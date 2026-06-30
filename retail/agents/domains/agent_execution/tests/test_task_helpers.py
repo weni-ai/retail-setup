@@ -10,7 +10,10 @@ from retail.agents.domains.agent_execution.context import (
     clear_execution_context,
     set_current_execution_uuid,
 )
-from retail.agents.domains.agent_execution.task_helpers import execution_log_scope
+from retail.agents.domains.agent_execution.task_helpers import (
+    _log_terminal_error,
+    execution_log_scope,
+)
 
 
 class ExecutionLogScopeTest(TestCase):
@@ -88,3 +91,13 @@ class ExecutionLogScopeTest(TestCase):
         kwargs = mock_exec.log_execution_error.call_args.kwargs
         self.assertEqual(kwargs["error_data"], {"static": True})
         mock_logger.exception.assert_called_once()
+
+    @patch("retail.agents.domains.agent_execution.task_helpers.logger")
+    def test_log_terminal_error_returns_when_no_active_exception(self, mock_logger):
+        with patch(
+            "retail.agents.domains.agent_execution.task_helpers.sys.exc_info",
+            return_value=(None, None, None),
+        ):
+            _log_terminal_error(MagicMock(), None, None, "[TASK]")
+
+        mock_logger.error.assert_not_called()

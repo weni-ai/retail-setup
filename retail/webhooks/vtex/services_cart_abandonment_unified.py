@@ -1,7 +1,7 @@
 import logging
 
 from decimal import Decimal
-from typing import Optional, Union, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 from uuid import UUID
 
 from django.utils import timezone
@@ -72,14 +72,17 @@ def _build_log_context(cart: Cart, integration_config=None) -> str:
     return context
 
 
-def _build_cart_sentry_tags(cart: Cart, integration_config=None) -> dict:
-    """Searchable Sentry tags for cart operations.
+def _build_cart_sentry_tags(
+    cart: Cart,
+    integration_config: Optional[Union[IntegratedFeature, IntegratedAgent]] = None,
+) -> Dict[str, Any]:
+    """Build searchable Sentry tags for cart operations.
 
-    Mirrors the fields in :func:`_build_log_context` but as discrete
-    tags so Sentry can filter issues by ``vtex_account`` / ``project_uuid``
-    instead of forcing operators to grep the rendered message.
+    Mirrors :func:`_build_log_context` fields as discrete tags so Sentry can
+    filter issues by ``vtex_account`` / ``project_uuid`` instead of grepping
+    the rendered message.
     """
-    tags = {
+    tags: Dict[str, Any] = {
         "service": "cart_service",
         "vtex_account": cart.project.vtex_account if cart.project else "unknown",
         "project_uuid": str(cart.project.uuid) if cart.project else "unknown",
