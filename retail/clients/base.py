@@ -142,9 +142,10 @@ class RequestClient:
                 "response_details": response_details,
             },
         ):
+            body_preview = response.text[:1000] if response.text else ""
             logger.error(
-                f"Response:[{str(response.status_code)}] Error on request url {url}",
-                stack_info=False,
+                f"HTTP {response.status_code} {method.upper()} {url} "
+                f"— body={body_preview}",
                 extra={
                     "request_details": request_details,
                     "response_details": response_details,
@@ -211,9 +212,8 @@ class RequestClient:
             },
         ):
             logger.error(
-                f"Request exception for URL {url}",
+                f"Request exception {exception_name} {method.upper()} {url}: {exception}",
                 exc_info=True,
-                stack_info=False,
                 extra={
                     "request_details": request_details,
                     "exception_details": exception_details,

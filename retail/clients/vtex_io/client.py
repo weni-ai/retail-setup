@@ -1,13 +1,22 @@
 """Client for connection with Vtex IO"""
 
+import logging
 from typing import Optional, Union
 
 from django.conf import settings
 
 from retail.clients.base import RequestClient
+from retail.clients.exceptions import CustomAPIException
 from retail.interfaces.clients.vtex_io.interface import VtexIOClientInterface
 from retail.jwt_keys.usecases.generate_jwt import JWTUsecase
+from retail.observability.sentry import (
+    fingerprint_with_vtex_account,
+    sentry_error_scope,
+)
 from retail.observability.vtex_io import build_vtex_io_proxy_sentry_metadata
+
+
+logger = logging.getLogger(__name__)
 
 
 JWT_EXPIRATION_MINUTES = 1
@@ -68,8 +77,52 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         )
         return {
             "Content-Type": "application/json; charset: utf-8",
+            "Accept-Encoding": "identity",
             "X-Weni-Auth": token,
         }
+
+    def _parse_proxy_json_response(
+        self,
+        response,
+        *,
+        url: str,
+        vtex_account: str,
+        service: str,
+        method: str,
+        path: str = None,
+    ) -> dict:
+        """Parse a successful VTEX IO proxy response body as JSON."""
+        try:
+            return response.json()
+        except (ValueError, TypeError) as exc:
+            body_preview = response.text[:500] if response.text else ""
+            sentry_metadata = self._proxy_sentry_metadata(
+                service=service,
+                vtex_account=vtex_account,
+                method=method,
+                path=path,
+            )
+            sentry_tags = {
+                **sentry_metadata["sentry_tags"],
+                "error_type": "invalid_json_response",
+                "http_status": response.status_code,
+            }
+            with sentry_error_scope(
+                fingerprint=fingerprint_with_vtex_account(
+                    [service, "invalid-json-response"],
+                    sentry_tags,
+                ),
+                tags=sentry_tags,
+                context={"url": url, "body_preview": body_preview},
+            ):
+                logger.error(
+                    f"Failed to parse VTEX IO proxy response as JSON: "
+                    f"url={url} status={response.status_code} body={body_preview}"
+                )
+            raise CustomAPIException(
+                detail="VTEX IO returned a non-JSON response",
+                status_code=502,
+            ) from exc
 
     def _proxy_sentry_metadata(
         self,
@@ -297,7 +350,14 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
             **sentry_metadata,
         )
 
-        return response.json()
+        return self._parse_proxy_json_response(
+            response,
+            url=url,
+            vtex_account=vtex_account,
+            service=VTEX_IO_PROXY_SERVICE,
+            method=method,
+            path=path,
+        )
 
     def proxy_payment_gateway(
         self,
@@ -357,7 +417,14 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
             **sentry_metadata,
         )
 
-        return response.json()
+        return self._parse_proxy_json_response(
+            response,
+            url=url,
+            vtex_account=vtex_account,
+            service=VTEX_IO_PROXY_PAYMENT_GATEWAY_SERVICE,
+            method=method,
+            path=path,
+        )
 
     def proxy_payment_transaction(
         self,
@@ -400,4 +467,10 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
             **sentry_metadata,
         )
 
-        return response.json()
+        return self._parse_proxy_json_response(
+            response,
+            url=url,
+            vtex_account=vtex_account,
+            service=VTEX_IO_PROXY_PAYMENT_TRANSACTION_SERVICE,
+            method="POST",
+        )
