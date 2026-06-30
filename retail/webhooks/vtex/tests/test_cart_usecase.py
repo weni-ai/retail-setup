@@ -1,9 +1,9 @@
 import uuid
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.exceptions import ValidationError
 
 from retail.features.models import Feature, IntegratedFeature
@@ -11,6 +11,14 @@ from retail.projects.models import Project
 from retail.webhooks.vtex.usecases.cart import CartUseCase
 
 
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "cart-usecase-tests",
+        }
+    }
+)
 class TestCartUseCase(TestCase):
     def setUp(self):
         cache.clear()
@@ -21,6 +29,9 @@ class TestCartUseCase(TestCase):
             uuid=uuid.uuid4(), vtex_account="test-account"
         )
         self.user = User.objects.create()
+
+    def tearDown(self):
+        cache.clear()
 
     def _build_cart_use_case(
         self, integrated_feature: IntegratedFeature
@@ -216,7 +227,10 @@ class TestCartUseCase(TestCase):
 
         with patch(
             "retail.webhooks.vtex.usecases.cart.CartUseCase._schedule_abandonment_task"
-        ):
+        ), patch(
+            "retail.webhooks.vtex.usecases.cart.get_redis_connection"
+        ) as mock_redis:
+            mock_redis.return_value = MagicMock()
             cart_use_case = self._build_cart_use_case(integrated_feature)
 
             # Should raise ValidationError when cart creation is blocked
