@@ -1,3 +1,8 @@
+# 5.42.0
+- feat: Switch Nexus content upload to batch direct-ingest API
+- feat: Add content-base crawl and upload progress endpoint
+- refactor: Collapse CRAWL step into NEXUS_CONFIG orchestrator
+
 # 5.41.1
 - feat: Add minimum order value rule to PIX recovery automation
 
