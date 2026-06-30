@@ -1,8 +1,9 @@
 import uuid
 from unittest.mock import patch
 
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.core.cache import cache
+from django.test import TestCase
 from rest_framework.exceptions import ValidationError
 
 from retail.features.models import Feature, IntegratedFeature
@@ -12,6 +13,7 @@ from retail.webhooks.vtex.usecases.cart import CartUseCase
 
 class TestCartUseCase(TestCase):
     def setUp(self):
+        cache.clear()
         self.feature = Feature.objects.create(
             can_vtex_integrate=True, code="abandoned_cart"
         )
@@ -19,6 +21,15 @@ class TestCartUseCase(TestCase):
             uuid=uuid.uuid4(), vtex_account="test-account"
         )
         self.user = User.objects.create()
+
+    def _build_cart_use_case(
+        self, integrated_feature: IntegratedFeature
+    ) -> CartUseCase:
+        cart_use_case = CartUseCase(account="test-account")
+        cart_use_case.project = self.project
+        cart_use_case.integrated_feature = integrated_feature
+        cart_use_case.integrated_agent = None
+        return cart_use_case
 
     def test_create_cart_with_phone_restriction_active_allowed(self):
         """Test cart creation when phone restriction is active and phone is allowed."""
@@ -39,8 +50,7 @@ class TestCartUseCase(TestCase):
         with patch(
             "retail.webhooks.vtex.usecases.cart.CartUseCase._schedule_abandonment_task"
         ):
-            cart_use_case = CartUseCase(account="test-account")
-            cart_use_case.integrated_feature = integrated_feature
+            cart_use_case = self._build_cart_use_case(integrated_feature)
 
             # Should allow cart creation for allowed phone
             cart = cart_use_case._create_cart("order-123", "5584987654321", "Test User")
@@ -68,8 +78,7 @@ class TestCartUseCase(TestCase):
         with patch(
             "retail.webhooks.vtex.usecases.cart.CartUseCase._schedule_abandonment_task"
         ):
-            cart_use_case = CartUseCase(account="test-account")
-            cart_use_case.integrated_feature = integrated_feature
+            cart_use_case = self._build_cart_use_case(integrated_feature)
 
             # Should block cart creation for blocked phone
             with self.assertRaises(ValidationError) as context:
@@ -99,8 +108,7 @@ class TestCartUseCase(TestCase):
         with patch(
             "retail.webhooks.vtex.usecases.cart.CartUseCase._schedule_abandonment_task"
         ):
-            cart_use_case = CartUseCase(account="test-account")
-            cart_use_case.integrated_feature = integrated_feature
+            cart_use_case = self._build_cart_use_case(integrated_feature)
 
             # Should block cart creation when no numbers configured
             with self.assertRaises(ValidationError) as context:
@@ -130,8 +138,7 @@ class TestCartUseCase(TestCase):
         with patch(
             "retail.webhooks.vtex.usecases.cart.CartUseCase._schedule_abandonment_task"
         ):
-            cart_use_case = CartUseCase(account="test-account")
-            cart_use_case.integrated_feature = integrated_feature
+            cart_use_case = self._build_cart_use_case(integrated_feature)
 
             # Should allow cart creation when restriction is inactive
             cart = cart_use_case._create_cart("order-123", "5584987654322", "Test User")
@@ -154,8 +161,7 @@ class TestCartUseCase(TestCase):
         with patch(
             "retail.webhooks.vtex.usecases.cart.CartUseCase._schedule_abandonment_task"
         ):
-            cart_use_case = CartUseCase(account="test-account")
-            cart_use_case.integrated_feature = integrated_feature
+            cart_use_case = self._build_cart_use_case(integrated_feature)
 
             # Should allow cart creation when restriction config is missing
             cart = cart_use_case._create_cart("order-123", "5584987654321", "Test User")
@@ -183,8 +189,7 @@ class TestCartUseCase(TestCase):
         with patch(
             "retail.webhooks.vtex.usecases.cart.CartUseCase._schedule_abandonment_task"
         ):
-            cart_use_case = CartUseCase(account="test-account")
-            cart_use_case.integrated_feature = integrated_feature
+            cart_use_case = self._build_cart_use_case(integrated_feature)
 
             # Should allow cart creation for normalized numbers that match
             cart = cart_use_case._create_cart("order-123", "5584987654321", "Test User")
@@ -212,8 +217,7 @@ class TestCartUseCase(TestCase):
         with patch(
             "retail.webhooks.vtex.usecases.cart.CartUseCase._schedule_abandonment_task"
         ):
-            cart_use_case = CartUseCase(account="test-account")
-            cart_use_case.integrated_feature = integrated_feature
+            cart_use_case = self._build_cart_use_case(integrated_feature)
 
             # Should raise ValidationError when cart creation is blocked
             with self.assertRaises(ValidationError) as context:
