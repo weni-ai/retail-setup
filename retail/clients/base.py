@@ -1,9 +1,13 @@
 import requests
 import logging
 
+from urllib.parse import urlparse
+from typing import Any, Dict, List, Optional
+
 from django.conf import settings
 
 from retail.clients.exceptions import CustomAPIException
+from retail.observability.sentry import sentry_error_scope
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +23,8 @@ class RequestClient:
         files=None,
         json=None,
         timeout=60,
+        sentry_tags: Optional[Dict[str, Any]] = None,
+        sentry_fingerprint_prefix: Optional[List[str]] = None,
     ):
         if data and json:
             raise ValueError(
@@ -45,6 +51,8 @@ class RequestClient:
                 data=data,
                 params=params,
                 files=files,
+                sentry_tags=sentry_tags,
+                sentry_fingerprint_prefix=sentry_fingerprint_prefix,
             )
             raise CustomAPIException(
                 detail=f"Base request error: {str(e)}",
@@ -53,7 +61,16 @@ class RequestClient:
 
         if response.status_code >= 400:
             self._generate_log(
-                response, url, method, headers, json, data, params, files
+                response,
+                url,
+                method,
+                headers,
+                json,
+                data,
+                params,
+                files,
+                sentry_tags=sentry_tags,
+                sentry_fingerprint_prefix=sentry_fingerprint_prefix,
             )
             detail = ""
             try:
@@ -70,7 +87,19 @@ class RequestClient:
 
         return response
 
-    def _generate_log(self, response, url, method, headers, json, data, params, files):
+    def _generate_log(
+        self,
+        response,
+        url,
+        method,
+        headers,
+        json,
+        data,
+        params,
+        files,
+        sentry_tags=None,
+        sentry_fingerprint_prefix=None,
+    ):
         if response is None:
             logger.error("Response object is None, request failed.")
             return
@@ -91,17 +120,50 @@ class RequestClient:
             "url": response.url,
         }
 
-        logger.error(
-            f"Response:[{str(response.status_code)}] Error on request url {url}",
-            stack_info=False,
-            extra={
+        host = urlparse(url).hostname or "unknown"
+        status_code = str(response.status_code)
+        fingerprint_prefix = sentry_fingerprint_prefix or [
+            "external-request-error",
+            method,
+            host,
+        ]
+        tags = {
+            "error_type": "external_request_error",
+            "http_status": response.status_code,
+            "http_method": method,
+            "host": host,
+            **(sentry_tags or {}),
+        }
+        with sentry_error_scope(
+            fingerprint=[*fingerprint_prefix, status_code],
+            tags=tags,
+            context={
                 "request_details": request_details,
                 "response_details": response_details,
             },
-        )
+        ):
+            body_preview = response.text[:1000] if response.text else ""
+            logger.error(
+                f"HTTP {response.status_code} {method.upper()} {url} "
+                f"— body={body_preview}",
+                extra={
+                    "request_details": request_details,
+                    "response_details": response_details,
+                },
+            )
 
     def _log_request_exception(
-        self, exception, url, method, headers, json, data, params, files
+        self,
+        exception,
+        url,
+        method,
+        headers,
+        json,
+        data,
+        params,
+        files,
+        sentry_tags=None,
+        sentry_fingerprint_prefix=None,
     ):
         request_details = {
             "method": method,
@@ -127,15 +189,36 @@ class RequestClient:
                 }
             )
 
-        logger.error(
-            f"Request exception for URL {url}",
-            exc_info=True,
-            stack_info=False,
-            extra={
+        host = urlparse(url).hostname or "unknown"
+        exception_name = type(exception).__name__
+        fingerprint_prefix = sentry_fingerprint_prefix or [
+            "external-request-exception",
+            method,
+            host,
+        ]
+        tags = {
+            "error_type": "external_request_exception",
+            "http_method": method,
+            "host": host,
+            "exception": exception_name,
+            **(sentry_tags or {}),
+        }
+        with sentry_error_scope(
+            fingerprint=[*fingerprint_prefix, exception_name],
+            tags=tags,
+            context={
                 "request_details": request_details,
                 "exception_details": exception_details,
             },
-        )
+        ):
+            logger.error(
+                f"Request exception {exception_name} {method.upper()} {url}: {exception}",
+                exc_info=True,
+                extra={
+                    "request_details": request_details,
+                    "exception_details": exception_details,
+                },
+            )
 
 
 class InternalAuthentication(RequestClient):
