@@ -25,6 +25,9 @@ from retail.agents.domains.agent_webhook.views import AgentWebhookView
 
 
 TASK_PATH = "retail.agents.domains.agent_webhook.views.task_agent_webhook"
+RESOLVER_PATH = (
+    "retail.agents.domains.agent_webhook.views.IntegratedAgentWebhookResolver"
+)
 
 
 class AgentWebhookViewTest(APITestCase):
@@ -115,3 +118,33 @@ class AgentWebhookViewTest(APITestCase):
         from rest_framework.permissions import AllowAny
 
         self.assertEqual(AgentWebhookView.permission_classes, [AllowAny])
+
+    @patch(TASK_PATH)
+    def test_post_ping_skips_processing(self, mock_task):
+        response = self.client.post(
+            self.url, data={"hookConfig": "ping"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_task.apply_async.assert_not_called()
+
+    @patch(TASK_PATH)
+    @patch(RESOLVER_PATH)
+    def test_post_skips_generic_flow_for_dedicated_webhook_role(
+        self, mock_resolver_cls, mock_task
+    ):
+        mock_resolver_cls.return_value.should_skip_generic_webhook_dispatch.return_value = (
+            True
+        )
+
+        response = self.client.post(
+            self.url,
+            data={"cart_id": "order-123", "phone": "5584987654321", "name": "Test"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_resolver_cls.return_value.should_skip_generic_webhook_dispatch.assert_called_once_with(
+            self.webhook_uuid
+        )
+        mock_task.apply_async.assert_not_called()

@@ -1,12 +1,11 @@
 from rest_framework import serializers
 
-from django.conf import settings
-
 from retail.templates.serializers import ReadTemplateSerializer
 from retail.agents.domains.agent_management.usecases.push import PushAgentUseCase
 from retail.agents.domains.agent_integration.usecases.payment_recovery import (
     DEFAULT_DELAY_MINUTES,
 )
+from retail.agents.shared.webhook_urls import build_integrated_agent_webhook_url
 
 
 class DeliveredOrderTrackingEnableSerializer(serializers.Serializer):
@@ -133,8 +132,7 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
         return bool(obj.config.get("direct_send", False))
 
     def get_webhook_url(self, obj):
-        domain_url = settings.DOMAIN
-        return f"{domain_url}/api/v3/agents/webhook/{str(obj.uuid)}/"
+        return build_integrated_agent_webhook_url(obj)
 
     def get_description(self, obj):
         return obj.agent.description

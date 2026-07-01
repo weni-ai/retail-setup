@@ -222,7 +222,7 @@ def _integrated_agent(**overrides):
         channel_uuid=uuid4(),
         contact_percentage=10,
         global_rule_prompt="rule",
-        agent=SimpleNamespace(description="desc for agent"),
+        agent=SimpleNamespace(description="desc for agent", uuid=uuid4()),
         config={},
         templates=MagicMock(),
     )
@@ -262,8 +262,24 @@ class ReadIntegratedAgentSerializerTests(SimpleTestCase):
             f"https://retail.example.com/api/v3/agents/webhook/{obj.uuid}/",
         )
 
+    @override_settings(ABANDONED_CART_AGENT_UUID="abandoned-cart-agent-uuid")
+    def test_webhook_url_uses_abandoned_cart_endpoint_for_abandoned_cart_agent(self):
+        obj = _integrated_agent(
+            agent=SimpleNamespace(
+                description="desc for agent",
+                uuid="abandoned-cart-agent-uuid",
+            )
+        )
+        data = ReadIntegratedAgentSerializer(obj).data
+        self.assertEqual(
+            data["webhook_url"],
+            f"https://retail.example.com/api/v3/agents/abandoned-cart-webhook/{obj.uuid}/",
+        )
+
     def test_description_is_sourced_from_agent(self):
-        obj = _integrated_agent(agent=SimpleNamespace(description="hello"))
+        obj = _integrated_agent(
+            agent=SimpleNamespace(description="hello", uuid=uuid4())
+        )
         data = ReadIntegratedAgentSerializer(obj).data
         self.assertEqual(data["description"], "hello")
 

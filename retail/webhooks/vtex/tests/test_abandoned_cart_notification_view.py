@@ -12,6 +12,11 @@ from retail.projects.models import Project
 from retail.webhooks.vtex.views.abandoned_cart_notification import (
     AbandonedCartNotification,
 )
+from retail.webhooks.vtex.usecases.dto import ProcessAbandonedCartNotificationResult
+from retail.webhooks.vtex.usecases.exceptions import (
+    IntegrationNotConfiguredError,
+    ProjectNotFoundError,
+)
 
 
 class TestAbandonedCartNotificationView(TestCase):
@@ -25,17 +30,15 @@ class TestAbandonedCartNotificationView(TestCase):
         )
         self.user = User.objects.create()
 
-    @patch("retail.webhooks.vtex.views.abandoned_cart_notification.CartUseCase")
-    def test_phone_restriction_blocked_response(self, mock_cart_use_case):
-        """Test that the view returns appropriate response when phone is blocked by restriction."""
-        # Mock the CartUseCase to raise ValidationError for phone restriction
+    @patch(
+        "retail.webhooks.vtex.views.abandoned_cart_notification."
+        "ProcessAbandonedCartNotificationUseCase"
+    )
+    def test_phone_restriction_blocked_response(self, mock_process_use_case):
         mock_instance = Mock()
-        mock_instance.project = self.project
-        mock_instance.integrated_feature = Mock()
-
         from rest_framework.exceptions import ValidationError
 
-        mock_instance.process_cart_notification.side_effect = ValidationError(
+        mock_instance.execute.side_effect = ValidationError(
             {
                 "error": "Phone number not allowed due to active restrictions",
                 "phone": "5584987654321",
@@ -44,10 +47,8 @@ class TestAbandonedCartNotificationView(TestCase):
                 "message": "Cart creation blocked due to active phone restrictions.",
             }
         )
+        mock_process_use_case.from_vtex_account.return_value = mock_instance
 
-        mock_cart_use_case.return_value = mock_instance
-
-        # Create the view instance and test directly
         view = AbandonedCartNotification()
         view.request = Mock()
         view.request.data = {
@@ -57,24 +58,16 @@ class TestAbandonedCartNotificationView(TestCase):
             "account": "test-account",
         }
 
-        # Mock the serializer validation
         with patch(
             "retail.webhooks.vtex.views.abandoned_cart_notification.CartSerializer"
         ) as mock_serializer:
             mock_serializer_instance = Mock()
-            mock_serializer_instance.validated_data = {
-                "cart_id": "order-123",
-                "phone": "5584987654321",
-                "name": "Test User",
-                "account": "test-account",
-            }
+            mock_serializer_instance.validated_data = view.request.data
             mock_serializer.return_value = mock_serializer_instance
 
-            # Should raise ValidationError with HTTP 400
             with self.assertRaises(ValidationError) as context:
                 view.post(view.request)
 
-            # Check the error details
             error_detail = context.exception.detail
             self.assertEqual(
                 error_detail.get("error"),
@@ -87,24 +80,23 @@ class TestAbandonedCartNotificationView(TestCase):
                 "Cart creation blocked due to active phone restrictions.",
             )
 
-    @patch("retail.webhooks.vtex.views.abandoned_cart_notification.CartUseCase")
-    def test_phone_restriction_allowed_response(self, mock_cart_use_case):
-        """Test that the view returns success response when phone is allowed."""
-        # Mock the CartUseCase to return a successful cart
+    @patch(
+        "retail.webhooks.vtex.views.abandoned_cart_notification."
+        "ProcessAbandonedCartNotificationUseCase"
+    )
+    def test_phone_restriction_allowed_response(self, mock_process_use_case):
         mock_instance = Mock()
-        mock_instance.project = self.project
-        mock_instance.integrated_feature = Mock()
+        mock_instance.execute.return_value = ProcessAbandonedCartNotificationResult(
+            cart_uuid=str(uuid.uuid4()),
+            cart_id="order-123",
+            status="created",
+            integration_type="feature",
+            integration_uuid=str(uuid.uuid4()),
+            project_uuid=str(self.project.uuid),
+            vtex_account="test-account",
+        )
+        mock_process_use_case.from_vtex_account.return_value = mock_instance
 
-        mock_cart = Mock()
-        mock_cart.uuid = uuid.uuid4()
-        mock_cart.order_form_id = "order-123"
-        mock_cart.status = "created"
-
-        mock_instance.process_cart_notification.return_value = mock_cart
-
-        mock_cart_use_case.return_value = mock_instance
-
-        # Create the view instance and test directly
         view = AbandonedCartNotification()
         view.request = Mock()
         view.request.data = {
@@ -114,44 +106,33 @@ class TestAbandonedCartNotificationView(TestCase):
             "account": "test-account",
         }
 
-        # Mock the serializer validation
         with patch(
             "retail.webhooks.vtex.views.abandoned_cart_notification.CartSerializer"
         ) as mock_serializer:
             mock_serializer_instance = Mock()
-            mock_serializer_instance.validated_data = {
-                "cart_id": "order-123",
-                "phone": "5584987654321",
-                "name": "Test User",
-                "account": "test-account",
-            }
+            mock_serializer_instance.validated_data = view.request.data
             mock_serializer.return_value = mock_serializer_instance
 
             response = view.post(view.request)
 
-        # Should return 200 OK with success message
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data.get("message"), "Cart processed successfully.")
         self.assertEqual(response.data.get("cart_id"), "order-123")
         self.assertEqual(response.data.get("status"), "created")
 
-    @patch("retail.webhooks.vtex.views.abandoned_cart_notification.CartUseCase")
-    def test_other_validation_error_still_raised(self, mock_cart_use_case):
-        """Test that other ValidationErrors are still raised normally."""
-        # Mock the CartUseCase to raise a different ValidationError
+    @patch(
+        "retail.webhooks.vtex.views.abandoned_cart_notification."
+        "ProcessAbandonedCartNotificationUseCase"
+    )
+    def test_other_validation_error_still_raised(self, mock_process_use_case):
         mock_instance = Mock()
-        mock_instance.project = self.project
-        mock_instance.integrated_feature = Mock()
-
         from rest_framework.exceptions import ValidationError
 
-        mock_instance.process_cart_notification.side_effect = ValidationError(
+        mock_instance.execute.side_effect = ValidationError(
             {"error": "Templates are not synchronized"}
         )
+        mock_process_use_case.from_vtex_account.return_value = mock_instance
 
-        mock_cart_use_case.return_value = mock_instance
-
-        # Create the view instance and test directly
         view = AbandonedCartNotification()
         view.request = Mock()
         view.request.data = {
@@ -161,47 +142,39 @@ class TestAbandonedCartNotificationView(TestCase):
             "account": "test-account",
         }
 
-        # Mock the serializer validation
         with patch(
             "retail.webhooks.vtex.views.abandoned_cart_notification.CartSerializer"
         ) as mock_serializer:
             mock_serializer_instance = Mock()
-            mock_serializer_instance.validated_data = {
-                "cart_id": "order-123",
-                "phone": "5584987654321",
-                "name": "Test User",
-                "account": "test-account",
-            }
+            mock_serializer_instance.validated_data = view.request.data
             mock_serializer.return_value = mock_serializer_instance
 
-            # Should raise the ValidationError normally
             with self.assertRaises(ValidationError) as context:
                 view.post(view.request)
 
-            # Check that it's the expected error
             error_detail = context.exception.detail
             self.assertEqual(
                 error_detail.get("error"), "Templates are not synchronized"
             )
 
-    @patch("retail.webhooks.vtex.views.abandoned_cart_notification.CartUseCase")
-    def test_phone_normalization_in_view(self, mock_cart_use_case):
-        """Test that phone numbers are normalized in the view."""
-        # Mock the CartUseCase
+    @patch(
+        "retail.webhooks.vtex.views.abandoned_cart_notification."
+        "ProcessAbandonedCartNotificationUseCase"
+    )
+    def test_view_passes_serialized_phone_to_use_case(self, mock_process_use_case):
+        """The JWT view must not normalize phone; that happens in the use case."""
         mock_instance = Mock()
-        mock_instance.project = self.project
-        mock_instance.integrated_feature = Mock()
+        mock_instance.execute.return_value = ProcessAbandonedCartNotificationResult(
+            cart_uuid=str(uuid.uuid4()),
+            cart_id="order-123",
+            status="created",
+            integration_type="feature",
+            integration_uuid=str(uuid.uuid4()),
+            project_uuid=str(self.project.uuid),
+            vtex_account="test-account",
+        )
+        mock_process_use_case.from_vtex_account.return_value = mock_instance
 
-        mock_cart = Mock()
-        mock_cart.uuid = uuid.uuid4()
-        mock_cart.order_form_id = "order-123"
-        mock_cart.status = "created"
-
-        mock_instance.process_cart_notification.return_value = mock_cart
-
-        mock_cart_use_case.return_value = mock_instance
-
-        # Create the view instance and test directly
         view = AbandonedCartNotification()
         view.request = Mock()
         view.request.data = {
@@ -211,26 +184,74 @@ class TestAbandonedCartNotificationView(TestCase):
             "account": "test-account",
         }
 
-        # Mock the serializer validation
         with patch(
             "retail.webhooks.vtex.views.abandoned_cart_notification.CartSerializer"
         ) as mock_serializer:
             mock_serializer_instance = Mock()
-            mock_serializer_instance.validated_data = {
-                "cart_id": "order-123",
-                "phone": "+55 (84) 98765-4321",
-                "name": "Test User",
-                "account": "test-account",
-            }
+            mock_serializer_instance.validated_data = view.request.data
             mock_serializer.return_value = mock_serializer_instance
 
             response = view.post(view.request)
 
-        # Should return success and the normalized phone number
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data.get("message"), "Cart processed successfully.")
 
-        # Verify that the normalized phone was passed to the use case
-        mock_instance.process_cart_notification.assert_called_once()
-        call_args = mock_instance.process_cart_notification.call_args
-        self.assertEqual(call_args[0][1], "5584987654321")  # Normalized phone
+        dto = mock_instance.execute.call_args[0][0]
+        self.assertEqual(dto.phone, "+55 (84) 98765-4321")
+
+    @patch(
+        "retail.webhooks.vtex.views.abandoned_cart_notification."
+        "ProcessAbandonedCartNotificationUseCase"
+    )
+    def test_project_not_found_returns_404(self, mock_process_use_case):
+        mock_instance = Mock()
+        mock_instance.execute.side_effect = ProjectNotFoundError("missing")
+        mock_process_use_case.from_vtex_account.return_value = mock_instance
+
+        view = AbandonedCartNotification()
+        view.request = Mock()
+        view.request.data = {
+            "cart_id": "order-123",
+            "phone": "5584987654321",
+            "name": "Test User",
+            "account": "missing-account",
+        }
+
+        with patch(
+            "retail.webhooks.vtex.views.abandoned_cart_notification.CartSerializer"
+        ) as mock_serializer:
+            mock_serializer_instance = Mock()
+            mock_serializer_instance.validated_data = view.request.data
+            mock_serializer.return_value = mock_serializer_instance
+
+            response = view.post(view.request)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch(
+        "retail.webhooks.vtex.views.abandoned_cart_notification."
+        "ProcessAbandonedCartNotificationUseCase"
+    )
+    def test_integration_not_configured_returns_202(self, mock_process_use_case):
+        mock_instance = Mock()
+        mock_instance.execute.side_effect = IntegrationNotConfiguredError("missing")
+        mock_process_use_case.from_vtex_account.return_value = mock_instance
+
+        view = AbandonedCartNotification()
+        view.request = Mock()
+        view.request.data = {
+            "cart_id": "order-123",
+            "phone": "5584987654321",
+            "name": "Test User",
+            "account": "test-account",
+        }
+
+        with patch(
+            "retail.webhooks.vtex.views.abandoned_cart_notification.CartSerializer"
+        ) as mock_serializer:
+            mock_serializer_instance = Mock()
+            mock_serializer_instance.validated_data = view.request.data
+            mock_serializer.return_value = mock_serializer_instance
+
+            response = view.post(view.request)
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)

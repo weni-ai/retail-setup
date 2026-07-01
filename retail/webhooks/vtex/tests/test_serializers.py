@@ -1,6 +1,9 @@
 from django.test import TestCase
 
-from retail.webhooks.vtex.serializers import CartSerializer
+from retail.webhooks.vtex.serializers import (
+    CartSerializer,
+    ExternalAbandonedCartSerializer,
+)
 
 
 class TestCartSerializer(TestCase):
@@ -88,3 +91,66 @@ class TestCartSerializer(TestCase):
 
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertNotIn("unexpected", serializer.validated_data)
+
+
+class TestExternalAbandonedCartSerializer(TestCase):
+    def setUp(self):
+        self.valid_payload = {
+            "cart_id": "order-123",
+            "phone": "5584987654321",
+            "name": "Test User",
+        }
+
+    def test_valid_payload_parses_required_fields(self):
+        serializer = ExternalAbandonedCartSerializer(data=self.valid_payload)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(
+            set(serializer.validated_data.keys()),
+            {"cart_id", "phone", "name"},
+        )
+
+    def test_account_field_is_not_accepted(self):
+        payload = dict(self.valid_payload)
+        payload["account"] = "spoofed-account"
+
+        serializer = ExternalAbandonedCartSerializer(data=payload)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertNotIn("account", serializer.validated_data)
+
+    def test_missing_cart_id_is_invalid(self):
+        payload = dict(self.valid_payload)
+        del payload["cart_id"]
+
+        serializer = ExternalAbandonedCartSerializer(data=payload)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("cart_id", serializer.errors)
+
+    def test_missing_phone_is_invalid(self):
+        payload = dict(self.valid_payload)
+        del payload["phone"]
+
+        serializer = ExternalAbandonedCartSerializer(data=payload)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("phone", serializer.errors)
+
+    def test_missing_name_is_invalid(self):
+        payload = dict(self.valid_payload)
+        del payload["name"]
+
+        serializer = ExternalAbandonedCartSerializer(data=payload)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("name", serializer.errors)
+
+    def test_empty_payload_reports_every_field(self):
+        serializer = ExternalAbandonedCartSerializer(data={})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertEqual(
+            set(serializer.errors.keys()),
+            {"cart_id", "phone", "name"},
+        )

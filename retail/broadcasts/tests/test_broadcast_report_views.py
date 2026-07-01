@@ -2,6 +2,8 @@
 
 from uuid import uuid4
 
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
@@ -76,7 +78,12 @@ class BroadcastReportViewsTest(BaseTestMixin, APITestCase):
             "broadcast-agent-summary",
             kwargs={"agent_uuid": str(self.integrated_agent.uuid)},
         )
-        self.query = "start_date=2026-06-01&end_date=2026-06-30"
+        today = timezone.localdate()
+        start_date = today - timedelta(days=1)
+        end_date = today + timedelta(days=1)
+        self.query = (
+            f"start_date={start_date.isoformat()}&end_date={end_date.isoformat()}"
+        )
 
     def _get(self, url, *, project_uuid=None, query=None):
         headers = {"HTTP_AUTHORIZATION": "Bearer token"}
