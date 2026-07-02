@@ -16,6 +16,8 @@ from uuid import uuid4
 from unittest.mock import patch
 from urllib.parse import urlencode
 
+from django.core.cache import cache
+from django.test import override_settings
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 
@@ -30,12 +32,25 @@ RESOLVER_PATH = (
 )
 
 
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "agent-webhook-view-tests",
+        }
+    }
+)
 class AgentWebhookViewTest(APITestCase):
     def setUp(self):
         super().setUp()
+        cache.clear()
         self.client = APIClient()
         self.webhook_uuid = uuid4()
         self.url = reverse("agent-webhook", kwargs={"webhook_uuid": self.webhook_uuid})
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
 
     @patch(TASK_PATH)
     def test_post_returns_200_and_schedules_task(self, mock_task):
