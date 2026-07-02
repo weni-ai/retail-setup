@@ -76,7 +76,12 @@ class BroadcastReportViewsTest(BaseTestMixin, APITestCase):
             "broadcast-agent-summary",
             kwargs={"agent_uuid": str(self.integrated_agent.uuid)},
         )
-        self.query = "start_date=2026-06-01&end_date=2026-06-30"
+        today = timezone.now().date()
+        self.start_date = today.replace(day=1)
+        self.end_date = today
+        self.query = (
+            f"start_date={self.start_date:%Y-%m-%d}&end_date={self.end_date:%Y-%m-%d}"
+        )
 
     def _get(self, url, *, project_uuid=None, query=None):
         headers = {"HTTP_AUTHORIZATION": "Bearer token"}

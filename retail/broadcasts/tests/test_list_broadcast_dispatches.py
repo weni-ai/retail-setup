@@ -1,6 +1,6 @@
 """Tests for ``ListBroadcastDispatchesUseCase``."""
 
-from datetime import date, datetime, timedelta, timezone as dt_timezone
+from datetime import datetime, time, timedelta, timezone as dt_timezone
 from uuid import uuid4
 
 from django.test import TestCase
@@ -36,8 +36,9 @@ class ListBroadcastDispatchesUseCaseTest(TestCase):
             channel_uuid=uuid4(),
         )
         self.use_case = ListBroadcastDispatchesUseCase()
-        self.start_date = date(2026, 6, 1)
-        self.end_date = date(2026, 6, 30)
+        today = timezone.now().date()
+        self.start_date = today.replace(day=1)
+        self.end_date = today
 
     def _create_broadcast(self, *, project=None, **overrides):
         defaults = {
@@ -98,7 +99,11 @@ class ListBroadcastDispatchesUseCaseTest(TestCase):
         in_range = self._create_broadcast(order_id="in-range")
         out_of_range = self._create_broadcast(order_id="out-range")
         BroadcastMessage.objects.filter(pk=out_of_range.pk).update(
-            created_at=datetime(2026, 5, 1, 12, 0, tzinfo=dt_timezone.utc)
+            created_at=datetime.combine(
+                self.start_date - timedelta(days=10),
+                time(12, 0),
+                tzinfo=dt_timezone.utc,
+            )
         )
         other_project_agent = IntegratedAgent.objects.create(
             agent=self.agent,
