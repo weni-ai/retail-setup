@@ -35,17 +35,25 @@ class PaymentRecoveryWebhookUseCaseTest(TestCase):
         "retail.agents.domains.agent_integration.usecases.payment_recovery.IntegratedAgent"
     )
     def test_get_integrated_agent_found(self, mock_model):
-        mock_model.objects.get.return_value = self.mock_integrated_agent
+        mock_model.objects.select_related.return_value.get.return_value = (
+            self.mock_integrated_agent
+        )
         result = self.use_case.get_integrated_agent(self.agent_uuid)
         self.assertEqual(result, self.mock_integrated_agent)
-        mock_model.objects.get.assert_called_once_with(uuid=self.agent_uuid)
+        mock_model.objects.select_related.assert_called_once_with("project")
+        mock_model.objects.select_related.return_value.get.assert_called_once_with(
+            uuid=self.agent_uuid,
+            is_active=True,
+        )
 
     @patch(
         "retail.agents.domains.agent_integration.usecases.payment_recovery.IntegratedAgent"
     )
     def test_get_integrated_agent_not_found(self, mock_model):
         mock_model.DoesNotExist = IntegratedAgent.DoesNotExist
-        mock_model.objects.get.side_effect = IntegratedAgent.DoesNotExist
+        mock_model.objects.select_related.return_value.get.side_effect = (
+            IntegratedAgent.DoesNotExist
+        )
         with self.assertRaises(NotFound):
             self.use_case.get_integrated_agent(self.agent_uuid)
 
@@ -186,7 +194,9 @@ class PaymentRecoveryWebhookUseCaseTest(TestCase):
     )
     def test_get_delay_seconds_from_config(self, mock_model):
         self.mock_integrated_agent.config = {"payment_recovery": {"delay_minutes": 15}}
-        mock_model.objects.get.return_value = self.mock_integrated_agent
+        mock_model.objects.select_related.return_value.get.return_value = (
+            self.mock_integrated_agent
+        )
 
         result = self.use_case.get_delay_seconds(self.agent_uuid)
 
@@ -197,7 +207,9 @@ class PaymentRecoveryWebhookUseCaseTest(TestCase):
     )
     def test_get_delay_seconds_uses_default_when_not_configured(self, mock_model):
         self.mock_integrated_agent.config = {"payment_recovery": {}}
-        mock_model.objects.get.return_value = self.mock_integrated_agent
+        mock_model.objects.select_related.return_value.get.return_value = (
+            self.mock_integrated_agent
+        )
 
         result = self.use_case.get_delay_seconds(self.agent_uuid)
 
@@ -208,7 +220,9 @@ class PaymentRecoveryWebhookUseCaseTest(TestCase):
     )
     def test_get_delay_seconds_uses_default_when_agent_not_found(self, mock_model):
         mock_model.DoesNotExist = IntegratedAgent.DoesNotExist
-        mock_model.objects.get.side_effect = IntegratedAgent.DoesNotExist
+        mock_model.objects.select_related.return_value.get.side_effect = (
+            IntegratedAgent.DoesNotExist
+        )
 
         result = self.use_case.get_delay_seconds(self.agent_uuid)
 

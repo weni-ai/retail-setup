@@ -39,6 +39,7 @@ from retail.agents.domains.agent_integration.usecases.update import (
 )
 from retail.agents.domains.agent_integration.usecases.delivered_order_tracking import (
     DeliveredOrderTrackingConfigUseCase,
+    DeliveredOrderTrackingWebhookUseCase,
 )
 from retail.agents.tasks import (
     task_delivered_order_tracking_webhook,
@@ -328,7 +329,18 @@ class DeliveredOrderTrackingWebhookView(APIView):
 
         # For actual webhook notifications, process asynchronously
         try:
-            # Queue the webhook processing task
+            webhook_use_case = DeliveredOrderTrackingWebhookUseCase()
+            try:
+                webhook_use_case.get_integrated_agent(str(pk))
+            except NotFound:
+                logger.warning(
+                    f"[DELIVERED_TRACKING] Integrated agent not found or inactive - "
+                    f"agent={pk}"
+                )
+                return Response(
+                    {"message": "Webhook received"}, status=status.HTTP_200_OK
+                )
+
             task_delivered_order_tracking_webhook.apply_async(
                 args=[pk, request.data],
                 queue="vtex-io-orders-update-events",
@@ -363,7 +375,20 @@ class PaymentRecoveryWebhookView(APIView):
 
         try:
             use_case = PaymentRecoveryWebhookUseCase()
-            countdown = use_case.get_delay_seconds(pk)
+            try:
+                integrated_agent = use_case.get_integrated_agent(pk)
+            except NotFound:
+                logger.warning(
+                    f"[PaymentRecovery] Integrated agent not found or inactive - "
+                    f"agent={pk}"
+                )
+                return Response(
+                    {"message": "Webhook received"}, status=status.HTTP_200_OK
+                )
+
+            countdown = use_case.get_delay_seconds(
+                pk, integrated_agent=integrated_agent
+            )
 
             task_payment_recovery_webhook.apply_async(
                 args=[pk, request.data],

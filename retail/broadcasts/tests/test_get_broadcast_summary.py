@@ -1,9 +1,10 @@
 """Tests for ``GetBroadcastSummaryUseCase``."""
 
-from datetime import date, datetime, timezone as dt_timezone
+from datetime import datetime, time, timedelta, timezone as dt_timezone
 from uuid import uuid4
 
 from django.test import TestCase
+from django.utils import timezone
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_management.models import Agent
@@ -17,6 +18,11 @@ from retail.broadcasts.usecases.get_broadcast_summary import (
     GetBroadcastSummaryUseCase,
 )
 from retail.projects.models import Project
+
+
+def _current_month_date_range():
+    today = timezone.now().date()
+    return today.replace(day=1), today
 
 
 class GetBroadcastSummaryUseCaseTest(TestCase):
@@ -35,8 +41,7 @@ class GetBroadcastSummaryUseCaseTest(TestCase):
             channel_uuid=uuid4(),
         )
         self.use_case = GetBroadcastSummaryUseCase()
-        self.start_date = date(2026, 6, 1)
-        self.end_date = date(2026, 6, 30)
+        self.start_date, self.end_date = _current_month_date_range()
 
     def _create_broadcast(
         self, *, integrated_agent=None, status=BroadcastStatus.DELIVERED, **overrides
@@ -103,7 +108,11 @@ class GetBroadcastSummaryUseCaseTest(TestCase):
             order_id="old-order",
         )
         BroadcastMessage.objects.filter(pk=out_of_range.pk).update(
-            created_at=datetime(2026, 5, 1, 12, 0, tzinfo=dt_timezone.utc)
+            created_at=datetime.combine(
+                self.start_date - timedelta(days=10),
+                time(12, 0),
+                tzinfo=dt_timezone.utc,
+            )
         )
         conversion = BroadcastConversion.objects.create(
             project=self.project,
@@ -111,7 +120,11 @@ class GetBroadcastSummaryUseCaseTest(TestCase):
             order_id="order-conv",
         )
         BroadcastConversion.objects.filter(pk=conversion.pk).update(
-            converted_at=datetime(2026, 5, 2, 12, 0, tzinfo=dt_timezone.utc)
+            converted_at=datetime.combine(
+                self.start_date - timedelta(days=5),
+                time(12, 0),
+                tzinfo=dt_timezone.utc,
+            )
         )
 
         result = self._execute()
