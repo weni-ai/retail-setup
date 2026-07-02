@@ -43,7 +43,7 @@ class AbandonedCartWebhookView(APIView):
             serializer.is_valid(raise_exception=True)
 
             dto = ProcessAbandonedCartNotificationDTO(
-                order_form_id=serializer.validated_data["cart_id"],
+                order_form_id=serializer.validated_data["order_form_id"],
                 phone=serializer.validated_data["phone"],
                 name=serializer.validated_data["name"],
             )

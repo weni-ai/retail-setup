@@ -96,7 +96,7 @@ class TestCartSerializer(TestCase):
 class TestExternalAbandonedCartSerializer(TestCase):
     def setUp(self):
         self.valid_payload = {
-            "cart_id": "order-123",
+            "order_form_id": "order-123",
             "phone": "5584987654321",
             "name": "Test User",
         }
@@ -107,7 +107,7 @@ class TestExternalAbandonedCartSerializer(TestCase):
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(
             set(serializer.validated_data.keys()),
-            {"cart_id", "phone", "name"},
+            {"order_form_id", "phone", "name"},
         )
 
     def test_account_field_is_not_accepted(self):
@@ -119,14 +119,14 @@ class TestExternalAbandonedCartSerializer(TestCase):
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertNotIn("account", serializer.validated_data)
 
-    def test_missing_cart_id_is_invalid(self):
+    def test_missing_order_form_id_is_invalid(self):
         payload = dict(self.valid_payload)
-        del payload["cart_id"]
+        del payload["order_form_id"]
 
         serializer = ExternalAbandonedCartSerializer(data=payload)
 
         self.assertFalse(serializer.is_valid())
-        self.assertIn("cart_id", serializer.errors)
+        self.assertIn("order_form_id", serializer.errors)
 
     def test_missing_phone_is_invalid(self):
         payload = dict(self.valid_payload)
@@ -152,5 +152,5 @@ class TestExternalAbandonedCartSerializer(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertEqual(
             set(serializer.errors.keys()),
-            {"cart_id", "phone", "name"},
+            {"order_form_id", "phone", "name"},
         )
