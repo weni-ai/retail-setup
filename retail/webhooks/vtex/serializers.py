@@ -15,7 +15,7 @@ class CartSerializer(serializers.Serializer):
 class ExternalAbandonedCartSerializer(serializers.Serializer):
     """Validate abandoned cart payloads from external webhook callers."""
 
-    cart_id = serializers.CharField()
+    order_form_id = serializers.CharField()
     phone = serializers.CharField()
     name = serializers.CharField()
 

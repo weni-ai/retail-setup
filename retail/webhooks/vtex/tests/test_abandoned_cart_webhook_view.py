@@ -49,7 +49,7 @@ class AbandonedCartWebhookViewTest(APITestCase):
         )
 
         payload = {
-            "cart_id": "order-123",
+            "order_form_id": "order-123",
             "phone": "5584987654321",
             "name": "Test User",
         }
@@ -78,7 +78,11 @@ class AbandonedCartWebhookViewTest(APITestCase):
 
         response = self.client.post(
             self.url,
-            data={"cart_id": "order-123", "phone": "5584987654321", "name": "Test"},
+            data={
+                "order_form_id": "order-123",
+                "phone": "5584987654321",
+                "name": "Test",
+            },
             format="json",
         )
 
@@ -105,7 +109,11 @@ class AbandonedCartWebhookViewTest(APITestCase):
 
         response = self.client.post(
             self.url,
-            data={"cart_id": "order-123", "phone": "5584987654321", "name": "Test"},
+            data={
+                "order_form_id": "order-123",
+                "phone": "5584987654321",
+                "name": "Test",
+            },
             format="json",
         )
 
@@ -171,7 +179,7 @@ class AbandonedCartWebhookIntegrationTest(APITestCase):
         response = self.client.post(
             self.url,
             data={
-                "cart_id": "order-123",
+                "order_form_id": "order-123",
                 "phone": "+55 (84) 98765-4321",
                 "name": "Test User",
             },
@@ -196,7 +204,7 @@ class AbandonedCartWebhookIntegrationTest(APITestCase):
         mock_resolver_cls.return_value.resolve.return_value = integrated_agent
 
         response = self.client.post(
-            self.url, data={"cart_id": "order-123"}, format="json"
+            self.url, data={"order_form_id": "order-123"}, format="json"
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
