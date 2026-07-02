@@ -1,3 +1,6 @@
+# 5.43.0
+- fix: Skip agent webhooks when integrated agent is inactive
+
 # 5.42.0
 - feat: Switch Nexus content upload to batch direct-ingest API
 - feat: Add content-base crawl and upload progress endpoint
