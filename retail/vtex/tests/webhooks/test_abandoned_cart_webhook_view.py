@@ -184,6 +184,17 @@ class AbandonedCartWebhookViewTest(APITestCase):
 
     @patch(PROCESS_CART_PATH)
     @patch(RESOLVER_PATH)
+    def test_post_ping_via_query_params_skips_processing(
+        self, mock_resolver_cls, mock_process_cart_cls
+    ):
+        response = self.client.post(f"{self.url}?hookConfig=ping")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_resolver_cls.assert_not_called()
+        mock_process_cart_cls.assert_not_called()
+
+    @patch(PROCESS_CART_PATH)
+    @patch(RESOLVER_PATH)
     def test_post_ping_skips_processing(self, mock_resolver_cls, mock_process_cart_cls):
         response = self.client.post(
             self.url, data={"hookConfig": "ping"}, format="json"
