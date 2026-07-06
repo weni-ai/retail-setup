@@ -2,6 +2,7 @@
 
 from uuid import uuid4
 from unittest.mock import Mock, patch
+from urllib.parse import urlencode
 
 from django.test import override_settings
 from django.urls import reverse
@@ -61,6 +62,98 @@ class AbandonedCartWebhookViewTest(APITestCase):
             integrated_agent
         )
         mock_process_cart_instance.execute.assert_called_once()
+
+    @patch(PROCESS_CART_PATH)
+    @patch(RESOLVER_PATH)
+    @override_settings(ABANDONED_CART_AGENT_UUID=ABANDONED_CART_AGENT_UUID)
+    def test_post_accepts_query_params_only(
+        self, mock_resolver_cls, mock_process_cart_cls
+    ):
+        integrated_agent = Mock()
+        mock_resolver_cls.return_value.resolve.return_value = integrated_agent
+        mock_process_cart_instance = Mock()
+        mock_process_cart_cls.from_integrated_agent.return_value = (
+            mock_process_cart_instance
+        )
+
+        query = urlencode(
+            {
+                "order_form_id": "order-123",
+                "phone": "5584987654321",
+                "name": "Test User",
+            }
+        )
+        response = self.client.post(f"{self.url}?{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_process_cart_instance.execute.assert_called_once()
+
+    @patch(PROCESS_CART_PATH)
+    @patch(RESOLVER_PATH)
+    @override_settings(ABANDONED_CART_AGENT_UUID=ABANDONED_CART_AGENT_UUID)
+    def test_post_body_takes_precedence_over_query_params(
+        self, mock_resolver_cls, mock_process_cart_cls
+    ):
+        integrated_agent = Mock()
+        mock_resolver_cls.return_value.resolve.return_value = integrated_agent
+        mock_process_cart_instance = Mock()
+        mock_process_cart_cls.from_integrated_agent.return_value = (
+            mock_process_cart_instance
+        )
+
+        query = urlencode(
+            {
+                "order_form_id": "query-order",
+                "phone": "5511000000000",
+                "name": "Query User",
+            }
+        )
+        response = self.client.post(
+            f"{self.url}?{query}",
+            data={
+                "order_form_id": "body-order",
+                "phone": "5584987654321",
+                "name": "Body User",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dto = mock_process_cart_instance.execute.call_args[0][0]
+        self.assertEqual(dto.order_form_id, "body-order")
+        self.assertEqual(dto.phone, "5584987654321")
+        self.assertEqual(dto.name, "Body User")
+
+    @patch(PROCESS_CART_PATH)
+    @patch(RESOLVER_PATH)
+    @override_settings(ABANDONED_CART_AGENT_UUID=ABANDONED_CART_AGENT_UUID)
+    def test_post_merges_query_params_and_body_fields(
+        self, mock_resolver_cls, mock_process_cart_cls
+    ):
+        integrated_agent = Mock()
+        mock_resolver_cls.return_value.resolve.return_value = integrated_agent
+        mock_process_cart_instance = Mock()
+        mock_process_cart_cls.from_integrated_agent.return_value = (
+            mock_process_cart_instance
+        )
+
+        query = urlencode(
+            {
+                "order_form_id": "order-123",
+                "phone": "5584987654321",
+            }
+        )
+        response = self.client.post(
+            f"{self.url}?{query}",
+            data={"name": "Test User"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dto = mock_process_cart_instance.execute.call_args[0][0]
+        self.assertEqual(dto.order_form_id, "order-123")
+        self.assertEqual(dto.phone, "5584987654321")
+        self.assertEqual(dto.name, "Test User")
 
     @patch(PROCESS_CART_PATH)
     @patch(RESOLVER_PATH)
