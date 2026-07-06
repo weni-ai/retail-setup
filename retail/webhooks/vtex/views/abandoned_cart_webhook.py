@@ -22,12 +22,16 @@ logger = logging.getLogger(__name__)
 
 
 class AbandonedCartWebhookView(APIView):
-    """External webhook endpoint for abandoned cart notifications."""
+    """External webhook endpoint for abandoned cart notifications.
+
+    Accepts ``order_form_id``, ``phone`` and ``name`` via POST query params,
+    JSON body, or a mix of both (body wins when the same field is sent twice).
+    """
 
     permission_classes = [AllowAny]
 
     def post(self, request: Request, pk: UUID) -> Response:
-        if request.data.get("hookConfig") == "ping":
+        if self._is_ping_request(request):
             logger.info(f"[AbandonedCart] VTEX ping received - agent={pk}")
             return self._webhook_received_response()
 
@@ -39,7 +43,9 @@ class AbandonedCartWebhookView(APIView):
                 )
                 return self._webhook_received_response()
 
-            serializer = ExternalAbandonedCartSerializer(data=request.data)
+            serializer = ExternalAbandonedCartSerializer(
+                data=self._build_payload(request)
+            )
             serializer.is_valid(raise_exception=True)
 
             dto = ProcessAbandonedCartNotificationDTO(
@@ -56,6 +62,20 @@ class AbandonedCartWebhookView(APIView):
             )
 
         return self._webhook_received_response()
+
+    @staticmethod
+    def _build_payload(request: Request) -> dict:
+        """Merge query params and body; body values win on conflict."""
+        payload = {key: value for key, value in request.query_params.items()}
+        payload.update(request.data)
+        return payload
+
+    @staticmethod
+    def _is_ping_request(request: Request) -> bool:
+        return (
+            request.data.get("hookConfig") == "ping"
+            or request.query_params.get("hookConfig") == "ping"
+        )
 
     @staticmethod
     def _webhook_received_response() -> Response:

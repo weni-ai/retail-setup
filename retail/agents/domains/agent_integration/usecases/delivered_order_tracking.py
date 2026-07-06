@@ -256,11 +256,16 @@ class DeliveredOrderTrackingWebhookUseCase:
     """Use case for processing delivered order tracking webhook notifications."""
 
     def get_integrated_agent(self, integrated_agent_uuid: str) -> IntegratedAgent:
-        """Get integrated agent by integrated agent UUID."""
+        """Retrieve an active integrated agent by UUID."""
         try:
-            return IntegratedAgent.objects.get(uuid=integrated_agent_uuid)
+            return IntegratedAgent.objects.select_related("project").get(
+                uuid=integrated_agent_uuid,
+                is_active=True,
+            )
         except IntegratedAgent.DoesNotExist:
-            raise NotFound(f"Integrated agent not found: {integrated_agent_uuid}")
+            raise NotFound(
+                f"Active integrated agent not found: {integrated_agent_uuid}"
+            )
 
     def validate_tracking_enabled(self, integrated_agent: IntegratedAgent) -> bool:
         """

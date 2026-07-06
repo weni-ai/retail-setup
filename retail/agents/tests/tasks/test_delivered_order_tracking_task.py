@@ -10,6 +10,8 @@ from django.test import TestCase
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+from rest_framework.exceptions import NotFound
+
 from retail.agents.domains.agent_execution.context import clear_execution_context
 from retail.agents.tasks import task_delivered_order_tracking_webhook
 
@@ -45,6 +47,23 @@ class TaskDeliveredOrderTrackingWebhookTest(TestCase):
         mock_usecase.process_webhook_notification.assert_called_once_with(
             mock_agent, self.webhook_data
         )
+        mock_logger.log_execution_error.assert_not_called()
+
+    @patch("retail.agents.tasks.DeliveredOrderTrackingWebhookUseCase")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
+    def test_task_skips_processing_when_agent_is_inactive(
+        self, mock_logger_factory, mock_usecase_cls
+    ):
+        mock_logger = MagicMock()
+        mock_logger_factory.return_value = mock_logger
+
+        mock_usecase = MagicMock()
+        mock_usecase_cls.return_value = mock_usecase
+        mock_usecase.get_integrated_agent.side_effect = NotFound("Inactive agent")
+
+        task_delivered_order_tracking_webhook(self.agent_uuid, self.webhook_data)
+
+        mock_usecase.process_webhook_notification.assert_not_called()
         mock_logger.log_execution_error.assert_not_called()
 
     @patch("retail.agents.tasks.DeliveredOrderTrackingWebhookUseCase")

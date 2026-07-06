@@ -31,44 +31,54 @@ class PaymentRecoveryWebhookUseCase:
         self.vtex_io_service = vtex_io_service or VtexIOService()
 
     def get_integrated_agent(self, integrated_agent_uuid: UUID) -> IntegratedAgent:
-        """Retrieve an integrated agent by UUID.
+        """Retrieve an active integrated agent by UUID.
 
         Args:
             integrated_agent_uuid: UUID of the integrated agent.
 
         Returns:
-            IntegratedAgent: The matching integrated agent instance.
+            IntegratedAgent: The matching active integrated agent instance.
 
         Raises:
-            NotFound: If no integrated agent exists with the given UUID.
+            NotFound: If no active integrated agent exists with the given UUID.
         """
         try:
-            return IntegratedAgent.objects.get(uuid=integrated_agent_uuid)
+            return IntegratedAgent.objects.select_related("project").get(
+                uuid=integrated_agent_uuid,
+                is_active=True,
+            )
         except IntegratedAgent.DoesNotExist:
-            raise NotFound(f"Integrated agent not found: {integrated_agent_uuid}")
+            raise NotFound(
+                f"Active integrated agent not found: {integrated_agent_uuid}"
+            )
 
-    def get_delay_seconds(self, integrated_agent_uuid: UUID) -> int:
+    def get_delay_seconds(
+        self,
+        integrated_agent_uuid: UUID,
+        integrated_agent: Optional[IntegratedAgent] = None,
+    ) -> int:
         """Get the configured delay in seconds for scheduling the processing task.
 
         Reads ``delay_minutes`` from ``integrated_agent.config["payment_recovery"]``
-        and falls back to ``DEFAULT_DELAY_MINUTES`` when the agent or config
-        is not found.
+        and falls back to ``DEFAULT_DELAY_MINUTES`` when the agent is inactive,
+        missing, or the config is absent.
 
         Args:
             integrated_agent_uuid: UUID of the integrated agent.
+            integrated_agent: Optional pre-resolved active integrated agent.
 
         Returns:
             int: The delay in seconds before processing the webhook.
         """
-        try:
-            integrated_agent = IntegratedAgent.objects.get(
-                uuid=integrated_agent_uuid, is_active=True
-            )
-            payment_config = integrated_agent.config.get("payment_recovery", {})
-            delay_minutes = payment_config.get("delay_minutes", DEFAULT_DELAY_MINUTES)
-            return int(delay_minutes) * 60
-        except IntegratedAgent.DoesNotExist:
-            return DEFAULT_DELAY_MINUTES * 60
+        if integrated_agent is None:
+            try:
+                integrated_agent = self.get_integrated_agent(integrated_agent_uuid)
+            except NotFound:
+                return DEFAULT_DELAY_MINUTES * 60
+
+        payment_config = integrated_agent.config.get("payment_recovery", {})
+        delay_minutes = payment_config.get("delay_minutes", DEFAULT_DELAY_MINUTES)
+        return int(delay_minutes) * 60
 
     def validate_payment_recovery_enabled(
         self, integrated_agent: IntegratedAgent
