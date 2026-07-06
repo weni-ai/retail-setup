@@ -97,6 +97,10 @@ class ProcessAbandonedCartNotificationUseCaseTest(TestCase):
                 other_integrated_agent
             )
 
+    def test_constructor_raises_when_account_and_integrated_agent_are_missing(self):
+        with self.assertRaises(ValueError):
+            ProcessAbandonedCartNotificationUseCase()
+
     @patch(
         "retail.webhooks.vtex.usecases.process_abandoned_cart_notification.CartUseCase"
     )
