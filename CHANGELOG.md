@@ -1,3 +1,6 @@
+# 5.44.0
+- feat: Add dedicated abandoned cart webhook for external callers
+
 # 5.43.0
 - fix: Skip agent webhooks when integrated agent is inactive
 
