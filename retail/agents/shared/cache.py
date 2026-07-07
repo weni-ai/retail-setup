@@ -127,10 +127,19 @@ class IntegratedAgentCacheHandler(ABC):
 
     @staticmethod
     def resolve_role(integrated_agent: IntegratedAgent) -> Optional[AgentRole]:
-        """Match ``integrated_agent`` against the role settings.
+        """Determine which special integration role an agent fulfills.
 
-        Returns the matching ``AgentRole`` or ``None`` if the agent does
-        not fulfill any of the special roles tracked by this handler.
+        Compares ``integrated_agent.agent.uuid`` against the canonical
+        ``Agent.uuid`` values configured in Django settings
+        (``ROLE_SETTING_NAMES``).
+
+        Args:
+            integrated_agent: The integrated agent whose underlying
+                ``Agent`` record is matched against role settings.
+
+        Returns:
+            Optional[AgentRole]: The matching role when the agent UUID
+                equals a configured setting value; otherwise ``None``.
         """
         agent_uuid = str(integrated_agent.agent.uuid)
         for role, setting_name in ROLE_SETTING_NAMES.items():

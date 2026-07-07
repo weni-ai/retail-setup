@@ -1,6 +1,6 @@
 """Tests for ``GetBroadcastSummaryUseCase``."""
 
-from datetime import datetime, time, timedelta, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 from uuid import uuid4
 
 from django.test import TestCase
@@ -20,11 +20,6 @@ from retail.broadcasts.usecases.get_broadcast_summary import (
 from retail.projects.models import Project
 
 
-def _current_month_date_range():
-    today = timezone.now().date()
-    return today.replace(day=1), today
-
-
 class GetBroadcastSummaryUseCaseTest(TestCase):
     def setUp(self):
         self.project = Project.objects.create(name="Project A", uuid=uuid4())
@@ -41,7 +36,9 @@ class GetBroadcastSummaryUseCaseTest(TestCase):
             channel_uuid=uuid4(),
         )
         self.use_case = GetBroadcastSummaryUseCase()
-        self.start_date, self.end_date = _current_month_date_range()
+        today = timezone.localdate()
+        self.start_date = today - timedelta(days=1)
+        self.end_date = today + timedelta(days=1)
 
     def _create_broadcast(
         self, *, integrated_agent=None, status=BroadcastStatus.DELIVERED, **overrides
@@ -109,8 +106,8 @@ class GetBroadcastSummaryUseCaseTest(TestCase):
         )
         BroadcastMessage.objects.filter(pk=out_of_range.pk).update(
             created_at=datetime.combine(
-                self.start_date - timedelta(days=10),
-                time(12, 0),
+                self.start_date - timedelta(days=30),
+                datetime.min.time(),
                 tzinfo=dt_timezone.utc,
             )
         )
@@ -121,8 +118,8 @@ class GetBroadcastSummaryUseCaseTest(TestCase):
         )
         BroadcastConversion.objects.filter(pk=conversion.pk).update(
             converted_at=datetime.combine(
-                self.start_date - timedelta(days=5),
-                time(12, 0),
+                self.start_date - timedelta(days=29),
+                datetime.min.time(),
                 tzinfo=dt_timezone.utc,
             )
         )

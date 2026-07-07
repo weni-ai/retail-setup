@@ -22,6 +22,7 @@ from retail.agents.domains.agent_integration.views import (
     TemplateLanguagesView,
 )
 from retail.agents.domains.agent_webhook.views import AgentWebhookView
+from retail.webhooks.vtex.views.abandoned_cart_webhook import AbandonedCartWebhookView
 
 router = SimpleRouter()
 router.register(r"assigneds", IntegratedAgentViewSet, basename="assigned-agents")
@@ -68,6 +69,11 @@ urlpatterns = [
         "payment-recovery-webhook/<uuid:pk>/",
         PaymentRecoveryWebhookView.as_view(),
         name="payment-recovery-webhook",
+    ),
+    path(
+        "abandoned-cart-webhook/<uuid:pk>/",
+        AbandonedCartWebhookView.as_view(),
+        name="abandoned-cart-webhook",
     ),
     path(
         "assigneds/<uuid:agent_uuid>/logs/",

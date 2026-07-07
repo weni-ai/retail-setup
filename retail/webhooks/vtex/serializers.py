@@ -12,6 +12,14 @@ class CartSerializer(serializers.Serializer):
     name = serializers.CharField()
 
 
+class ExternalAbandonedCartSerializer(serializers.Serializer):
+    """Validate abandoned cart payloads from external webhook callers."""
+
+    order_form_id = serializers.CharField()
+    phone = serializers.CharField()
+    name = serializers.CharField()
+
+
 class OrderStatusSerializer(serializers.Serializer):
     recorder = serializers.JSONField()
     domain = serializers.CharField()

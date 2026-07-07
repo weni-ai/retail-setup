@@ -15,6 +15,9 @@ from retail.agents.domains.agent_webhook.services.broadcast import (
 from retail.agents.domains.agent_webhook.services.active_agent import (
     ActiveAgent,
 )
+from retail.agents.domains.agent_webhook.services.integrated_agent_resolver import (
+    IntegratedAgentWebhookResolver,
+)
 
 from retail.agents.shared.cache import (
     IntegratedAgentCacheHandler,
@@ -38,46 +41,26 @@ class AgentWebhookUseCase:
         broadcast: Optional[Broadcast] = None,
         cache: Optional[IntegratedAgentCacheHandler] = None,
         exec_logger: Optional[ExecutionLoggerServiceInterface] = None,
+        integrated_agent_resolver: Optional[IntegratedAgentWebhookResolver] = None,
     ):
         self.active_agent = active_agent or ActiveAgent()
         self.broadcast_handler = broadcast or Broadcast()
         self.cache_handler = cache or IntegratedAgentCacheHandlerRedis()
+        self.integrated_agent_resolver = (
+            integrated_agent_resolver
+            or IntegratedAgentWebhookResolver(self.cache_handler)
+        )
         self.exec_logger: ExecutionLoggerServiceInterface = (
             exec_logger or ExecutionLoggerService()
         )
-        self.IGNORE_INTEGRATED_AGENT_UUID = "d30bcce8-ce67-4677-8a33-c12b62a51d4f"
+
+    def resolve_integrated_agent(self, uuid: UUID) -> Optional[IntegratedAgent]:
+        """Return an active integrated agent for webhook dispatch, if available."""
+        return self.integrated_agent_resolver.resolve(uuid)
 
     def _get_integrated_agent(self, uuid: UUID):
         """Get integrated agent by UUID if active and not blocked."""
-        if str(uuid) == self.IGNORE_INTEGRATED_AGENT_UUID:
-            logger.info(f"Integrated agent is blocked: {uuid}")
-            return None
-
-        cached_integrated_agent = self.cache_handler.get_cached_agent(uuid)
-
-        if cached_integrated_agent is not None:
-            if self._is_project_blocked(cached_integrated_agent):
-                logger.info(f"Project is blocked, skipping cached agent: {uuid}")
-                return None
-            return cached_integrated_agent
-
-        try:
-            db_integrated_agent = IntegratedAgent.objects.get(uuid=uuid, is_active=True)
-        except IntegratedAgent.DoesNotExist:
-            logger.info(f"Integrated agent not found: {uuid}")
-            return None
-
-        if self._is_project_blocked(db_integrated_agent):
-            logger.info(f"Project is blocked, skipping agent: {uuid}")
-            return None
-
-        self.cache_handler.set_cached_agent(db_integrated_agent)
-        return db_integrated_agent
-
-    @staticmethod
-    def _is_project_blocked(integrated_agent: IntegratedAgent) -> bool:
-        """Return True when the agent's project is flagged as blocked."""
-        return integrated_agent.project.is_blocked
+        return self.integrated_agent_resolver.resolve(uuid)
 
     def _addapt_credentials(self, integrated_agent: IntegratedAgent) -> Dict[str, str]:
         """Convert integrated agent credentials to dictionary format."""
@@ -170,7 +153,9 @@ class AgentWebhookUseCase:
                 integrated_agent, data
             )
         except Exception as e:
-            logger.exception(f"Unexpected error while resolving broadcast template: {e}")
+            logger.exception(
+                f"Unexpected error while resolving broadcast template: {e}"
+            )
             exec_logger.log_execution_error(
                 error_message=f"Error resolving broadcast template: {e}",
                 error_data={"phase": "broadcast_template_resolve"},
