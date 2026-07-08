@@ -1,3 +1,6 @@
+# 5.45.0
+- feat: Add immutable contract acceptance API with PDF delivery
+
 # 5.44.0
 - feat: Add dedicated abandoned cart webhook for external callers
 
