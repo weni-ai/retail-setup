@@ -88,3 +88,13 @@ class ContractAcceptanceModelTests(TestCase):
         acceptance = self._create_acceptance(geo_country="BR")
 
         self.assertEqual(acceptance.geo_country, "BR")
+
+    def test_contract_template_str(self):
+        self.assertEqual(str(self.template), "ContractTemplate v2.1")
+
+    def test_contract_acceptance_str(self):
+        acceptance = self._create_acceptance()
+
+        self.assertEqual(
+            str(acceptance), f"ContractAcceptance {acceptance.uuid} (teststore)"
+        )

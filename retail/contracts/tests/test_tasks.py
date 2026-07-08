@@ -104,3 +104,15 @@ class TaskNotifyContractAcceptanceTests(TestCase):
         task_notify_contract_acceptance(str(uuid4()))
 
         mock_service_cls.return_value.notify.assert_not_called()
+
+    @patch(NOTIFY_SERVICE_PATH)
+    @patch(
+        "retail.contracts.tasks.format_acceptance_datetime",
+        side_effect=RuntimeError("format failed"),
+    )
+    def test_unexpected_error_is_logged_without_raising(
+        self, _mock_format, mock_service_cls
+    ):
+        task_notify_contract_acceptance(str(self.acceptance.uuid))
+
+        mock_service_cls.return_value.notify.assert_not_called()
