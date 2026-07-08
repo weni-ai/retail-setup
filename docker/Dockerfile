@@ -10,6 +10,7 @@ ARG BUILD_DEPS="\
   build-essential \
   cmake \
   autoconf pkg-config autoconf libtool automake \
+  libffi-dev \
   libmariadb-dev"
 
 ARG RUNTIME_DEPS="\
@@ -19,7 +20,14 @@ ARG RUNTIME_DEPS="\
   netcat-traditional \
   curl \
   gosu \
-  gdal-bin"
+  gdal-bin \
+  libpango-1.0-0 \
+  libpangocairo-1.0-0 \
+  libcairo2 \
+  libgdk-pixbuf-2.0-0 \
+  libffi8 \
+  fonts-dejavu-core \
+  shared-mime-info"
 
 FROM python:${PYTHON_VERSION}-slim as base
 
@@ -72,7 +80,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,target=/var/lib/apt,sharing=locked \
   apt-get update \
   && apt-get install --no-install-recommends --no-install-suggests -y ${BUILD_DEPS}
- 
+
 COPY --from=build-poetry "${PROJECT_PATH}/requirements.txt" /tmp/dep/
 RUN --mount=type=cache,mode=0755,target=/pip_cache,id=pip pip install --cache-dir /pip_cache --prefix=/install -r /tmp/dep/requirements.txt
 

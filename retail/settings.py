@@ -92,6 +92,7 @@ INSTALLED_APPS = [
     "retail.templates",
     "retail.agents",
     "retail.broadcasts",
+    "retail.contracts",
 ]
 
 MIDDLEWARE = [
@@ -469,6 +470,11 @@ CONNECT_REST_ENDPOINT = env.str("CONNECT_REST_ENDPOINT", default="")
 # Slack notifications (hire intent)
 SLACK_BOT_TOKEN = env.str("SLACK_BOT_TOKEN", default="")
 SLACK_LEAD_NOTIFICATION_CHANNEL = env.str("SLACK_LEAD_NOTIFICATION_CHANNEL", default="")
+
+# Channel notified when a customer completes self-serve contract acceptance.
+SLACK_CONTRACT_ACCEPTANCE_CHANNEL = env.str(
+    "SLACK_CONTRACT_ACCEPTANCE_CHANNEL", default=""
+)
 
 # Path to the JWT public key
 JWT_PUBLIC_KEY_PATH = BASE_DIR / "retail" / "jwt_keys" / "public_key.pem"

@@ -89,6 +89,46 @@ class ConnectServiceTest(TestCase):
 
         self.assertIsNone(result)
 
+    def test_send_contract_acceptance_email_delegates_to_client(self):
+        """send_contract_acceptance_email forwards every field to the client."""
+        self.mock_client.send_contract_acceptance_email.return_value = {"sent": True}
+
+        result = self.service.send_contract_acceptance_email(
+            user_email="user@example.com",
+            acceptance_id="acceptance-uuid",
+            subject="Your contract",
+            body_html="<p>Hello</p>",
+            file_name="contract-v2.1.pdf",
+            file_base64="JVBERi0=",
+        )
+
+        self.assertEqual(result, {"sent": True})
+        self.mock_client.send_contract_acceptance_email.assert_called_once_with(
+            user_email="user@example.com",
+            acceptance_id="acceptance-uuid",
+            subject="Your contract",
+            body_html="<p>Hello</p>",
+            file_name="contract-v2.1.pdf",
+            file_base64="JVBERi0=",
+        )
+
+    def test_send_contract_acceptance_email_returns_none_on_client_error(self):
+        """A client failure is swallowed so the email task never crashes."""
+        self.mock_client.send_contract_acceptance_email.side_effect = RuntimeError(
+            "boom"
+        )
+
+        result = self.service.send_contract_acceptance_email(
+            user_email="user@example.com",
+            acceptance_id="acceptance-uuid",
+            subject="Your contract",
+            body_html="<p>Hello</p>",
+            file_name="contract-v2.1.pdf",
+            file_base64="JVBERi0=",
+        )
+
+        self.assertIsNone(result)
+
     def test_link_vtex_account_delegates_to_client(self):
         """link_vtex_account forwards project_uuid and vtex_account."""
         self.mock_client.link_vtex_account.return_value = {"success": True}
