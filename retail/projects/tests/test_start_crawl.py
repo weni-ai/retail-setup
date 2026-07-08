@@ -5,10 +5,7 @@ from django.test import TestCase, override_settings
 
 from retail.projects.models import Project, ProjectOnboarding
 from retail.projects.usecases.manager_defaults import MANAGER_DEFAULTS
-from retail.projects.usecases.start_crawl import (
-    CRAWL_KICKOFF_PROGRESS,
-    StartCrawlUseCase,
-)
+from retail.projects.usecases.start_crawl import StartCrawlUseCase
 
 
 @override_settings(DOMAIN="https://retail.weni.ai")
@@ -23,26 +20,22 @@ class TestStartCrawlUseCase(TestCase):
         self.onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=self.project,
+            current_step="NEXUS_CONFIG",
+            progress=0,
         )
         self.mock_crawler_service = MagicMock()
         self.usecase = StartCrawlUseCase(crawler_client=MagicMock())
         self.usecase.crawler_service = self.mock_crawler_service
 
-    def test_sets_step_to_crawl_with_kickoff_progress(self):
-        """
-        Bumps progress to 100 to signal "crawl phase done from the
-        wizard's perspective" -- the actual long-running crawl runs in
-        background and its outcome lands in ``crawler_result``, NOT in
-        ``progress``.
-        """
+    def test_does_not_change_step_or_progress(self):
+        """Step/progress transitions are owned by OnboardingOrchestrator."""
         self.mock_crawler_service.start_crawling.return_value = {"status": "started"}
 
         self.usecase.execute("mystore", "https://www.mystore.com.br/")
 
         self.onboarding.refresh_from_db()
-        self.assertEqual(self.onboarding.current_step, "CRAWL")
-        self.assertEqual(self.onboarding.progress, CRAWL_KICKOFF_PROGRESS)
-        self.assertEqual(self.onboarding.progress, 100)
+        self.assertEqual(self.onboarding.current_step, "NEXUS_CONFIG")
+        self.assertEqual(self.onboarding.progress, 0)
 
     def test_calls_crawler_service_with_correct_args(self):
         self.mock_crawler_service.start_crawling.return_value = {"status": "started"}
@@ -55,15 +48,13 @@ class TestStartCrawlUseCase(TestCase):
         self.assertIn(str(self.onboarding.uuid), args[0][1])  # webhook_url
         self.assertEqual(args[0][2]["account_name"], "mystore")
 
-    @patch(
-        "retail.projects.usecases.start_crawl.SaveBackgroundFailureUseCase"
-    )
+    @patch("retail.projects.usecases.start_crawl.SaveBackgroundFailureUseCase")
     def test_soft_fails_when_crawler_unreachable(self, mock_save_background_cls):
         """
         On crawler-comms failure the use case must NOT raise (so the
-        inline post-crawl orchestrator can still complete the wizard)
-        but must record a soft failure under
-        ``config["background_error"]`` and set ``crawler_result=FAIL``.
+        inline orchestrator can still complete the wizard) but must record
+        a soft failure under ``config["background_error"]`` and set
+        ``crawler_result=FAIL``.
         """
         self.mock_crawler_service.start_crawling.return_value = None
 

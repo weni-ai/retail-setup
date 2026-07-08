@@ -1,9 +1,10 @@
 """Tests for ``GetBroadcastSummaryUseCase``."""
 
-from datetime import date, datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 from uuid import uuid4
 
 from django.test import TestCase
+from django.utils import timezone
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_management.models import Agent
@@ -35,8 +36,9 @@ class GetBroadcastSummaryUseCaseTest(TestCase):
             channel_uuid=uuid4(),
         )
         self.use_case = GetBroadcastSummaryUseCase()
-        self.start_date = date(2026, 6, 1)
-        self.end_date = date(2026, 6, 30)
+        today = timezone.localdate()
+        self.start_date = today - timedelta(days=1)
+        self.end_date = today + timedelta(days=1)
 
     def _create_broadcast(
         self, *, integrated_agent=None, status=BroadcastStatus.DELIVERED, **overrides
@@ -103,7 +105,11 @@ class GetBroadcastSummaryUseCaseTest(TestCase):
             order_id="old-order",
         )
         BroadcastMessage.objects.filter(pk=out_of_range.pk).update(
-            created_at=datetime(2026, 5, 1, 12, 0, tzinfo=dt_timezone.utc)
+            created_at=datetime.combine(
+                self.start_date - timedelta(days=30),
+                datetime.min.time(),
+                tzinfo=dt_timezone.utc,
+            )
         )
         conversion = BroadcastConversion.objects.create(
             project=self.project,
@@ -111,7 +117,11 @@ class GetBroadcastSummaryUseCaseTest(TestCase):
             order_id="order-conv",
         )
         BroadcastConversion.objects.filter(pk=conversion.pk).update(
-            converted_at=datetime(2026, 5, 2, 12, 0, tzinfo=dt_timezone.utc)
+            converted_at=datetime.combine(
+                self.start_date - timedelta(days=29),
+                datetime.min.time(),
+                tzinfo=dt_timezone.utc,
+            )
         )
 
         result = self._execute()

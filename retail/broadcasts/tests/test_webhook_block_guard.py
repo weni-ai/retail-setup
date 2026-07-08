@@ -9,6 +9,12 @@ from retail.agents.domains.agent_webhook.usecases.webhook import (
 )
 
 
+RESOLVER_INTEGRATED_AGENT_OBJECTS = (
+    "retail.agents.domains.agent_webhook.services."
+    "integrated_agent_resolver.IntegratedAgent.objects"
+)
+
+
 class AgentWebhookProjectBlockGuardTest(TestCase):
     """Covers the project-blocked short-circuit added to the webhook flow."""
 
@@ -21,28 +27,24 @@ class AgentWebhookProjectBlockGuardTest(TestCase):
             cache=self.cache_handler,
         )
 
-    @patch(
-        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects.get"
-    )
-    def test_returns_none_when_project_is_blocked(self, mock_get):
+    @patch(RESOLVER_INTEGRATED_AGENT_OBJECTS)
+    def test_returns_none_when_project_is_blocked(self, mock_objects):
         agent = MagicMock()
         agent.project = MagicMock()
         agent.project.is_blocked = True
-        mock_get.return_value = agent
+        mock_objects.select_related.return_value.get.return_value = agent
 
         result = self.use_case._get_integrated_agent(uuid4())
 
         self.assertIsNone(result)
         self.cache_handler.set_cached_agent.assert_not_called()
 
-    @patch(
-        "retail.agents.domains.agent_webhook.usecases.webhook.IntegratedAgent.objects.get"
-    )
-    def test_returns_agent_when_project_not_blocked(self, mock_get):
+    @patch(RESOLVER_INTEGRATED_AGENT_OBJECTS)
+    def test_returns_agent_when_project_not_blocked(self, mock_objects):
         agent = MagicMock()
         agent.project = MagicMock()
         agent.project.is_blocked = False
-        mock_get.return_value = agent
+        mock_objects.select_related.return_value.get.return_value = agent
 
         result = self.use_case._get_integrated_agent(uuid4())
 

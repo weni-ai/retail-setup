@@ -21,6 +21,7 @@ from retail.projects.serializer import (
     InstallChannelAgentsSerializer,
     OnboardingPatchSerializer,
     ProjectOnboardingSerializer,
+    ContentBaseProgressSerializer,
 )
 from retail.projects.usecases.get_project_vtex_account import (
     GetProjectVtexAccountUseCase,
@@ -43,6 +44,9 @@ from retail.projects.usecases.save_onboarding_failure import (
     SaveOnboardingFailureUseCase,
 )
 from retail.projects.usecases.start_setup import StartSetupUseCase
+from retail.projects.usecases.get_content_base_progress import (
+    GetContentBaseProgressUseCase,
+)
 from retail.projects.usecases.update_onboarding_progress import (
     UpdateOnboardingProgressUseCase,
 )
@@ -213,6 +217,26 @@ class OnboardingStatusView(KeycloakAPIView):
             ProjectOnboardingSerializer(onboarding).data,
             status=status.HTTP_200_OK,
         )
+
+
+class ContentBaseProgressView(KeycloakAPIView):
+    """
+    Returns background crawl + Nexus content-base upload progress (0-100).
+
+    Crawl contributes ~33% and upload ~67% of the overall value.
+    """
+
+    def get(self, request, vtex_account: str) -> Response:
+        try:
+            progress = GetContentBaseProgressUseCase().execute(vtex_account)
+        except ProjectOnboarding.DoesNotExist:
+            return Response(
+                {"detail": "No onboarding found for this vtex_account."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = ContentBaseProgressSerializer({"progress": progress})
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class OnboardingPatchView(KeycloakAPIView):

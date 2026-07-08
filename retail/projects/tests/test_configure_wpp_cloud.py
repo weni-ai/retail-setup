@@ -80,7 +80,7 @@ class TestConfigureWPPCloudUseCase(TestCase):
                 }
             }
         }
-        self.onboarding.current_step = "CRAWL"
+        self.onboarding.current_step = "NEXUS_CONFIG"
         self.onboarding.progress = 50
         self.onboarding.save()
 
@@ -89,7 +89,7 @@ class TestConfigureWPPCloudUseCase(TestCase):
         self.mock_integrations_service.create_wpp_cloud_channel.assert_not_called()
         self.onboarding.refresh_from_db()
         # State must not change when we skip
-        self.assertEqual(self.onboarding.current_step, "CRAWL")
+        self.assertEqual(self.onboarding.current_step, "NEXUS_CONFIG")
         self.assertEqual(self.onboarding.progress, 50)
         self.assertEqual(
             self.onboarding.config["channels"]["wpp-cloud"]["app_uuid"],

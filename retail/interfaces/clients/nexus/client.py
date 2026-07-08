@@ -107,34 +107,38 @@ class NexusClientInterface(Protocol):
         """
         ...
 
-    def get_content_base_file_status(self, project_uuid: str, file_uuid: str) -> Dict:
-        """
-        Checks the processing status of a previously uploaded content base file.
-
-        Args:
-            project_uuid: The project's unique identifier.
-            file_uuid: The UUID returned by the upload endpoint.
-
-        Returns:
-            Dict with file status (e.g. "Processing", "success", "failed").
-        """
-        ...
-
-    def upload_content_base_file(
+    def upload_content_base_files_batch(
         self,
         project_uuid: str,
-        file: Tuple[str, bytes, str],
+        files: List[Tuple[str, bytes, str]],
         extension_file: str = "txt",
     ) -> Dict:
         """
-        Uploads a file to the project's inline content base in Nexus.
+        Uploads up to 25 files to the project's inline content base in Nexus.
 
         Args:
             project_uuid: The project's unique identifier.
-            file: Tuple of (filename, file_bytes, content_type).
+            files: List of (filename, file_bytes, content_type) tuples.
             extension_file: The file extension without dot (e.g. "txt").
 
         Returns:
-            Dict: Upload response data.
+            Dict with uploaded file metadata and optional errors.
+        """
+        ...
+
+    def get_content_base_batch_progress(
+        self,
+        project_uuid: str,
+        file_uuids: List[str],
+    ) -> Dict:
+        """
+        Returns aggregate ingestion progress for a batch of uploaded files.
+
+        Args:
+            project_uuid: The project's unique identifier.
+            file_uuids: UUIDs returned by the batch upload endpoint.
+
+        Returns:
+            Dict with aggregate progress fields (total, completed, status, etc.).
         """
         ...

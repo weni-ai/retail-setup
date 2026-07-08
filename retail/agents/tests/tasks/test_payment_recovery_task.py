@@ -10,6 +10,8 @@ from django.test import TestCase
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+from rest_framework.exceptions import NotFound
+
 from retail.agents.domains.agent_execution.context import clear_execution_context
 from retail.agents.tasks import task_payment_recovery_webhook
 
@@ -86,7 +88,7 @@ class TaskPaymentRecoveryWebhookTest(TestCase):
 
         mock_usecase = MagicMock()
         mock_usecase_cls.return_value = mock_usecase
-        mock_usecase.get_integrated_agent.side_effect = Exception("Agent not found")
+        mock_usecase.get_integrated_agent.side_effect = NotFound("Inactive agent")
 
         # Must not raise.
         task_payment_recovery_webhook(self.agent_uuid, self.webhook_data)
@@ -109,9 +111,10 @@ class TaskPaymentRecoveryWebhookTest(TestCase):
 
         execution_uuid = uuid4()
         mock_logger = MagicMock()
-        mock_logger.log_webhook_received.side_effect = (
-            lambda *a, **kw: (set_current_execution_uuid(execution_uuid), execution_uuid)[1]
-        )
+        mock_logger.log_webhook_received.side_effect = lambda *a, **kw: (
+            set_current_execution_uuid(execution_uuid),
+            execution_uuid,
+        )[1]
         mock_logger_factory.return_value = mock_logger
 
         mock_usecase = MagicMock()

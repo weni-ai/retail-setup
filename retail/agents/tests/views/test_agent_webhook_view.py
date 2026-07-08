@@ -16,6 +16,8 @@ from uuid import uuid4
 from unittest.mock import patch
 from urllib.parse import urlencode
 
+from django.core.cache import cache
+from django.test import override_settings
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 
@@ -25,14 +27,30 @@ from retail.agents.domains.agent_webhook.views import AgentWebhookView
 
 
 TASK_PATH = "retail.agents.domains.agent_webhook.views.task_agent_webhook"
+RESOLVER_PATH = (
+    "retail.agents.domains.agent_webhook.views.IntegratedAgentWebhookResolver"
+)
 
 
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "agent-webhook-view-tests",
+        }
+    }
+)
 class AgentWebhookViewTest(APITestCase):
     def setUp(self):
         super().setUp()
+        cache.clear()
         self.client = APIClient()
         self.webhook_uuid = uuid4()
         self.url = reverse("agent-webhook", kwargs={"webhook_uuid": self.webhook_uuid})
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
 
     @patch(TASK_PATH)
     def test_post_returns_200_and_schedules_task(self, mock_task):
@@ -115,3 +133,33 @@ class AgentWebhookViewTest(APITestCase):
         from rest_framework.permissions import AllowAny
 
         self.assertEqual(AgentWebhookView.permission_classes, [AllowAny])
+
+    @patch(TASK_PATH)
+    def test_post_ping_skips_processing(self, mock_task):
+        response = self.client.post(
+            self.url, data={"hookConfig": "ping"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_task.apply_async.assert_not_called()
+
+    @patch(TASK_PATH)
+    @patch(RESOLVER_PATH)
+    def test_post_skips_generic_flow_for_dedicated_webhook_role(
+        self, mock_resolver_cls, mock_task
+    ):
+        mock_resolver_cls.return_value.should_skip_generic_webhook_dispatch.return_value = (
+            True
+        )
+
+        response = self.client.post(
+            self.url,
+            data={"cart_id": "order-123", "phone": "5584987654321", "name": "Test"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_resolver_cls.return_value.should_skip_generic_webhook_dispatch.assert_called_once_with(
+            self.webhook_uuid
+        )
+        mock_task.apply_async.assert_not_called()

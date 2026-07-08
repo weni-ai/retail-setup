@@ -76,6 +76,12 @@ class RequestOnboardingSupportSerializer(serializers.Serializer):
     data = serializers.DictField(required=False, default=dict)
 
 
+class ContentBaseProgressSerializer(serializers.Serializer):
+    """Serializer for the content base crawl/upload progress response."""
+
+    progress = serializers.IntegerField(read_only=True)
+
+
 class ProjectOnboardingSerializer(serializers.Serializer):
     """Serializer for the ProjectOnboarding status response."""
 

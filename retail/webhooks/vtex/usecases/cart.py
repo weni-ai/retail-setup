@@ -37,12 +37,19 @@ class CartUseCase(BaseAgentWebhookUseCase):
     Centralized use case for handling cart actions.
     """
 
-    def __init__(self, account: str):
+    def __init__(
+        self,
+        account: str,
+        pinned_integrated_agent: Optional[IntegratedAgent] = None,
+    ):
         super().__init__()
         self.account = account
         self.project = self._get_project_by_account()
         self.integrated_feature = self._get_integrated_feature()
-        self.integrated_agent = self._get_integrated_agent()
+        if pinned_integrated_agent is not None:
+            self.integrated_agent = pinned_integrated_agent
+        else:
+            self.integrated_agent = self._get_integrated_agent()
 
     def _get_integrated_agent(self) -> Optional[IntegratedAgent]:
         """

@@ -7,6 +7,13 @@ from retail.projects.tasks import (
     acquire_task_lock,
     task_upload_nexus_contents,
 )
+from retail.projects.usecases.content_base_progress_helpers import (
+    STATUS_COMPLETE,
+    STATUS_CRAWLING,
+    STATUS_FAILED,
+    STATUS_UPLOADING,
+    persist_content_base_progress,
+)
 from retail.projects.usecases.onboarding_dto import CrawlerWebhookDTO
 from retail.projects.usecases.save_background_failure import (
     SaveBackgroundFailureUseCase,
@@ -79,6 +86,24 @@ class UpdateOnboardingProgressUseCase:
         onboarding.save(update_fields=["crawler_result"])
 
         contents = dto.data.get("contents", [])
+        total_files = len(contents)
+        if total_files == 0:
+            persist_content_base_progress(
+                onboarding,
+                crawl_percent=100,
+                upload_percent=100,
+                status=STATUS_COMPLETE,
+                total_files=0,
+            )
+        else:
+            persist_content_base_progress(
+                onboarding,
+                crawl_percent=100,
+                upload_percent=0,
+                status=STATUS_UPLOADING,
+                total_files=total_files,
+            )
+
         vtex_account = onboarding.vtex_account
 
         logger.info(
@@ -115,6 +140,7 @@ class UpdateOnboardingProgressUseCase:
         SaveBackgroundFailureUseCase.execute(
             onboarding.vtex_account, "crawl", error_msg
         )
+        persist_content_base_progress(onboarding, status=STATUS_FAILED)
         logger.warning(
             f"Background crawl failed for onboarding={onboarding.uuid}: {error_msg}"
         )
@@ -202,7 +228,8 @@ class UpdateOnboardingProgressUseCase:
         onboarding: ProjectOnboarding, dto: CrawlerWebhookDTO
     ) -> ProjectOnboarding:
         """
-        Logs a background-crawl progress event.
+        Logs a background-crawl progress event and persists crawl phase
+        progress under ``config["content_base_progress"]``.
 
         Does NOT touch ``onboarding.progress`` -- the main wizard
         progress is owned by the inline orchestrator path (which has
@@ -213,5 +240,10 @@ class UpdateOnboardingProgressUseCase:
         logger.info(
             f"Crawl background progress for onboarding={onboarding.uuid}: "
             f"event={dto.event} crawl_progress={dto.progress}%"
+        )
+        persist_content_base_progress(
+            onboarding,
+            crawl_percent=dto.progress,
+            status=STATUS_CRAWLING,
         )
         return onboarding
