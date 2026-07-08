@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -109,11 +109,25 @@ class MarkBroadcastConvertedUseCaseTest(TestCase):
         order_form_id="of-123",
         value=15050,
         currency_code="BRL",
+        creation_date="2026-06-01T10:15:30.1234567+00:00",
+        authorized_date="2026-06-01T11:20:45.9876543+00:00",
+        payment_system_name="Visa",
     ):
         return {
             "orderFormId": order_form_id,
             "value": value,
             "storePreferencesData": {"currencyCode": currency_code},
+            "creationDate": creation_date,
+            "authorizedDate": authorized_date,
+            "paymentData": {
+                "transactions": [
+                    {
+                        "payments": [
+                            {"paymentSystemName": payment_system_name},
+                        ]
+                    }
+                ]
+            },
         }
 
     def test_skips_when_order_id_is_empty(self):
@@ -147,6 +161,15 @@ class MarkBroadcastConvertedUseCaseTest(TestCase):
         self.assertEqual(conversion.order_form_id, "of-99")
         self.assertEqual(conversion.value, Decimal("299.00"))
         self.assertEqual(conversion.currency, "BRL")
+        self.assertEqual(
+            conversion.order_created_at,
+            datetime(2026, 6, 1, 10, 15, 30, 123456, tzinfo=dt_timezone.utc),
+        )
+        self.assertEqual(
+            conversion.payment_at,
+            datetime(2026, 6, 1, 11, 20, 45, 987654, tzinfo=dt_timezone.utc),
+        )
+        self.assertEqual(conversion.payment_type, "Visa")
         self.assertIsNotNone(conversion.converted_at)
 
     def test_creates_conversion_matching_by_order_form_id(self):
@@ -305,6 +328,40 @@ class MarkBroadcastConvertedUseCaseTest(TestCase):
         conversion = BroadcastConversion.objects.get(order_id="order-50")
         self.assertEqual(conversion.currency, "")
         self.assertEqual(conversion.value, Decimal("75.00"))
+        self.assertIsNone(conversion.order_created_at)
+        self.assertIsNone(conversion.payment_at)
+        self.assertEqual(conversion.payment_type, "")
+
+    def test_handles_missing_payment_metadata_in_order_details(self):
+        self._create_broadcast(order_id="order-63")
+        self.vtex_io_service.get_order_details_by_id.return_value = {
+            "orderFormId": "of-63",
+            "value": 9900,
+            "storePreferencesData": {"currencyCode": "BRL"},
+        }
+
+        self.use_case.execute(order_id="order-63", project_uuid=str(self.project.uuid))
+
+        conversion = BroadcastConversion.objects.get(order_id="order-63")
+        self.assertIsNone(conversion.order_created_at)
+        self.assertIsNone(conversion.payment_at)
+        self.assertEqual(conversion.payment_type, "")
+
+    def test_handles_invalid_datetime_in_order_details(self):
+        self._create_broadcast(order_id="order-64")
+        self.vtex_io_service.get_order_details_by_id.return_value = (
+            self._vtex_order_details(
+                order_form_id="of-64",
+                creation_date="not-a-date",
+                authorized_date="also-invalid",
+            )
+        )
+
+        self.use_case.execute(order_id="order-64", project_uuid=str(self.project.uuid))
+
+        conversion = BroadcastConversion.objects.get(order_id="order-64")
+        self.assertIsNone(conversion.order_created_at)
+        self.assertIsNone(conversion.payment_at)
 
     def test_handles_missing_value_in_order_details(self):
         self._create_broadcast(order_id="order-60")
@@ -317,6 +374,9 @@ class MarkBroadcastConvertedUseCaseTest(TestCase):
 
         conversion = BroadcastConversion.objects.get(order_id="order-60")
         self.assertIsNone(conversion.value)
+        self.assertIsNone(conversion.order_created_at)
+        self.assertIsNone(conversion.payment_at)
+        self.assertEqual(conversion.payment_type, "")
 
     def test_handles_invalid_value_in_order_details(self):
         self._create_broadcast(order_id="order-61")
@@ -330,6 +390,9 @@ class MarkBroadcastConvertedUseCaseTest(TestCase):
 
         conversion = BroadcastConversion.objects.get(order_id="order-61")
         self.assertIsNone(conversion.value)
+        self.assertIsNone(conversion.order_created_at)
+        self.assertIsNone(conversion.payment_at)
+        self.assertEqual(conversion.payment_type, "")
 
     def test_handles_missing_store_preferences_data(self):
         self._create_broadcast(order_id="order-62")
@@ -359,6 +422,9 @@ class MarkBroadcastConvertedUseCaseTest(TestCase):
         conversion = BroadcastConversion.objects.get(order_id="order-empty")
         self.assertEqual(conversion.order_form_id, "of-empty")
         self.assertIsNone(conversion.value)
+        self.assertIsNone(conversion.order_created_at)
+        self.assertIsNone(conversion.payment_at)
+        self.assertEqual(conversion.payment_type, "")
         self.assertEqual(conversion.currency, "")
 
     def test_proceeds_when_vtex_lookup_raises(self):
@@ -654,4 +720,48 @@ class MarkBroadcastConvertedProjectResolutionTest(TestCase):
         self.vtex_io_service.get_order_details_by_id.assert_not_called()
         self.assertTrue(
             any("conversion_skip_multiple_projects" in msg for msg in cm.output)
+        )
+
+
+class MarkBroadcastConvertedParsingTest(TestCase):
+    """Unit tests for VTEX payload parsing helpers."""
+
+    def test_parse_vtex_datetime_truncates_fractional_seconds(self):
+        parsed = MarkBroadcastConvertedUseCase._parse_vtex_datetime(
+            "2026-06-01T10:15:30.1234567+00:00"
+        )
+
+        self.assertEqual(
+            parsed,
+            datetime(2026, 6, 1, 10, 15, 30, 123456, tzinfo=dt_timezone.utc),
+        )
+
+    def test_parse_vtex_datetime_handles_z_suffix(self):
+        parsed = MarkBroadcastConvertedUseCase._parse_vtex_datetime(
+            "2026-06-01T11:20:45.9876543Z"
+        )
+
+        self.assertEqual(
+            parsed,
+            datetime(2026, 6, 1, 11, 20, 45, 987654, tzinfo=dt_timezone.utc),
+        )
+
+    def test_parse_vtex_datetime_returns_none_for_invalid(self):
+        self.assertIsNone(MarkBroadcastConvertedUseCase._parse_vtex_datetime("bad"))
+        self.assertIsNone(MarkBroadcastConvertedUseCase._parse_vtex_datetime(None))
+
+    def test_extract_payment_type_from_nested_payload(self):
+        order_details = {
+            "paymentData": {
+                "transactions": [{"payments": [{"paymentSystemName": "Pix"}]}]
+            }
+        }
+
+        self.assertEqual(
+            MarkBroadcastConvertedUseCase._extract_payment_type(order_details),
+            "Pix",
+        )
+        self.assertEqual(
+            MarkBroadcastConvertedUseCase._extract_payment_type({"paymentData": {}}),
+            "",
         )

@@ -115,7 +115,7 @@ class TestCrawlerWebhookView(TestCase):
         self.onboarding = ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=self.project,
-            current_step="CRAWL",
+            current_step="NEXUS_CONFIG",
         )
 
     @patch(
@@ -188,7 +188,7 @@ class TestOnboardingStatusView(TestCase):
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
             project=project,
-            current_step="CRAWL",
+            current_step="NEXUS_CONFIG",
             progress=50,
         )
 
@@ -198,7 +198,7 @@ class TestOnboardingStatusView(TestCase):
         data = response.json()
         self.assertEqual(data["vtex_account"], "mystore")
         self.assertEqual(data["progress"], 50)
-        self.assertEqual(data["current_step"], "CRAWL")
+        self.assertEqual(data["current_step"], "NEXUS_CONFIG")
         self.assertEqual(data["project_uuid"], str(project.uuid))
 
     @_auth_bypass(None)
@@ -224,6 +224,35 @@ class TestOnboardingStatusView(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("channels", response.json()["config"])
+
+
+class TestContentBaseProgressView(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    @_auth_bypass(None)
+    def test_returns_weighted_progress(self, _mock_auth):
+        ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+            config={
+                "content_base_progress": {
+                    "crawl_percent": 100,
+                    "upload_percent": 50,
+                    "status": "uploading",
+                }
+            },
+        )
+
+        response = self.client.get("/api/onboard/mystore/content-base-progress/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"progress": 66})
+
+    @_auth_bypass(None)
+    def test_returns_404_when_onboarding_missing(self, _mock_auth):
+        response = self.client.get("/api/onboard/unknown/content-base-progress/")
+
+        self.assertEqual(response.status_code, 404)
 
 
 class TestOnboardingPatchView(TestCase):

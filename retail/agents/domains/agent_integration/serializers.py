@@ -1,9 +1,11 @@
 from rest_framework import serializers
 
-from django.conf import settings
-
 from retail.templates.serializers import ReadTemplateSerializer
 from retail.agents.domains.agent_management.usecases.push import PushAgentUseCase
+from retail.agents.domains.agent_integration.usecases.payment_recovery import (
+    DEFAULT_DELAY_MINUTES,
+)
+from retail.agents.shared.webhook_urls import build_integrated_agent_webhook_url
 
 
 class DeliveredOrderTrackingEnableSerializer(serializers.Serializer):
@@ -19,12 +21,31 @@ class RetrieveIntegratedAgentQueryParamsSerializer(serializers.Serializer):
     end = serializers.DateField(required=False, default=None)
 
 
-class AbandonedCartConfigSerializer(serializers.Serializer):
-    """
-    Serializer for abandoned cart configuration.
+class PartialUpdateSerializer(serializers.Serializer):
+    """Base serializer that only validates fields present in the payload.
 
-    Supports partial updates - only fields that are explicitly sent will be updated.
-    Fields not included in the request will not be modified.
+    Enables true partial updates: fields omitted from the request are left
+    untouched instead of being reset to their defaults.
+    """
+
+    def to_internal_value(self, data):
+        validated_data = {}
+
+        for field_name, field in self.fields.items():
+            if field_name in data:
+                try:
+                    validated_data[field_name] = field.run_validation(data[field_name])
+                except serializers.ValidationError as exc:
+                    raise serializers.ValidationError({field_name: exc.detail})
+
+        return validated_data
+
+
+class AbandonedCartConfigSerializer(PartialUpdateSerializer):
+    """Serializer for abandoned cart configuration.
+
+    Supports partial updates: only fields that are explicitly sent are
+    updated; fields omitted from the request are not modified.
     """
 
     header_image_type = serializers.ChoiceField(
@@ -49,50 +70,36 @@ class AbandonedCartConfigSerializer(serializers.Serializer):
         max_value=168,  # Max 7 days
     )
 
-    def to_internal_value(self, data):
-        """
-        Override to only include fields that were actually sent in the request.
-        This enables true partial updates where only specified fields are modified.
-        """
-        # Get the validated data for fields that were actually provided
-        validated_data = {}
 
-        for field_name, field in self.fields.items():
-            if field_name in data:
-                try:
-                    validated_data[field_name] = field.run_validation(data[field_name])
-                except serializers.ValidationError as exc:
-                    raise serializers.ValidationError({field_name: exc.detail})
+class PaymentRecoveryConfigSerializer(PartialUpdateSerializer):
+    """Serializer for payment recovery (PIX) configuration.
 
-        return validated_data
-
-
-class UpdateIntegratedAgentSerializer(serializers.Serializer):
+    Supports partial updates: only fields that are explicitly sent are
+    updated. A null ``minimum_order_value`` means no threshold: every
+    recovery request is dispatched regardless of the order value.
     """
-    Serializer for updating integrated agent.
 
-    Supports partial updates - only fields that are explicitly sent will be updated.
+    minimum_order_value = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+    )
+    delay_minutes = serializers.IntegerField(
+        required=False,
+        min_value=1,
+    )
+
+
+class UpdateIntegratedAgentSerializer(PartialUpdateSerializer):
+    """Serializer for updating an integrated agent.
+
+    Supports partial updates: only fields that are explicitly sent are updated.
     """
 
     contact_percentage = serializers.IntegerField(required=False)
     global_rule = serializers.CharField(required=False, allow_null=True)
     abandoned_cart_config = AbandonedCartConfigSerializer(required=False)
-
-    def to_internal_value(self, data):
-        """
-        Override to only include fields that were actually sent in the request.
-        This enables true partial updates where only specified fields are modified.
-        """
-        validated_data = {}
-
-        for field_name, field in self.fields.items():
-            if field_name in data:
-                try:
-                    validated_data[field_name] = field.run_validation(data[field_name])
-                except serializers.ValidationError as exc:
-                    raise serializers.ValidationError({field_name: exc.detail})
-
-        return validated_data
+    payment_recovery_config = PaymentRecoveryConfigSerializer(required=False)
 
 
 class ReadIntegratedAgentSerializer(serializers.Serializer):
@@ -115,6 +122,9 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
     abandoned_cart_config = serializers.SerializerMethodField(
         "get_abandoned_cart_config"
     )
+    payment_recovery_config = serializers.SerializerMethodField(
+        "get_payment_recovery_config"
+    )
     direct_send = serializers.SerializerMethodField("get_direct_send")
 
     def get_direct_send(self, obj):
@@ -122,8 +132,7 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
         return bool(obj.config.get("direct_send", False))
 
     def get_webhook_url(self, obj):
-        domain_url = settings.DOMAIN
-        return f"{domain_url}/api/v3/agents/webhook/{str(obj.uuid)}/"
+        return build_integrated_agent_webhook_url(obj)
 
     def get_description(self, obj):
         return obj.agent.description
@@ -172,6 +181,21 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
             "minimum_cart_value": abandoned_cart_config.get("minimum_cart_value"),
             "notification_cooldown_hours": abandoned_cart_config.get(
                 "notification_cooldown_hours"
+            ),
+        }
+
+    def get_payment_recovery_config(self, obj):
+        """Get payment recovery (PIX) configuration from agent config."""
+        payment_recovery_config = obj.config.get("payment_recovery", {})
+
+        # Only return if there's actual configuration
+        if not payment_recovery_config:
+            return None
+
+        return {
+            "minimum_order_value": payment_recovery_config.get("minimum_order_value"),
+            "delay_minutes": payment_recovery_config.get(
+                "delay_minutes", DEFAULT_DELAY_MINUTES
             ),
         }
 

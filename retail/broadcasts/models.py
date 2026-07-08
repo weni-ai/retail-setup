@@ -259,6 +259,10 @@ class BroadcastConversion(models.Model):
     value = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     currency = models.CharField(max_length=8, blank=True, default="")
 
+    order_created_at = models.DateTimeField(null=True, blank=True)
+    payment_at = models.DateTimeField(null=True, blank=True)
+    payment_type = models.CharField(max_length=128, blank=True, default="")
+
     converted_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

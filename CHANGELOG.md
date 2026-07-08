@@ -1,3 +1,22 @@
+# 5.44.0
+- feat: Add dedicated abandoned cart webhook for external callers
+
+# 5.43.0
+- fix: Skip agent webhooks when integrated agent is inactive
+
+# 5.42.0
+- feat: Switch Nexus content upload to batch direct-ingest API
+- feat: Add content-base crawl and upload progress endpoint
+- refactor: Collapse CRAWL step into NEXUS_CONFIG orchestrator
+
+# 5.41.1
+- feat: Add minimum order value rule to PIX recovery automation
+
+# 5.41.0
+- refactor: Migrate IntegratedAgent PK from UUID to integer
+- feat: Add broadcast dispatch and conversion report APIs
+- feat: Persist payment and order timestamps on broadcast conversions
+
 # 5.40.0
 - feat: Syncs all project fields and handles delete on update consumer
 - fix: Soft-delete projects and guard active vtex_account conflicts

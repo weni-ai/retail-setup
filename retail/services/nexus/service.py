@@ -117,47 +117,49 @@ class NexusService:
             )
             return None
 
-    def get_content_base_file_status(
-        self, project_uuid: str, file_uuid: str
-    ) -> Optional[Dict]:
-        """
-        Checks the processing status of a previously uploaded content base file.
-        """
-        try:
-            return self.nexus_client.get_content_base_file_status(
-                project_uuid, file_uuid
-            )
-        except CustomAPIException as e:
-            logger.error(
-                f"Error {e.status_code} checking file status "
-                f"file_uuid={file_uuid} project={project_uuid}: {e}"
-            )
-            return None
-
-    def upload_content_base_file(
+    def upload_content_base_files_batch(
         self,
         project_uuid: str,
-        file: Tuple[str, bytes, str],
+        files: List[Tuple[str, bytes, str]],
         extension_file: str = "txt",
     ) -> Optional[Dict]:
         """
-        Uploads a file to the project's inline content base in Nexus.
+        Uploads up to 25 files to the project's inline content base in Nexus.
 
         Args:
             project_uuid: The project's unique identifier.
-            file: Tuple of (filename, file_bytes, content_type).
+            files: List of (filename, file_bytes, content_type) tuples.
             extension_file: The file extension without dot (e.g. "txt").
 
         Returns:
-            Dict with upload response or None on failure.
+            Dict with uploaded file metadata or None on failure.
         """
         try:
-            return self.nexus_client.upload_content_base_file(
-                project_uuid, file, extension_file
+            return self.nexus_client.upload_content_base_files_batch(
+                project_uuid, files, extension_file
             )
         except CustomAPIException as e:
             logger.error(
-                f"Error {e.status_code} when uploading content base file "
+                f"Error {e.status_code} when batch uploading content base files "
                 f"for project {project_uuid}: {e}"
+            )
+            return None
+
+    def get_content_base_batch_progress(
+        self,
+        project_uuid: str,
+        file_uuids: List[str],
+    ) -> Optional[Dict]:
+        """
+        Returns aggregate ingestion progress for a batch of uploaded files.
+        """
+        try:
+            return self.nexus_client.get_content_base_batch_progress(
+                project_uuid, file_uuids
+            )
+        except CustomAPIException as e:
+            logger.error(
+                f"Error {e.status_code} checking batch progress "
+                f"project={project_uuid} file_uuids={file_uuids}: {e}"
             )
             return None

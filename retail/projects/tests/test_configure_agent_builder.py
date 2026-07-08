@@ -143,4 +143,4 @@ class TestConfigureAgentBuilderUseCase(TestCase):
 
         self.usecase.execute("mystore")
 
-        self.mock_nexus_service.upload_content_base_file.assert_not_called()
+        self.mock_nexus_service.upload_content_base_files_batch.assert_not_called()

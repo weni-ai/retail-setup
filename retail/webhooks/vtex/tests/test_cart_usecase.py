@@ -1,8 +1,8 @@
 import uuid
 from unittest.mock import patch
 
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.test import TestCase, override_settings
 from rest_framework.exceptions import ValidationError
 
 from retail.features.models import Feature, IntegratedFeature
@@ -10,6 +10,14 @@ from retail.projects.models import Project
 from retail.webhooks.vtex.usecases.cart import CartUseCase
 
 
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "cart-usecase-tests",
+        }
+    }
+)
 class TestCartUseCase(TestCase):
     def setUp(self):
         self.feature = Feature.objects.create(

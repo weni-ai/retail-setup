@@ -18,8 +18,8 @@ class InitiateCrawlUseCase:
       2. Starts the crawl via the Crawler MS (critical).
       3. Detects the storefront type (non-blocking).
 
-    Invoked by ``task_setup_channel_and_start_crawl`` after the pre-crawl
-    channel setup completes successfully.
+    Invoked by ``OnboardingOrchestrator`` as the first sub-phase of
+    ``NEXUS_CONFIG``, after pre-crawl channel setup completes.
     """
 
     def __init__(self, connect_service: Optional[ConnectService] = None):
