@@ -285,6 +285,10 @@ class AssignPaymentRecoveryHookTest(TestCase):
             call_kwargs["data"]["hook"]["headers"],
             {"User-Agent": "vtex-retail/0.0.0"},
         )
+        self.assertIn(
+            'salesChannel = "1"',
+            call_kwargs["data"]["filter"]["expression"],
+        )
 
         self.integrated_agent.save.assert_called()
         saved_config = self.integrated_agent.config
@@ -323,6 +327,7 @@ class AssignPaymentRecoveryHookTest(TestCase):
         self.assertEqual(saved_config["payment_recovery"]["delay_minutes"], 5)
         self.assertTrue(saved_config["payment_recovery"]["hook_created"])
         self.assertIn("webhook_url", saved_config["payment_recovery"])
+        self.assertEqual(saved_config["payment_recovery"]["sales_channels"], ["1"])
         self.assertEqual(saved_config["country_phone_code"], "55")
 
     @patch("retail.agents.domains.agent_integration.usecases.assign.ProxyVtexUsecase")

@@ -384,6 +384,26 @@ class ReadIntegratedAgentSerializerTests(SimpleTestCase):
             },
         )
 
+    def test_payment_recovery_config_includes_sales_channels(self):
+        obj = _integrated_agent(
+            config={
+                "payment_recovery": {
+                    "hook_created": True,
+                    "delay_minutes": 5,
+                    "sales_channels": ["2", "3"],
+                }
+            }
+        )
+        data = ReadIntegratedAgentSerializer(obj).data
+        self.assertEqual(data["payment_recovery_config"]["sales_channels"], ["2", "3"])
+
+    def test_payment_recovery_config_defaults_sales_channels_when_absent(self):
+        obj = _integrated_agent(
+            config={"payment_recovery": {"hook_created": True, "delay_minutes": 5}}
+        )
+        data = ReadIntegratedAgentSerializer(obj).data
+        self.assertEqual(data["payment_recovery_config"]["sales_channels"], ["1"])
+
 
 class TemplateLanguageSerializerTests(SimpleTestCase):
     def test_valid_payload_round_trips(self):

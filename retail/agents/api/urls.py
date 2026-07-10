@@ -18,6 +18,7 @@ from retail.agents.domains.agent_integration.views import (
     DeliveredOrderTrackingEnableView,
     DeliveredOrderTrackingDisableView,
     DeliveredOrderTrackingWebhookView,
+    PaymentRecoveryHookConfigView,
     PaymentRecoveryWebhookView,
     TemplateLanguagesView,
 )
@@ -64,6 +65,11 @@ urlpatterns = [
         "delivered-order-tracking/<uuid:pk>/",
         DeliveredOrderTrackingWebhookView.as_view(),
         name="delivered-order-tracking-webhook",
+    ),
+    path(
+        "assigneds/<uuid:pk>/payment-recovery/hook-config/",
+        PaymentRecoveryHookConfigView.as_view(),
+        name="payment-recovery-hook-config",
     ),
     path(
         "payment-recovery-webhook/<uuid:pk>/",

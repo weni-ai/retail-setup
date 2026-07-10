@@ -2,6 +2,9 @@ from rest_framework import serializers
 
 from retail.templates.serializers import ReadTemplateSerializer
 from retail.agents.domains.agent_management.usecases.push import PushAgentUseCase
+from retail.agents.domains.agent_integration.services.payment_recovery_hook import (
+    DEFAULT_SALES_CHANNELS,
+)
 from retail.agents.domains.agent_integration.usecases.payment_recovery import (
     DEFAULT_DELAY_MINUTES,
 )
@@ -88,6 +91,26 @@ class PaymentRecoveryConfigSerializer(PartialUpdateSerializer):
         required=False,
         min_value=1,
     )
+
+
+class PaymentRecoveryHookConfigSerializer(serializers.Serializer):
+    """Serializer for payment recovery VTEX hook filter configuration."""
+
+    sales_channels = serializers.ListField(
+        child=serializers.CharField(
+            max_length=50,
+            allow_blank=False,
+            trim_whitespace=True,
+        ),
+        allow_empty=True,
+    )
+
+
+class PaymentRecoveryHookConfigReadSerializer(serializers.Serializer):
+    """Read serializer for payment recovery VTEX hook filter configuration."""
+
+    sales_channels = serializers.ListField(child=serializers.CharField())
+    hook_created = serializers.BooleanField()
 
 
 class UpdateIntegratedAgentSerializer(PartialUpdateSerializer):
@@ -196,6 +219,9 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
             "minimum_order_value": payment_recovery_config.get("minimum_order_value"),
             "delay_minutes": payment_recovery_config.get(
                 "delay_minutes", DEFAULT_DELAY_MINUTES
+            ),
+            "sales_channels": payment_recovery_config.get(
+                "sales_channels", list(DEFAULT_SALES_CHANNELS)
             ),
         }
 
