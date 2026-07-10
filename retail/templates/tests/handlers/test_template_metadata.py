@@ -154,6 +154,23 @@ class TestTemplateMetadataHandler(TestCase):
         }
         self.assertEqual(result, expected)
 
+    def test_build_metadata_without_footer_clears_footer(self):
+        translation = {"template_body": "Updated body"}
+
+        result = self.handler.build_metadata(translation)
+
+        self.assertIsNone(result["footer"])
+
+    def test_build_metadata_with_null_footer_clears_footer(self):
+        translation = {
+            "template_body": "Updated body",
+            "template_footer": None,
+        }
+
+        result = self.handler.build_metadata(translation)
+
+        self.assertIsNone(result["footer"])
+
     def test_post_process_translation_with_buttons(self):
         metadata = {"body": "Original", "buttons": "old_buttons"}
         translation_payload = {"buttons": [{"type": "URL", "text": "New Button"}]}
