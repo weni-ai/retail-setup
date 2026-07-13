@@ -378,6 +378,66 @@ class TestUpdateTemplateContentSerializer(TestCase):
         serializer = UpdateTemplateContentSerializer(data=data)
         self.assertTrue(serializer.is_valid())
 
+    def test_blank_footer_is_normalized_to_none(self):
+        data = {
+            "template_body": "Updated body",
+            "template_footer": "",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertIsNone(serializer.validated_data["template_footer"])
+
+    def test_omitted_footer_is_not_present_in_validated_data(self):
+        data = {
+            "template_body": "Updated body",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertNotIn("template_footer", serializer.validated_data)
+
+    def test_blank_footer_with_other_content_fields_is_valid(self):
+        data = {
+            "template_body": "Olá, {{1}}! Identificamos que o pagamento do seu pedido ainda não foi finalizado.",
+            "template_header": "https://example.com/header.png",
+            "template_footer": "",
+            "template_button": [{"type": "URL", "text": "Copiar código Pix"}],
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertIsNone(serializer.validated_data["template_footer"])
+
+    def test_whitespace_only_footer_is_normalized_to_none(self):
+        data = {
+            "template_body": "Updated body",
+            "template_footer": "   ",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertIsNone(serializer.validated_data["template_footer"])
+
+    def test_only_blank_footer_without_other_content_is_invalid(self):
+        data = {
+            "template_footer": "",
+            "app_uuid": str(uuid4()),
+            "project_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("non_field_errors", serializer.errors)
+
     def test_invalid_data_no_content_fields(self):
         data = {"app_uuid": str(uuid4()), "project_uuid": str(uuid4())}
 
@@ -568,6 +628,18 @@ class TestValidateTemplateSampleSerializer(TestCase):
         serializer = self._serializer(data)
         self.assertFalse(serializer.is_valid())
         self.assertIn("template_footer", serializer.errors)
+
+    def test_blank_footer_is_normalized_to_none(self):
+        data = {**self.base_data, "template_footer": ""}
+        serializer = self._serializer(data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertIsNone(serializer.validated_data["template_footer"])
+
+    def test_whitespace_only_footer_is_normalized_to_none(self):
+        data = {**self.base_data, "template_footer": "  \t  "}
+        serializer = self._serializer(data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertIsNone(serializer.validated_data["template_footer"])
 
     def test_button_text_at_20_chars_passes(self):
         data = {

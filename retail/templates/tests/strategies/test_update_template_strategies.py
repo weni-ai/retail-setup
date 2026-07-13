@@ -14,6 +14,8 @@ from retail.templates.strategies.update_template_strategies import (
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
+from retail.templates.handlers.template_metadata import TemplateMetadataHandler
+from retail.templates.serializers import UpdateTemplateContentSerializer
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_management.models import Agent, PreApprovedTemplate
 from retail.projects.models import Project
@@ -556,6 +558,102 @@ class UpdateNormalTemplateStrategyTest(TestCase):
             assert self.template.metadata["body"] == "Only body updated"
             assert self.template.metadata["header"] == "Original header"
             assert self.template.metadata["footer"] == "Original footer"
+
+
+class UpdateNormalTemplateFooterRemovalIntegrationTest(TestCase):
+    """Footer removal through serializer → metadata handler → translation adapter."""
+
+    def setUp(self):
+        self.project = Project.objects.create(
+            uuid=uuid4(),
+            name="Test Project",
+            organization_uuid=uuid4(),
+        )
+        self.template = Template.objects.create(
+            name="payment_recovery_template",
+            metadata={
+                "category": "UTILITY",
+                "body": "Original body",
+                "header": "Original header",
+                "footer": "VTEX CX Platform",
+                "buttons": [{"type": "QUICK_REPLY", "text": "Original Button"}],
+                "language": "pt_BR",
+            },
+        )
+        self.strategy = UpdateNormalTemplateStrategy(
+            template_metadata_handler=TemplateMetadataHandler(),
+            template_adapter=TemplateTranslationAdapter(),
+        )
+        self.app_uuid = str(uuid4())
+        self.project_uuid = str(self.project.uuid)
+
+    def _build_payload_from_request(self, request_data: dict) -> dict:
+        serializer = UpdateTemplateContentSerializer(data=request_data)
+        serializer.is_valid(raise_exception=True)
+        return {
+            **serializer.validated_data,
+            "app_uuid": self.app_uuid,
+            "project_uuid": self.project_uuid,
+        }
+
+    def _assert_footer_removed(self, translation_payload: dict) -> None:
+        self.template.refresh_from_db()
+        self.assertIsNone(self.template.metadata["footer"])
+        self.assertNotIn("footer", translation_payload)
+
+    def test_blank_footer_removes_footer_end_to_end(self):
+        payload = self._build_payload_from_request(
+            {
+                "template_body": "Updated body",
+                "template_header": "Order update",
+                "template_footer": "",
+                "template_button": [{"type": "QUICK_REPLY", "text": "Pay now"}],
+                "app_uuid": self.app_uuid,
+                "project_uuid": self.project_uuid,
+            }
+        )
+
+        translation_payload = self.strategy._build_and_persist_metadata(
+            self.template, payload
+        )
+
+        self._assert_footer_removed(translation_payload)
+        self.assertEqual(self.template.metadata["body"], "Updated body")
+
+    def test_omitted_footer_removes_footer_end_to_end(self):
+        payload = self._build_payload_from_request(
+            {
+                "template_body": "Updated body",
+                "template_header": "Order update",
+                "template_button": [{"type": "QUICK_REPLY", "text": "Pay now"}],
+                "app_uuid": self.app_uuid,
+                "project_uuid": self.project_uuid,
+            }
+        )
+
+        translation_payload = self.strategy._build_and_persist_metadata(
+            self.template, payload
+        )
+
+        self._assert_footer_removed(translation_payload)
+
+    def test_whitespace_footer_removes_footer_end_to_end(self):
+        payload = self._build_payload_from_request(
+            {
+                "template_body": "Updated body",
+                "template_header": "Order update",
+                "template_footer": "   ",
+                "template_button": [{"type": "QUICK_REPLY", "text": "Pay now"}],
+                "app_uuid": self.app_uuid,
+                "project_uuid": self.project_uuid,
+            }
+        )
+
+        translation_payload = self.strategy._build_and_persist_metadata(
+            self.template, payload
+        )
+
+        self._assert_footer_removed(translation_payload)
 
 
 class UpdateCustomTemplateStrategyTest(TestCase):

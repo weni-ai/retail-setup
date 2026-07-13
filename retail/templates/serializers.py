@@ -155,16 +155,28 @@ class ParameterSerializer(serializers.Serializer):
     value = serializers.JSONField()
 
 
+def _normalize_blank_footer(value: str | None) -> str | None:
+    """Blank or whitespace-only footer means explicit removal."""
+    if value is None:
+        return None
+    if value.strip() == "":
+        return None
+    return value
+
+
 class UpdateTemplateContentSerializer(serializers.Serializer):
     template_body = serializers.CharField(required=False)
     template_header = serializers.CharField(required=False)
-    template_footer = serializers.CharField(required=False)
+    template_footer = serializers.CharField(required=False, allow_blank=True)
     template_button = serializers.ListField(required=False)
     template_body_params = serializers.ListField(required=False)
     app_uuid = serializers.CharField(required=True)
     project_uuid = serializers.CharField(required=True)
     parameters = ParameterSerializer(many=True, required=False, allow_null=True)
     language = serializers.CharField(required=False, allow_null=True)
+
+    def validate_template_footer(self, value: str | None) -> str | None:
+        return _normalize_blank_footer(value)
 
     def validate(self, attrs):
         if not any(
@@ -243,7 +255,8 @@ class ValidateTemplateSampleSerializer(UpdateTemplateContentSerializer):
                 )
         return value
 
-    def validate_template_footer(self, value: str) -> str:
+    def validate_template_footer(self, value: str | None) -> str | None:
+        value = _normalize_blank_footer(value)
         if value and len(value) > self._FOOTER_MAX_LENGTH:
             raise serializers.ValidationError(
                 f"Ensure this field has no more than {self._FOOTER_MAX_LENGTH} characters."
