@@ -93,6 +93,7 @@ class PaymentRecoveryHookConfigUseCaseTest(TestCase):
         call_kwargs = self.mock_proxy.execute.call_args[1]
         self.assertEqual(
             call_kwargs["data"]["filter"]["expression"],
+            "isCompleted = false and "
             'paymentData.transactions.payments[paymentSystem = "125"]',
         )
         self.assertEqual(

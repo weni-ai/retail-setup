@@ -28,20 +28,23 @@ def build_sales_channel_clause(sales_channels: List[str]) -> Optional[str]:
 def build_payment_recovery_hook_expression(sales_channels: List[str]) -> str:
     """Build the VTEX ``FromOrders`` hook filter expression for PIX recovery.
 
-    An empty ``sales_channels`` list means no sales-channel constraint: only
-    the PIX payment-system filter is applied, matching VTEX accounts that do
-    not segment orders by sales channel.
+    ``isCompleted = false`` is always applied so the hook targets open orders
+    only. An empty ``sales_channels`` list omits the sales-channel constraint
+    (all channels) without relaxing the incomplete-order guard.
     """
     payment_clause = (
         "paymentData.transactions.payments"
         f'[paymentSystem = "{PIX_PAYMENT_SYSTEM_ID}"]'
     )
 
-    if not sales_channels:
-        return payment_clause
+    expression_parts = ["isCompleted = false"]
 
     sales_channel_clause = build_sales_channel_clause(sales_channels)
-    return " and ".join(["isCompleted = false", sales_channel_clause, payment_clause])
+    if sales_channel_clause:
+        expression_parts.append(sales_channel_clause)
+
+    expression_parts.append(payment_clause)
+    return " and ".join(expression_parts)
 
 
 def build_payment_recovery_hook_payload(

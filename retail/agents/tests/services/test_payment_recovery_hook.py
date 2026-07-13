@@ -38,10 +38,11 @@ class BuildPaymentRecoveryHookExpressionTest(SimpleTestCase):
         expression = build_payment_recovery_hook_expression([])
         self.assertEqual(
             expression,
+            "isCompleted = false and "
             'paymentData.transactions.payments[paymentSystem = "125"]',
         )
         self.assertNotIn("salesChannel", expression)
-        self.assertNotIn("isCompleted", expression)
+        self.assertIn("isCompleted = false", expression)
 
     def test_multiple_sales_channels(self):
         expression = build_payment_recovery_hook_expression(["1", "2"])
