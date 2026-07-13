@@ -10,8 +10,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from retail.projects.models import Project
-from retail.vtex.models import Lead
 from retail.services.vtex_io.service import VtexIOService
+from retail.services.vtex_io.tenant_locale_service import VtexTenantLocaleService
+from retail.vtex.models import Lead
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +34,15 @@ class RegisterLeadUseCase:
     def __init__(
         self,
         vtex_io_service: Optional[VtexIOService] = None,
+        tenant_locale_service: Optional[VtexTenantLocaleService] = None,
     ):
-        self.vtex_io_service = vtex_io_service or VtexIOService()
+        self.tenant_locale_service = tenant_locale_service or VtexTenantLocaleService(
+            vtex_io_service=vtex_io_service
+        )
 
     def execute(self, dto: RegisterLeadDTO) -> Lead:
         project = self._get_project(dto.vtex_account)
-        region = self._resolve_region(dto.vtex_account)
+        region = self.tenant_locale_service.fetch_default_locale(dto.vtex_account)
 
         lead, created = Lead.objects.update_or_create(
             vtex_account=dto.vtex_account,
@@ -65,34 +69,3 @@ class RegisterLeadUseCase:
             return Project.objects.get(vtex_account=vtex_account)
         except Project.DoesNotExist:
             raise ValueError(f"Project not found for vtex_account: {vtex_account}")
-
-    def _resolve_region(self, vtex_account: str) -> str:
-        """Fetch the full VTEX tenant locale (e.g. 'es-MX', 'pt-BR')."""
-        account_domain = f"{vtex_account}.myvtex.com"
-        try:
-            response = self.vtex_io_service.proxy_vtex(
-                account_domain=account_domain,
-                vtex_account=vtex_account,
-                method="GET",
-                path=f"/api/tenant/tenants?q={vtex_account}",
-            )
-            locale = self._extract_locale(response)
-            if locale:
-                return locale
-        except Exception as e:
-            logger.warning(
-                f"Failed to fetch tenant locale for "
-                f"vtex_account={vtex_account}: {e}"
-            )
-        return ""
-
-    @staticmethod
-    def _extract_locale(response) -> Optional[str]:
-        if not response:
-            return None
-        tenant = response if isinstance(response, dict) else None
-        if isinstance(response, list) and response:
-            tenant = response[0]
-        if not tenant:
-            return None
-        return tenant.get("defaultLocale", "")

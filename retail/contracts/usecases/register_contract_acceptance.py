@@ -18,6 +18,7 @@ from retail.contracts.tasks import (
     task_process_contract_acceptance_document,
 )
 from retail.projects.models import Project
+from retail.services.vtex_io.tenant_locale_service import VtexTenantLocaleService
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +51,19 @@ class RegisterContractAcceptanceUseCase:
     ``task_process_contract_acceptance_document``.
     """
 
+    def __init__(
+        self,
+        tenant_locale_service: Optional[VtexTenantLocaleService] = None,
+    ):
+        self.tenant_locale_service = tenant_locale_service or VtexTenantLocaleService()
+
     def execute(self, dto: RegisterContractAcceptanceDTO) -> ContractAcceptance:
         project = self._get_project(dto.vtex_account)
         template = self._get_active_template()
+        geo_country = dto.geo_country or self.tenant_locale_service.resolve_geo_country(
+            dto.vtex_account,
+            fallback_language=project.language,
+        )
 
         acceptance_uuid = uuid4()
         accepted_at = timezone.now()
@@ -78,7 +89,7 @@ class RegisterContractAcceptanceUseCase:
             acceptance_method=dto.acceptance_method,
             checkbox_label_text=dto.checkbox_label_text,
             request_id=dto.request_id,
-            geo_country=dto.geo_country,
+            geo_country=geo_country,
         )
 
         logger.info(

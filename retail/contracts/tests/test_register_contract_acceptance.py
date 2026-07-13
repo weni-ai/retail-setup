@@ -1,5 +1,5 @@
 from datetime import datetime, timezone as dt_timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from django.test import TestCase
@@ -33,7 +33,11 @@ class RegisterContractAcceptanceUseCaseTests(TestCase):
         self.template = ContractTemplate.objects.create(
             version="v2.1", template_name="contract/pdf/v1.html"
         )
-        self.usecase = RegisterContractAcceptanceUseCase()
+        self.tenant_locale_service = MagicMock()
+        self.tenant_locale_service.resolve_geo_country.return_value = "BR"
+        self.usecase = RegisterContractAcceptanceUseCase(
+            tenant_locale_service=self.tenant_locale_service
+        )
 
     def _build_dto(self, **overrides) -> RegisterContractAcceptanceDTO:
         defaults = dict(
@@ -118,6 +122,29 @@ class RegisterContractAcceptanceUseCaseTests(TestCase):
         )
 
         self.assertEqual(acceptance.company_name, "Magazine Luiza S.A.")
+
+    @patch(NOTIFY_TASK_PATH)
+    @patch(TASK_PATH)
+    def test_execute_persists_geo_country_from_tenant_locale(
+        self, _mock_task, _mock_notify
+    ):
+        acceptance = self.usecase.execute(self._build_dto())
+
+        self.tenant_locale_service.resolve_geo_country.assert_called_once_with(
+            "teststore",
+            fallback_language=self.project.language,
+        )
+        self.assertEqual(acceptance.geo_country, "BR")
+
+    @patch(NOTIFY_TASK_PATH)
+    @patch(TASK_PATH)
+    def test_execute_keeps_explicit_geo_country_from_dto(
+        self, _mock_task, _mock_notify
+    ):
+        acceptance = self.usecase.execute(self._build_dto(geo_country="US"))
+
+        self.tenant_locale_service.resolve_geo_country.assert_not_called()
+        self.assertEqual(acceptance.geo_country, "US")
 
     @patch(NOTIFY_TASK_PATH)
     @patch(TASK_PATH)

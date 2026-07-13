@@ -5,6 +5,7 @@ from django.test import TestCase
 
 from retail.projects.models import Project
 from retail.vtex.models import Lead
+from retail.services.vtex_io.tenant_locale_service import extract_default_locale
 from retail.vtex.usecases.register_lead import RegisterLeadDTO, RegisterLeadUseCase
 
 
@@ -98,13 +99,13 @@ class TestRegisterLeadUseCase(TestCase):
         self.assertIn("nonexistent", str(ctx.exception))
 
     def test_extract_locale_from_list_response(self):
-        result = RegisterLeadUseCase._extract_locale([{"defaultLocale": "en-US"}])
+        result = extract_default_locale([{"defaultLocale": "en-US"}])
         self.assertEqual(result, "en-US")
 
     def test_extract_locale_from_dict_response(self):
-        result = RegisterLeadUseCase._extract_locale({"defaultLocale": "es-AR"})
+        result = extract_default_locale({"defaultLocale": "es-AR"})
         self.assertEqual(result, "es-AR")
 
     def test_extract_locale_returns_none_for_empty(self):
-        self.assertIsNone(RegisterLeadUseCase._extract_locale(None))
-        self.assertIsNone(RegisterLeadUseCase._extract_locale([]))
+        self.assertIsNone(extract_default_locale(None))
+        self.assertIsNone(extract_default_locale([]))
