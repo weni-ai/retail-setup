@@ -20,6 +20,8 @@ from retail.agents.domains.agent_integration.serializers import (
     UpdateIntegratedAgentSerializer,
     RetrieveIntegratedAgentQueryParamsSerializer,
     DeliveredOrderTrackingEnableSerializer,
+    PaymentRecoveryHookConfigSerializer,
+    PaymentRecoveryHookConfigReadSerializer,
     TemplateLanguageSerializer,
 )
 from retail.agents.domains.agent_integration.utils import TEMPLATE_LANGUAGES
@@ -47,6 +49,9 @@ from retail.agents.tasks import (
 )
 from retail.agents.domains.agent_integration.usecases.payment_recovery import (
     PaymentRecoveryWebhookUseCase,
+)
+from retail.agents.domains.agent_integration.usecases.payment_recovery_hook_config import (
+    PaymentRecoveryHookConfigUseCase,
 )
 
 from retail.internal.permissions import HasProjectPermission
@@ -357,6 +362,42 @@ class DeliveredOrderTrackingWebhookView(APIView):
             )
 
             return Response({"message": "Webhook received"}, status=status.HTTP_200_OK)
+
+
+class PaymentRecoveryHookConfigView(APIView):
+    """View for managing payment recovery VTEX hook filter configuration."""
+
+    permission_classes = [
+        IsAuthenticated,
+        HasProjectPermission,
+        IsIntegratedAgentFromProject,
+    ]
+
+    def get(self, request: Request, pk: UUID) -> Response:
+        """Get payment recovery hook configuration for an integrated agent."""
+        use_case = PaymentRecoveryHookConfigUseCase()
+        integrated_agent = use_case.get_integrated_agent(pk)
+        self.check_object_permissions(request, integrated_agent)
+
+        config_data = use_case.get_hook_config(integrated_agent)
+        serializer = PaymentRecoveryHookConfigReadSerializer(config_data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def patch(self, request: Request, pk: UUID) -> Response:
+        """Update payment recovery sales channel filter and sync VTEX hook."""
+        use_case = PaymentRecoveryHookConfigUseCase()
+        integrated_agent = use_case.get_integrated_agent(pk)
+        self.check_object_permissions(request, integrated_agent)
+
+        serializer = PaymentRecoveryHookConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        config_data = use_case.update_sales_channels(
+            integrated_agent,
+            serializer.validated_data["sales_channels"],
+        )
+        response_serializer = PaymentRecoveryHookConfigReadSerializer(config_data)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 
 class PaymentRecoveryWebhookView(APIView):

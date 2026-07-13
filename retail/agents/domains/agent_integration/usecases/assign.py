@@ -46,6 +46,10 @@ from retail.agents.domains.agent_integration.usecases.build_abandoned_cart_trans
 from retail.agents.domains.agent_integration.usecases.build_payment_recovery_translation import (
     BuildPaymentRecoveryTranslationUseCase,
 )
+from retail.agents.domains.agent_integration.services.payment_recovery_hook import (
+    DEFAULT_SALES_CHANNELS,
+    build_payment_recovery_hook_payload,
+)
 from retail.vtex.usecases.proxy_vtex import ProxyVtexUsecase
 from retail.services.vtex_io.service import VtexIOService
 
@@ -1017,21 +1021,9 @@ class AssignAgentUseCase:
                 f"agent={integrated_agent.uuid} webhook_url={webhook_url}"
             )
 
-            hook_data = {
-                "filter": {
-                    "type": "FromOrders",
-                    "expression": (
-                        'isCompleted = false and (salesChannel = "1") '
-                        "and (paymentData.transactions.payments"
-                        '[paymentSystem = "125"])'
-                    ),
-                    "disableSingleFire": False,
-                },
-                "hook": {
-                    "url": webhook_url,
-                    "headers": {"User-Agent": "vtex-retail/0.0.0"},
-                },
-            }
+            current_config = integrated_agent.config.copy()
+            payment_recovery_config = current_config.get("payment_recovery", {})
+            hook_data = build_payment_recovery_hook_payload(webhook_url)
 
             proxy_usecase = ProxyVtexUsecase(vtex_io_service=VtexIOService())
             proxy_usecase.execute(
@@ -1041,12 +1033,11 @@ class AssignAgentUseCase:
                 project_uuid=str(integrated_agent.project.uuid),
             )
 
-            current_config = integrated_agent.config.copy()
-            payment_recovery_config = current_config.get("payment_recovery", {})
             payment_recovery_config.update(
                 {
                     "webhook_url": webhook_url,
                     "hook_created": True,
+                    "sales_channels": list(DEFAULT_SALES_CHANNELS),
                 }
             )
             current_config["payment_recovery"] = payment_recovery_config
