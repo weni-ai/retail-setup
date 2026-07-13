@@ -1,3 +1,8 @@
+# 5.46.0
+- fix: Resolve geo_country for contract acceptance notifications
+- feat: Add payment recovery sales channel hook config endpoint
+- fix: Allow blank template footer to remove footer on edit
+
 # 5.45.0
 - feat: Add immutable contract acceptance API with PDF delivery
 
