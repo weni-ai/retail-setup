@@ -44,6 +44,7 @@ class TaskPaymentRecoveryWebhookTest(TestCase):
 
         task_payment_recovery_webhook(self.agent_uuid, self.webhook_data)
 
+        mock_usecase_cls.assert_called_once_with(exec_logger=mock_logger)
         mock_usecase.get_integrated_agent.assert_called_once_with(self.agent_uuid)
         mock_usecase.process_webhook_notification.assert_called_once_with(
             mock_agent, self.webhook_data
