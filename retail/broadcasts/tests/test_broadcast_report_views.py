@@ -1,10 +1,12 @@
 """End-to-end tests for broadcast report APIs."""
 
+from decimal import Decimal
 from uuid import uuid4
 
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -22,6 +24,7 @@ from retail.projects.models import Project
 
 
 User = get_user_model()
+PAYMENT_RECOVERY_AGENT_UUID = str(uuid4())
 
 
 @with_test_settings
@@ -282,6 +285,171 @@ class BroadcastReportViewsTest(BaseTestMixin, APITestCase):
     def test_agent_dispatches_returns_404_for_unknown_agent(self):
         unknown_url = reverse(
             "broadcast-agent-dispatches",
+            kwargs={"agent_uuid": str(uuid4())},
+        )
+
+        response = self._get(
+            unknown_url,
+            project_uuid=self.project.uuid,
+            query=self.query,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+@with_test_settings
+@override_settings(PAYMENT_RECOVERY_AGENT_UUID=PAYMENT_RECOVERY_AGENT_UUID)
+class BroadcastPaymentRecoveryConversionViewsTest(BaseTestMixin, APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions={"project_authorization": 2},
+        )
+
+        self.project = Project.objects.create(name="Project A", uuid=uuid4())
+        self.other_project = Project.objects.create(name="Project B", uuid=uuid4())
+        self.agent = Agent.objects.create(
+            uuid=PAYMENT_RECOVERY_AGENT_UUID,
+            name="Whatsapp Payment Recovery",
+            slug="payment-recovery",
+            description="",
+            project=self.project,
+        )
+        self.integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(),
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=uuid4(),
+        )
+        self.second_integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(),
+            agent=self.agent,
+            project=self.project,
+            channel_uuid=uuid4(),
+        )
+
+        self.user = User.objects.create_user(
+            username="payment-recovery-tester",
+            password="x",
+            email="payment-recovery@example.com",
+        )
+        self.client.force_authenticate(self.user)
+
+        self.project_conversion_url = reverse(
+            "broadcast-project-payment-recovery-conversion"
+        )
+        self.agent_conversion_url = reverse(
+            "broadcast-agent-payment-recovery-conversion",
+            kwargs={"agent_uuid": str(self.integrated_agent.uuid)},
+        )
+        today = timezone.localdate()
+        start_date = today - timedelta(days=1)
+        end_date = today + timedelta(days=1)
+        self.query = (
+            f"start_date={start_date.isoformat()}&end_date={end_date.isoformat()}"
+        )
+
+    def _get(self, url, *, project_uuid=None, query=None):
+        headers = {"HTTP_AUTHORIZATION": "Bearer token"}
+        if project_uuid is not None:
+            headers["HTTP_PROJECT_UUID"] = str(project_uuid)
+        full_url = url
+        if query:
+            full_url = f"{url}?{query}"
+        return self.client.get(full_url, **headers)
+
+    def test_project_payment_recovery_conversion_returns_metrics(self):
+        broadcast = BroadcastMessage.objects.create(
+            project=self.project,
+            integrated_agent=self.integrated_agent,
+            template_name="payment_recovery",
+            contact_urn="whatsapp:5511888888888",
+            status=BroadcastStatus.DELIVERED,
+            order_id="order-99",
+        )
+        BroadcastMessage.objects.create(
+            project=self.project,
+            integrated_agent=self.integrated_agent,
+            template_name="payment_recovery",
+            contact_urn="whatsapp:5511777777777",
+            status=BroadcastStatus.QUEUED,
+            order_id="order-queued",
+        )
+        BroadcastConversion.objects.create(
+            project=self.project,
+            integrated_agent=self.integrated_agent,
+            broadcast=broadcast,
+            order_id="order-99",
+            value=Decimal("150.00"),
+        )
+
+        response = self._get(
+            self.project_conversion_url,
+            project_uuid=self.project.uuid,
+            query=self.query,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total_dispatches"], 1)
+        self.assertEqual(response.data["converted_payments"], 1)
+        self.assertEqual(str(response.data["conversion_rate"]), "100.00")
+        self.assertEqual(str(response.data["recovered_revenue"]), "150.00")
+        self.assertEqual(str(response.data["average_ticket"]), "150.00")
+
+    def test_project_payment_recovery_conversion_requires_project_header(self):
+        response = self._get(self.project_conversion_url, query=self.query)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_agent_payment_recovery_conversion_returns_only_matching_agent_rows(self):
+        broadcast = BroadcastMessage.objects.create(
+            project=self.project,
+            integrated_agent=self.integrated_agent,
+            template_name="payment_recovery",
+            contact_urn="whatsapp:5511666666666",
+            status=BroadcastStatus.SENT,
+            order_id="order-agent",
+        )
+        BroadcastMessage.objects.create(
+            project=self.project,
+            integrated_agent=self.second_integrated_agent,
+            template_name="payment_recovery",
+            contact_urn="whatsapp:5511555555555",
+            status=BroadcastStatus.SENT,
+            order_id="order-other-agent",
+        )
+        BroadcastConversion.objects.create(
+            project=self.project,
+            integrated_agent=self.integrated_agent,
+            broadcast=broadcast,
+            order_id="order-agent",
+            value=Decimal("80.00"),
+        )
+
+        response = self._get(
+            self.agent_conversion_url,
+            project_uuid=self.project.uuid,
+            query=self.query,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total_dispatches"], 1)
+        self.assertEqual(response.data["converted_payments"], 1)
+        self.assertEqual(str(response.data["recovered_revenue"]), "80.00")
+
+    def test_agent_payment_recovery_conversion_rejects_agent_from_other_project(self):
+        response = self._get(
+            self.agent_conversion_url,
+            project_uuid=self.other_project.uuid,
+            query=self.query,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_agent_payment_recovery_conversion_returns_404_for_unknown_agent(self):
+        unknown_url = reverse(
+            "broadcast-agent-payment-recovery-conversion",
             kwargs={"agent_uuid": str(uuid4())},
         )
 
