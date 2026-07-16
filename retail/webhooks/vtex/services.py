@@ -16,6 +16,15 @@ from sentry_sdk import capture_exception, capture_message
 logger = logging.getLogger(__name__)
 
 
+def _integration_settings_for_entity(
+    config: Dict[str, Any], entity_type: str
+) -> Dict[str, Any]:
+    """Return the config slice where restriction keys live for ``entity_type``."""
+    if entity_type == "integrated_feature":
+        return config.get("integration_settings", {})
+    return config
+
+
 @dataclass
 class CartServiceContext:
     """
@@ -308,12 +317,14 @@ class CartTimeRestrictionService:
         Falls back to ABANDONED_CART_COUNTDOWN env var if not configured.
         """
         config = self.context.config
+        settings_config = _integration_settings_for_entity(
+            config, self.context.entity_type
+        )
 
         # Get the appropriate countdown based on integration type
         abandonment_countdown = self._get_abandonment_countdown_seconds()
 
-        # Both integrated feature and integrated agent use the same structure
-        message_time_restriction = config.get("message_time_restriction", {})
+        message_time_restriction = settings_config.get("message_time_restriction", {})
         is_active = message_time_restriction.get("is_active", False)
 
         if not is_active:
@@ -389,9 +400,12 @@ class CartPhoneRestrictionService:
             bool: True if the phone is allowed, False if it should be blocked.
         """
         config = self.context.config
-
-        # Both integrated feature and integrated agent use the same structure
-        abandoned_cart_restriction = config.get("abandoned_cart_restriction", {})
+        settings_config = _integration_settings_for_entity(
+            config, self.context.entity_type
+        )
+        abandoned_cart_restriction = settings_config.get(
+            "abandoned_cart_restriction", {}
+        )
 
         if not abandoned_cart_restriction.get("is_active", False):
             logger.info(

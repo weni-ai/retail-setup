@@ -519,7 +519,7 @@ class CartAbandonmentSkipFinalisesExecutionRowTests(TestCase):
             integration_config=self.integrated_feature,
         )
 
-        self.mock_buffer.update_status.assert_called_once_with(
+        self.mock_buffer.update_metadata.assert_called_once_with(
             execution_uuid=self.execution_uuid,
             status=AgentExecutionStatus.SKIP,
         )

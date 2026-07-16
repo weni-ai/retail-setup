@@ -17,7 +17,7 @@ the exception path uniformly.
 import logging
 import sys
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Type
 
 from celery.exceptions import Retry
 
@@ -27,6 +27,10 @@ from retail.agents.domains.agent_execution.context import (
 )
 from retail.agents.domains.agent_execution.services.logger import (
     ExecutionLoggerService,
+)
+from retail.observability.sentry import (
+    fingerprint_with_vtex_account,
+    sentry_error_scope,
 )
 
 
@@ -41,6 +45,8 @@ def execution_log_scope(
     reraise: Tuple[Type[BaseException], ...] = (Retry,),
     suppress: Tuple[Type[BaseException], ...] = (Exception,),
     log_prefix: str = "[TASK]",
+    sentry_tags: Optional[Dict[str, Any]] = None,
+    sentry_fingerprint: Optional[List[str]] = None,
 ) -> Iterator[ExecutionLoggerService]:
     """Provide an ``ExecutionLoggerService`` and uniform error handling.
 
@@ -59,6 +65,12 @@ def execution_log_scope(
             to all ``Exception`` subclasses so a task crash never
             blocks subsequent beat ticks.
         log_prefix: Prefix used in the human-readable error log.
+        sentry_tags: Searchable tags (e.g. ``vtex_account``,
+            ``project_uuid``) attached to the Sentry event if the body
+            raises.
+        sentry_fingerprint: Explicit grouping key. Defaults to
+            ``[log_prefix, <exception class>]`` so each task groups its
+            failures by exception type instead of by rendered message.
 
     Yields:
         ``ExecutionLoggerService`` instance the task body should pass
@@ -71,7 +83,14 @@ def execution_log_scope(
     try:
         yield exec_logger
     except reraise:
-        _log_terminal_error(exec_logger, error_data, error_data_factory, log_prefix)
+        _log_terminal_error(
+            exec_logger,
+            error_data,
+            error_data_factory,
+            log_prefix,
+            sentry_tags=sentry_tags,
+            sentry_fingerprint=sentry_fingerprint,
+        )
         raise
     except suppress as exc:
         _log_terminal_error(
@@ -80,6 +99,8 @@ def execution_log_scope(
             error_data_factory,
             log_prefix,
             extra_message=str(exc),
+            sentry_tags=sentry_tags,
+            sentry_fingerprint=sentry_fingerprint,
         )
 
 
@@ -89,15 +110,16 @@ def _log_terminal_error(
     error_data_factory: Optional[Callable[[], Dict[str, Any]]],
     log_prefix: str,
     extra_message: Optional[str] = None,
+    sentry_tags: Optional[Dict[str, Any]] = None,
+    sentry_fingerprint: Optional[List[str]] = None,
 ) -> None:
     """Forward the active task failure to the execution log."""
     exc_type, exc_value, _ = sys.exc_info()
     if exc_value is None:
         return
 
-    message = extra_message or str(exc_value) or (
-        exc_type.__name__ if exc_type else "Unknown error"
-    )
+    exception_name = exc_type.__name__ if exc_type else "Unknown error"
+    message = extra_message or str(exc_value) or exception_name
 
     payload: Dict[str, Any] = {}
     if error_data:
@@ -116,10 +138,14 @@ def _log_terminal_error(
             error_data=payload or None,
         )
 
-    logger.error(
-        "%s task_failed: error=%s data=%s",
-        log_prefix,
-        message,
-        payload,
-        exc_info=True,
-    )
+    fingerprint = sentry_fingerprint or [log_prefix, exception_name]
+    fingerprint = fingerprint_with_vtex_account(fingerprint, sentry_tags)
+    with sentry_error_scope(
+        fingerprint=fingerprint,
+        tags={**(sentry_tags or {}), "error_type": exception_name},
+        context={"error": message, "data": payload},
+    ):
+        logger.error(
+            f"{log_prefix} task_failed: error={message} data={payload}",
+            exc_info=True,
+        )
