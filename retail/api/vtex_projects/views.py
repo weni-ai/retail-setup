@@ -6,6 +6,7 @@ from rest_framework.request import Request
 from rest_framework import status
 
 from retail.internal.jwt_mixins import JWTModuleAuthMixin
+from retail.internal.weni_mixins import WeniAuthMixin
 from retail.api.vtex_projects.serializers import AgentActiveQuerySerializer
 from retail.api.vtex_projects.usecases.check_agent_active import (
     CheckAgentActiveUseCase,
@@ -53,7 +54,7 @@ class AgentActiveView(JWTModuleAuthMixin, APIView):
         return Response({"is_active": is_active}, status=status.HTTP_200_OK)
 
 
-class OnboardingCompleteView(JWTModuleAuthMixin, APIView):
+class OnboardingCompleteView(WeniAuthMixin, APIView):
     """
     Checks whether the onboarding process is fully completed for a VTEX account.
 
@@ -62,13 +63,14 @@ class OnboardingCompleteView(JWTModuleAuthMixin, APIView):
     """
 
     def get(self, request: Request, vtex_account: str) -> Response:
+        account = self.auth.vtex_account
         try:
             use_case = CheckOnboardingCompleteUseCase()
-            result = use_case.execute(vtex_account=vtex_account)
+            result = use_case.execute(vtex_account=account)
         except Exception:
             logger.exception(
                 f"Unexpected error checking onboarding complete for "
-                f"vtex_account={vtex_account}"
+                f"vtex_account={account}"
             )
             return Response(INACTIVE_STATUS.to_dict(), status=status.HTTP_200_OK)
 

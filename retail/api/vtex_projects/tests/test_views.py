@@ -7,10 +7,11 @@ from retail.api.vtex_projects.views import AgentActiveView, OnboardingCompleteVi
 from retail.api.vtex_projects.usecases.check_onboarding_complete import (
     OnboardingStatus,
 )
+from retail.internal.test_mixins import patch_retail_auth
 
 
 def _jwt_auth_bypass(vtex_account: str):
-    """Patches JWTModuleAuthentication so the request carries vtex_account without a real JWT token."""
+    """Patches legacy JWTModuleAuthentication for agent-active checks."""
 
     def side_effect(request):
         request.project_uuid = None
@@ -141,9 +142,6 @@ class AgentActiveViewTest(TestCase):
     def test_accepts_repeated_agent_param_with_or_semantics(
         self, mock_use_case_cls, _auth
     ):
-        """``?agent=order_status&agent=payment_recovery`` collapses into a
-        single OR check on the server, so the agentic-cx never pays the
-        cost of two HTTP round-trips."""
         mock_use_case_cls.return_value.execute_any.return_value = True
 
         request = self.factory.get(
@@ -181,7 +179,7 @@ class OnboardingCompleteViewTest(TestCase):
         self.view = OnboardingCompleteView.as_view()
         self.vtex_account = "teststore"
 
-    @_jwt_auth_bypass("teststore")
+    @patch_retail_auth(vtex_account="teststore")
     @patch("retail.api.vtex_projects.views.CheckOnboardingCompleteUseCase")
     def test_returns_complete_with_null_account_id(self, mock_use_case_cls, _auth):
         mock_use_case_cls.return_value.execute.return_value = OnboardingStatus(
@@ -197,7 +195,7 @@ class OnboardingCompleteViewTest(TestCase):
         self.assertTrue(response.data["is_complete"])
         self.assertIsNone(response.data["accountId"])
 
-    @_jwt_auth_bypass("teststore")
+    @patch_retail_auth(vtex_account="teststore")
     @patch("retail.api.vtex_projects.views.CheckOnboardingCompleteUseCase")
     def test_returns_incomplete(self, mock_use_case_cls, _auth):
         mock_use_case_cls.return_value.execute.return_value = OnboardingStatus(
@@ -213,7 +211,7 @@ class OnboardingCompleteViewTest(TestCase):
         self.assertFalse(response.data["is_complete"])
         self.assertIsNone(response.data["accountId"])
 
-    @_jwt_auth_bypass("teststore")
+    @patch_retail_auth(vtex_account="teststore")
     @patch("retail.api.vtex_projects.views.CheckOnboardingCompleteUseCase")
     def test_returns_safe_default_on_exception(self, mock_use_case_cls, _auth):
         mock_use_case_cls.return_value.execute.side_effect = Exception("db error")
@@ -235,7 +233,16 @@ class OnboardingCompleteViewTest(TestCase):
 
         self.assertIn(response.status_code, [401, 403])
 
-    @_jwt_auth_bypass("teststore")
+    @patch_retail_auth(vtex_account=None)
+    def test_missing_tenant_returns_403(self, _auth):
+        request = self.factory.get(
+            f"/api/vtex-projects/{self.vtex_account}/onboarding-complete/"
+        )
+        response = self.view(request, vtex_account=self.vtex_account)
+
+        self.assertEqual(response.status_code, 403)
+
+    @patch_retail_auth(vtex_account="teststore")
     @patch("retail.api.vtex_projects.views.CheckOnboardingCompleteUseCase")
     def test_passes_correct_vtex_account_to_use_case(self, mock_use_case_cls, _auth):
         mock_use_case_cls.return_value.execute.return_value = OnboardingStatus(

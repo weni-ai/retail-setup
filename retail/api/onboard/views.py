@@ -2,6 +2,8 @@ import logging
 
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.views import APIView
+from weni_commons.auth import IsWeniAuthenticated
 
 from retail.api.onboard.serializers import (
     ActivateWebchatSerializer,
@@ -12,14 +14,15 @@ from retail.api.onboard.usecases.dto import ActivateWebchatDTO, ActivateWppCloud
 from retail.api.onboard.usecases.publish_webchat_script import (
     PublishWebchatScriptUseCase,
 )
-from retail.internal.views import KeycloakAPIView
+from retail.internal.permissions import HasWeniProjectPermission
+from retail.internal.weni_mixins import WeniAuthMixin
 from retail.services.integrations.service import IntegrationsService
 from retail.services.webchat_push.service import WebchatPushService
 
 logger = logging.getLogger(__name__)
 
 
-class ActivateWebchatView(KeycloakAPIView):
+class ActivateWebchatView(WeniAuthMixin, APIView):
     """
     Publishes the webchat loader script to the customer's S3 bucket.
 
@@ -27,14 +30,18 @@ class ActivateWebchatView(KeycloakAPIView):
     the webchat widget on their store.
     """
 
+    permission_classes = [IsWeniAuthenticated, HasWeniProjectPermission]
+
     def post(self, request):
         serializer = ActivateWebchatSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        vtex_account = self.auth.vtex_account
+
         dto = ActivateWebchatDTO(
             app_uuid=str(serializer.validated_data["app_uuid"]),
             account_id=serializer.validated_data["account_id"],
-            vtex_account=serializer.validated_data["vtex_account"],
+            vtex_account=vtex_account,
         )
 
         use_case = PublishWebchatScriptUseCase(
@@ -47,7 +54,7 @@ class ActivateWebchatView(KeycloakAPIView):
         return Response(result.to_dict(), status=status.HTTP_201_CREATED)
 
 
-class ActivateWppCloudView(KeycloakAPIView):
+class ActivateWppCloudView(WeniAuthMixin, APIView):
     """
     Activates the WPP Cloud abandoned cart agent by setting
     its contact_percentage.
@@ -60,8 +67,10 @@ class ActivateWppCloudView(KeycloakAPIView):
         serializer = ActivateWppCloudSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        project_uuid = self.auth.project_uuid
+
         dto = ActivateWppCloudDTO(
-            project_uuid=str(serializer.validated_data["project_uuid"]),
+            project_uuid=project_uuid,
             percentage=serializer.validated_data["percentage"],
         )
 
