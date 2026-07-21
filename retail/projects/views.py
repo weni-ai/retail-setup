@@ -8,7 +8,6 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework import status
 
-from retail.internal.jwt_mixins import JWTModuleAuthMixin
 from retail.internal.weni_mixins import WeniAuthMixin
 from retail.internal.views import InternalGenericViewSet
 from retail.projects.models import Project, ProjectOnboarding
@@ -86,7 +85,7 @@ class ProjectVtexViewSet(viewsets.ViewSet):
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
 
 
-class VtexAccountLookupView(JWTModuleAuthMixin, APIView):
+class VtexAccountLookupView(WeniAuthMixin, APIView):
     """
     API view to look up the VTEX account associated with a given project.
 
@@ -107,7 +106,7 @@ class VtexAccountLookupView(JWTModuleAuthMixin, APIView):
             or an error message if the account is not found.
         """
         use_case = GetProjectVtexAccountUseCase()
-        vtex_account = use_case.execute(self.project_uuid)
+        vtex_account = use_case.execute(self.auth.project_uuid)
 
         if not vtex_account:
             return Response(

@@ -11,18 +11,9 @@ from retail.internal.test_mixins import patch_retail_auth
 
 
 def _jwt_auth_bypass(vtex_account: str):
-    """Patches legacy JWTModuleAuthentication for agent-active checks."""
+    """Patch unified retail auth (JWT/Keycloak) for agent-active checks."""
 
-    def side_effect(request):
-        request.project_uuid = None
-        request.vtex_account = vtex_account
-        request.jwt_payload = {"vtex_account": vtex_account}
-        return (None, None)
-
-    return patch(
-        "retail.internal.jwt_authenticators.JWTModuleAuthentication.authenticate",
-        side_effect=side_effect,
-    )
+    return patch_retail_auth(vtex_account=vtex_account)
 
 
 class AgentActiveViewTest(TestCase):

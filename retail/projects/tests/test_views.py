@@ -441,3 +441,40 @@ class TestInstallChannelAgentsView(TestCase):
         response = self.client.post(self.url, self.valid_payload, format="json")
 
         self.assertEqual(response.status_code, 403)
+
+
+class TestVtexAccountLookupView(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.url = "/api/projects/vtex-account/"
+        self.project_uuid = str(uuid4())
+
+    @auth_bypass(project_uuid="11111111-1111-1111-1111-111111111111")
+    @patch("retail.projects.views.GetProjectVtexAccountUseCase")
+    def test_returns_vtex_account_from_project_uuid(
+        self, mock_use_case_cls, _mock_auth
+    ):
+        mock_use_case_cls.return_value.execute.return_value = "mystore"
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"vtex_account": "mystore"})
+        mock_use_case_cls.return_value.execute.assert_called_once_with(
+            "11111111-1111-1111-1111-111111111111"
+        )
+
+    @auth_bypass(project_uuid="11111111-1111-1111-1111-111111111111")
+    @patch("retail.projects.views.GetProjectVtexAccountUseCase")
+    def test_returns_400_when_account_not_found(self, mock_use_case_cls, _mock_auth):
+        mock_use_case_cls.return_value.execute.return_value = None
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 400)
+
+    @auth_bypass(project_uuid=None)
+    def test_missing_project_uuid_returns_403(self, _mock_auth):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 403)

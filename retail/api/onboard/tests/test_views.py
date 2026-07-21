@@ -27,9 +27,9 @@ class TestActivateWebchatView(TestCase):
         self.project = Project.objects.create(
             name="Test", uuid=uuid4(), vtex_account="mystore"
         )
+        self.account_id = "b1165658e9e54790881952eb99341e51"
         self.valid_payload = {
             "app_uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-            "account_id": "b1165658e9e54790881952eb99341e51",
         }
 
     def _post(self, data):
@@ -47,7 +47,11 @@ class TestActivateWebchatView(TestCase):
             {"project_authorization": level},
         )
 
-    @patch_retail_auth(vtex_account="mystore", user_email="user@weni.ai")
+    @patch_retail_auth(
+        vtex_account="mystore",
+        user_email="user@weni.ai",
+        account_id="b1165658e9e54790881952eb99341e51",
+    )
     @patch(CONNECT_PROXY_PATH)
     @patch("retail.api.onboard.views.WebchatPushService")
     @patch("retail.api.onboard.views.IntegrationsService")
@@ -68,13 +72,18 @@ class TestActivateWebchatView(TestCase):
         MockUseCase.return_value.execute.assert_called_once()
         dto = MockUseCase.return_value.execute.call_args.args[0]
         self.assertEqual(dto.vtex_account, "mystore")
+        self.assertEqual(dto.account_id, self.account_id)
 
-    @patch_retail_auth(vtex_account="mystore", user_email="user@weni.ai")
+    @patch_retail_auth(
+        vtex_account="mystore",
+        user_email="user@weni.ai",
+        account_id="b1165658e9e54790881952eb99341e51",
+    )
     @patch(CONNECT_PROXY_PATH)
     @patch("retail.api.onboard.views.WebchatPushService")
     @patch("retail.api.onboard.views.IntegrationsService")
     @patch("retail.api.onboard.views.PublishWebchatScriptUseCase")
-    def test_jwt_uses_vtex_account_from_token(
+    def test_jwt_uses_account_id_and_vtex_account_from_token(
         self, MockUseCase, MockIntegrationsService, MockPushService, MockProxy, _auth
     ):
         self._grant(MockProxy)
@@ -87,8 +96,13 @@ class TestActivateWebchatView(TestCase):
         self.assertEqual(response.status_code, 201)
         dto = MockUseCase.return_value.execute.call_args.args[0]
         self.assertEqual(dto.vtex_account, "mystore")
+        self.assertEqual(dto.account_id, self.account_id)
 
-    @patch_retail_auth(vtex_account="mystore", is_internal=True)
+    @patch_retail_auth(
+        vtex_account="mystore",
+        is_internal=True,
+        account_id="b1165658e9e54790881952eb99341e51",
+    )
     @patch(CONNECT_PROXY_PATH)
     @patch("retail.api.onboard.views.WebchatPushService")
     @patch("retail.api.onboard.views.IntegrationsService")
@@ -105,7 +119,11 @@ class TestActivateWebchatView(TestCase):
         self.assertEqual(response.status_code, 201)
         MockProxy.return_value.get_user_permissions.assert_not_called()
 
-    @patch_retail_auth(vtex_account="mystore", user_email="user@weni.ai")
+    @patch_retail_auth(
+        vtex_account="mystore",
+        user_email="user@weni.ai",
+        account_id="b1165658e9e54790881952eb99341e51",
+    )
     @patch(CONNECT_PROXY_PATH)
     def test_user_without_project_access_returns_403(self, MockProxy, _auth):
         self._grant(MockProxy, level=PermissionsLevels.viewer)
@@ -114,39 +132,46 @@ class TestActivateWebchatView(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    @patch_retail_auth(vtex_account="mystore", user_email="user@weni.ai")
+    @patch_retail_auth(
+        vtex_account="mystore",
+        user_email="user@weni.ai",
+        account_id="b1165658e9e54790881952eb99341e51",
+    )
     @patch(CONNECT_PROXY_PATH)
     def test_missing_app_uuid_returns_400(self, MockProxy, _auth):
         self._grant(MockProxy)
 
-        response = self._post({"account_id": self.valid_payload["account_id"]})
+        response = self._post({})
 
         self.assertEqual(response.status_code, 400)
 
     @patch_retail_auth(vtex_account="mystore", user_email="user@weni.ai")
     @patch(CONNECT_PROXY_PATH)
-    def test_missing_account_id_returns_400(self, MockProxy, _auth):
+    def test_missing_account_id_in_token_returns_400(self, MockProxy, _auth):
         self._grant(MockProxy)
 
-        response = self._post({"app_uuid": self.valid_payload["app_uuid"]})
+        response = self._post(self.valid_payload)
 
         self.assertEqual(response.status_code, 400)
 
-    @patch_retail_auth(vtex_account="mystore", user_email="user@weni.ai")
+    @patch_retail_auth(
+        vtex_account="mystore",
+        user_email="user@weni.ai",
+        account_id="b1165658e9e54790881952eb99341e51",
+    )
     @patch(CONNECT_PROXY_PATH)
     def test_invalid_app_uuid_format_returns_400(self, MockProxy, _auth):
         self._grant(MockProxy)
 
-        response = self._post(
-            {
-                "app_uuid": "not-a-uuid",
-                "account_id": self.valid_payload["account_id"],
-            }
-        )
+        response = self._post({"app_uuid": "not-a-uuid"})
 
         self.assertEqual(response.status_code, 400)
 
-    @patch_retail_auth(vtex_account=None, user_email="user@weni.ai")
+    @patch_retail_auth(
+        vtex_account=None,
+        user_email="user@weni.ai",
+        account_id="b1165658e9e54790881952eb99341e51",
+    )
     def test_missing_tenant_returns_403(self, _auth):
         response = self._post(self.valid_payload)
 

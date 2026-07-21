@@ -5,7 +5,6 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
 
-from retail.internal.jwt_mixins import JWTModuleAuthMixin
 from retail.internal.weni_mixins import WeniAuthMixin
 from retail.api.vtex_projects.serializers import AgentActiveQuerySerializer
 from retail.api.vtex_projects.usecases.check_agent_active import (
@@ -22,7 +21,7 @@ logger = logging.getLogger(__name__)
 INACTIVE_RESPONSE = {"is_active": False}
 
 
-class AgentActiveView(JWTModuleAuthMixin, APIView):
+class AgentActiveView(WeniAuthMixin, APIView):
     """
     Checks whether a specific agent type is active for a VTEX account.
 
@@ -31,6 +30,7 @@ class AgentActiveView(JWTModuleAuthMixin, APIView):
     """
 
     def get(self, request: Request, vtex_account: str) -> Response:
+        account = self.auth.vtex_account
         data = {"agent": request.query_params.getlist("agent")}
         serializer = AgentActiveQuerySerializer(data=data)
         if not serializer.is_valid():
@@ -41,13 +41,13 @@ class AgentActiveView(JWTModuleAuthMixin, APIView):
         try:
             use_case = CheckAgentActiveUseCase()
             is_active = use_case.execute_any(
-                vtex_account=vtex_account,
+                vtex_account=account,
                 agent_types=agent_types,
             )
         except Exception:
             logger.exception(
                 f"Unexpected error checking agent active for "
-                f"vtex_account={vtex_account} agents={agent_types}"
+                f"vtex_account={account} agents={agent_types}"
             )
             return Response(INACTIVE_RESPONSE, status=status.HTTP_200_OK)
 

@@ -4,12 +4,12 @@ from rest_framework import serializers
 class ActivateWebchatSerializer(serializers.Serializer):
     """Validates the payload for webchat script activation.
 
-    The tenant (``vtex_account``) is never read from the body; it comes
-    exclusively from the authenticated context (``self.auth``).
+    Neither the tenant (``vtex_account``) nor the ``account_id`` identity claim
+    is read from the body; both come exclusively from the authenticated context
+    (``self.auth``).
     """
 
     app_uuid = serializers.UUIDField(required=True)
-    account_id = serializers.CharField(required=True, max_length=64)
 
 
 class ActivateWppCloudSerializer(serializers.Serializer):

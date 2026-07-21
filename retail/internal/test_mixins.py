@@ -189,6 +189,7 @@ def patch_retail_auth(
     project_uuid: Optional[str] = None,
     vtex_account: Optional[str] = None,
     user_email: Optional[str] = None,
+    account_id: Optional[str] = None,
     is_internal: bool = False,
     token_type: str = "jwt",
 ):
@@ -198,6 +199,7 @@ def patch_retail_auth(
         project_uuid: Project UUID placed on the auth context.
         vtex_account: VTEX account name placed on the auth context.
         user_email: User email placed on the auth context.
+        account_id: Optional account identity claim placed on the auth context.
         is_internal: Whether the request is marked as internal.
         token_type: ``jwt`` or ``keycloak``.
 
@@ -209,6 +211,7 @@ def patch_retail_auth(
         project_uuid=project_uuid,
         vtex_account=vtex_account,
         user_email=user_email,
+        account_id=account_id,
         is_internal=is_internal,
         token_type=token_type,
     )

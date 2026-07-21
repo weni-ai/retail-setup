@@ -37,10 +37,11 @@ class ActivateWebchatView(WeniAuthMixin, APIView):
         serializer.is_valid(raise_exception=True)
 
         vtex_account = self.auth.vtex_account
+        account_id = self.auth.account_id
 
         dto = ActivateWebchatDTO(
             app_uuid=str(serializer.validated_data["app_uuid"]),
-            account_id=serializer.validated_data["account_id"],
+            account_id=account_id,
             vtex_account=vtex_account,
         )
 
