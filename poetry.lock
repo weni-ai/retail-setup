@@ -3273,26 +3273,26 @@ files = [
 
 [[package]]
 name = "weni-commons"
-version = "1.3.1"
+version = "1.3.2a7"
 description = "Weni's common utilities for Python backends"
 optional = false
-python-versions = ">=3.8,<4.0"
-files = []
-develop = true
+python-versions = "<4.0,>=3.8"
+files = [
+    {file = "weni_commons-1.3.2a7-py3-none-any.whl", hash = "sha256:17238333ac8a4a18daf0d02ce78b3b6b942adb0028ecea1be98665ba55d21d2b"},
+    {file = "weni_commons-1.3.2a7.tar.gz", hash = "sha256:386c8d02c78841e9000f5584a704414c8a5bdd0a9143c6275d76d8d7402145f3"},
+]
 
 [package.dependencies]
+boto3 = ">=1.18.0,<2.0.0"
 celery = ">=5.0.0,<6.0"
 django = ">=3.2.22,<6.0"
 django-redis = ">=4.0.0,<=6.0"
 djangorestframework = ">=3.12.0,<4.0"
 mozilla-django-oidc = ">=2.0.0,<5.0"
 pyjwt = ">=2.8.0,<3.0"
-weni-eda = "^0.1.2"
-weni-feature-flags = "^2.2.0"
-
-[package.source]
-type = "directory"
-url = "../weni-commons"
+requests = ">=2.25.0"
+weni-eda = ">=0.1.2,<0.3.0"
+weni-feature-flags = ">=2.2.0,<3.0.0"
 
 [[package]]
 name = "weni-datalake-sdk"
@@ -3627,4 +3627,4 @@ test = ["pytest"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "066d013fb0476408ff2441ccd9cedf314b0446d8ee0141393ad56ed0506c25b9"
+content-hash = "62bfdf62329d049ed18a3e903d12321f98b998c4416e7434be8ad46e63f23abb"

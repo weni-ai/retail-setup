@@ -22,7 +22,7 @@ sentry-sdk = "^2.20.0"
 babel = "^2.17.0"
 pre-commit = "^4.2.0"
 boto3 = "^1.38.13"
-weni-commons = {path = "../weni-commons", develop = true}
+weni-commons = "1.3.2a7"
 cryptography = "^45.0.5"
 weni-datalake-sdk = "0.5.0"
 elastic-apm = "^6.24.0"
