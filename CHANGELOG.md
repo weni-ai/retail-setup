@@ -1,3 +1,10 @@
+# 5.47.0
+- feat: Add Sentry fingerprint and tags for structured error grouping
+- fix: Persist store URL locally before abandoned cart template creation
+- feat: Add payment recovery conversion metrics API
+- fix: Propagate VTEX order amount to agent execution logs
+- feat: Enhance NexusClient to support instructions in agent payload
+
 # 5.46.0
 - fix: Resolve geo_country for contract acceptance notifications
 - feat: Add payment recovery sales channel hook config endpoint
