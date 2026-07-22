@@ -27,18 +27,25 @@ class JWTModuleAuthentication(BaseAuthentication):
         if not auth_header:
             raise AuthenticationFailed("Missing Authorization header.")
 
-        # Support both "Bearer <token>" and raw token
         if auth_header.startswith("Bearer "):
             return auth_header.split(" ", 1)[1]
         return auth_header
 
     def authenticate(self, request: Request) -> Optional[Tuple[Any, None]]:
-        """
-        Authenticate the request using JWT token for inter-module communication.
+        """Authenticate the request using a JWT for inter-module communication.
+
+        Args:
+            request: Incoming DRF request with an Authorization header.
 
         Returns:
-            Tuple of (user, auth) where user is None (no user model needed)
-            and auth is None (no auth object needed)
+            A tuple of ``(None, None)`` because inter-module JWT auth does not
+            bind a Django user or DRF auth object. Validated claims are
+            attached to the request as ``project_uuid``, ``vtex_account``,
+            and ``jwt_payload``.
+
+        Raises:
+            AuthenticationFailed: When the public key is missing, the token
+                is invalid or expired, or required claims are absent.
         """
         public_key: Optional[bytes] = getattr(settings, "JWT_PUBLIC_KEY", None)
         if not public_key:
@@ -61,7 +68,6 @@ class JWTModuleAuthentication(BaseAuthentication):
         except jwt.InvalidTokenError:
             raise AuthenticationFailed("Invalid token.")
 
-        # Accept either project_uuid or vtex_account
         project_uuid: Optional[str] = payload.get("project_uuid")
         vtex_account: Optional[str] = payload.get("vtex_account")
 
@@ -70,7 +76,6 @@ class JWTModuleAuthentication(BaseAuthentication):
                 "Token must contain 'project_uuid' or 'vtex_account'."
             )
 
-        # Inject values for use in the view/mixin
         request.project_uuid = project_uuid
         request.vtex_account = vtex_account
         request.jwt_payload = payload
