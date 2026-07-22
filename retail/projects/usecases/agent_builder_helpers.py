@@ -18,6 +18,7 @@ from retail.projects.usecases.manager_defaults import (
     MANAGER_PERSONALITY,
     get_manager_defaults,
 )
+from retail.projects.usecases.onboarding_defaults import get_instructions
 from retail.services.nexus.service import NexusService
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ def ensure_agent_manager_configured(
             "personality": MANAGER_PERSONALITY,
         },
         "links": [],
+        "instructions": get_instructions(language),
     }
 
     result = nexus_service.configure_agent_attributes(project_uuid, payload)
