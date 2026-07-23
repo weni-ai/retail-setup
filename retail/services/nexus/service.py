@@ -87,6 +87,20 @@ class NexusService:
             )
             return None
 
+    def list_team_agents(self, project_uuid: str) -> Optional[Dict]:
+        """
+        Lists agents integrated with a project, including shared agents
+        (active and inactive).
+        """
+        try:
+            return self.nexus_client.list_team_agents(project_uuid)
+        except CustomAPIException as e:
+            logger.error(
+                f"Error {e.status_code} when listing team agents "
+                f"for project {project_uuid}."
+            )
+            return None
+
     def check_agent_builder_exists(self, project_uuid: str) -> Optional[Dict]:
         """
         Checks whether the agent manager has been configured for a project.
