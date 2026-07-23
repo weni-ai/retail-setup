@@ -104,6 +104,31 @@ class TestNexusService(TestCase):
         )
         self.assertIsNone(result)
 
+    def test_list_team_agents_success(self):
+        expected_response = {
+            "manager": {"uuid": "manager-uuid", "active": True},
+            "agents": [{"uuid": "passive-uuid", "active": True}],
+        }
+        self.mock_nexus_client.list_team_agents.return_value = expected_response
+
+        result = self.service.list_team_agents(self.project_uuid)
+
+        self.mock_nexus_client.list_team_agents.assert_called_once_with(
+            self.project_uuid
+        )
+        self.assertEqual(result, expected_response)
+
+    def test_list_team_agents_custom_api_exception(self):
+        exception = CustomAPIException(status_code=403, detail="Forbidden")
+        self.mock_nexus_client.list_team_agents.side_effect = exception
+
+        result = self.service.list_team_agents(self.project_uuid)
+
+        self.mock_nexus_client.list_team_agents.assert_called_once_with(
+            self.project_uuid
+        )
+        self.assertIsNone(result)
+
     def test_check_agent_builder_exists_success(self):
         expected = {"data": {"has_agent": True, "name": "Test Manager"}}
         self.mock_nexus_client.check_agent_builder_exists.return_value = expected
