@@ -1,3 +1,6 @@
+# 5.47.1
+- fix: Mark content base progress complete when crawl fails
+
 # 5.47.0
 - feat: Add Sentry fingerprint and tags for structured error grouping
 - fix: Persist store URL locally before abandoned cart template creation
