@@ -4,13 +4,14 @@ from typing import Optional
 from uuid import UUID
 
 from rest_framework import status
-from rest_framework.exceptions import NotFound, ParseError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
+from weni_commons.auth import IsWeniAuthenticated
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
-from retail.agents.shared.permissions import IsIntegratedAgentFromProjectByHeader
+from retail.agents.shared.permissions import IsIntegratedAgentFromProject
 from retail.broadcasts.api.serializers import (
     BroadcastDispatchRowSerializer,
     BroadcastSummarySerializer,
@@ -31,19 +32,12 @@ from retail.broadcasts.usecases.list_broadcast_dispatches import (
     ListBroadcastDispatchesDTO,
     ListBroadcastDispatchesUseCase,
 )
-from retail.internal.permissions import HasProjectPermission
-from retail.internal.views import KeycloakAPIView
+from retail.internal.permissions import HasWeniProjectPermission
+from retail.internal.weni_mixins import WeniAuthMixin
 
 
-class _BroadcastReportBaseView(KeycloakAPIView):
-    permission_classes = [IsAuthenticated, HasProjectPermission]
-
-    @staticmethod
-    def _parse_project_uuid(request: Request) -> UUID:
-        try:
-            return UUID(request.headers.get("Project-Uuid"))
-        except (TypeError, ValueError) as exc:
-            raise ParseError("Project-Uuid header must be a valid UUID.") from exc
+class _BroadcastReportBaseView(WeniAuthMixin, APIView):
+    permission_classes = [IsWeniAuthenticated, HasWeniProjectPermission]
 
     @staticmethod
     def _build_dispatches_response(
@@ -143,15 +137,15 @@ class BroadcastProjectDispatchesView(_BroadcastReportBaseView):
     def get(self, request: Request) -> Response:
         return self._list_dispatches(
             request,
-            project_uuid=self._parse_project_uuid(request),
+            project_uuid=UUID(self.auth.project_uuid),
         )
 
 
 class _BroadcastAgentReportBaseView(_BroadcastReportBaseView):
     permission_classes = [
-        IsAuthenticated,
-        HasProjectPermission,
-        IsIntegratedAgentFromProjectByHeader,
+        IsWeniAuthenticated,
+        HasWeniProjectPermission,
+        IsIntegratedAgentFromProject,
     ]
 
     def _get_integrated_agent(
@@ -186,7 +180,7 @@ class BroadcastProjectSummaryView(_BroadcastReportBaseView):
     def get(self, request: Request) -> Response:
         return self._build_summary_response(
             request,
-            project_uuid=self._parse_project_uuid(request),
+            project_uuid=UUID(self.auth.project_uuid),
         )
 
 
@@ -208,7 +202,7 @@ class BroadcastProjectPaymentRecoveryConversionView(_BroadcastReportBaseView):
     def get(self, request: Request) -> Response:
         return self._build_payment_recovery_conversion_response(
             request,
-            project_uuid=self._parse_project_uuid(request),
+            project_uuid=UUID(self.auth.project_uuid),
         )
 
 
