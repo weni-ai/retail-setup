@@ -216,4 +216,4 @@ class UnassignAgentViewTest(BaseTestMixin, APITestCase):
         url = reverse("unassign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})
         response = self.client.post(url)
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

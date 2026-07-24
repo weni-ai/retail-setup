@@ -270,8 +270,8 @@ class TestTemplateLibraryViewSet(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_unauthenticated_user_returns_403(self):
-        """Test that unauthenticated users get 403 Forbidden"""
+    def test_unauthenticated_user_returns_401(self):
+        """Test that unauthenticated users get 401 Unauthorized"""
         self.set_retail_auth(authenticated=False)
 
         payload = {
@@ -284,4 +284,4 @@ class TestTemplateLibraryViewSet(BaseTestMixin, APITestCase):
         url += f"?app_uuid={self.app_uuid}&project_uuid={self.project_uuid}"
 
         response = self.client.patch(url, payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

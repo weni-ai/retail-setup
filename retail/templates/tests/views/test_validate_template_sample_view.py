@@ -195,13 +195,13 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
         self.assertFalse(response.data["template_updated"])
         self.assertEqual(response.data["category"], "MARKETING")
 
-    def test_unauthenticated_request_returns_403(self, mock_integrations_service):
+    def test_unauthenticated_request_returns_401(self, mock_integrations_service):
         self.set_retail_auth(authenticated=False)
         client = APIClient()
         response = client.post(
             self._sample_url(), self._default_payload(), format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_missing_project_uuid_in_token_returns_403(self, mock_integrations_service):
         self.set_retail_auth(project_uuid=None, user_email=self.user.email)
@@ -744,7 +744,7 @@ class ValidateTemplateSampleViewCrossTenantIsolationTest(BaseTestMixin, APITestC
             HTTP_PROJECT_UUID=str(self.project.uuid),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         mock_meta_service.return_value.submit_template_sample.assert_not_called()
         mock_integrations_service.return_value.get_channel_app.assert_not_called()
 

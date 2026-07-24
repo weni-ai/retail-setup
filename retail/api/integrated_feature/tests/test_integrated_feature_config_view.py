@@ -77,7 +77,7 @@ class TestIntegratedFeatureSettingsView(BaseTestIntegratedFeatureSettingsView):
             integration_settings=self.new_integration_settings,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.integrated_feature.refresh_from_db(fields=["config"])
         self.assertEqual(self.integrated_feature.config, self.original_config)
 

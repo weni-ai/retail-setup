@@ -570,14 +570,14 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
         client = APIClient()
 
         response = client.get(reverse("template-list"))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         response = client.post(reverse("template-list"), {}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         template_uuid = str(uuid4())
         response = client.get(reverse("template-detail", args=[template_uuid]))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_create_custom_template_success(self):
         """Test successful custom template creation with contributor permissions"""
@@ -785,22 +785,22 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["status"], "APPROVED")
 
-    def test_unauthenticated_user_returns_403(self):
-        """Test that unauthenticated users get 403 Forbidden"""
+    def test_unauthenticated_user_returns_401(self):
+        """Test that unauthenticated users get 401 Unauthorized"""
         self.set_retail_auth(authenticated=False)
 
         response = self.client.get(reverse("template-list"))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         response = self.client.post(reverse("template-list"), {}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         template_uuid = str(uuid4())
         response = self.client.get(reverse("template-detail", args=[template_uuid]))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         response = self.client.patch(reverse("template-status"), {}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_create_custom_template_invalid_data(self):
         """Test custom template creation fails with invalid data"""
@@ -1062,7 +1062,7 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
         url = reverse("template-custom")
         response = client.post(url, payload, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_create_custom_template_without_permission(self):
         """Test that users without permission cannot create custom templates"""
