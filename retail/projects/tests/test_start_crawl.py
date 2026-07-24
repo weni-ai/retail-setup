@@ -69,6 +69,12 @@ class TestStartCrawlUseCase(TestCase):
         self.assertEqual(called_args[0], "mystore")
         self.assertEqual(called_args[1], "crawler_start")
 
+        snapshot = self.onboarding.config["content_base_progress"]
+        self.assertEqual(snapshot["status"], "complete")
+        self.assertEqual(snapshot["crawl_percent"], 100)
+        self.assertEqual(snapshot["upload_percent"], 100)
+        self.assertEqual(snapshot["total_files"], 0)
+
     def test_build_webhook_url(self):
         onboarding_uuid = str(uuid4())
         url = StartCrawlUseCase._build_webhook_url(onboarding_uuid)

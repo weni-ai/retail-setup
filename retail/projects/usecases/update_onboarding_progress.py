@@ -8,10 +8,9 @@ from retail.projects.tasks import (
     task_upload_nexus_contents,
 )
 from retail.projects.usecases.content_base_progress_helpers import (
-    STATUS_COMPLETE,
     STATUS_CRAWLING,
-    STATUS_FAILED,
     STATUS_UPLOADING,
+    mark_content_base_complete_with_no_files,
     persist_content_base_progress,
 )
 from retail.projects.usecases.onboarding_dto import CrawlerWebhookDTO
@@ -88,13 +87,7 @@ class UpdateOnboardingProgressUseCase:
         contents = dto.data.get("contents", [])
         total_files = len(contents)
         if total_files == 0:
-            persist_content_base_progress(
-                onboarding,
-                crawl_percent=100,
-                upload_percent=100,
-                status=STATUS_COMPLETE,
-                total_files=0,
-            )
+            mark_content_base_complete_with_no_files(onboarding)
         else:
             persist_content_base_progress(
                 onboarding,
@@ -132,6 +125,9 @@ class UpdateOnboardingProgressUseCase:
         decoupled from the background crawl outcome. The failure is
         persisted under ``config["background_error"]`` for ops
         visibility, and ``crawler_result`` is set to ``FAIL``.
+
+        Content-base progress is marked complete: with no crawl output
+        there is nothing left to upload.
         """
         onboarding.crawler_result = ProjectOnboarding.FAIL
         onboarding.save(update_fields=["crawler_result"])
@@ -140,7 +136,7 @@ class UpdateOnboardingProgressUseCase:
         SaveBackgroundFailureUseCase.execute(
             onboarding.vtex_account, "crawl", error_msg
         )
-        persist_content_base_progress(onboarding, status=STATUS_FAILED)
+        mark_content_base_complete_with_no_files(onboarding)
         logger.warning(
             f"Background crawl failed for onboarding={onboarding.uuid}: {error_msg}"
         )

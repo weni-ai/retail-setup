@@ -56,3 +56,19 @@ def persist_content_base_progress(onboarding: ProjectOnboarding, **updates) -> N
     config["content_base_progress"] = snapshot
     onboarding.config = config
     onboarding.save(update_fields=["config"])
+
+
+def mark_content_base_complete_with_no_files(onboarding: ProjectOnboarding) -> None:
+    """
+    Marks content-base progress as done when there is nothing to upload.
+
+    Used for empty crawl results and crawl failures (start or webhook):
+    the content base has no work left, so clients should see 100%.
+    """
+    persist_content_base_progress(
+        onboarding,
+        crawl_percent=100,
+        upload_percent=100,
+        status=STATUS_COMPLETE,
+        total_files=0,
+    )

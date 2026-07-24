@@ -56,3 +56,30 @@ class BroadcastSummarySerializer(serializers.Serializer):
             "delivered": instance.delivered,
             "converted": instance.converted,
         }
+
+
+class GetPaymentRecoveryConversionMetricsQuerySerializer(_DateRangeQuerySerializer):
+    """Query params for payment recovery conversion metrics."""
+
+
+class PaymentRecoveryConversionMetricsSerializer(serializers.Serializer):
+    total_dispatches = serializers.IntegerField()
+    converted_payments = serializers.IntegerField()
+    conversion_rate = serializers.DecimalField(max_digits=7, decimal_places=2)
+    recovered_revenue = serializers.DecimalField(max_digits=14, decimal_places=2)
+    average_ticket = serializers.DecimalField(
+        max_digits=14, decimal_places=2, allow_null=True
+    )
+    first_conversion_at = serializers.DateTimeField(allow_null=True)
+    last_conversion_at = serializers.DateTimeField(allow_null=True)
+
+    def to_representation(self, instance) -> dict:
+        return {
+            "total_dispatches": instance.total_dispatches,
+            "converted_payments": instance.converted_payments,
+            "conversion_rate": instance.conversion_rate,
+            "recovered_revenue": instance.recovered_revenue,
+            "average_ticket": instance.average_ticket,
+            "first_conversion_at": instance.first_conversion_at,
+            "last_conversion_at": instance.last_conversion_at,
+        }

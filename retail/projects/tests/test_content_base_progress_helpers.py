@@ -10,6 +10,7 @@ from retail.projects.usecases.content_base_progress_helpers import (
     STATUS_UPLOADING,
     compute_overall_percent,
     compute_upload_percent,
+    mark_content_base_complete_with_no_files,
     persist_content_base_progress,
 )
 
@@ -117,3 +118,24 @@ class TestPersistContentBaseProgress(TestCase):
         self.assertEqual(snapshot["crawl_percent"], 100)
         self.assertEqual(snapshot["upload_percent"], 50)
         self.assertEqual(snapshot["total_files"], 2)
+
+
+class TestMarkContentBaseCompleteWithNoFiles(TestCase):
+    def setUp(self):
+        self.onboarding = ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+            config={"vtex_host_store": "https://www.mystore.com/"},
+        )
+
+    def test_marks_progress_complete_with_zero_files(self):
+        mark_content_base_complete_with_no_files(self.onboarding)
+
+        self.onboarding.refresh_from_db()
+        snapshot = self.onboarding.config["content_base_progress"]
+        self.assertEqual(snapshot["status"], STATUS_COMPLETE)
+        self.assertEqual(snapshot["crawl_percent"], 100)
+        self.assertEqual(snapshot["upload_percent"], 100)
+        self.assertEqual(snapshot["total_files"], 0)
+        self.assertEqual(
+            self.onboarding.config["vtex_host_store"], "https://www.mystore.com/"
+        )

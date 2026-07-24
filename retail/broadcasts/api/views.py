@@ -15,11 +15,17 @@ from retail.broadcasts.api.serializers import (
     BroadcastDispatchRowSerializer,
     BroadcastSummarySerializer,
     GetBroadcastSummaryQuerySerializer,
+    GetPaymentRecoveryConversionMetricsQuerySerializer,
     ListBroadcastDispatchesQuerySerializer,
+    PaymentRecoveryConversionMetricsSerializer,
 )
 from retail.broadcasts.usecases.get_broadcast_summary import (
     GetBroadcastSummaryDTO,
     GetBroadcastSummaryUseCase,
+)
+from retail.broadcasts.usecases.get_payment_recovery_conversion_metrics import (
+    GetPaymentRecoveryConversionMetricsDTO,
+    GetPaymentRecoveryConversionMetricsUseCase,
 )
 from retail.broadcasts.usecases.list_broadcast_dispatches import (
     ListBroadcastDispatchesDTO,
@@ -105,6 +111,31 @@ class _BroadcastReportBaseView(KeycloakAPIView):
             status=status.HTTP_200_OK,
         )
 
+    def _build_payment_recovery_conversion_response(
+        self,
+        request: Request,
+        *,
+        project_uuid: UUID,
+        integrated_agent_uuid: Optional[UUID] = None,
+    ) -> Response:
+        query_serializer = GetPaymentRecoveryConversionMetricsQuerySerializer(
+            data=request.query_params
+        )
+        query_serializer.is_valid(raise_exception=True)
+        validated = query_serializer.validated_data
+
+        dto = GetPaymentRecoveryConversionMetricsDTO(
+            project_uuid=project_uuid,
+            integrated_agent_uuid=integrated_agent_uuid,
+            start_date=validated["start_date"],
+            end_date=validated["end_date"],
+        )
+        result = GetPaymentRecoveryConversionMetricsUseCase().execute(dto)
+        return Response(
+            PaymentRecoveryConversionMetricsSerializer(result).data,
+            status=status.HTTP_200_OK,
+        )
+
 
 class BroadcastProjectDispatchesView(_BroadcastReportBaseView):
     """GET ``/api/v3/broadcasts/projects/dispatches/`` — project-wide report."""
@@ -165,6 +196,28 @@ class BroadcastAgentSummaryView(_BroadcastAgentReportBaseView):
     def get(self, request: Request, agent_uuid: UUID) -> Response:
         integrated_agent = self._get_integrated_agent(request, agent_uuid)
         return self._build_summary_response(
+            request,
+            project_uuid=integrated_agent.project.uuid,
+            integrated_agent_uuid=integrated_agent.uuid,
+        )
+
+
+class BroadcastProjectPaymentRecoveryConversionView(_BroadcastReportBaseView):
+    """GET ``/api/v3/broadcasts/projects/payment-recovery/conversion/``."""
+
+    def get(self, request: Request) -> Response:
+        return self._build_payment_recovery_conversion_response(
+            request,
+            project_uuid=self._parse_project_uuid(request),
+        )
+
+
+class BroadcastAgentPaymentRecoveryConversionView(_BroadcastAgentReportBaseView):
+    """GET ``/api/v3/broadcasts/assigneds/{agent_uuid}/payment-recovery/conversion/``."""
+
+    def get(self, request: Request, agent_uuid: UUID) -> Response:
+        integrated_agent = self._get_integrated_agent(request, agent_uuid)
+        return self._build_payment_recovery_conversion_response(
             request,
             project_uuid=integrated_agent.project.uuid,
             integrated_agent_uuid=integrated_agent.uuid,

@@ -16,11 +16,17 @@ from retail.agents.shared.cache import (
     IntegratedAgentCacheHandler,
     IntegratedAgentCacheHandlerRedis,
 )
+from retail.agents.shared.vtex_order_value import (
+    OrderAmountDetails,
+    apply_order_amount_details,
+    propagate_order_amount_to_execution_log,
+)
 from retail.interfaces.clients.aws_lambda.client import RequestData
 from retail.interfaces.services.execution_logger import (
     ExecutionLoggerServiceInterface,
 )
 from retail.projects.models import Project
+from retail.services.vtex_io.service import VtexIOService
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
 
@@ -60,11 +66,13 @@ class AgentOrderStatusUpdateUsecase:
         self,
         cache_handler: Optional[IntegratedAgentCacheHandler] = None,
         exec_logger: Optional[ExecutionLoggerServiceInterface] = None,
+        vtex_io_service: Optional[VtexIOService] = None,
     ) -> None:
         self.cache_handler = cache_handler or IntegratedAgentCacheHandlerRedis()
         self.exec_logger: ExecutionLoggerServiceInterface = (
             exec_logger or ExecutionLoggerService()
         )
+        self.vtex_io_service = vtex_io_service or VtexIOService()
 
     def get_integrated_agent_if_exists(
         self, project: Project
@@ -241,6 +249,8 @@ class AgentOrderStatusUpdateUsecase:
         self,
         integrated_agent: IntegratedAgent,
         order_status_dto: OrderStatusDTO,
+        *,
+        order_amount_details: Optional[OrderAmountDetails] = None,
     ) -> None:
         vtex_account = order_status_dto.vtexAccount
         current_state = order_status_dto.currentState
@@ -284,6 +294,17 @@ class AgentOrderStatusUpdateUsecase:
             f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
             f"current_state={current_state} order_id={order_id}"
         )
+
+        if order_amount_details is not None:
+            apply_order_amount_details(self.exec_logger, order_amount_details)
+        else:
+            propagate_order_amount_to_execution_log(
+                self.exec_logger,
+                self.vtex_io_service,
+                order_id=order_id,
+                vtex_account=vtex_account,
+                log_prefix="[ORDER_STATUS]",
+            )
 
         webhook_payload: Dict[str, Any] = adapt_order_status_to_webhook_payload(
             order_status_dto

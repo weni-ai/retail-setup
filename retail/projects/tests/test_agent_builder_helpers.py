@@ -10,6 +10,7 @@ from retail.projects.usecases.agent_builder_helpers import (
     load_onboarding_with_linked_project,
 )
 from retail.projects.usecases.manager_defaults import MANAGER_DEFAULTS
+from retail.projects.usecases.onboarding_defaults import INSTRUCTIONS_BY_LANGUAGE
 
 
 class TestLoadOnboardingWithLinkedProject(TestCase):
@@ -71,6 +72,20 @@ class TestEnsureAgentManagerConfigured(TestCase):
         payload = self.mock_nexus_service.configure_agent_attributes.call_args[0][1]
         self.assertEqual(payload["agent"]["name"], "Mystore Manager")
         self.assertEqual(payload["agent"]["goal"], MANAGER_DEFAULTS["pt"]["goal"])
+        self.assertEqual(payload["instructions"], INSTRUCTIONS_BY_LANGUAGE["pt"])
+
+    def test_configures_with_english_fallback_instructions(self):
+        self.mock_nexus_service.check_agent_builder_exists.return_value = {
+            "data": {"has_agent": False}
+        }
+        self.mock_nexus_service.configure_agent_attributes.return_value = {"ok": True}
+
+        ensure_agent_manager_configured(
+            self.project_uuid, "mystore", "ja-jp", self.mock_nexus_service
+        )
+
+        payload = self.mock_nexus_service.configure_agent_attributes.call_args[0][1]
+        self.assertEqual(payload["instructions"], INSTRUCTIONS_BY_LANGUAGE["en"])
 
     def test_configures_when_check_returns_none(self):
         self.mock_nexus_service.check_agent_builder_exists.return_value = None

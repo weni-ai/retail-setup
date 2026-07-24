@@ -5,6 +5,9 @@ from django.conf import settings
 from retail.clients.crawler.client import CrawlerClient
 from retail.interfaces.clients.crawler.client import CrawlerClientInterface
 from retail.projects.models import ProjectOnboarding
+from retail.projects.usecases.content_base_progress_helpers import (
+    mark_content_base_complete_with_no_files,
+)
 from retail.projects.usecases.manager_defaults import get_manager_defaults
 from retail.projects.usecases.onboarding_defaults import get_instructions
 from retail.projects.usecases.save_background_failure import (
@@ -72,6 +75,7 @@ class StartCrawlUseCase:
             SaveBackgroundFailureUseCase.execute(
                 vtex_account, "crawler_start", error_msg
             )
+            mark_content_base_complete_with_no_files(onboarding)
             logger.error(
                 f"Crawler start failed for vtex_account={vtex_account}: {error_msg}"
             )

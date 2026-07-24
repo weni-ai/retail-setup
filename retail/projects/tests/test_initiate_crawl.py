@@ -28,9 +28,7 @@ class TestInitiateCrawlUseCase(TestCase):
         self.usecase.detect_storefront_usecase = self.mock_detect_storefront
 
     def test_runs_full_sequence(self):
-        self.usecase.execute(
-            self.project, "mystore", "https://www.mystore.com.br/"
-        )
+        self.usecase.execute(self.project, "mystore", "https://www.mystore.com.br/")
 
         self.mock_connect.update_project_config.assert_called_once()
         self.mock_start_crawl.execute.assert_called_once_with(
@@ -41,23 +39,34 @@ class TestInitiateCrawlUseCase(TestCase):
         )
 
     def test_sends_vtex_host_store_with_correct_args(self):
-        self.usecase.execute(
-            self.project, "mystore", "https://www.mystore.com.br/"
-        )
+        self.usecase.execute(self.project, "mystore", "https://www.mystore.com.br/")
 
         self.mock_connect.update_project_config.assert_called_once_with(
             project_uuid=str(self.project.uuid),
             config={"vtex_host_store": "https://www.mystore.com.br/"},
         )
 
-    def test_crawl_proceeds_when_connect_fails(self):
-        self.mock_connect.update_project_config.side_effect = Exception(
-            "connect down"
-        )
+    def test_persists_vtex_host_store_locally_before_connect(self):
+        crawl_url = "https://www.mystore.com.br/"
 
-        self.usecase.execute(
-            self.project, "mystore", "https://www.mystore.com.br/"
-        )
+        self.usecase.execute(self.project, "mystore", crawl_url)
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.config["vtex_host_store"], crawl_url)
+
+    def test_persists_locally_even_when_connect_fails(self):
+        self.mock_connect.update_project_config.side_effect = Exception("connect down")
+        crawl_url = "https://www.mystore.com.br/"
+
+        self.usecase.execute(self.project, "mystore", crawl_url)
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.config["vtex_host_store"], crawl_url)
+
+    def test_crawl_proceeds_when_connect_fails(self):
+        self.mock_connect.update_project_config.side_effect = Exception("connect down")
+
+        self.usecase.execute(self.project, "mystore", "https://www.mystore.com.br/")
 
         self.mock_start_crawl.execute.assert_called_once()
         self.mock_detect_storefront.execute.assert_called_once()
@@ -72,8 +81,6 @@ class TestInitiateCrawlUseCase(TestCase):
         self.mock_start_crawl.execute.side_effect = RuntimeError("unexpected boom")
 
         with self.assertRaises(RuntimeError):
-            self.usecase.execute(
-                self.project, "mystore", "https://www.mystore.com.br/"
-            )
+            self.usecase.execute(self.project, "mystore", "https://www.mystore.com.br/")
 
         self.mock_detect_storefront.execute.assert_not_called()

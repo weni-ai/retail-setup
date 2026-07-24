@@ -220,7 +220,7 @@ def task_payment_recovery_webhook(
             f"agent_uuid={integrated_agent_uuid} data={webhook_data}"
         )
 
-        use_case = PaymentRecoveryWebhookUseCase()
+        use_case = PaymentRecoveryWebhookUseCase(exec_logger=exec_logger)
         # Resolve the agent BEFORE opening any execution log so a missing
         # agent raises NotFound and is handled by execution_log_scope
         # without leaving an agentless row behind.

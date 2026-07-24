@@ -171,7 +171,13 @@ class TestUpdateOnboardingProgressUseCase(TestCase):
         )
         self.onboarding.refresh_from_db()
         self.assertEqual(
-            self.onboarding.config["content_base_progress"]["status"], "failed"
+            self.onboarding.config["content_base_progress"]["status"], "complete"
+        )
+        self.assertEqual(
+            self.onboarding.config["content_base_progress"]["crawl_percent"], 100
+        )
+        self.assertEqual(
+            self.onboarding.config["content_base_progress"]["upload_percent"], 100
         )
 
     # ── URL redirected event ───────────────────────────────────────

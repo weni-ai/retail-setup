@@ -811,9 +811,16 @@ class AssignAgentUseCase:
             vtex_host_store = project.config.get("vtex_host_store")
             if vtex_host_store:
                 domain = urlparse(vtex_host_store).netloc
+                url_source = "vtex_host_store"
             else:
                 domain = f"{project.vtex_account}.vtexcommercestable.com.br"
+                url_source = "fallback_vtexcommercestable"
             button_base_url = f"https://{domain}/checkout?orderFormId="
+            logger.info(
+                f"[AssignAgent] abandoned_cart_button_url_resolved: "
+                f"project={project.uuid} vtex_account={project.vtex_account} "
+                f"source={url_source} button_base_url={button_base_url!r}"
+            )
             button_url_example = f"{button_base_url}92421d4a70224658acaab0c172f6b6d7"
 
             # Placeholder image URL for template approval (configurable via env)

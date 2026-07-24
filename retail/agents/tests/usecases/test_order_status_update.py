@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.test import TestCase
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -10,6 +12,7 @@ from retail.agents.domains.agent_webhook.usecases.order_status import (
 )
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.shared.cache import AgentRole
+from retail.agents.shared.vtex_order_value import OrderAmountDetails
 from retail.projects.models import Project
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
@@ -20,9 +23,11 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
     def setUp(self):
         self.exec_logger = MagicMock()
         self.mock_cache_handler = MagicMock()
+        self.mock_vtex_io_service = MagicMock()
         self.usecase = AgentOrderStatusUpdateUsecase(
             cache_handler=self.mock_cache_handler,
-            exec_logger=self.exec_logger
+            exec_logger=self.exec_logger,
+            vtex_io_service=self.mock_vtex_io_service,
         )
         self.mock_project = MagicMock(spec=Project)
         self.mock_project.uuid = uuid4()
@@ -290,6 +295,72 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         mock_agent_webhook_use_case.execute.assert_called_once_with(
             self.mock_integrated_agent, mock_request_data
         )
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
+    )
+    def test_execute_propagates_order_amount_to_execution_log(
+        self,
+        mock_agent_webhook_use_case_cls,
+        mock_cache,
+        mock_settings,
+    ):
+        mock_settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = 60
+        mock_cache.add.return_value = True
+        self.mock_vtex_io_service.get_order_details_by_id.return_value = {
+            "value": 10000,
+            "storePreferencesData": {"currencyCode": "MXN"},
+        }
+
+        mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
+        mock_order_status_dto.orderId = "order-id"
+        mock_order_status_dto.domain = "Marketplace"
+        mock_order_status_dto.currentState = "invoiced"
+        mock_order_status_dto.lastState = "payment-approved"
+        mock_order_status_dto.vtexAccount = "test-account"
+
+        self.usecase.execute(self.mock_integrated_agent, mock_order_status_dto)
+
+        self.exec_logger.update_order_info.assert_called_once_with(
+            amount=Decimal("100.00"),
+            currency="MXN",
+        )
+
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
+    @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")
+    @patch(
+        "retail.agents.domains.agent_webhook.usecases.order_status.AgentWebhookUseCase"
+    )
+    def test_execute_reuses_prefetched_order_amount_details(
+        self,
+        mock_agent_webhook_use_case_cls,
+        mock_cache,
+        mock_settings,
+    ):
+        mock_settings.ORDER_STATUS_DUPLICATE_WINDOW_SECONDS = 60
+        mock_cache.add.return_value = True
+
+        mock_order_status_dto = MagicMock(spec=OrderStatusDTO)
+        mock_order_status_dto.orderId = "order-id"
+        mock_order_status_dto.domain = "Marketplace"
+        mock_order_status_dto.currentState = "payment-pending"
+        mock_order_status_dto.lastState = "unknow"
+        mock_order_status_dto.vtexAccount = "test-account"
+
+        prefetched = OrderAmountDetails(amount=Decimal("75.50"), currency="BRL")
+        self.usecase.execute(
+            self.mock_integrated_agent,
+            mock_order_status_dto,
+            order_amount_details=prefetched,
+        )
+
+        self.exec_logger.update_order_info.assert_called_once_with(
+            amount=Decimal("75.50"),
+            currency="BRL",
+        )
+        self.mock_vtex_io_service.get_order_details_by_id.assert_not_called()
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.cache")

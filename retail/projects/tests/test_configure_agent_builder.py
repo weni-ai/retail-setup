@@ -13,6 +13,7 @@ from retail.projects.usecases.manager_defaults import (
     MANAGER_DEFAULTS,
     MANAGER_PERSONALITY,
 )
+from retail.projects.usecases.onboarding_defaults import INSTRUCTIONS_BY_LANGUAGE
 
 
 class TestConfigureAgentBuilderUseCase(TestCase):
@@ -82,6 +83,7 @@ class TestConfigureAgentBuilderUseCase(TestCase):
         self.assertEqual(payload["agent"]["role"], MANAGER_DEFAULTS["pt"]["role"])
         self.assertEqual(payload["agent"]["goal"], MANAGER_DEFAULTS["pt"]["goal"])
         self.assertEqual(payload["links"], [])
+        self.assertEqual(payload["instructions"], INSTRUCTIONS_BY_LANGUAGE["pt"])
 
     def test_configures_agent_with_english_fallback(self):
         self.project.language = "ja-jp"
@@ -97,6 +99,7 @@ class TestConfigureAgentBuilderUseCase(TestCase):
         payload = self.mock_nexus_service.configure_agent_attributes.call_args[0][1]
         self.assertEqual(payload["agent"]["role"], MANAGER_DEFAULTS["en"]["role"])
         self.assertEqual(payload["agent"]["goal"], MANAGER_DEFAULTS["en"]["goal"])
+        self.assertEqual(payload["instructions"], INSTRUCTIONS_BY_LANGUAGE["en"])
 
     def test_configures_agent_with_spanish(self):
         self.project.language = "es"
@@ -111,6 +114,7 @@ class TestConfigureAgentBuilderUseCase(TestCase):
 
         payload = self.mock_nexus_service.configure_agent_attributes.call_args[0][1]
         self.assertEqual(payload["agent"]["role"], MANAGER_DEFAULTS["es"]["role"])
+        self.assertEqual(payload["instructions"], INSTRUCTIONS_BY_LANGUAGE["es"])
 
     def test_configures_agent_when_check_returns_none(self):
         """If the check endpoint fails, we still attempt to configure."""

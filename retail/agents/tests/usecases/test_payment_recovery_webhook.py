@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.test import TestCase
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -78,36 +80,69 @@ class PaymentRecoveryWebhookUseCaseTest(TestCase):
     def test_process_webhook_notification_success(self, mock_order_usecase_cls):
         mock_order_usecase = MagicMock()
         mock_order_usecase_cls.return_value = mock_order_usecase
-
-        result = self.use_case.process_webhook_notification(
-            self.mock_integrated_agent, self.webhook_data
-        )
-
-        self.assertEqual(result["status"], "success")
-        mock_order_usecase.execute.assert_called_once()
-
-        call_args = mock_order_usecase.execute.call_args
-        dto = call_args[0][1]
-        self.assertEqual(dto.orderId, "v1234567-01")
-        self.assertEqual(dto.currentState, "payment-pending")
-        self.assertEqual(dto.vtexAccount, "testaccount")
-
-    @patch(
-        "retail.agents.domains.agent_integration.usecases.payment_recovery.AgentOrderStatusUpdateUsecase"
-    )
-    def test_process_webhook_notification_without_minimum_skips_value_lookup(
-        self, mock_order_usecase_cls
-    ):
-        """No minimum configured: dispatch happens without querying VTEX."""
         mock_vtex_io = MagicMock()
-        use_case = PaymentRecoveryWebhookUseCase(vtex_io_service=mock_vtex_io)
+        mock_vtex_io.get_order_details_by_id.return_value = {
+            "value": 15000,
+            "storePreferencesData": {"currencyCode": "BRL"},
+        }
+        exec_logger = MagicMock()
+        use_case = PaymentRecoveryWebhookUseCase(
+            vtex_io_service=mock_vtex_io,
+            exec_logger=exec_logger,
+        )
 
         result = use_case.process_webhook_notification(
             self.mock_integrated_agent, self.webhook_data
         )
 
         self.assertEqual(result["status"], "success")
-        mock_vtex_io.get_order_details_by_id.assert_not_called()
+        mock_order_usecase.execute.assert_called_once()
+        mock_order_usecase_cls.assert_called_once_with(
+            exec_logger=exec_logger,
+            vtex_io_service=mock_vtex_io,
+        )
+        exec_logger.update_order_info.assert_called_once_with(
+            amount=Decimal("150.00"),
+            currency="BRL",
+        )
+
+        call_args = mock_order_usecase.execute.call_args
+        dto = call_args[0][1]
+        self.assertEqual(dto.orderId, "v1234567-01")
+        self.assertEqual(dto.currentState, "payment-pending")
+        self.assertEqual(dto.vtexAccount, "testaccount")
+        self.assertEqual(
+            call_args.kwargs["order_amount_details"].amount, Decimal("150.00")
+        )
+
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.payment_recovery.AgentOrderStatusUpdateUsecase"
+    )
+    def test_process_webhook_notification_propagates_amount_without_minimum(
+        self, mock_order_usecase_cls
+    ):
+        """Every recovery execution surfaces order amount in agent logs."""
+        mock_vtex_io = MagicMock()
+        mock_vtex_io.get_order_details_by_id.return_value = {
+            "value": 9999,
+            "storePreferencesData": {"currencyCode": "BRL"},
+        }
+        exec_logger = MagicMock()
+        use_case = PaymentRecoveryWebhookUseCase(
+            vtex_io_service=mock_vtex_io,
+            exec_logger=exec_logger,
+        )
+
+        result = use_case.process_webhook_notification(
+            self.mock_integrated_agent, self.webhook_data
+        )
+
+        self.assertEqual(result["status"], "success")
+        mock_vtex_io.get_order_details_by_id.assert_called_once()
+        exec_logger.update_order_info.assert_called_once_with(
+            amount=Decimal("99.99"),
+            currency="BRL",
+        )
         mock_order_usecase_cls.return_value.execute.assert_called_once()
 
     @patch(
@@ -122,8 +157,15 @@ class PaymentRecoveryWebhookUseCaseTest(TestCase):
         ] = 100.0
         mock_vtex_io = MagicMock()
         # VTEX returns value in cents: 5000 = R$ 50,00 < R$ 100,00
-        mock_vtex_io.get_order_details_by_id.return_value = {"value": 5000}
-        use_case = PaymentRecoveryWebhookUseCase(vtex_io_service=mock_vtex_io)
+        mock_vtex_io.get_order_details_by_id.return_value = {
+            "value": 5000,
+            "storePreferencesData": {"currencyCode": "BRL"},
+        }
+        exec_logger = MagicMock()
+        use_case = PaymentRecoveryWebhookUseCase(
+            vtex_io_service=mock_vtex_io,
+            exec_logger=exec_logger,
+        )
 
         result = use_case.process_webhook_notification(
             self.mock_integrated_agent, self.webhook_data
@@ -132,6 +174,15 @@ class PaymentRecoveryWebhookUseCaseTest(TestCase):
         self.assertEqual(result["status"], "skipped")
         mock_order_usecase_cls.return_value.execute.assert_not_called()
         mock_vtex_io.get_order_details_by_id.assert_called_once()
+        exec_logger.update_order_info.assert_called_once_with(
+            amount=Decimal("50.00"),
+            currency="BRL",
+        )
+        exec_logger.log_execution_skip.assert_called_once()
+        self.assertEqual(
+            exec_logger.log_execution_skip.call_args.kwargs["reason"],
+            "order_value_below_minimum",
+        )
 
     @patch(
         "retail.agents.domains.agent_integration.usecases.payment_recovery.AgentOrderStatusUpdateUsecase"
@@ -146,7 +197,10 @@ class PaymentRecoveryWebhookUseCaseTest(TestCase):
         mock_vtex_io = MagicMock()
         # 15000 cents = R$ 150,00 >= R$ 100,00
         mock_vtex_io.get_order_details_by_id.return_value = {"value": 15000}
-        use_case = PaymentRecoveryWebhookUseCase(vtex_io_service=mock_vtex_io)
+        use_case = PaymentRecoveryWebhookUseCase(
+            vtex_io_service=mock_vtex_io,
+            exec_logger=MagicMock(),
+        )
 
         result = use_case.process_webhook_notification(
             self.mock_integrated_agent, self.webhook_data
@@ -167,7 +221,10 @@ class PaymentRecoveryWebhookUseCaseTest(TestCase):
         ] = 100.0
         mock_vtex_io = MagicMock()
         mock_vtex_io.get_order_details_by_id.side_effect = Exception("boom")
-        use_case = PaymentRecoveryWebhookUseCase(vtex_io_service=mock_vtex_io)
+        use_case = PaymentRecoveryWebhookUseCase(
+            vtex_io_service=mock_vtex_io,
+            exec_logger=MagicMock(),
+        )
 
         result = use_case.process_webhook_notification(
             self.mock_integrated_agent, self.webhook_data

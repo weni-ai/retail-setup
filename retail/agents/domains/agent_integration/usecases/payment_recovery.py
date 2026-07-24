@@ -5,9 +5,17 @@ from uuid import UUID
 
 from rest_framework.exceptions import NotFound, ValidationError
 
+from retail.agents.domains.agent_execution.services.logger import ExecutionLoggerService
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_webhook.usecases.order_status import (
     AgentOrderStatusUpdateUsecase,
+)
+from retail.agents.shared.vtex_order_value import (
+    fetch_order_amount_details,
+    propagate_order_amount_to_execution_log,
+)
+from retail.interfaces.services.execution_logger import (
+    ExecutionLoggerServiceInterface,
 )
 from retail.services.vtex_io.service import VtexIOService
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
@@ -21,14 +29,24 @@ DEFAULT_DELAY_MINUTES = 5
 class PaymentRecoveryWebhookUseCase:
     """Use case for processing payment recovery webhook notifications from VTEX."""
 
-    def __init__(self, vtex_io_service: Optional[VtexIOService] = None):
+    def __init__(
+        self,
+        vtex_io_service: Optional[VtexIOService] = None,
+        exec_logger: Optional[ExecutionLoggerServiceInterface] = None,
+    ):
         """Initialize the use case with its VTEX IO dependency.
 
         Args:
             vtex_io_service: Service used to fetch order details from VTEX.
                 Defaults to a concrete ``VtexIOService`` instance.
+            exec_logger: Optional execution logger for agent-logs tracing.
+                When omitted, a default ``ExecutionLoggerService`` is used
+                (relies on the active execution contextvar when present).
         """
         self.vtex_io_service = vtex_io_service or VtexIOService()
+        self.exec_logger: ExecutionLoggerServiceInterface = (
+            exec_logger or ExecutionLoggerService()
+        )
 
     def get_integrated_agent(self, integrated_agent_uuid: UUID) -> IntegratedAgent:
         """Retrieve an active integrated agent by UUID.
@@ -151,7 +169,38 @@ class PaymentRecoveryWebhookUseCase:
         agent_uuid = integrated_agent.uuid
         order_id = webhook_data.get("OrderId")
 
-        if self._is_below_minimum_order_value(integrated_agent, order_id, vtex_account):
+        order_details = propagate_order_amount_to_execution_log(
+            self.exec_logger,
+            self.vtex_io_service,
+            order_id=order_id,
+            vtex_account=vtex_account,
+            log_prefix="[PAYMENT_RECOVERY]",
+        )
+
+        if self._is_below_minimum_order_value(
+            integrated_agent,
+            order_id,
+            vtex_account,
+            order_value=order_details.amount,
+            minimum_value=integrated_agent.config.get("payment_recovery", {}).get(
+                "minimum_order_value"
+            ),
+        ):
+            self.exec_logger.log_execution_skip(
+                reason="order_value_below_minimum",
+                skip_data={
+                    "order_id": order_id,
+                    "order_value": (
+                        str(order_details.amount)
+                        if order_details.amount is not None
+                        else None
+                    ),
+                    "minimum_order_value": integrated_agent.config.get(
+                        "payment_recovery", {}
+                    ).get("minimum_order_value"),
+                    "vtex_account": vtex_account,
+                },
+            )
             return {
                 "status": "skipped",
                 "message": "Order value below configured minimum",
@@ -174,8 +223,15 @@ class PaymentRecoveryWebhookUseCase:
             vtexAccount=vtex_account,
         )
 
-        order_status_usecase = AgentOrderStatusUpdateUsecase()
-        order_status_usecase.execute(integrated_agent, order_status_dto)
+        order_status_usecase = AgentOrderStatusUpdateUsecase(
+            exec_logger=self.exec_logger,
+            vtex_io_service=self.vtex_io_service,
+        )
+        order_status_usecase.execute(
+            integrated_agent,
+            order_status_dto,
+            order_amount_details=order_details,
+        )
 
         logger.info(
             f"[PAYMENT_RECOVERY] completed: "
@@ -193,6 +249,10 @@ class PaymentRecoveryWebhookUseCase:
         integrated_agent: IntegratedAgent,
         order_id: Optional[str],
         vtex_account: str,
+        # Keyword-only from here: order_value/minimum_value must be passed by name.
+        *,
+        order_value: Optional[Decimal] = None,
+        minimum_value: Optional[float] = None,
     ) -> bool:
         """Decide whether the recovery dispatch must be skipped by minimum value.
 
@@ -205,18 +265,19 @@ class PaymentRecoveryWebhookUseCase:
             integrated_agent: The integrated agent that owns the webhook.
             order_id: VTEX order identifier from the webhook payload.
             vtex_account: The VTEX account identifier for the project.
+            order_value: Pre-resolved order total in major units, when available.
+            minimum_value: Configured minimum order value threshold.
 
         Returns:
             bool: ``True`` when the dispatch must be skipped because the order
             value is below the configured minimum, ``False`` otherwise.
         """
-        payment_config = integrated_agent.config.get("payment_recovery", {})
-        minimum_value = payment_config.get("minimum_order_value")
-
         if minimum_value is None:
             return False
 
-        order_value = self._get_order_value(order_id, vtex_account)
+        if order_value is None:
+            order_value = self._get_order_value(order_id, vtex_account)
+
         if order_value is None:
             logger.warning(
                 f"[PAYMENT_RECOVERY] minimum_value_unresolved: "
@@ -257,31 +318,10 @@ class PaymentRecoveryWebhookUseCase:
             A VTEX ``value`` of ``2047`` (cents) resolves to
             ``Decimal("20.47")`` (R$ 20.47).
         """
-        if not order_id:
-            return None
-
-        account_domain = f"{vtex_account}.myvtex.com"
-        try:
-            order_details = self.vtex_io_service.get_order_details_by_id(
-                account_domain=account_domain,
-                vtex_account=vtex_account,
-                order_id=order_id,
-            )
-        except Exception as exc:
-            logger.warning(
-                f"[PAYMENT_RECOVERY] order_lookup_failed: "
-                f"vtex_account={vtex_account} order_id={order_id} error={exc}"
-            )
-            return None
-
-        if not order_details:
-            return None
-
-        raw_value = order_details.get("value")
-        if raw_value in (None, ""):
-            return None
-
-        try:
-            return (Decimal(raw_value) / Decimal(100)).quantize(Decimal("0.01"))
-        except (TypeError, ValueError, ArithmeticError):
-            return None
+        details = fetch_order_amount_details(
+            self.vtex_io_service,
+            order_id=order_id,
+            vtex_account=vtex_account,
+            log_prefix="[PAYMENT_RECOVERY]",
+        )
+        return details.amount

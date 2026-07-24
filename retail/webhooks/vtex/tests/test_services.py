@@ -11,8 +11,22 @@ from django.utils.timezone import timedelta
 
 from retail.features.models import Feature, IntegratedFeature
 from retail.projects.models import Project
-from retail.webhooks.vtex.services import CartTimeRestrictionService
-from retail.webhooks.vtex.services import CartPhoneRestrictionService
+from retail.webhooks.vtex.services import (
+    CartPhoneRestrictionService,
+    CartServiceContext,
+    CartTimeRestrictionService,
+)
+
+
+def _feature_service_context(
+    integrated_feature: IntegratedFeature,
+) -> CartServiceContext:
+    return CartServiceContext(
+        project_uuid=str(integrated_feature.project.uuid),
+        config=integrated_feature.config,
+        entity_type="integrated_feature",
+        entity_uuid=str(integrated_feature.uuid),
+    )
 
 
 class TestCartTimeRestrictionService(TestCase):
@@ -272,9 +286,12 @@ class TestCartTimeRestrictionService(TestCase):
         integrated_feature = IntegratedFeature.objects.create(
             feature=feature, project=project, config=config, user=user
         )
-        countdown = self.service(integrated_feature=integrated_feature).get_countdown()
+        context = _feature_service_context(integrated_feature)
+        countdown = CartTimeRestrictionService(context).get_countdown()
 
-        self.assertEqual(countdown, self.service.default_abandoned_countdown)
+        self.assertEqual(
+            countdown, CartTimeRestrictionService.default_abandoned_countdown
+        )
 
     @mock.patch(
         "retail.webhooks.vtex.services.CartTimeRestrictionService.get_next_available_time"
@@ -310,7 +327,8 @@ class TestCartTimeRestrictionService(TestCase):
         integrated_feature = IntegratedFeature.objects.create(
             feature=feature, project=project, config=config, user=user
         )
-        countdown = self.service(integrated_feature=integrated_feature).get_countdown()
+        context = _feature_service_context(integrated_feature)
+        countdown = CartTimeRestrictionService(context).get_countdown()
 
         self.assertAlmostEqual(countdown, 3600, delta=45)
 
@@ -390,9 +408,8 @@ class TestCartTimeRestrictionService(TestCase):
             "retail.webhooks.vtex.services.timezone.now", return_value=sunday_night_utc
         ):
             try:
-                countdown = self.service(
-                    integrated_feature=integrated_feature
-                ).get_countdown()
+                context = _feature_service_context(integrated_feature)
+                countdown = CartTimeRestrictionService(context).get_countdown()
                 self.assertIsInstance(countdown, int)
                 self.assertGreater(countdown, 0)
             except TypeError as e:
@@ -505,7 +522,9 @@ class TestCartPhoneRestrictionService(TestCase):
         integrated_feature = IntegratedFeature.objects.create(
             feature=self.feature, project=self.project, config=config, user=self.user
         )
-        service = CartPhoneRestrictionService(integrated_feature)
+        service = CartPhoneRestrictionService(
+            _feature_service_context(integrated_feature)
+        )
 
         # Should allow any phone when restriction is not active
         self.assertTrue(service.validate_phone_restriction("5584987654321"))
@@ -524,7 +543,9 @@ class TestCartPhoneRestrictionService(TestCase):
         integrated_feature = IntegratedFeature.objects.create(
             feature=self.feature, project=self.project, config=config, user=self.user
         )
-        service = CartPhoneRestrictionService(integrated_feature)
+        service = CartPhoneRestrictionService(
+            _feature_service_context(integrated_feature)
+        )
 
         # Should block when restriction is active but no numbers configured
         self.assertFalse(service.validate_phone_restriction("5584987654321"))
@@ -543,7 +564,9 @@ class TestCartPhoneRestrictionService(TestCase):
         integrated_feature = IntegratedFeature.objects.create(
             feature=self.feature, project=self.project, config=config, user=self.user
         )
-        service = CartPhoneRestrictionService(integrated_feature)
+        service = CartPhoneRestrictionService(
+            _feature_service_context(integrated_feature)
+        )
 
         # Should allow phone that is in the allowed list
         self.assertTrue(service.validate_phone_restriction("5584987654321"))
@@ -563,7 +586,9 @@ class TestCartPhoneRestrictionService(TestCase):
         integrated_feature = IntegratedFeature.objects.create(
             feature=self.feature, project=self.project, config=config, user=self.user
         )
-        service = CartPhoneRestrictionService(integrated_feature)
+        service = CartPhoneRestrictionService(
+            _feature_service_context(integrated_feature)
+        )
 
         # Should block phone that is not in the allowed list
         self.assertFalse(service.validate_phone_restriction("5584987654323"))
@@ -582,7 +607,9 @@ class TestCartPhoneRestrictionService(TestCase):
         integrated_feature = IntegratedFeature.objects.create(
             feature=self.feature, project=self.project, config=config, user=self.user
         )
-        service = CartPhoneRestrictionService(integrated_feature)
+        service = CartPhoneRestrictionService(
+            _feature_service_context(integrated_feature)
+        )
 
         # Should allow normalized numbers that match the normalized allowed list
         self.assertTrue(service.validate_phone_restriction("5584987654321"))
@@ -595,7 +622,9 @@ class TestCartPhoneRestrictionService(TestCase):
         integrated_feature = IntegratedFeature.objects.create(
             feature=self.feature, project=self.project, config=config, user=self.user
         )
-        service = CartPhoneRestrictionService(integrated_feature)
+        service = CartPhoneRestrictionService(
+            _feature_service_context(integrated_feature)
+        )
 
         # Should allow any phone when restriction config is missing
         self.assertTrue(service.validate_phone_restriction("5584987654321"))

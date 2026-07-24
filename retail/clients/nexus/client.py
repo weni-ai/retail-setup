@@ -155,7 +155,8 @@ class NexusClient(RequestClient, NexusClientInterface):
 
         Args:
             project_uuid: The project's unique identifier.
-            agent_payload: Dict with "agent" and optional "links" keys.
+            agent_payload: Dict with "agent", optional "links", and optional
+                "instructions" keys.
 
         Returns:
             Dict with the Nexus response.

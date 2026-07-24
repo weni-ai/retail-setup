@@ -1,7 +1,7 @@
 import logging
 
 from decimal import Decimal
-from typing import Optional, Union, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 from uuid import UUID
 
 from django.utils import timezone
@@ -34,6 +34,11 @@ from retail.clients.vtex.client import VtexClient
 from retail.clients.exceptions import CustomAPIException
 from retail.clients.vtex_io.client import VtexIOClient
 
+from retail.observability.sentry import (
+    fingerprint_with_vtex_account,
+    sentry_error_scope,
+)
+
 
 # VTEX order statuses that count as a finalized purchase.
 PURCHASED_ORDER_STATUSES = frozenset({"invoiced"})
@@ -65,6 +70,33 @@ def _build_log_context(cart: Cart, integration_config=None) -> str:
             )
 
     return context
+
+
+def _build_cart_sentry_tags(
+    cart: Cart,
+    integration_config: Optional[Union[IntegratedFeature, IntegratedAgent]] = None,
+) -> Dict[str, Any]:
+    """Build searchable Sentry tags for cart operations.
+
+    Mirrors :func:`_build_log_context` fields as discrete tags so Sentry can
+    filter issues by ``vtex_account`` / ``project_uuid`` instead of grepping
+    the rendered message.
+    """
+    tags: Dict[str, Any] = {
+        "service": "cart_service",
+        "vtex_account": cart.project.vtex_account if cart.project else "unknown",
+        "project_uuid": str(cart.project.uuid) if cart.project else "unknown",
+        "cart_uuid": str(cart.uuid),
+    }
+
+    if isinstance(integration_config, IntegratedAgent):
+        tags["integration_type"] = "agent"
+        tags["agent_uuid"] = str(integration_config.uuid)
+    elif isinstance(integration_config, IntegratedFeature):
+        tags["integration_type"] = "feature"
+        tags["feature_uuid"] = str(integration_config.uuid)
+
+    return tags
 
 
 class CartAbandonmentService(BaseVtexUseCase):
@@ -104,6 +136,7 @@ class CartAbandonmentService(BaseVtexUseCase):
                 the inner task mint a duplicate UUID.
         """
         log_context = _build_log_context(cart, integration_config)
+        sentry_tags = _build_cart_sentry_tags(cart, integration_config)
 
         try:
             logger.info(f"[CART_SERVICE] Starting processing: {log_context}")
@@ -192,25 +225,57 @@ class CartAbandonmentService(BaseVtexUseCase):
             logger.info(f"[CART_SERVICE] Completed processing: {log_context}")
 
         except Cart.DoesNotExist:
-            logger.error(
-                f"[CART_SERVICE] Cart not found: {log_context} "
-                f"reason=cart_does_not_exist"
-            )
+            with sentry_error_scope(
+                fingerprint=fingerprint_with_vtex_account(
+                    ["cart-service", "cart-not-found"],
+                    sentry_tags,
+                ),
+                tags={**sentry_tags, "error_type": "cart_not_found"},
+                context={"log_context": log_context},
+            ):
+                logger.error(
+                    f"[CART_SERVICE] Cart not found: {log_context} "
+                    f"reason=cart_does_not_exist"
+                )
         except CustomAPIException as e:
-            logger.error(
-                f"[CART_SERVICE] API error: {log_context} "
-                f"error={str(e)} final_status=delivered_error"
-            )
+            with sentry_error_scope(
+                fingerprint=fingerprint_with_vtex_account(
+                    ["cart-service", "vtex-api-error", str(e.status_code)],
+                    sentry_tags,
+                ),
+                tags={
+                    **sentry_tags,
+                    "error_type": "vtex_api_error",
+                    "http_status": e.status_code,
+                },
+                context={"detail": str(e), "log_context": log_context},
+            ):
+                logger.error(
+                    f"[CART_SERVICE] VTEX API error (HTTP {e.status_code}): "
+                    f"{log_context} error={str(e)} final_status=delivered_error"
+                )
             self._log_execution_error(
                 f"VTEX API error: {e}",
                 cart_uuid=str(cart.uuid),
             )
             self._update_cart_status(cart, "delivered_error", str(e))
         except Exception as e:
-            logger.exception(
-                f"[CART_SERVICE] Unexpected error: {log_context} "
-                f"error={str(e)} final_status=delivered_error"
-            )
+            with sentry_error_scope(
+                fingerprint=fingerprint_with_vtex_account(
+                    ["cart-service", "unexpected-error", type(e).__name__],
+                    sentry_tags,
+                ),
+                tags={
+                    **sentry_tags,
+                    "error_type": "unexpected_error",
+                    "exception": type(e).__name__,
+                },
+                context={"detail": str(e), "log_context": log_context},
+            ):
+                logger.exception(
+                    f"[CART_SERVICE] Unexpected error: {log_context} "
+                    f"error={str(e)} final_status=delivered_error"
+                )
             self._log_execution_error(
                 f"Unexpected error: {e}",
                 cart_uuid=str(cart.uuid),

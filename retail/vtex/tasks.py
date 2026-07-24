@@ -53,12 +53,19 @@ def task_abandoned_cart_update(cart_uuid: str):
         )
         return
 
+    vtex_account = cart.project.vtex_account if cart.project else "unknown"
+    project_uuid = str(cart.project.uuid) if cart.project else "unknown"
+
     with execution_log_scope(
         error_data={"cart_uuid": cart_uuid},
         log_prefix="[CART_TASK]",
+        sentry_tags={
+            "service": "cart_task",
+            "vtex_account": vtex_account,
+            "project_uuid": project_uuid,
+            "cart_uuid": cart_uuid,
+        },
     ) as exec_logger:
-        vtex_account = cart.project.vtex_account if cart.project else "unknown"
-        project_uuid = str(cart.project.uuid) if cart.project else "unknown"
         log_context = (
             f"vtex_account={vtex_account} cart_uuid={cart_uuid} "
             f"phone={cart.phone_number} project_uuid={project_uuid} "
