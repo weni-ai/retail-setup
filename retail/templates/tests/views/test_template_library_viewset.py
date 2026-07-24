@@ -38,11 +38,13 @@ class TestTemplateLibraryViewSet(BaseTestMixin, APITestCase):
             username="testuser", password="testpass123", email="test@example.com"
         )
 
-        self.client.force_authenticate(user=self.user)
-
         self.project = Project.objects.create(
             uuid=uuid4(),
             name="Test Project",
+        )
+
+        self.start_retail_auth(
+            project_uuid=self.project.uuid, user_email=self.user.email
         )
 
         self.agent = Agent.objects.create(
@@ -163,11 +165,29 @@ class TestTemplateLibraryViewSet(BaseTestMixin, APITestCase):
         response = self.client.patch(url, payload, format="json", **headers)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("app_uuid and project_uuid are required", str(response.data))
+        self.assertIn("app_uuid is required", str(response.data))
         self.update_library_usecase.execute.assert_not_called()
 
-    def test_partial_update_missing_project_uuid(self):
-        """Test partial update fails when project_uuid query parameter is missing"""
+    def test_partial_update_missing_project_uuid_in_token_returns_403(self):
+        """Test partial update fails when the token carries no project scope"""
+        self.set_retail_auth(project_uuid=None, user_email=self.user.email)
+
+        payload = {
+            "library_template_button_inputs": [
+                {"type": "URL", "url": {"base_url": "https://example.com"}}
+            ]
+        }
+
+        url = reverse("template-library-detail", args=[str(self.template.uuid)])
+        url += f"?app_uuid={self.app_uuid}"
+
+        response = self.client.patch(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.update_library_usecase.execute.assert_not_called()
+
+    def test_partial_update_missing_app_uuid_query_param(self):
+        """Test partial update fails when the app_uuid query parameter is missing"""
         self.setup_internal_user_permissions(self.user)
         self.setup_connect_service_mock(
             status_code=200,
@@ -180,38 +200,12 @@ class TestTemplateLibraryViewSet(BaseTestMixin, APITestCase):
             ]
         }
 
-        headers, params = self._get_project_headers_and_params()
         url = reverse("template-library-detail", args=[str(self.template.uuid)])
-        url += f"?app_uuid={self.app_uuid}&user_email={params['user_email']}"
 
-        response = self.client.patch(url, payload, format="json", **headers)
+        response = self.client.patch(url, payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("app_uuid and project_uuid are required", str(response.data))
-        self.update_library_usecase.execute.assert_not_called()
-
-    def test_partial_update_missing_both_query_params(self):
-        """Test partial update fails when both app_uuid and project_uuid parameters are missing"""
-        self.setup_internal_user_permissions(self.user)
-        self.setup_connect_service_mock(
-            status_code=200,
-            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
-        )
-
-        payload = {
-            "library_template_button_inputs": [
-                {"type": "URL", "url": {"base_url": "https://example.com"}}
-            ]
-        }
-
-        headers, params = self._get_project_headers_and_params()
-        url = reverse("template-library-detail", args=[str(self.template.uuid)])
-        url += f"?user_email={params['user_email']}"
-
-        response = self.client.patch(url, payload, format="json", **headers)
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("app_uuid and project_uuid are required", str(response.data))
+        self.assertIn("app_uuid is required", str(response.data))
         self.update_library_usecase.execute.assert_not_called()
 
     def test_partial_update_empty_payload(self):
@@ -253,23 +247,6 @@ class TestTemplateLibraryViewSet(BaseTestMixin, APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.update_library_usecase.execute.assert_not_called()
 
-    def test_missing_project_uuid_header_returns_403(self):
-        """Test that missing Project-UUID header returns 403 Forbidden"""
-        self.setup_internal_user_permissions(self.user)
-
-        payload = {
-            "library_template_button_inputs": [
-                {"type": "URL", "url": {"base_url": "https://example.com"}}
-            ]
-        }
-
-        url = reverse("template-library-detail", args=[str(self.template.uuid)])
-        url += f"?app_uuid={self.app_uuid}&project_uuid={self.project_uuid}&user_email={self.user.email}"
-
-        response = self.client.patch(url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
     def test_missing_user_email_query_param_returns_403(self):
         """Test that missing user_email query parameter returns 403 Forbidden"""
         self.setup_internal_user_permissions(self.user)
@@ -295,7 +272,7 @@ class TestTemplateLibraryViewSet(BaseTestMixin, APITestCase):
 
     def test_unauthenticated_user_returns_403(self):
         """Test that unauthenticated users get 403 Forbidden"""
-        self.client.force_authenticate(None)
+        self.set_retail_auth(authenticated=False)
 
         payload = {
             "library_template_button_inputs": [

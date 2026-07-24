@@ -63,9 +63,12 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
             username="testuser", password="testpass", email="test@example.com"
         )
         self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
 
         self.project = Project.objects.create(uuid=uuid4(), name="Project")
+
+        self.start_retail_auth(
+            project_uuid=self.project.uuid, user_email=self.user.email
+        )
         self.agent = Agent.objects.create(
             uuid=uuid4(),
             name="Agent",
@@ -193,14 +196,15 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
         self.assertEqual(response.data["category"], "MARKETING")
 
     def test_unauthenticated_request_returns_403(self, mock_integrations_service):
+        self.set_retail_auth(authenticated=False)
         client = APIClient()
         response = client.post(
             self._sample_url(), self._default_payload(), format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_missing_project_uuid_header_returns_403(self, mock_integrations_service):
-        self.setup_internal_user_permissions(self.user)
+    def test_missing_project_uuid_in_token_returns_403(self, mock_integrations_service):
+        self.set_retail_auth(project_uuid=None, user_email=self.user.email)
         response = self.client.post(
             self._sample_url(),
             self._default_payload(),
@@ -271,19 +275,16 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_view_passes_request_context_to_serializer(self, mock_integrations_service):
-        """Pin that the view constructs the serializer with the request context.
+    def test_project_uuid_mismatch_is_rejected_before_use_case(
+        self, mock_integrations_service
+    ):
+        """Pin that the tenant-authority check short-circuits the sample flow.
 
-        Re-uses the project_uuid_mismatch defense as a structural witness:
-        the check only fires when the serializer can read
-        ``request.headers["Project-Uuid"]`` from its context, so if the
-        view forgot to pass ``context={"request": request}`` the mismatch
-        would never be detected and the use case would be invoked with a
-        cross-tenant body. This test pins the wiring by asserting the
-        mismatch IS detected.
+        A body ``project_uuid`` diverging from the authenticated tenant must
+        be rejected by the view before the use case runs, so a cross-tenant
+        body never reaches Meta.
         """
         self._set_up_authorized_request()
-        headers, _ = self._project_headers_and_params()
         payload = self._default_payload(project_uuid=str(uuid4()))
 
         with patch(USECASE_PATCH_PATH) as mock_use_case_class:
@@ -291,7 +292,6 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
                 self._sample_url(),
                 payload,
                 format="json",
-                **headers,
             )
             mock_use_case_class.return_value.execute.assert_not_called()
 
@@ -318,9 +318,12 @@ class ValidateTemplateSampleViewExtendedShape1bIntegrationTest(
             username="testuser-3c", password="testpass", email="test-3c@example.com"
         )
         self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
 
         self.project = Project.objects.create(uuid=uuid4(), name="Project")
+
+        self.start_retail_auth(
+            project_uuid=self.project.uuid, user_email=self.user.email
+        )
         self.agent = Agent.objects.create(
             uuid=uuid4(),
             name="Agent",
@@ -478,9 +481,12 @@ class ValidateTemplateSampleViewErrorPathTest(BaseTestMixin, APITestCase):
             email="error-path@example.com",
         )
         self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
 
         self.project = Project.objects.create(uuid=uuid4(), name="Project")
+
+        self.start_retail_auth(
+            project_uuid=self.project.uuid, user_email=self.user.email
+        )
         self.agent = Agent.objects.create(
             uuid=uuid4(),
             name="Agent",
@@ -635,9 +641,12 @@ class ValidateTemplateSampleViewCrossTenantIsolationTest(BaseTestMixin, APITestC
             email="sc008@example.com",
         )
         self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
 
         self.project = Project.objects.create(uuid=uuid4(), name="Project")
+
+        self.start_retail_auth(
+            project_uuid=self.project.uuid, user_email=self.user.email
+        )
         self.agent = Agent.objects.create(
             uuid=uuid4(),
             name="Agent",
@@ -726,6 +735,7 @@ class ValidateTemplateSampleViewCrossTenantIsolationTest(BaseTestMixin, APITestC
     def test_unauthenticated_request_is_rejected_before_use_case(
         self, mock_integrations_service, mock_meta_service
     ):
+        self.set_retail_auth(authenticated=False)
         anonymous_client = APIClient()
         response = anonymous_client.post(
             self._sample_url(),

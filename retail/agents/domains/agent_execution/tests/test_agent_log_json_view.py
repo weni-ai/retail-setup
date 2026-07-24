@@ -57,7 +57,9 @@ class AgentLogJsonViewTest(BaseTestMixin, APITestCase):
         self.user = User.objects.create_user(
             username="tester", password="x", email="tester@example.com"
         )
-        self.client.force_authenticate(self.user)
+        self.start_retail_auth(
+            project_uuid=self.project.uuid, user_email=self.user.email
+        )
 
         self.execution = AgentExecution.objects.create(
             uuid=uuid4(),
@@ -77,12 +79,12 @@ class AgentLogJsonViewTest(BaseTestMixin, APITestCase):
         )
 
     def _request(self, url=None, project_uuid=None, auth_token="Bearer x"):
-        headers = {}
-        if project_uuid is not None:
-            headers["HTTP_PROJECT_UUID"] = str(project_uuid)
-        if auth_token:
-            headers["HTTP_AUTHORIZATION"] = auth_token
-        return self.client.get(url or self._url(), **headers)
+        self.set_retail_auth(
+            authenticated=auth_token is not None,
+            project_uuid=project_uuid,
+            user_email=self.user.email,
+        )
+        return self.client.get(url or self._url())
 
     def test_missing_project_header_is_forbidden(self):
         response = self._request()

@@ -72,7 +72,8 @@ class IntegratedFeatureSerializer(serializers.Serializer):
 
 
 class IntegratedFeatureSettingsSerializer(serializers.Serializer):
-    project_uuid = serializers.UUIDField(required=True)
+    """Validate the settings payload; ``project_uuid`` comes from ``self.auth``."""
+
     integration_settings = serializers.JSONField(required=True)
 
 
@@ -135,5 +136,6 @@ class AppIntegratedFeatureSerializer(serializers.Serializer):
 
 
 class IntegrateNexusAgentSerializer(serializers.Serializer):
-    project_uuid = serializers.UUIDField()
+    """Validate the agent reference; ``project_uuid`` comes from ``self.auth``."""
+
     agent_uuid = serializers.UUIDField()
