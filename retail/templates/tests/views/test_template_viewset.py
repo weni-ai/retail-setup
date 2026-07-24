@@ -60,11 +60,14 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
         )
 
         self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
 
         self.project = Project.objects.create(
             uuid=uuid4(),
             name="Projeto Teste",
+        )
+
+        self.start_retail_auth(
+            project_uuid=self.project.uuid, user_email=self.user.email
         )
 
         self.agent = Agent.objects.create(
@@ -279,6 +282,7 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
     def test_patch_status(self):
         """Test successful template status update"""
         self.setup_internal_user_permissions(self.user)
+        self.client.force_authenticate(self.user)
 
         template = Template.objects.create(
             uuid=uuid4(),
@@ -317,6 +321,7 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
     def test_patch_status_not_found(self):
         """Test template status update with non-existent template"""
         self.setup_internal_user_permissions(self.user)
+        self.client.force_authenticate(self.user)
 
         self.update_usecase.execute = lambda payload: (_ for _ in ()).throw(
             NotFound("not found")
@@ -332,6 +337,7 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
     def test_patch_status_invalid_data(self):
         """Test template status update with invalid data"""
         self.setup_internal_user_permissions(self.user)
+        self.client.force_authenticate(self.user)
 
         payload = {"version_uuid": "invalid-uuid", "status": "INVALID_STATUS"}
 
@@ -560,6 +566,7 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
 
     def test_unauthorized_access(self):
         """Test that unauthenticated users cannot access templates"""
+        self.set_retail_auth(authenticated=False)
         client = APIClient()
 
         response = client.get(reverse("template-list"))
@@ -627,9 +634,9 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
         self.assertEqual(response.data["display_name"], "Custom Template")
         self.assertEqual(response.data["is_custom"], True)
 
-    def test_missing_project_uuid_header_returns_403(self):
-        """Test that missing Project-UUID header returns 403 Forbidden"""
-        self.setup_internal_user_permissions(self.user)
+    def test_missing_project_uuid_in_token_returns_403(self):
+        """Test that a token without project scope returns 403 Forbidden"""
+        self.set_retail_auth(project_uuid=None, user_email=self.user.email)
 
         payload = {
             "template_translation": {"en": {"text": "Hello"}},
@@ -640,7 +647,7 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
         }
 
         response = self.client.post(
-            reverse("template-list") + f"?user_email={self.user.email}",
+            reverse("template-list"),
             payload,
             format="json",
         )
@@ -733,6 +740,7 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
 
     def test_status_action_without_internal_permission_returns_403(self):
         """Test that status action without internal permission returns 403 Forbidden"""
+        self.client.force_authenticate(self.user)
         payload = {"version_uuid": str(uuid4()), "status": "APPROVED"}
 
         url = reverse("template-status")
@@ -743,6 +751,7 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
     def test_status_action_with_internal_permission_works(self):
         """Test that status action works with internal permission"""
         self.setup_internal_user_permissions(self.user)
+        self.client.force_authenticate(self.user)
 
         template = Template.objects.create(
             uuid=uuid4(),
@@ -778,7 +787,7 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
 
     def test_unauthenticated_user_returns_403(self):
         """Test that unauthenticated users get 403 Forbidden"""
-        self.client.force_authenticate(None)
+        self.set_retail_auth(authenticated=False)
 
         response = self.client.get(reverse("template-list"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -1036,6 +1045,7 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
 
     def test_create_custom_template_unauthorized(self):
         """Test that unauthenticated users cannot create custom templates"""
+        self.set_retail_auth(authenticated=False)
         client = APIClient()
 
         payload = {

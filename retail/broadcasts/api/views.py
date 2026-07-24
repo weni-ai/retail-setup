@@ -10,7 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
-from retail.agents.shared.permissions import IsIntegratedAgentFromProject
+from retail.agents.shared.permissions import IsIntegratedAgentFromProjectByHeader
 from retail.broadcasts.api.serializers import (
     BroadcastDispatchRowSerializer,
     BroadcastSummarySerializer,
@@ -120,7 +120,7 @@ class _BroadcastAgentReportBaseView(_BroadcastReportBaseView):
     permission_classes = [
         IsAuthenticated,
         HasProjectPermission,
-        IsIntegratedAgentFromProject,
+        IsIntegratedAgentFromProjectByHeader,
     ]
 
     def _get_integrated_agent(

@@ -131,6 +131,86 @@ class BaseTestMixin:
 
         return self._mock_connect_instance
 
+    def start_retail_auth(
+        self,
+        *,
+        project_uuid: Optional[str] = None,
+        vtex_account: Optional[str] = None,
+        user_email: Optional[str] = None,
+        account_id: Optional[str] = None,
+        is_internal: bool = False,
+        token_type: str = "jwt",
+    ) -> MagicMock:
+        """Start a long-lived patch on the unified retail authentication.
+
+        The returned mock can be reconfigured per request through
+        ``set_retail_auth`` to exercise different tenants or the
+        unauthenticated path within the same test class.
+
+        Args:
+            project_uuid: Project UUID placed on the initial auth context.
+            vtex_account: VTEX account placed on the initial auth context.
+            user_email: User email placed on the initial auth context.
+            account_id: Optional account identity claim.
+            is_internal: Whether the request is marked as internal.
+            token_type: ``jwt`` or ``keycloak``.
+
+        Returns:
+            The started ``authenticate`` mock.
+        """
+        patcher = patch(RETAIL_AUTH_PATH)
+        self._retail_auth_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.set_retail_auth(
+            project_uuid=project_uuid,
+            vtex_account=vtex_account,
+            user_email=user_email,
+            account_id=account_id,
+            is_internal=is_internal,
+            token_type=token_type,
+        )
+        return self._retail_auth_mock
+
+    def set_retail_auth(
+        self,
+        *,
+        authenticated: bool = True,
+        project_uuid: Optional[str] = None,
+        vtex_account: Optional[str] = None,
+        user_email: Optional[str] = None,
+        account_id: Optional[str] = None,
+        is_internal: bool = False,
+        token_type: str = "jwt",
+    ) -> None:
+        """Reconfigure the started retail authentication mock.
+
+        Args:
+            authenticated: When ``False``, simulates an unauthenticated
+                request by returning ``None`` from the authenticator.
+            project_uuid: Project UUID placed on the auth context.
+            vtex_account: VTEX account placed on the auth context.
+            user_email: User email placed on the auth context.
+            account_id: Optional account identity claim.
+            is_internal: Whether the request is marked as internal.
+            token_type: ``jwt`` or ``keycloak``.
+        """
+        if not authenticated:
+            self._retail_auth_mock.return_value = None
+            return
+
+        auth_context = WeniAuthContext(
+            project_uuid=str(project_uuid) if project_uuid is not None else None,
+            vtex_account=vtex_account,
+            user_email=user_email,
+            account_id=account_id,
+            is_internal=is_internal,
+            token_type=token_type,
+        )
+        self._retail_auth_mock.return_value = (
+            WeniAuthUser(email=user_email),
+            auth_context,
+        )
+
     def setup_internal_user_permissions(self, user: User) -> None:
         """
         Add internal communication permission to user.

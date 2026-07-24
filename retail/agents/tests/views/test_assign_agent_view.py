@@ -57,7 +57,9 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
 
         self.setup_internal_user_permissions(self.user)
 
-        self.client.force_authenticate(self.user)
+        self.start_retail_auth(
+            project_uuid=self.project.uuid, user_email=self.user.email
+        )
 
         self._setup_test_data()
 
@@ -68,16 +70,18 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
             "channel_uuid": str(uuid4()),
             "user_email": self.user.email,
         }
-        self.base_headers = {"Project-Uuid": str(self.project.uuid)}
 
-    def _make_assign_request(self, agent_uuid, query_params=None, headers=None):
+    def _make_assign_request(
+        self, agent_uuid, query_params=None, project_uuid="__default__"
+    ):
         """
         Helper method to make agent assignment requests
 
         Args:
             agent_uuid: UUID of the agent to be assigned
             query_params: Custom query parameters
-            headers: Custom headers
+            project_uuid: Project UUID placed on the auth context; use ``None``
+                to simulate a token without project scope.
 
         Returns:
             Request response
@@ -85,12 +89,16 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
         url = reverse("assign-agent", kwargs={"agent_uuid": agent_uuid})
 
         params = query_params if query_params is not None else self.base_query_params
-        request_headers = headers if headers is not None else self.base_headers
+
+        resolved_project = (
+            self.project.uuid if project_uuid == "__default__" else project_uuid
+        )
+        self.set_retail_auth(project_uuid=resolved_project, user_email=self.user.email)
 
         query_string = urlencode(params)
         full_url = f"{url}?{query_string}"
 
-        return self.client.post(full_url, headers=request_headers)
+        return self.client.post(full_url)
 
     def _setup_integrations_service_mock(self):
         """Configure IntegrationsService mock"""
@@ -211,19 +219,18 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
     @patch(
         "retail.agents.domains.agent_integration.usecases.assign.IntegrationsService"
     )
-    def test_missing_user_email(self, mock_integrations_service_class):
-        """Test behavior when user_email is not provided"""
+    def test_missing_user_identity_is_forbidden(self, mock_integrations_service_class):
+        """Test behavior when the token carries no user identity"""
         mock_integrations_service_class.return_value = (
             self._setup_integrations_service_mock()
         )
 
-        query_params = {
-            "app_uuid": str(uuid4()),
-            "channel_uuid": str(uuid4()),
-        }
-        response = self._make_assign_request(
-            self.agent_oficial.uuid, query_params=query_params
-        )
+        self.set_retail_auth(project_uuid=self.project.uuid, user_email=None)
+
+        url = reverse("assign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})
+        query_string = urlencode(self.base_query_params)
+
+        response = self.client.post(f"{url}?{query_string}")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -275,9 +282,9 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_missing_project_uuid_header(self):
-        """Test behavior when Project-Uuid header is not provided"""
-        response = self._make_assign_request(self.agent_oficial.uuid, headers={})
+    def test_missing_project_uuid_is_forbidden(self):
+        """Test behavior when the token carries no project scope"""
+        response = self._make_assign_request(self.agent_oficial.uuid, project_uuid=None)
 
         self.assertIn(
             response.status_code,
@@ -305,8 +312,11 @@ class AssignAgentViewTest(BaseTestMixin, APITestCase):
 
     def test_unauthenticated_user_cannot_assign_agent(self):
         """Test that unauthenticated user cannot assign agent"""
-        self.client.force_authenticate(user=None)
+        self.set_retail_auth(authenticated=False)
 
-        response = self._make_assign_request(self.agent_oficial.uuid)
+        url = reverse("assign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})
+        query_string = urlencode(self.base_query_params)
+
+        response = self.client.post(f"{url}?{query_string}")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 
 from retail.agents.domains.agent_management.models import Agent
 from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.internal.test_mixins import patch_retail_auth
 from retail.projects.models import Project
 
 User = get_user_model()
@@ -32,10 +33,12 @@ class SendTestTemplateViewTest(APITestCase):
             channel_uuid=uuid4(),
         )
 
-        self.user = User.objects.create_user(
-            username="testuser", password="12345", email="testuser@example.com"
+        self.auth_patcher = patch_retail_auth(
+            project_uuid=str(self.project.uuid),
+            user_email="testuser@example.com",
         )
-        self.client.force_authenticate(user=self.user)
+        self.mock_auth = self.auth_patcher.start()
+        self.addCleanup(self.auth_patcher.stop)
 
         self.valid_payload = {
             "contact_urns": ["whatsapp:5584999999999"],
@@ -119,7 +122,7 @@ class SendTestTemplateViewTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_send_test_template_unauthenticated(self):
-        self.client.force_authenticate(user=None)
+        self.mock_auth.return_value = None
 
         response = self.client.post(
             self._get_url(),

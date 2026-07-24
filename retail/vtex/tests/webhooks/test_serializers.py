@@ -17,35 +17,33 @@ class TestCartSerializer(TestCase):
 
     def setUp(self):
         self.valid_payload = {
-            "account": "test-account",
             "cart_id": "order-123",
             "phone": "5584987654321",
             "name": "Test User",
         }
 
-    def test_valid_payload_parses_all_five_fields(self):
+    def test_valid_payload_parses_cart_fields(self):
         serializer = CartSerializer(data=self.valid_payload)
 
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
         validated = serializer.validated_data
-        self.assertEqual(validated["account"], "test-account")
         self.assertEqual(validated["cart_id"], "order-123")
         self.assertEqual(validated["phone"], "5584987654321")
         self.assertEqual(validated["name"], "Test User")
         self.assertEqual(
             set(validated.keys()),
-            {"account", "cart_id", "phone", "name"},
+            {"cart_id", "phone", "name"},
         )
 
-    def test_missing_account_is_invalid(self):
+    def test_account_field_is_not_accepted(self):
         payload = dict(self.valid_payload)
-        del payload["account"]
+        payload["account"] = "spoofed-account"
 
         serializer = CartSerializer(data=payload)
 
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("account", serializer.errors)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertNotIn("account", serializer.validated_data)
 
     def test_missing_cart_id_is_invalid(self):
         payload = dict(self.valid_payload)
@@ -80,7 +78,7 @@ class TestCartSerializer(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertEqual(
             set(serializer.errors.keys()),
-            {"account", "cart_id", "phone", "name"},
+            {"cart_id", "phone", "name"},
         )
 
     def test_extra_fields_are_ignored(self):

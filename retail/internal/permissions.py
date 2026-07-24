@@ -8,6 +8,7 @@ from weni_commons.auth import WeniAuthContext
 
 from retail.services.connect.proxy import ConnectServiceProxy
 from retail.interfaces.services.connect import ConnectServiceInterface
+from retail.projects.models import Project
 
 
 class CanCommunicateInternally(permissions.IsAuthenticated):
@@ -181,8 +182,6 @@ class HasWeniProjectPermission(permissions.BasePermission):
 
         if not auth.has_vtex_account:
             return None
-
-        from retail.projects.models import Project
 
         project = Project.objects.filter(vtex_account=auth.vtex_account).first()
         return str(project.uuid) if project else None

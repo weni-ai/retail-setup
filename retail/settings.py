@@ -350,6 +350,10 @@ OIDC_CACHE_TTL = env.int(
     "OIDC_CACHE_TTL", default=600
 )  # Time-to-live for cached user tokens (default: 600 seconds).
 
+CONNECT_USER_PERMISSIONS_CACHE_TTL = env.int(
+    "CONNECT_USER_PERMISSIONS_CACHE_TTL", default=30
+)  # TTL for cached Connect project authorizations; 0 disables the cache.
+
 VTEX_IO_OIDC_RP_CLIENT_SECRET = env.str("VTEX_IO_OIDC_RP_CLIENT_SECRET", "")
 VTEX_IO_OIDC_RP_CLIENT_ID = env.str("VTEX_IO_OIDC_RP_CLIENT_ID", "")
 
