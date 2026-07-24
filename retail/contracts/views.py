@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from retail.contracts.exceptions import (
     ContractTemplateNotFoundError,
@@ -19,18 +20,20 @@ from retail.contracts.usecases.register_contract_acceptance import (
     RegisterContractAcceptanceDTO,
     RegisterContractAcceptanceUseCase,
 )
-from retail.internal.views import KeycloakAPIView
+from retail.internal.weni_mixins import WeniAuthMixin
 
 logger = logging.getLogger(__name__)
 
 
-class RegisterContractAcceptanceView(KeycloakAPIView):
+class RegisterContractAcceptanceView(WeniAuthMixin, APIView):
     """Records an immutable contract acceptance for the authenticated user.
 
     Technical evidence is captured from the request itself. The client
     payload carries the subscriber identity (``user_id``, ``email_at_acceptance``),
-    chosen plan, acceptance method and the exact label shown. Acceptance
-    timestamp, local offset and contract version are resolved server-side.
+    chosen plan, acceptance method and the exact label shown. The tenant
+    (``vtex_account``) is read from the authenticated context, never from the
+    body. Acceptance timestamp, local offset and contract version are resolved
+    server-side.
     """
 
     def post(self, request: Request) -> Response:
@@ -43,7 +46,7 @@ class RegisterContractAcceptanceView(KeycloakAPIView):
             email_at_acceptance=validated["email_at_acceptance"],
             user_name=validated["user_name"],
             company_name=validated.get("company_name") or None,
-            vtex_account=validated["vtex_account"],
+            vtex_account=self.auth.vtex_account,
             plan=validated["plan"],
             acceptance_method=validated["acceptance_method"],
             checkbox_label_text=validated["checkbox_label_text"],

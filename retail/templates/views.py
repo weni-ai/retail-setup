@@ -10,10 +10,11 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
-from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import ErrorDetail, ValidationError
+from weni_commons.auth import CanCommunicateInternally, IsWeniAuthenticated
 
-from retail.internal.permissions import CanCommunicateInternally, HasProjectPermission
+from retail.internal.permissions import HasWeniProjectPermission
+from retail.internal.weni_mixins import WeniAuthMixin
 from retail.templates.exceptions import (
     MetaInvalidResponseError,
     MetaSampleUnavailableError,
@@ -79,9 +80,12 @@ _SAMPLE_DOMAIN_ERROR_HTTP_TRANSLATIONS = {
     ),
 }
 
+_PROJECT_UUID_MISMATCH_MESSAGE = "project_uuid does not match the authenticated project"
+_PROJECT_UUID_MISMATCH_CODE = "project_uuid_mismatch"
 
-class TemplateViewSet(ViewSet):
-    permission_classes = [IsAuthenticated, HasProjectPermission]
+
+class TemplateViewSet(WeniAuthMixin, ViewSet):
+    permission_classes = [IsWeniAuthenticated, HasWeniProjectPermission]
 
     def get_permissions(self):
         permissions = super().get_permissions()
@@ -95,7 +99,10 @@ class TemplateViewSet(ViewSet):
         request_serializer = CreateTemplateSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
 
-        data: CreateTemplateData = request_serializer.data
+        data: CreateTemplateData = {
+            **request_serializer.validated_data,
+            "project_uuid": self.auth.project_uuid,
+        }
         use_case = CreateTemplateUseCase()
         template = use_case.execute(data)
 
@@ -150,6 +157,7 @@ class TemplateViewSet(ViewSet):
             {
                 **request_serializer.validated_data,
                 "template_uuid": str(pk),
+                "project_uuid": self.auth.project_uuid,
             },
         )
 
@@ -171,7 +179,11 @@ class TemplateViewSet(ViewSet):
         request_serializer.is_valid(raise_exception=True)
 
         data: CreateCustomTemplateData = cast(
-            CreateCustomTemplateData, request_serializer.validated_data
+            CreateCustomTemplateData,
+            {
+                **request_serializer.validated_data,
+                "project_uuid": self.auth.project_uuid,
+            },
         )
         use_case = CreateCustomTemplateUseCase()
         template = use_case.execute(data)
@@ -186,18 +198,16 @@ class TemplateViewSet(ViewSet):
         Anchor: FR-002b / FR-007 / SC-008 (see
         ``specs/004-template-sample-validation/spec.md``).
         """
-        request_serializer = ValidateTemplateSampleSerializer(
-            data=request.data, context={"request": request}
-        )
-        try:
-            request_serializer.is_valid(raise_exception=True)
-        except ValidationError as exc:
-            self._warn_project_uuid_mismatch_if_present(request, pk, exc)
-            raise
+        request_serializer = ValidateTemplateSampleSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
 
-        dto = self._build_validate_sample_dto(
-            request_serializer.validated_data, str(pk)
-        )
+        self._reject_cross_tenant_project_uuid(pk, request_serializer.validated_data)
+
+        validated_data = {
+            **request_serializer.validated_data,
+            "project_uuid": self.auth.project_uuid,
+        }
+        dto = self._build_validate_sample_dto(validated_data, str(pk))
         use_case = ValidateTemplateSampleUseCase()
         try:
             result = use_case.execute(dto)
@@ -240,48 +250,59 @@ class TemplateViewSet(ViewSet):
             language=validated_data.get("language"),
         )
 
-    def _warn_project_uuid_mismatch_if_present(
-        self, request: Request, template_uuid: UUID, exc: ValidationError
+    def _reject_cross_tenant_project_uuid(
+        self, template_uuid: UUID, validated_data: dict
     ) -> None:
-        """Emit a ``project_uuid_mismatch`` WARNING when applicable.
+        """Reject a sample whose body ``project_uuid`` diverges from the token.
 
-        Anchor: FR-008a / SC-008.
+        The authenticated tenant (``self.auth``) is authoritative; a
+        divergent body value would let an operator authorized for project A
+        target project B's WABA. Emits the FR-008a audit log before raising
+        the 400. Anchor: FR-002b / FR-007f / FR-008a / SC-008.
+
+        Args:
+            template_uuid: The template UUID from the URL, for the audit log.
+            validated_data: The serializer's validated payload.
         """
-        if not self._validation_error_has_project_uuid_mismatch(exc):
+        if not self.auth.has_project_uuid:
+            return
+
+        token_project_uuid = self.auth.project_uuid
+        body_project_uuid = validated_data.get("project_uuid")
+        if not body_project_uuid or body_project_uuid == token_project_uuid:
             return
 
         logger.warning(
             "[TemplateSampleValidation] project_uuid_mismatch: "
-            f"header_project_uuid={request.headers.get('Project-Uuid')} "
-            f"body_project_uuid={request.data.get('project_uuid')} "
+            f"token_project_uuid={token_project_uuid} "
+            f"body_project_uuid={body_project_uuid} "
             f"template_uuid={template_uuid}"
         )
-
-    @staticmethod
-    def _validation_error_has_project_uuid_mismatch(exc: ValidationError) -> bool:
-        detail = exc.detail
-        if not isinstance(detail, dict):
-            return False
-        project_uuid_errors = detail.get("project_uuid") or []
-        return any(
-            getattr(err, "code", None) == "project_uuid_mismatch"
-            for err in project_uuid_errors
+        raise ValidationError(
+            {
+                "project_uuid": [
+                    ErrorDetail(
+                        _PROJECT_UUID_MISMATCH_MESSAGE,
+                        code=_PROJECT_UUID_MISMATCH_CODE,
+                    )
+                ]
+            }
         )
 
 
-class TemplateLibraryViewSet(ViewSet):
-    permission_classes = [IsAuthenticated, HasProjectPermission]
+class TemplateLibraryViewSet(WeniAuthMixin, ViewSet):
+    permission_classes = [IsWeniAuthenticated, HasWeniProjectPermission]
 
     def partial_update(self, request: Request, pk: UUID) -> Response:
         request_serializer = UpdateLibraryTemplateSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
 
         app_uuid = request.query_params.get("app_uuid")
-        project_uuid = request.query_params.get("project_uuid")
+        project_uuid = self.auth.project_uuid
 
-        if not app_uuid or not project_uuid:
+        if not app_uuid:
             return Response(
-                {"error": "app_uuid and project_uuid are required"},
+                {"error": "app_uuid is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -302,7 +323,7 @@ class TemplateLibraryViewSet(ViewSet):
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 
-class TemplateMetricsView(APIView):
+class TemplateMetricsView(WeniAuthMixin, APIView):
     """
     Endpoint for retrieving aggregated metrics of all template versions
     associated with a given template UUID, within a specified date range.

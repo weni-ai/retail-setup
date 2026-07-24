@@ -21,7 +21,6 @@ class RegisterContractAcceptanceSerializer(serializers.Serializer):
     company_name = serializers.CharField(
         max_length=256, required=False, allow_blank=True
     )
-    vtex_account = serializers.CharField(max_length=100, required=True)
     plan = serializers.CharField(max_length=100, required=True)
     acceptance_method = serializers.ChoiceField(
         choices=ContractAcceptance.ACCEPTANCE_METHOD_CHOICES,

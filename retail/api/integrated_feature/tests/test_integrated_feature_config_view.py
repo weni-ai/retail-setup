@@ -8,6 +8,7 @@ from rest_framework.test import APITestCase
 
 
 from retail.features.models import Feature, IntegratedFeature
+from retail.internal.test_mixins import patch_retail_auth
 from retail.projects.models import Project
 
 
@@ -15,15 +16,11 @@ class BaseTestIntegratedFeatureSettingsView(APITestCase):
     def update_settings(
         self,
         feature_uuid: UUID,
-        project_uuid: UUID | None = None,
         integration_settings=None,
     ) -> Response:
         url = reverse("integrated-feature-settings", args=[feature_uuid])
 
         payload = {}
-
-        if project_uuid is not None:
-            payload["project_uuid"] = project_uuid
 
         if integration_settings is not None:
             payload["integration_settings"] = integration_settings
@@ -48,12 +45,19 @@ class TestIntegratedFeatureSettingsView(BaseTestIntegratedFeatureSettingsView):
         )
         self.new_integration_settings = {"name": "testing", "limit": 10}
 
-        self.client.force_authenticate(user=self.user)
+        # Internal context: the tenant scope comes from the token and
+        # ``HasWeniProjectPermission`` short-circuits for internal callers.
+        self.auth_patcher = patch_retail_auth(
+            project_uuid=str(self.project.uuid),
+            user_email="test@example.local",
+            is_internal=True,
+        )
+        self.mock_auth = self.auth_patcher.start()
+        self.addCleanup(self.auth_patcher.stop)
 
     def test_update_settings(self):
         response = self.update_settings(
             self.feature.uuid,
-            project_uuid=self.project.uuid,
             integration_settings=self.new_integration_settings,
         )
 
@@ -66,33 +70,19 @@ class TestIntegratedFeatureSettingsView(BaseTestIntegratedFeatureSettingsView):
         self.assertEqual(self.integrated_feature.config, expected_config)
 
     def test_cannot_update_settings_when_not_authenticated(self):
-        self.client.force_authenticate(user=None)
+        self.mock_auth.return_value = None
 
         response = self.update_settings(
             self.feature.uuid,
-            project_uuid=self.project.uuid,
             integration_settings=self.new_integration_settings,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.integrated_feature.refresh_from_db(fields=["config"])
-        self.assertEqual(self.integrated_feature.config, self.original_config)
-
-    def test_cannot_update_settings_without_passing_project_uuid(self):
-        response = self.update_settings(
-            self.feature.uuid, integration_settings=self.new_integration_settings
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["project_uuid"][0].code, "required")
-
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.integrated_feature.refresh_from_db(fields=["config"])
         self.assertEqual(self.integrated_feature.config, self.original_config)
 
     def test_cannot_update_settings_without_passing_integration_settings(self):
-        response = self.update_settings(
-            self.feature.uuid, project_uuid=self.project.uuid
-        )
+        response = self.update_settings(self.feature.uuid)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["integration_settings"][0].code, "required")
@@ -104,7 +94,6 @@ class TestIntegratedFeatureSettingsView(BaseTestIntegratedFeatureSettingsView):
         self.integrated_feature.delete()
         response = self.update_settings(
             self.feature.uuid,
-            project_uuid=self.project.uuid,
             integration_settings=self.new_integration_settings,
         )
 

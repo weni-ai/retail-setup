@@ -10,11 +10,15 @@ from retail.api.integrated_agent.usecases.dto import SendTestTemplateDTO
 from retail.api.integrated_agent.usecases.send_test_template import (
     SendTestTemplateUseCase,
 )
-from retail.internal.authenticators import InternalOIDCAuthentication
+from retail.internal.weni_mixins import WeniAuthMixin
 
 
-class SendTestTemplateView(BaseServiceView):
-    authentication_classes = [InternalOIDCAuthentication]
+class SendTestTemplateView(WeniAuthMixin, BaseServiceView):
+    """Send a test template for an integrated agent.
+
+    Authenticated through the unified JWT + Keycloak flow; the integrated agent
+    is identified by the path and carries no additional tenant scope.
+    """
 
     def post(self, request: Request, integrated_agent_uuid: UUID) -> Response:
         serializer = SendTestTemplateSerializer(data=request.data)

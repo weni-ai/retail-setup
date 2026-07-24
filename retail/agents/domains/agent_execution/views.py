@@ -1,7 +1,8 @@
 """HTTP layer for the public agent-logs API.
 
 Three endpoints, all scoped to a single ``IntegratedAgent`` via the URL
-and to a single project via the ``Project-Uuid`` header:
+and to a single project resolved from the authenticated context
+(``self.auth``, populated by the unified JWT + Keycloak flow):
 
 - ``GET /api/v3/agents/assigneds/{agent_uuid}/logs/`` — paginated list.
 - ``GET /api/v3/agents/assigneds/{agent_uuid}/logs/{log_uuid}/json/`` —
@@ -16,16 +17,16 @@ the use cases (so the views never touch S3).
 """
 
 import logging
-from typing import Optional
 from uuid import UUID
 
 from django.http import HttpResponseRedirect
 from rest_framework import status
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from weni_commons.auth import IsWeniAuthenticated
 
 from retail.agents.domains.agent_execution.serializers import (
     AgentLogRowSerializer,
@@ -47,19 +48,19 @@ from retail.agents.domains.agent_execution.usecases.list_agent_logs import (
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.shared.permissions import IsIntegratedAgentFromProject
 from retail.agents.tasks import task_export_agent_logs
-from retail.internal.permissions import HasProjectPermission
-from retail.internal.views import KeycloakAPIView
+from retail.internal.permissions import HasWeniProjectPermission
+from retail.internal.weni_mixins import WeniAuthMixin
 
 
 logger = logging.getLogger(__name__)
 
 
-class _AgentLogsBaseView(KeycloakAPIView):
+class _AgentLogsBaseView(WeniAuthMixin, APIView):
     """Shared agent-uuid + project-uuid resolution and authorization."""
 
     permission_classes = [
-        IsAuthenticated,
-        HasProjectPermission,
+        IsWeniAuthenticated,
+        HasWeniProjectPermission,
         IsIntegratedAgentFromProject,
     ]
 
@@ -74,13 +75,9 @@ class _AgentLogsBaseView(KeycloakAPIView):
             raise NotFound(f"Integrated agent not found: {agent_uuid}")
 
         # Object-level check verifies the agent belongs to the project
-        # carried in the ``Project-Uuid`` header.
+        # resolved from the authenticated context.
         self.check_object_permissions(request, integrated_agent)
         return integrated_agent
-
-    @staticmethod
-    def _project_uuid(request: Request) -> Optional[str]:
-        return request.headers.get("Project-Uuid")
 
 
 class AgentLogsView(_AgentLogsBaseView):

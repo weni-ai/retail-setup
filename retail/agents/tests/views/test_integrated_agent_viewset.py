@@ -99,7 +99,7 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
             username="testuser", password="12345", email="test@example.com"
         )
 
-        self.client.force_authenticate(self.user)
+        self.start_retail_auth(user_email=self.user.email)
         self._setup_test_urls()
 
     def _setup_test_urls(self):
@@ -125,11 +125,8 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
         Returns:
             Response from the request
         """
-        headers = {}
-        if project_uuid:
-            headers["HTTP_PROJECT_UUID"] = str(project_uuid)
-
-        return self.client.get(self.list_url, **headers)
+        self.set_retail_auth(project_uuid=project_uuid, user_email=self.user.email)
+        return self.client.get(self.list_url)
 
     def _make_detail_request(
         self, integrated_agent_uuid, project_uuid=None, query_params=None
@@ -151,11 +148,8 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
             query_string = "&".join([f"{k}={v}" for k, v in query_params.items()])
             url = f"{url}?{query_string}"
 
-        headers = {}
-        if project_uuid:
-            headers["HTTP_PROJECT_UUID"] = str(project_uuid)
-
-        return self.client.get(url, **headers)
+        self.set_retail_auth(project_uuid=project_uuid, user_email=self.user.email)
+        return self.client.get(url)
 
     def _make_patch_request(
         self, integrated_agent_uuid, data, project_uuid=None, user_email=None
@@ -177,11 +171,11 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
         if user_email:
             url = f"{url}?user_email={user_email}"
 
-        headers = {}
-        if project_uuid:
-            headers["HTTP_PROJECT_UUID"] = str(project_uuid)
-
-        return self.client.patch(url, data=data, **headers)
+        self.set_retail_auth(
+            project_uuid=project_uuid,
+            user_email=user_email or self.user.email,
+        )
+        return self.client.patch(url, data=data)
 
     def _create_template(self, name, integrated_agent, is_active=True, deleted_at=None):
         """
@@ -281,9 +275,6 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
         )
         mock_use_case.return_value.execute.return_value = integrated_agent
 
-        user = User.objects.create_user(username="test_user", password="password")
-        self.client.force_authenticate(user)
-
         response = self._make_detail_request(
             integrated_agent.uuid, project_uuid=self.project1.uuid
         )
@@ -304,9 +295,6 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
             project=self.project1,
         )
         mock_use_case.return_value.execute.return_value = integrated_agent
-
-        user = User.objects.create_user(username="test_user", password="password")
-        self.client.force_authenticate(user)
 
         response = self._make_detail_request(
             integrated_agent.uuid,
@@ -492,17 +480,14 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
             str(self.project1.uuid), "test@example.com"
         )
 
-    def test_partial_update_missing_user_email_query_param(self):
-        """Test partial update fails when user_email parameter is missing"""
-        self.setup_internal_user_permissions(self.user)
+    def test_partial_update_missing_user_identity_is_forbidden(self):
+        """Test partial update fails when the token carries no user identity"""
+        self.set_retail_auth(project_uuid=self.project1.uuid, user_email=None)
 
         update_data = {"contact_percentage": 20}
+        url = reverse("assigned-agents-detail", args=[str(self.integrated_agent1.uuid)])
 
-        response = self._make_patch_request(
-            self.integrated_agent1.uuid,
-            data=update_data,
-            project_uuid=self.project1.uuid,
-        )
+        response = self.client.patch(url, data=update_data)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -518,9 +503,9 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
 
     def test_unauthenticated_access(self):
         """Test that unauthenticated users cannot access integrated agents"""
-        self.client.force_authenticate(None)
+        self.set_retail_auth(authenticated=False)
 
-        response = self._make_list_request(project_uuid=self.project1.uuid)
+        response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_integration_retrieve_with_default_params_returns_active_templates_only(

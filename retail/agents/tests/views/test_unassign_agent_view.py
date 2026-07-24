@@ -69,35 +69,35 @@ class UnassignAgentViewTest(BaseTestMixin, APITestCase):
         )
 
         self.setup_internal_user_permissions(self.user)
-        self.client.force_authenticate(user=self.user)
-        self._setup_test_data()
+        self.start_retail_auth(
+            project_uuid=self.project.uuid, user_email=self.user.email
+        )
 
-    def _setup_test_data(self):
-        """Configure common test data"""
-        self.base_headers = {"Project-Uuid": str(self.project.uuid)}
-
-    def _make_unassign_request(self, agent_uuid, user_email=None, headers=None):
+    def _make_unassign_request(
+        self, agent_uuid, user_email="__default__", project_uuid="__default__"
+    ):
         """
         Helper method to make agent unassignment requests
 
         Args:
             agent_uuid: UUID of the agent to unassign
-            user_email: Email of the user (optional)
-            headers: Custom headers (optional)
+            user_email: User email placed on the auth context; use ``None`` to
+                simulate a token without user identity.
+            project_uuid: Project UUID placed on the auth context; use ``None``
+                to simulate a token without project scope.
 
         Returns:
             Response from the request
         """
         url = reverse("unassign-agent", kwargs={"agent_uuid": agent_uuid})
 
-        if user_email:
-            full_url = f"{url}?user_email={user_email}"
-        else:
-            full_url = url
+        resolved_email = self.user.email if user_email == "__default__" else user_email
+        resolved_project = (
+            self.project.uuid if project_uuid == "__default__" else project_uuid
+        )
+        self.set_retail_auth(project_uuid=resolved_project, user_email=resolved_email)
 
-        request_headers = headers if headers is not None else self.base_headers
-
-        return self.client.post(full_url, headers=request_headers)
+        return self.client.post(url)
 
     def _assert_agent_unassigned(self, agent, project):
         """
@@ -148,19 +148,18 @@ class UnassignAgentViewTest(BaseTestMixin, APITestCase):
             permissions=ConnectServicePermissionScenarios.MODERATOR_PERMISSIONS,
         )
 
-        wrong_project_headers = {"Project-Uuid": str(uuid4())}
         response = self._make_unassign_request(
             self.agent_not_oficial.uuid,
             user_email=self.user.email,
-            headers=wrong_project_headers,
+            project_uuid=uuid4(),
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_unassign_agent_missing_project_uuid_header(self):
-        """Test unassignment fails when Project-Uuid header is missing"""
+    def test_unassign_agent_missing_project_uuid_is_forbidden(self):
+        """Test unassignment fails when the token carries no project scope"""
         response = self._make_unassign_request(
-            self.agent_oficial.uuid, user_email=self.user.email, headers={}
+            self.agent_oficial.uuid, user_email=self.user.email, project_uuid=None
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -204,18 +203,17 @@ class UnassignAgentViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_unassign_agent_missing_user_email(self):
-        """Test unassignment fails when user_email parameter is missing"""
-        response = self._make_unassign_request(self.agent_oficial.uuid)
+    def test_unassign_agent_missing_user_identity_is_forbidden(self):
+        """Test unassignment fails when the token carries no user identity"""
+        response = self._make_unassign_request(self.agent_oficial.uuid, user_email=None)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_unauthenticated_user_cannot_unassign_agent(self):
         """Test that unauthenticated users cannot unassign agents"""
-        self.client.force_authenticate(user=None)
+        self.set_retail_auth(authenticated=False)
 
-        response = self._make_unassign_request(
-            self.agent_oficial.uuid, user_email=self.user.email
-        )
+        url = reverse("unassign-agent", kwargs={"agent_uuid": self.agent_oficial.uuid})
+        response = self.client.post(url)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

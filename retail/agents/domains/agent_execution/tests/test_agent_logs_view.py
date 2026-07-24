@@ -60,7 +60,9 @@ class AgentLogsViewTest(BaseTestMixin, APITestCase):
         self.user = User.objects.create_user(
             username="tester", password="x", email="tester@example.com"
         )
-        self.client.force_authenticate(self.user)
+        self.start_retail_auth(
+            project_uuid=self.project.uuid, user_email=self.user.email
+        )
 
         self.url = reverse(
             "agent-logs", kwargs={"agent_uuid": str(self.integrated_agent.uuid)}
@@ -69,13 +71,13 @@ class AgentLogsViewTest(BaseTestMixin, APITestCase):
     def _request(
         self, project_uuid=None, query_string: str = "", auth_token: str = "Bearer x"
     ):
+        self.set_retail_auth(
+            authenticated=auth_token is not None,
+            project_uuid=project_uuid,
+            user_email=self.user.email,
+        )
         url = self.url + (f"?{query_string}" if query_string else "")
-        headers = {}
-        if project_uuid is not None:
-            headers["HTTP_PROJECT_UUID"] = str(project_uuid)
-        if auth_token:
-            headers["HTTP_AUTHORIZATION"] = auth_token
-        return self.client.get(url, **headers)
+        return self.client.get(url)
 
     def _make_execution(self, **overrides) -> AgentExecution:
         defaults = dict(
