@@ -506,7 +506,7 @@ class IntegratedAgentViewSetTest(BaseTestMixin, APITestCase):
         self.set_retail_auth(authenticated=False)
 
         response = self.client.get(self.list_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_integration_retrieve_with_default_params_returns_active_templates_only(
         self,

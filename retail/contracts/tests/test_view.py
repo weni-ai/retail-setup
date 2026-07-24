@@ -172,7 +172,7 @@ class RegisterContractAcceptanceViewTests(TestCase):
         dto = mock_cls.return_value.execute.call_args[0][0]
         self.assertEqual(dto.session_id, "")
 
-    def test_returns_403_without_auth(self):
+    def test_returns_401_without_auth(self):
         response = self.client.post(self.url, self.valid_payload, format="json")
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 401)
