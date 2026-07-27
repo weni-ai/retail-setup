@@ -1,6 +1,8 @@
 import logging
 
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from weni_commons.auth import IsWeniAuthenticated
@@ -36,13 +38,10 @@ class ActivateWebchatView(WeniAuthMixin, APIView):
         serializer = ActivateWebchatSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        vtex_account = self.auth.vtex_account
-        account_id = self.auth.account_id
-
         dto = ActivateWebchatDTO(
             app_uuid=str(serializer.validated_data["app_uuid"]),
-            account_id=account_id,
-            vtex_account=vtex_account,
+            account_id=self._resolve_account_id(request),
+            vtex_account=self.auth.vtex_account,
         )
 
         use_case = PublishWebchatScriptUseCase(
@@ -53,6 +52,34 @@ class ActivateWebchatView(WeniAuthMixin, APIView):
         result = use_case.execute(dto)
 
         return Response(result.to_dict(), status=status.HTTP_201_CREATED)
+
+    def _resolve_account_id(self, request: Request) -> str:
+        """Resolve the account identity, preferring the JWT claim.
+
+        TODO(rollout): drop the request-body fallback once every IO
+        deployment sends ``account_id`` in the JWT. Older IO versions still
+        send it in the body, so during the transition the token is trusted
+        first and the body value is accepted only when the claim is absent.
+
+        Args:
+            request: The incoming DRF request.
+
+        Returns:
+            The resolved account identity.
+
+        Raises:
+            ValidationError: When the claim is absent from both the token and
+                the request body.
+        """
+        if self.auth.has_account_id:
+            return self.auth.account_id
+
+        account_id = request.data.get("account_id")
+        if not account_id:
+            raise ValidationError(
+                {"account_id": "account_id is required for this request."}
+            )
+        return account_id
 
 
 class ActivateWppCloudView(WeniAuthMixin, APIView):

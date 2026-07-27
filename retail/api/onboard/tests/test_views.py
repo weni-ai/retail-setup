@@ -154,6 +154,25 @@ class TestActivateWebchatView(TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    @patch_retail_auth(vtex_account="mystore", user_email="user@weni.ai")
+    @patch(CONNECT_PROXY_PATH)
+    @patch("retail.api.onboard.views.WebchatPushService")
+    @patch("retail.api.onboard.views.IntegrationsService")
+    @patch("retail.api.onboard.views.PublishWebchatScriptUseCase")
+    def test_account_id_falls_back_to_body_when_absent_from_token(
+        self, MockUseCase, MockIntegrationsService, MockPushService, MockProxy, _auth
+    ):
+        self._grant(MockProxy)
+        mock_result = MagicMock()
+        mock_result.to_dict.return_value = {"script_urls": []}
+        MockUseCase.return_value.execute.return_value = mock_result
+
+        response = self._post({**self.valid_payload, "account_id": self.account_id})
+
+        self.assertEqual(response.status_code, 201)
+        dto = MockUseCase.return_value.execute.call_args.args[0]
+        self.assertEqual(dto.account_id, self.account_id)
+
     @patch_retail_auth(
         vtex_account="mystore",
         user_email="user@weni.ai",
