@@ -76,9 +76,12 @@ class ValidateTemplateSampleResponseSchemaParityTest(BaseTestMixin, APITestCase)
             email="schema-parity@example.com",
         )
         self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
 
         self.project = Project.objects.create(uuid=uuid4(), name="Project")
+
+        self.start_retail_auth(
+            project_uuid=self.project.uuid, user_email=self.user.email
+        )
         self.agent = Agent.objects.create(
             uuid=uuid4(),
             name="Agent",

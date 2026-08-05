@@ -48,10 +48,12 @@ class PaymentRecoveryHookConfigViewTest(BaseTestMixin, APITestCase):
         self.user = User.objects.create_user(
             username="testuser", password="12345", email="test@example.com"
         )
-        self.client.force_authenticate(self.user)
+        self.start_retail_auth(
+            project_uuid=self.project.uuid, user_email=self.user.email
+        )
 
     def _request_headers(self):
-        return {"HTTP_PROJECT_UUID": str(self.project.uuid)}
+        return {}
 
     @patch(
         "retail.agents.domains.agent_integration.views.PaymentRecoveryHookConfigUseCase"

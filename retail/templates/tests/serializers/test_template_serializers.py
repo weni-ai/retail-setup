@@ -572,14 +572,8 @@ class TestValidateTemplateSampleSerializer(TestCase):
             "project_uuid": self.project_uuid,
         }
 
-    def _serializer(self, data, *, request=None):
-        context = {"request": request} if request is not None else {}
-        return ValidateTemplateSampleSerializer(data=data, context=context)
-
-    def _request_with_header(self, project_uuid):
-        request = Mock()
-        request.headers = {"Project-Uuid": project_uuid}
-        return request
+    def _serializer(self, data):
+        return ValidateTemplateSampleSerializer(data=data)
 
     def test_body_at_1024_chars_passes(self):
         data = {**self.base_data, "template_body": "x" * 1024}
@@ -727,23 +721,3 @@ class TestValidateTemplateSampleSerializer(TestCase):
         serializer = self._serializer(data)
         self.assertFalse(serializer.is_valid())
         self.assertIn("non_field_errors", serializer.errors)
-
-    def test_project_uuid_header_matches_body_passes(self):
-        request = self._request_with_header(self.project_uuid)
-        serializer = self._serializer(self.base_data, request=request)
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-
-    def test_project_uuid_header_differs_from_body_fails(self):
-        request = self._request_with_header(str(uuid4()))
-        serializer = self._serializer(self.base_data, request=request)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("project_uuid", serializer.errors)
-        error = serializer.errors["project_uuid"][0]
-        self.assertEqual(error.code, "project_uuid_mismatch")
-        self.assertIn("Project-Uuid header does not match", str(error))
-
-    def test_project_uuid_header_absent_is_permissive(self):
-        request = Mock()
-        request.headers = {}
-        serializer = self._serializer(self.base_data, request=request)
-        self.assertTrue(serializer.is_valid(), serializer.errors)

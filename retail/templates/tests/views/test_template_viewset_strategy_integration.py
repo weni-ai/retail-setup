@@ -42,11 +42,14 @@ class TemplateViewSetStrategyIntegrationTest(BaseTestMixin, APITestCase):
         )
 
         self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
 
         self.project = Project.objects.create(
             uuid=uuid4(),
             name="Projeto Teste",
+        )
+
+        self.start_retail_auth(
+            project_uuid=self.project.uuid, user_email=self.user.email
         )
 
         self.agent = Agent.objects.create(

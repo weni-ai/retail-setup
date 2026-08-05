@@ -2,8 +2,8 @@ from django.contrib.auth.models import User
 
 from django.shortcuts import get_object_or_404
 from rest_framework import status, views
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from weni_commons.auth import IsWeniAuthenticated
 
 from retail.api.base_service_view import BaseServiceView
 from retail.api.integrated_feature.serializers import (
@@ -12,6 +12,8 @@ from retail.api.integrated_feature.serializers import (
     IntegratedFeatureSerializer,
     AppIntegratedFeatureSerializer,
 )
+from retail.internal.permissions import HasWeniProjectPermission
+from retail.internal.weni_mixins import WeniAuthMixin
 from retail.api.usecases.create_integrated_feature_usecase import (
     CreateIntegratedFeatureUseCase,
 )
@@ -23,13 +25,16 @@ from retail.features.models import Feature, IntegratedFeature
 from retail.projects.models import Project
 
 
-class IntegratedFeatureView(BaseServiceView):
+class IntegratedFeatureView(WeniAuthMixin, BaseServiceView):
+    permission_classes = [IsWeniAuthenticated, HasWeniProjectPermission]
+
     def post(self, request, *args, **kwargs):
         user, _ = User.objects.get_or_create(
             email=request.user.email, defaults={"username": request.user.email}
         )
         request_data = request.data.copy()
         request_data["feature_uuid"] = kwargs.get("feature_uuid")
+        request_data["project_uuid"] = self.auth.project_uuid
 
         use_case = CreateIntegratedFeatureUseCase(
             integrations_service=self.integrations_service,
@@ -41,6 +46,7 @@ class IntegratedFeatureView(BaseServiceView):
 
     def get(self, request, project_uuid):
         try:
+            project_uuid = self.auth.project_uuid
             category = request.query_params.get("category", None)
             integrated_features = IntegratedFeature.objects.filter(
                 project__uuid=project_uuid,
@@ -64,7 +70,7 @@ class IntegratedFeatureView(BaseServiceView):
     def delete(self, request, *args, **kwargs):
         try:
             feature_uuid = kwargs["feature_uuid"]
-            project_uuid = request.data["project_uuid"]
+            project_uuid = self.auth.project_uuid
             user_email = request.user.email
 
             use_case = DeleteIntegratedFeatureUseCase()
@@ -76,13 +82,14 @@ class IntegratedFeatureView(BaseServiceView):
 
     def put(self, request, *args, **kwargs):
         feature = Feature.objects.get(uuid=kwargs["feature_uuid"])
+        project_uuid = self.auth.project_uuid
         try:
-            project = Project.objects.get(uuid=request.data["project_uuid"])
+            project = Project.objects.get(uuid=project_uuid)
         except Project.DoesNotExist:
             return Response(
                 status=status.HTTP_404_NOT_FOUND,
                 data={
-                    "error": f"Project with uuid equals {request.data['project_uuid']} does not exists!"
+                    "error": f"Project with uuid equals {project_uuid} does not exists!"
                 },
             )
         integrated_feature = IntegratedFeature.objects.get(
@@ -110,16 +117,20 @@ class IntegratedFeatureView(BaseServiceView):
         )
 
 
-class NexusAgentIntegrationView(BaseServiceView):
+class NexusAgentIntegrationView(WeniAuthMixin, BaseServiceView):
     """
     View responsible for handling Nexus Agent integration operations.
+
+    The project scope is read from the authenticated context (``self.auth``).
     """
+
+    permission_classes = [IsWeniAuthenticated, HasWeniProjectPermission]
 
     def post(self, request, *args, **kwargs):
         serializer = IntegrateNexusAgentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        project_uuid = serializer.validated_data["project_uuid"]
+        project_uuid = self.auth.project_uuid
         agent_uuid = serializer.validated_data["agent_uuid"]
 
         result = self.nexus_service.integrate_agent(project_uuid, agent_uuid)
@@ -136,7 +147,7 @@ class NexusAgentIntegrationView(BaseServiceView):
         serializer = IntegrateNexusAgentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        project_uuid = serializer.validated_data["project_uuid"]
+        project_uuid = self.auth.project_uuid
         agent_uuid = serializer.validated_data["agent_uuid"]
 
         result = self.nexus_service.remove_agent(project_uuid, agent_uuid)
@@ -147,16 +158,16 @@ class NexusAgentIntegrationView(BaseServiceView):
         )
 
 
-class IntegratedFeatureSettingsView(views.APIView):
-    permission_classes = [IsAuthenticated]
+class IntegratedFeatureSettingsView(WeniAuthMixin, views.APIView):
+    permission_classes = [IsWeniAuthenticated, HasWeniProjectPermission]
 
     def put(self, request, *args, **kwargs):
         serializer = IntegratedFeatureSettingsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         feature_uuid = kwargs["feature_uuid"]
-        project_uuid = request.data["project_uuid"]
-        integration_settings = request.data["integration_settings"]
+        project_uuid = self.auth.project_uuid
+        integration_settings = serializer.validated_data["integration_settings"]
 
         integrated_feature: IntegratedFeature = get_object_or_404(
             IntegratedFeature,
@@ -174,9 +185,12 @@ class IntegratedFeatureSettingsView(views.APIView):
         return Response(config, status=status.HTTP_200_OK)
 
 
-class AppIntegratedFeatureView(BaseServiceView):
+class AppIntegratedFeatureView(WeniAuthMixin, BaseServiceView):
+    permission_classes = [IsWeniAuthenticated, HasWeniProjectPermission]
+
     def get(self, request, project_uuid, *args, **kwargs):
         try:
+            project_uuid = self.auth.project_uuid
             category = request.query_params.get("category", None)
             integrated_features = IntegratedFeature.objects.filter(
                 project__uuid=project_uuid,

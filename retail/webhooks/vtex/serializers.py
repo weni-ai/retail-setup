@@ -2,11 +2,12 @@ from rest_framework import serializers
 
 
 class CartSerializer(serializers.Serializer):
-    """
-    Serializer to validate cart data received from VTEX.
+    """Validate cart data received from VTEX.
+
+    The tenant (``vtex_account``) is not read from the body; it comes from the
+    authenticated context (``self.auth``).
     """
 
-    account = serializers.CharField()
     cart_id = serializers.CharField()
     phone = serializers.CharField()
     name = serializers.CharField()
@@ -28,4 +29,3 @@ class OrderStatusSerializer(serializers.Serializer):
     lastState = serializers.CharField()
     currentChangeDate = serializers.DateTimeField()
     lastChangeDate = serializers.DateTimeField()
-    vtexAccount = serializers.CharField()

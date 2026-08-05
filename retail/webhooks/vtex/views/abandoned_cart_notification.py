@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
 
-from retail.internal.jwt_mixins import JWTModuleAuthMixin
+from retail.internal.weni_mixins import WeniAuthMixin
 from retail.webhooks.vtex.serializers import CartSerializer
 from retail.webhooks.vtex.usecases.dto import ProcessAbandonedCartNotificationDTO
 from retail.webhooks.vtex.usecases.exceptions import (
@@ -15,14 +15,17 @@ from retail.webhooks.vtex.usecases.process_abandoned_cart_notification import (
 )
 
 
-class AbandonedCartNotification(JWTModuleAuthMixin, APIView):
+class AbandonedCartNotification(WeniAuthMixin, APIView):
     """
     Handle abandoned cart notifications.
 
-    Expects JWT token with vtex_account in the payload.
+    The tenant (``vtex_account``) is read from the authenticated context
+    (``self.auth``); the body only carries the cart data.
     """
 
     def post(self, request: Request):
+        account = self.auth.vtex_account
+
         serializer = CartSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -32,7 +35,6 @@ class AbandonedCartNotification(JWTModuleAuthMixin, APIView):
             phone=validated_data["phone"],
             name=validated_data["name"],
         )
-        account = validated_data["account"]
 
         try:
             result = ProcessAbandonedCartNotificationUseCase.from_vtex_account(

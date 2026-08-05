@@ -99,12 +99,15 @@ class CheckAgentActiveUseCaseTest(TestCase):
         self.assertFalse(result)
 
     @patch(
+        "retail.api.vtex_projects.usecases.check_agent_active.IntegratedFeature.objects"
+    )
+    @patch(
         "retail.api.vtex_projects.usecases.check_agent_active.IntegratedAgent.objects"
     )
     @patch("retail.api.vtex_projects.usecases.check_agent_active.Project.objects")
     @patch("retail.api.vtex_projects.usecases.check_agent_active.settings")
     def test_payment_recovery_does_not_check_parent_agent_fallback(
-        self, mock_settings, mock_project_qs, mock_ia_qs
+        self, mock_settings, mock_project_qs, mock_ia_qs, mock_if_qs
     ):
         """``parent_agent_uuid`` fallback is exclusive to ``order_status``.
 
@@ -114,6 +117,7 @@ class CheckAgentActiveUseCaseTest(TestCase):
         mock_settings.PAYMENT_RECOVERY_AGENT_UUID = "ghi-789"
         mock_project_qs.get.return_value = self.project
         mock_ia_qs.filter.return_value.exists.return_value = False
+        mock_if_qs.filter.return_value.exists.return_value = False
 
         self.use_case.execute(self.vtex_account, "payment_recovery")
 

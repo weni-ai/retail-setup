@@ -8,8 +8,8 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework import status
 
-from retail.internal.jwt_mixins import JWTModuleAuthMixin
-from retail.internal.views import InternalGenericViewSet, KeycloakAPIView
+from retail.internal.weni_mixins import WeniAuthMixin
+from retail.internal.views import InternalGenericViewSet
 from retail.projects.models import Project, ProjectOnboarding
 from retail.internal.permissions import CanCommunicateInternally
 from retail.projects.serializer import (
@@ -85,7 +85,7 @@ class ProjectVtexViewSet(viewsets.ViewSet):
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
 
 
-class VtexAccountLookupView(JWTModuleAuthMixin, APIView):
+class VtexAccountLookupView(WeniAuthMixin, APIView):
     """
     API view to look up the VTEX account associated with a given project.
 
@@ -106,7 +106,7 @@ class VtexAccountLookupView(JWTModuleAuthMixin, APIView):
             or an error message if the account is not found.
         """
         use_case = GetProjectVtexAccountUseCase()
-        vtex_account = use_case.execute(self.project_uuid)
+        vtex_account = use_case.execute(self.auth.project_uuid)
 
         if not vtex_account:
             return Response(
@@ -117,7 +117,7 @@ class VtexAccountLookupView(JWTModuleAuthMixin, APIView):
         return Response({"vtex_account": vtex_account})
 
 
-class StartSetupView(KeycloakAPIView):
+class StartSetupView(WeniAuthMixin, APIView):
     """
     Starts the setup process for a store.
 
@@ -131,14 +131,15 @@ class StartSetupView(KeycloakAPIView):
     """
 
     def post(self, request, vtex_account: str) -> Response:
+        account = self.auth.vtex_account
         serializer = StartSetupSerializer(data=request.data)
         if not serializer.is_valid():
             logger.warning(
-                f"[StartSetup] Invalid payload for vtex_account={vtex_account}: "
+                f"[StartSetup] Invalid payload for vtex_account={account}: "
                 f"errors={serializer.errors}"
             )
             SaveOnboardingFailureUseCase.execute(
-                vtex_account=vtex_account,
+                vtex_account=account,
                 stage="start_setup_validation",
                 payload=request.data,
                 errors=serializer.errors,
@@ -148,7 +149,7 @@ class StartSetupView(KeycloakAPIView):
         channel_data = serializer.validated_data.get("channel_data", {})
 
         dto = StartSetupDTO(
-            vtex_account=vtex_account,
+            vtex_account=account,
             crawl_url=serializer.validated_data["crawl_url"],
             channel=serializer.validated_data["channel"],
             channel_data=channel_data,
@@ -200,17 +201,18 @@ class CrawlerWebhookView(APIView):
         )
 
 
-class OnboardingStatusView(KeycloakAPIView):
+class OnboardingStatusView(WeniAuthMixin, APIView):
     """
     Returns the current onboarding status for a store.
     Used by the front-end to poll progress across all steps.
     """
 
     def get(self, request, vtex_account: str) -> Response:
+        account = self.auth.vtex_account
         onboarding, _created = ProjectOnboarding.objects.select_related(
             "project"
         ).get_or_create(
-            vtex_account=vtex_account,
+            vtex_account=account,
         )
 
         return Response(
@@ -219,7 +221,7 @@ class OnboardingStatusView(KeycloakAPIView):
         )
 
 
-class ContentBaseProgressView(KeycloakAPIView):
+class ContentBaseProgressView(WeniAuthMixin, APIView):
     """
     Returns background crawl + Nexus content-base upload progress (0-100).
 
@@ -227,8 +229,9 @@ class ContentBaseProgressView(KeycloakAPIView):
     """
 
     def get(self, request, vtex_account: str) -> Response:
+        account = self.auth.vtex_account
         try:
-            progress = GetContentBaseProgressUseCase().execute(vtex_account)
+            progress = GetContentBaseProgressUseCase().execute(account)
         except ProjectOnboarding.DoesNotExist:
             return Response(
                 {"detail": "No onboarding found for this vtex_account."},
@@ -239,22 +242,17 @@ class ContentBaseProgressView(KeycloakAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class OnboardingPatchView(KeycloakAPIView):
+class OnboardingPatchView(WeniAuthMixin, APIView):
     """
     Allows the front-end to partially update editable onboarding fields:
     ``completed`` and ``current_page``.
     """
 
     def patch(self, request, vtex_account: str) -> Response:
-        """
-        Partially updates the onboarding record.
-
-        Accepts:
-            { "completed": true, "current_page": "some_page" }
-        """
+        account = self.auth.vtex_account
         try:
             onboarding = ProjectOnboarding.objects.select_related("project").get(
-                vtex_account=vtex_account,
+                vtex_account=account,
             )
         except ProjectOnboarding.DoesNotExist:
             return Response(
@@ -274,7 +272,7 @@ class OnboardingPatchView(KeycloakAPIView):
         )
 
 
-class InstallChannelAgentsView(KeycloakAPIView):
+class InstallChannelAgentsView(WeniAuthMixin, APIView):
     """
     Installs agents for a specific channel on an existing onboarding.
 
@@ -283,11 +281,12 @@ class InstallChannelAgentsView(KeycloakAPIView):
     """
 
     def post(self, request, vtex_account: str, channel: str) -> Response:
+        account = self.auth.vtex_account
         serializer = InstallChannelAgentsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         dto = InstallChannelAgentsDTO(
-            vtex_account=vtex_account,
+            vtex_account=account,
             channel=channel,
             channel_data=serializer.validated_data["channel_data"],
         )
@@ -296,7 +295,7 @@ class InstallChannelAgentsView(KeycloakAPIView):
             InstallChannelAgentsUseCase().execute(dto)
         except ProjectOnboarding.DoesNotExist:
             return Response(
-                {"detail": f"No onboarding found for vtex_account={vtex_account}"},
+                {"detail": f"No onboarding found for vtex_account={account}"},
                 status=status.HTTP_404_NOT_FOUND,
             )
         except (InstallChannelAgentsError, ValueError) as e:
@@ -308,7 +307,7 @@ class InstallChannelAgentsView(KeycloakAPIView):
         return Response({"success": True}, status=status.HTTP_201_CREATED)
 
 
-class OnboardingSupportContactView(KeycloakAPIView):
+class OnboardingSupportContactView(WeniAuthMixin, APIView):
     """
     Endpoint used by the front-end when the user clicks 'Contact support'.
 
@@ -323,11 +322,12 @@ class OnboardingSupportContactView(KeycloakAPIView):
     """
 
     def post(self, request, vtex_account: str) -> Response:
+        account = self.auth.vtex_account
         serializer = RequestOnboardingSupportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         dto = RequestOnboardingSupportDTO(
-            vtex_account=vtex_account,
+            vtex_account=account,
             data=serializer.validated_data["data"],
         )
 

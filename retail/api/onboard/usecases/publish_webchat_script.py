@@ -75,6 +75,13 @@ class PublishWebchatScriptUseCase:
                 {"app_uuid": "Could not retrieve WWC app from Integrations."}
             )
 
+        # TODO(security): validate that this app belongs to the caller's
+        # project (bound to the token's vtex_account) to prevent activating a
+        # channel app from another project. Blocked on confirming that the
+        # Integrations get_channel_app response exposes the app's project
+        # (e.g. "project" / "project_uuid"); wire the comparison once the
+        # field is available.
+
         script_url = app_data.get("config", {}).get("script")
         if not script_url:
             raise ValidationError(

@@ -1,12 +1,20 @@
 from unittest.mock import Mock
+from uuid import uuid4
+
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory, force_authenticate
+from weni_commons.auth import WeniAuthContext
 
-from retail.internal.permissions import HasProjectPermission
+from retail.internal.permissions import (
+    HasProjectPermission,
+    HasWeniProjectPermission,
+    PermissionsLevels,
+)
+from retail.projects.models import Project
 from retail.services.connect.service import ConnectService
 
 User = get_user_model()
@@ -250,3 +258,94 @@ class HasProjectPermissionTest(TestCase):
         permission = HasProjectPermission(connect_service=custom_service)
 
         self.assertEqual(permission.connect_service, custom_service)
+
+
+class HasWeniProjectPermissionTest(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.connect_service = Mock(spec=ConnectService)
+        self.permission = HasWeniProjectPermission(connect_service=self.connect_service)
+
+    def _request_with_auth(self, auth):
+        request = Request(self.factory.post("/"))
+        request.auth = auth
+        return request
+
+    def _grant(self, level=PermissionsLevels.contributor):
+        self.connect_service.get_user_permissions.return_value = (
+            200,
+            {"project_authorization": level},
+        )
+
+    def test_non_weni_context_returns_false(self):
+        request = self._request_with_auth(None)
+
+        self.assertFalse(self.permission.has_permission(request, None))
+
+    def test_internal_caller_bypasses_check(self):
+        auth = WeniAuthContext(vtex_account="mystore", is_internal=True)
+        request = self._request_with_auth(auth)
+
+        self.assertTrue(self.permission.has_permission(request, None))
+        self.connect_service.get_user_permissions.assert_not_called()
+
+    def test_missing_user_email_returns_false(self):
+        auth = WeniAuthContext(vtex_account="mystore", user_email=None)
+        request = self._request_with_auth(auth)
+
+        self.assertFalse(self.permission.has_permission(request, None))
+
+    def test_resolves_project_from_vtex_account(self):
+        project = Project.objects.create(
+            name="Test", uuid=uuid4(), vtex_account="mystore"
+        )
+        auth = WeniAuthContext(vtex_account="mystore", user_email="user@weni.ai")
+        request = self._request_with_auth(auth)
+        self._grant()
+
+        self.assertTrue(self.permission.has_permission(request, None))
+        self.connect_service.get_user_permissions.assert_called_once_with(
+            str(project.uuid), "user@weni.ai"
+        )
+
+    def test_prefers_project_uuid_claim(self):
+        project_uuid = str(uuid4())
+        auth = WeniAuthContext(project_uuid=project_uuid, user_email="user@weni.ai")
+        request = self._request_with_auth(auth)
+        self._grant(level=PermissionsLevels.moderator)
+
+        self.assertTrue(self.permission.has_permission(request, None))
+        self.connect_service.get_user_permissions.assert_called_once_with(
+            project_uuid, "user@weni.ai"
+        )
+
+    def test_unknown_vtex_account_returns_false(self):
+        auth = WeniAuthContext(vtex_account="ghost", user_email="user@weni.ai")
+        request = self._request_with_auth(auth)
+
+        self.assertFalse(self.permission.has_permission(request, None))
+        self.connect_service.get_user_permissions.assert_not_called()
+
+    def test_non_200_status_returns_false(self):
+        Project.objects.create(name="Test", uuid=uuid4(), vtex_account="mystore")
+        auth = WeniAuthContext(vtex_account="mystore", user_email="user@weni.ai")
+        request = self._request_with_auth(auth)
+        self.connect_service.get_user_permissions.return_value = (
+            403,
+            {"error": "Forbidden"},
+        )
+
+        self.assertFalse(self.permission.has_permission(request, None))
+
+    def test_insufficient_level_returns_false(self):
+        Project.objects.create(name="Test", uuid=uuid4(), vtex_account="mystore")
+        auth = WeniAuthContext(vtex_account="mystore", user_email="user@weni.ai")
+        request = self._request_with_auth(auth)
+        self._grant(level=PermissionsLevels.viewer)
+
+        self.assertFalse(self.permission.has_permission(request, None))
+
+    def test_default_connect_service_initialization(self):
+        permission = HasWeniProjectPermission()
+
+        self.assertIsNotNone(permission.connect_service)

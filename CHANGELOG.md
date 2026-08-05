@@ -1,3 +1,6 @@
+# 5.48.0
+- feat: Adopt weni-commons JWT auth and read tenant from token
+
 # 5.47.1
 - fix: Mark content base progress complete when crawl fails
 

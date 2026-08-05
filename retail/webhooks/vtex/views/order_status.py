@@ -3,16 +3,17 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
 
-from retail.internal.jwt_mixins import JWTModuleAuthMixin
+from retail.internal.weni_mixins import WeniAuthMixin
 from retail.vtex.tasks import task_order_status_update
 from retail.webhooks.vtex.serializers import OrderStatusSerializer
 
 
-class OrderStatusWebhook(JWTModuleAuthMixin, APIView):
+class OrderStatusWebhook(WeniAuthMixin, APIView):
     """
     Webhook endpoint for VTEX order status updates.
 
-    Expects JWT token with vtex_account in the payload.
+    The tenant (``vtex_account``) is read from the authenticated context
+    (``self.auth``); the body only carries the order status data.
     """
 
     def post(self, request: Request) -> Response:
@@ -23,6 +24,7 @@ class OrderStatusWebhook(JWTModuleAuthMixin, APIView):
         serializer.is_valid(raise_exception=True)
 
         validated_data = serializer.validated_data
+        validated_data["vtexAccount"] = self.auth.vtex_account
 
         task_order_status_update.apply_async(
             args=[validated_data], queue="vtex-io-orders-update-events"

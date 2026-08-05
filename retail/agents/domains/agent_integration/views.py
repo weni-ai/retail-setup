@@ -9,11 +9,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
+from weni_commons.auth import IsWeniAuthenticated
 
 from retail.agents.domains.agent_management.models import Agent
 from retail.agents.shared.permissions import (
     IsAgentOficialOrFromProjet,
     IsIntegratedAgentFromProject,
+    IsIntegratedAgentFromProjectByHeader,
 )
 from retail.agents.domains.agent_integration.serializers import (
     ReadIntegratedAgentSerializer,
@@ -54,7 +56,8 @@ from retail.agents.domains.agent_integration.usecases.payment_recovery_hook_conf
     PaymentRecoveryHookConfigUseCase,
 )
 
-from retail.internal.permissions import HasProjectPermission
+from retail.internal.permissions import HasProjectPermission, HasWeniProjectPermission
+from retail.internal.weni_mixins import WeniAuthMixin
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +70,12 @@ class GenericIntegratedAgentView(APIView):
             raise NotFound(f"Agent not found: {agent_uuid}")
 
 
-class TemplateLanguagesView(APIView):
-    """View to list available template languages for agent integration."""
+class TemplateLanguagesView(WeniAuthMixin, APIView):
+    """View to list available template languages for agent integration.
 
-    permission_classes = [IsAuthenticated]
+    Authenticated through the unified JWT + Keycloak flow; the response is a
+    static catalog and carries no tenant scope.
+    """
 
     def get(self, request: Request) -> Response:
         """
@@ -85,15 +90,15 @@ class TemplateLanguagesView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class AssignAgentView(GenericIntegratedAgentView):
+class AssignAgentView(WeniAuthMixin, GenericIntegratedAgentView):
     permission_classes = [
-        IsAuthenticated,
-        HasProjectPermission,
+        IsWeniAuthenticated,
+        HasWeniProjectPermission,
         IsAgentOficialOrFromProjet,
     ]
 
     def post(self, request: Request, agent_uuid: UUID) -> Response:
-        project_uuid = request.headers.get("Project-Uuid")
+        project_uuid = self.auth.project_uuid
         app_uuid = request.query_params.get("app_uuid")
         channel_uuid = request.query_params.get("channel_uuid")
 
@@ -125,15 +130,15 @@ class AssignAgentView(GenericIntegratedAgentView):
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
-class UnassignAgentView(GenericIntegratedAgentView):
+class UnassignAgentView(WeniAuthMixin, GenericIntegratedAgentView):
     permission_classes = [
-        IsAuthenticated,
-        HasProjectPermission,
+        IsWeniAuthenticated,
+        HasWeniProjectPermission,
         IsAgentOficialOrFromProjet,
     ]
 
     def post(self, request: Request, agent_uuid: UUID) -> Response:
-        project_uuid = request.headers.get("Project-Uuid")
+        project_uuid = self.auth.project_uuid
         agent = self.get_agent(agent_uuid)
 
         self.check_object_permissions(request, agent)
@@ -144,14 +149,14 @@ class UnassignAgentView(GenericIntegratedAgentView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class IntegratedAgentViewSet(ViewSet):
-    permission_classes = [IsAuthenticated, IsIntegratedAgentFromProject]
+class IntegratedAgentViewSet(WeniAuthMixin, ViewSet):
+    permission_classes = [IsWeniAuthenticated, IsIntegratedAgentFromProject]
 
     def get_permissions(self):
         permissions = super().get_permissions()
 
         if self.action == "partial_update":
-            permissions.append(HasProjectPermission())
+            permissions.append(HasWeniProjectPermission())
 
         return permissions
 
@@ -174,7 +179,7 @@ class IntegratedAgentViewSet(ViewSet):
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     def list(self, request: Request, *args, **kwargs) -> Response:
-        project_uuid = request.headers.get("Project-Uuid")
+        project_uuid = self.auth.project_uuid
 
         use_case = ListIntegratedAgentUseCase()
         integrated_agents = use_case.execute(project_uuid)
@@ -210,7 +215,7 @@ class DeliveredOrderTrackingConfigView(APIView):
     permission_classes = [
         IsAuthenticated,
         HasProjectPermission,
-        IsIntegratedAgentFromProject,
+        IsIntegratedAgentFromProjectByHeader,
     ]
 
     def get(self, request: Request, pk: UUID) -> Response:
@@ -235,7 +240,7 @@ class DeliveredOrderTrackingEnableView(APIView):
     permission_classes = [
         IsAuthenticated,
         HasProjectPermission,
-        IsIntegratedAgentFromProject,
+        IsIntegratedAgentFromProjectByHeader,
     ]
 
     def post(self, request: Request, pk: UUID) -> Response:
@@ -280,7 +285,7 @@ class DeliveredOrderTrackingDisableView(APIView):
     permission_classes = [
         IsAuthenticated,
         HasProjectPermission,
-        IsIntegratedAgentFromProject,
+        IsIntegratedAgentFromProjectByHeader,
     ]
 
     def post(self, request: Request, pk: UUID) -> Response:
@@ -364,12 +369,12 @@ class DeliveredOrderTrackingWebhookView(APIView):
             return Response({"message": "Webhook received"}, status=status.HTTP_200_OK)
 
 
-class PaymentRecoveryHookConfigView(APIView):
+class PaymentRecoveryHookConfigView(WeniAuthMixin, APIView):
     """View for managing payment recovery VTEX hook filter configuration."""
 
     permission_classes = [
-        IsAuthenticated,
-        HasProjectPermission,
+        IsWeniAuthenticated,
+        HasWeniProjectPermission,
         IsIntegratedAgentFromProject,
     ]
 

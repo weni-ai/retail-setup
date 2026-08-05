@@ -8,6 +8,7 @@ from rest_framework import status
 from retail.clients.exceptions import CustomAPIException
 from retail.internal.jwt_mixins import JWTModuleAuthMixin
 from retail.internal.views import KeycloakAPIView
+from retail.internal.weni_mixins import WeniAuthMixin
 
 from retail.vtex.dtos.register_order_form_dto import RegisterOrderFormDTO
 from retail.vtex.serializers import (
@@ -427,16 +428,18 @@ class LeadView(KeycloakAPIView):
         )
 
 
-class CreateProjectUserView(KeycloakAPIView):
+class CreateProjectUserView(WeniAuthMixin, APIView):
     """
     Proxies project creation to Connect with automatic language detection.
 
     The IO front-end calls this route instead of calling Connect directly.
-    Before forwarding, we fetch the VTEX tenant locale and convert it to
-    Connect's language format.
+    The tenant (``vtex_account``) is read from the authenticated context, never
+    from the path. Before forwarding, we fetch the VTEX tenant locale and
+    convert it to Connect's language format.
     """
 
     def post(self, request: Request, vtex_account: str) -> Response:
+        vtex_account = self.auth.vtex_account
         serializer = CreateProjectUserSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -460,17 +463,18 @@ class CreateProjectUserView(KeycloakAPIView):
         return Response(result, status=status.HTTP_200_OK)
 
 
-class LinkProjectView(KeycloakAPIView):
+class LinkProjectView(WeniAuthMixin, APIView):
     """
     Links an existing project to a VTEX account.
 
     The IO front-end calls this route to attach a project_uuid to the
-    vtex_account in the path. The vtex_account uniqueness validations are
+    authenticated ``vtex_account``. The vtex_account uniqueness validations are
     enforced at the root (Connect), which also triggers the Insights
     migration; this view then mirrors the link locally.
     """
 
     def post(self, request: Request, vtex_account: str) -> Response:
+        vtex_account = self.auth.vtex_account
         serializer = LinkProjectSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 

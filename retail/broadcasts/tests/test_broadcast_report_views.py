@@ -69,7 +69,10 @@ class BroadcastReportViewsTest(BaseTestMixin, APITestCase):
             password="x",
             email="tester@example.com",
         )
-        self.client.force_authenticate(self.user)
+        self.start_retail_auth(
+            project_uuid=str(self.project.uuid),
+            user_email=self.user.email,
+        )
 
         self.project_dispatches_url = reverse("broadcast-project-dispatches")
         self.project_summary_url = reverse("broadcast-project-summary")
@@ -89,13 +92,16 @@ class BroadcastReportViewsTest(BaseTestMixin, APITestCase):
         )
 
     def _get(self, url, *, project_uuid=None, query=None):
-        headers = {"HTTP_AUTHORIZATION": "Bearer token"}
         if project_uuid is not None:
-            headers["HTTP_PROJECT_UUID"] = str(project_uuid)
+            self.set_retail_auth(
+                project_uuid=str(project_uuid), user_email=self.user.email
+            )
+        else:
+            self.set_retail_auth(user_email=self.user.email)
         full_url = url
         if query:
             full_url = f"{url}?{query}"
-        return self.client.get(full_url, **headers)
+        return self.client.get(full_url)
 
     def test_project_dispatches_returns_report_rows(self):
         broadcast = BroadcastMessage.objects.create(
@@ -131,19 +137,10 @@ class BroadcastReportViewsTest(BaseTestMixin, APITestCase):
         self.assertIsNotNone(row["dispatched_at"])
         self.assertIsNotNone(row["converted_at"])
 
-    def test_project_dispatches_requires_project_header(self):
+    def test_project_dispatches_requires_project_scope(self):
         response = self._get(self.project_dispatches_url, query=self.query)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_project_dispatches_rejects_invalid_project_header(self):
-        response = self._get(
-            self.project_dispatches_url,
-            project_uuid="not-a-valid-uuid",
-            query=self.query,
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_summary_returns_delivered_and_converted_totals(self):
         BroadcastMessage.objects.create(
@@ -240,7 +237,7 @@ class BroadcastReportViewsTest(BaseTestMixin, APITestCase):
         self.assertEqual(response.data["delivered"], 2)
         self.assertEqual(response.data["converted"], 2)
 
-    def test_project_summary_requires_project_header(self):
+    def test_project_summary_requires_project_scope(self):
         response = self._get(self.project_summary_url, query=self.query)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -334,7 +331,10 @@ class BroadcastPaymentRecoveryConversionViewsTest(BaseTestMixin, APITestCase):
             password="x",
             email="payment-recovery@example.com",
         )
-        self.client.force_authenticate(self.user)
+        self.start_retail_auth(
+            project_uuid=str(self.project.uuid),
+            user_email=self.user.email,
+        )
 
         self.project_conversion_url = reverse(
             "broadcast-project-payment-recovery-conversion"
@@ -351,13 +351,16 @@ class BroadcastPaymentRecoveryConversionViewsTest(BaseTestMixin, APITestCase):
         )
 
     def _get(self, url, *, project_uuid=None, query=None):
-        headers = {"HTTP_AUTHORIZATION": "Bearer token"}
         if project_uuid is not None:
-            headers["HTTP_PROJECT_UUID"] = str(project_uuid)
+            self.set_retail_auth(
+                project_uuid=str(project_uuid), user_email=self.user.email
+            )
+        else:
+            self.set_retail_auth(user_email=self.user.email)
         full_url = url
         if query:
             full_url = f"{url}?{query}"
-        return self.client.get(full_url, **headers)
+        return self.client.get(full_url)
 
     def test_project_payment_recovery_conversion_returns_metrics(self):
         broadcast = BroadcastMessage.objects.create(
@@ -397,7 +400,7 @@ class BroadcastPaymentRecoveryConversionViewsTest(BaseTestMixin, APITestCase):
         self.assertEqual(str(response.data["recovered_revenue"]), "150.00")
         self.assertEqual(str(response.data["average_ticket"]), "150.00")
 
-    def test_project_payment_recovery_conversion_requires_project_header(self):
+    def test_project_payment_recovery_conversion_requires_project_scope(self):
         response = self._get(self.project_conversion_url, query=self.query)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

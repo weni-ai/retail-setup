@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
-from retail.agents.shared.permissions import IsAgentOficialOrFromProjet
+from retail.agents.shared.permissions import IsAgentOficialOrFromProjetByHeader
 from retail.agents.domains.agent_management.serializers import (
     PushAgentSerializer,
     ReadAgentSerializer,
@@ -78,7 +78,7 @@ class AgentViewSet(ViewSet):
         permissions = super().get_permissions()
 
         if self.action == "retrieve":
-            permissions.append(IsAgentOficialOrFromProjet())
+            permissions.append(IsAgentOficialOrFromProjetByHeader())
 
         return permissions
 

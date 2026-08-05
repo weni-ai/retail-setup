@@ -224,8 +224,9 @@ class ValidateTemplateSampleSerializer(UpdateTemplateContentSerializer):
     """Serializer for ``POST /api/v3/templates/<uuid>/sample/``.
 
     Schema-compatible with ``UpdateTemplateContentSerializer``; layers
-    on length caps, button-mode disjointness, and the ``Project-Uuid``
-    header / body equality check. Anchor: FR-002b / FR-003 / FR-003a /
+    on length caps and button-mode disjointness. The tenant-authority
+    check (body ``project_uuid`` vs. the authenticated project) lives in
+    the view, which owns the auth context. Anchor: FR-003 / FR-003a /
     FR-014 (see ``specs/004-template-sample-validation/spec.md``).
     """
 
@@ -289,23 +290,6 @@ class ValidateTemplateSampleSerializer(UpdateTemplateContentSerializer):
 
         self._validate_button_text_lengths(value)
 
-        return value
-
-    def validate_project_uuid(self, value: str) -> str:
-        """Refuse on ``Project-Uuid`` header / body divergence.
-
-        Without this check, an operator authorized for project A could
-        route a sample call to project B's WABA. Permissive when the
-        header is absent (``HasProjectPermission`` is the front-line
-        gate). Anchor: FR-002b / SC-008.
-        """
-        request = self.context.get("request")
-        header_project_uuid = request.headers.get("Project-Uuid") if request else None
-        if header_project_uuid and header_project_uuid != value:
-            raise serializers.ValidationError(
-                "Project-Uuid header does not match body project_uuid",
-                code="project_uuid_mismatch",
-            )
         return value
 
     def _validate_button_text_lengths(self, buttons: list) -> None:

@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.test import TestCase
@@ -10,17 +10,15 @@ from retail.contracts.exceptions import (
     ContractTemplateNotFoundError,
     ProjectNotFoundError,
 )
+from retail.internal.test_mixins import patch_retail_auth
 
 
 def _auth_bypass():
-    """Patches InternalOIDCAuthentication to always authenticate."""
+    """Patches unified retail auth with a tenant-scoped JWT context."""
 
-    return patch(
-        "retail.internal.authenticators.InternalOIDCAuthentication.authenticate",
-        return_value=(
-            MagicMock(is_authenticated=True, email="user@example.com"),
-            None,
-        ),
+    return patch_retail_auth(
+        vtex_account="teststore",
+        user_email="user@example.com",
     )
 
 
@@ -81,6 +79,7 @@ class RegisterContractAcceptanceViewTests(TestCase):
         self.assertEqual(dto.session_id, "session-xyz")
         self.assertEqual(dto.request_id, "11111111-1111-1111-1111-111111111111")
         self.assertEqual(dto.email_at_acceptance, "merchant@store.com")
+        self.assertEqual(dto.vtex_account, "teststore")
         self.assertIsNone(dto.geo_country)
 
     @_auth_bypass()
