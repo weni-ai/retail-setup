@@ -302,6 +302,7 @@ class VtexProxyView(BaseVtexProxyView):
             data=validated_data.get("data"),
             params=validated_data.get("params"),
             project_uuid=self.project_uuid,
+            merchant_name=validated_data.get("merchant_name"),
         )
 
         return Response(result, status=status.HTTP_200_OK)
