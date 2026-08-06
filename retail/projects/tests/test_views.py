@@ -6,6 +6,7 @@ from rest_framework.test import APIClient
 from weni_commons.auth import WeniAuthContext, WeniAuthUser
 
 from retail.projects.models import Project, ProjectOnboarding
+from retail.projects.serializer import OnboardingPatchSerializer
 from retail.projects.usecases.install_channel_agents import InstallChannelAgentsError
 
 
@@ -328,6 +329,34 @@ class TestOnboardingPatchView(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+    def test_patch_does_not_wipe_channels_when_instance_is_stale(self):
+        """
+        Reproduces the start-setup / PATCH race: PATCH loaded an empty
+        config, start-setup then wrote channels, and a full save() from
+        the stale instance must not overwrite config.
+        """
+        stale = ProjectOnboarding.objects.get(pk=self.onboarding.pk)
+        self.assertEqual(stale.config, {})
+
+        ProjectOnboarding.objects.filter(pk=self.onboarding.pk).update(
+            config={"channels": {"wwc": {}}},
+            current_step="PROJECT_CONFIG",
+            progress=0,
+        )
+
+        serializer = OnboardingPatchSerializer(
+            stale, data={"current_page": "setup_channel"}, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        self.onboarding.refresh_from_db()
+        self.assertEqual(self.onboarding.current_page, "setup_channel")
+        self.assertEqual(
+            self.onboarding.config,
+            {"channels": {"wwc": {}}},
+        )
 
     @auth_bypass(vtex_account=None)
     def test_missing_tenant_returns_403(self, _mock_auth):
