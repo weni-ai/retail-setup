@@ -126,6 +126,24 @@ class NexusClient(RequestClient, NexusClientInterface):
         )
         return response.json()
 
+    def list_team_agents(self, project_uuid: str) -> Dict:
+        """
+        Lists agents integrated to a project, including shared/official agents
+        assigned from other projects (active and inactive).
+
+        Args:
+            project_uuid: The project's unique identifier.
+
+        Returns:
+            Dict with ``manager`` and ``agents`` keys.
+        """
+        url = f"{self.base_url}/api/agents/app-teams/{str(project_uuid)}"
+
+        response = self.make_request(
+            url, method="GET", headers=self.authentication_instance.headers
+        )
+        return response.json()
+
     def check_agent_builder_exists(self, project_uuid: str) -> Dict:
         """
         Checks whether the agent manager has been configured for a project.

@@ -72,7 +72,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
             "app_uuid": "wpp-app-uuid",
             "flow_object_uuid": "wpp-channel-uuid",
         }
-        self.usecase.nexus_service.list_integrated_agents.return_value = []
+        self.usecase.nexus_service.list_team_agents.return_value = {"agents": []}
         self.usecase.nexus_service.integrate_agent.return_value = {"ok": True}
 
         self.usecase.execute(self._build_dto())
@@ -104,10 +104,12 @@ class TestInstallChannelAgentsUseCase(TestCase):
             "app_uuid": "wpp-app-uuid",
             "flow_object_uuid": "wpp-channel-uuid",
         }
-        self.usecase.nexus_service.list_integrated_agents.return_value = [
-            {"uuid": "uuid-1"},
-            {"uuid": "uuid-3"},
-        ]
+        self.usecase.nexus_service.list_team_agents.return_value = {
+            "agents": [
+                {"uuid": "uuid-1", "active": True},
+                {"uuid": "uuid-3", "active": True},
+            ]
+        }
         self.usecase.nexus_service.integrate_agent.return_value = {"ok": True}
 
         self.usecase.execute(self._build_dto())
@@ -128,10 +130,12 @@ class TestInstallChannelAgentsUseCase(TestCase):
             "app_uuid": "wpp-app-uuid",
             "flow_object_uuid": "wpp-channel-uuid",
         }
-        self.usecase.nexus_service.list_integrated_agents.return_value = [
-            {"uuid": "uuid-1"},
-            {"uuid": "uuid-2"},
-        ]
+        self.usecase.nexus_service.list_team_agents.return_value = {
+            "agents": [
+                {"uuid": "uuid-1", "active": True},
+                {"uuid": "uuid-2", "active": True},
+            ]
+        }
 
         self.usecase.execute(self._build_dto())
 
@@ -213,7 +217,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
             "app_uuid": "wpp-app-uuid",
             "flow_object_uuid": "wpp-channel-uuid",
         }
-        self.usecase.nexus_service.list_integrated_agents.return_value = []
+        self.usecase.nexus_service.list_team_agents.return_value = {"agents": []}
         self.usecase.nexus_service.integrate_agent.return_value = None
 
         with self.assertRaises(InstallChannelAgentsError) as ctx:
@@ -230,7 +234,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
             "app_uuid": "wpp-app-uuid",
             "flow_object_uuid": "wpp-channel-uuid",
         }
-        self.usecase.nexus_service.list_integrated_agents.return_value = []
+        self.usecase.nexus_service.list_team_agents.return_value = {"agents": []}
         self.usecase.nexus_service.integrate_agent.return_value = {"ok": True}
 
         self.usecase.execute(self._build_dto())
@@ -255,7 +259,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
             "app_uuid": "wpp-app-uuid",
             "flow_object_uuid": "wpp-channel-uuid",
         }
-        self.usecase.nexus_service.list_integrated_agents.return_value = None
+        self.usecase.nexus_service.list_team_agents.return_value = None
         self.usecase.nexus_service.integrate_agent.return_value = {"ok": True}
 
         self.usecase.execute(self._build_dto())
@@ -266,14 +270,15 @@ class TestInstallChannelAgentsUseCase(TestCase):
         "retail.projects.usecases.install_channel_agents.get_channel_agents",
         return_value=[StubAgent("uuid-1", "Agent A")],
     )
-    def test_handles_nexus_list_agents_with_results_key(self, _mock_agents):
-        """Handles Nexus response wrapped in a 'results' key."""
+    def test_handles_nexus_list_agents_with_team_response(self, _mock_agents):
+        """Handles Nexus app-teams response with shared passive agents."""
         self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
             "app_uuid": "wpp-app-uuid",
             "flow_object_uuid": "wpp-channel-uuid",
         }
-        self.usecase.nexus_service.list_integrated_agents.return_value = {
-            "results": [{"uuid": "uuid-1"}]
+        self.usecase.nexus_service.list_team_agents.return_value = {
+            "manager": {"uuid": "manager-uuid", "active": True},
+            "agents": [{"uuid": "uuid-1", "active": True}],
         }
 
         self.usecase.execute(self._build_dto())
@@ -306,7 +311,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
             "app_uuid": "wpp-app-uuid",
             "flow_object_uuid": "wpp-channel-uuid",
         }
-        self.usecase.nexus_service.list_integrated_agents.return_value = []
+        self.usecase.nexus_service.list_team_agents.return_value = {"agents": []}
         self.usecase.nexus_service.integrate_agent.return_value = {"ok": True}
 
         self.usecase.execute(self._build_dto())
@@ -340,7 +345,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
             "app_uuid": "wpp-app-uuid",
             "flow_object_uuid": "wpp-channel-uuid",
         }
-        self.usecase.nexus_service.list_integrated_agents.return_value = []
+        self.usecase.nexus_service.list_team_agents.return_value = {"agents": []}
         self.usecase.nexus_service.integrate_agent.return_value = {"ok": True}
 
         self.usecase.execute(self._build_dto())
