@@ -7,6 +7,7 @@ from retail.projects.models import Project
 from retail.vtex.tasks import (
     _is_purchase_confirmed,
     is_payment_approved,
+    task_handle_abandoned_cart_conversion,
     task_mark_broadcast_converted,
     task_order_status_update,
 )
@@ -148,3 +149,81 @@ class TaskMarkBroadcastConvertedTest(TestCase):
         mock_instance.execute.assert_called_once_with(
             order_id="order-1", project_uuid="project-uuid-1"
         )
+
+
+class TaskHandleAbandonedCartConversionTest(TestCase):
+    """Smoke test that the Celery task is a thin wrapper around the
+    use case; the use case has its own dedicated test suite."""
+
+    @patch("retail.vtex.tasks.HandleAbandonedCartConversionUseCase")
+    def test_delegates_to_use_case(self, mock_use_case_cls):
+        mock_instance = MagicMock()
+        mock_use_case_cls.return_value = mock_instance
+
+        task_handle_abandoned_cart_conversion("order-1", "project-uuid-1")
+
+        mock_use_case_cls.assert_called_once_with()
+        mock_instance.execute.assert_called_once_with(
+            order_id="order-1", project_uuid="project-uuid-1"
+        )
+
+
+class TaskOrderStatusUpdateAbandonedCartConversionTest(TestCase):
+    """Validates that ``payment-approved`` schedules the abandoned-cart
+    conversion task alongside the CAPI flow, while other states do not.
+    """
+
+    def setUp(self):
+        self.project = Project.objects.create(
+            name="Project A", uuid=uuid4(), vtex_account="testaccount"
+        )
+        self.dto_payload = {
+            "recorder": {},
+            "domain": "Marketplace",
+            "orderId": "order-99",
+            "currentState": "payment-approved",
+            "lastState": "ready-for-handling",
+            "currentChangeDate": "2026-05-07T12:00:00",
+            "lastChangeDate": "2026-05-07T11:55:00",
+            "vtexAccount": "testaccount",
+        }
+
+    @patch("retail.vtex.tasks.task_handle_abandoned_cart_conversion.apply_async")
+    @patch("retail.vtex.tasks.handle_purchase_event_task.apply_async")
+    @patch("retail.vtex.tasks.AgentOrderStatusUpdateUsecase")
+    def test_payment_approved_schedules_abandoned_cart_conversion(
+        self,
+        mock_use_case_cls,
+        mock_capi_apply_async,
+        mock_conversion_apply_async,
+    ):
+        mock_use_case = MagicMock()
+        mock_use_case.get_project_by_vtex_account.return_value = self.project
+        mock_use_case.get_integrated_agent_if_exists.return_value = None
+        mock_use_case_cls.return_value = mock_use_case
+
+        task_order_status_update(self.dto_payload)
+
+        mock_capi_apply_async.assert_called_once()
+        mock_conversion_apply_async.assert_called_once_with(
+            args=["order-99", str(self.project.uuid)],
+            queue="vtex-io-orders-update-events",
+        )
+
+    @patch("retail.vtex.tasks.task_handle_abandoned_cart_conversion.apply_async")
+    @patch("retail.vtex.tasks.AgentOrderStatusUpdateUsecase")
+    def test_non_payment_approved_does_not_schedule_abandoned_cart_conversion(
+        self, mock_use_case_cls, mock_apply_async
+    ):
+        mock_use_case = MagicMock()
+        mock_use_case.get_project_by_vtex_account.return_value = self.project
+        mock_use_case.get_integrated_agent_if_exists.return_value = None
+        mock_use_case_cls.return_value = mock_use_case
+
+        for state in ("order-created", "invoiced", "canceled", "payment-pending"):
+            mock_apply_async.reset_mock()
+            payload = dict(self.dto_payload, currentState=state)
+
+            task_order_status_update(payload)
+
+            mock_apply_async.assert_not_called()
