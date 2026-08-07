@@ -1,3 +1,6 @@
+# 5.48.2
+- Add cache-busting v param to Weni WebChat loader scripts
+
 # 5.48.1
 - feat: Enhance OnboardingPatchSerializer to save only updated fields and add test for concurrent updates
 - feat: Add optional merchant_name field to VtexProxySerializer and update related use cases
