@@ -24,8 +24,35 @@ class ProxyVtexUsecaseTest(TestCase):
         )
 
         self.assertEqual(result, {"ok": True})
+        mock_context.assert_called_once_with("project-uuid", merchant_name=None)
         self.mock_service.proxy_vtex.assert_called_once_with(
             account_domain="lojasrede.myvtex.com",
+            vtex_account="lojasrede",
+            method="GET",
+            path="/api/oms/pvt/orders",
+            headers=None,
+            data=None,
+            params=None,
+        )
+
+    @patch.object(ProxyVtexUsecase, "_get_vtex_context")
+    def test_execute_passes_merchant_name_to_context(self, mock_context):
+        mock_context.return_value = ("lojasrede", "otherstore.myvtex.com")
+        self.mock_service.proxy_vtex.return_value = {"ok": True}
+
+        result = self.usecase.execute(
+            method="GET",
+            path="/api/oms/pvt/orders",
+            project_uuid="project-uuid",
+            merchant_name="otherstore",
+        )
+
+        self.assertEqual(result, {"ok": True})
+        mock_context.assert_called_once_with(
+            "project-uuid", merchant_name="otherstore"
+        )
+        self.mock_service.proxy_vtex.assert_called_once_with(
+            account_domain="otherstore.myvtex.com",
             vtex_account="lojasrede",
             method="GET",
             path="/api/oms/pvt/orders",

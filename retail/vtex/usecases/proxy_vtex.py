@@ -1,5 +1,5 @@
 import logging
-from typing import Union
+from typing import Optional, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -39,6 +39,7 @@ class ProxyVtexUsecase(BaseVtexUseCase):
         data: Union[dict, list] = None,
         params: dict = None,
         project_uuid: str = None,
+        merchant_name: Optional[str] = None,
     ) -> dict:
         """
         Execute the proxy VTEX use case.
@@ -50,6 +51,8 @@ class ProxyVtexUsecase(BaseVtexUseCase):
             data (Union[dict, list], optional): Request body data for POST, PUT, PATCH requests.
             params (dict, optional): Query parameters to be appended to the URL.
             project_uuid (str): Project UUID to get the account domain.
+            merchant_name (str, optional): Overrides only the account domain used in
+                the proxy URL; JWT auth still uses the project's vtex_account.
 
         Returns:
             dict: Response data from VTEX platform.
@@ -59,14 +62,17 @@ class ProxyVtexUsecase(BaseVtexUseCase):
             CustomAPIException: When the upstream VTEX IO request fails.
         """
         try:
-            vtex_account, account_domain = self._get_vtex_context(project_uuid)
+            vtex_account, account_domain = self._get_vtex_context(
+                project_uuid, merchant_name=merchant_name
+            )
         except ValueError as exc:
             logger.error(f"VTEX context error for project_uuid={project_uuid}: {exc}")
             raise ValidationError({"detail": str(exc)}) from exc
 
         logger.info(
             f"Proxying VTEX request: method={method} path={path} "
-            f"project_uuid={project_uuid} vtex_account={vtex_account}"
+            f"project_uuid={project_uuid} vtex_account={vtex_account} "
+            f"account_domain={account_domain}"
         )
 
         try:
