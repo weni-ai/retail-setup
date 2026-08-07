@@ -1,3 +1,7 @@
+# 5.48.1
+- feat: Enhance OnboardingPatchSerializer to save only updated fields and add test for concurrent updates
+- feat: Add optional merchant_name field to VtexProxySerializer and update related use cases
+
 # 5.48.0
 - feat: Adopt weni-commons JWT auth and read tenant from token
 
