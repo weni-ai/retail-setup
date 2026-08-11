@@ -1,3 +1,6 @@
+# 5.48.3
+- refactor: Read project_uuid from JWT context instead of request body in LinkProjectView
+
 # 5.48.2
 - Add cache-busting v param to Weni WebChat loader scripts
 
