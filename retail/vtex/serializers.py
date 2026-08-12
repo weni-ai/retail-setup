@@ -59,6 +59,7 @@ class ProxyPaymentTransactionSerializer(serializers.Serializer):
         required=True,
         allow_empty=False,
     )
+    merchant_name = serializers.CharField(required=False, allow_null=True)
 
 
 class PaymentGatewayProxySerializer(serializers.Serializer):
@@ -69,3 +70,4 @@ class PaymentGatewayProxySerializer(serializers.Serializer):
     headers = serializers.DictField(required=False, allow_null=True)
     data = serializers.JSONField(required=False, allow_null=True)
     params = serializers.DictField(required=False, allow_null=True)
+    merchant_name = serializers.CharField(required=False, allow_null=True)

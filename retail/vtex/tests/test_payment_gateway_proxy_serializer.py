@@ -85,6 +85,31 @@ class TestPaymentGatewayProxySerializer(TestCase):
         self.assertTrue(serializer.is_valid())
         self.assertIsNone(serializer.validated_data.get("params"))
 
+    def test_merchant_name_is_optional(self):
+        serializer = PaymentGatewayProxySerializer(
+            data={"method": "GET", "path": "/some/path"}
+        )
+        self.assertTrue(serializer.is_valid())
+        self.assertIsNone(serializer.validated_data.get("merchant_name"))
+
+    def test_accepts_merchant_name(self):
+        serializer = PaymentGatewayProxySerializer(
+            data={
+                "method": "GET",
+                "path": "/some/path",
+                "merchant_name": "otherstore",
+            }
+        )
+        self.assertTrue(serializer.is_valid())
+        self.assertEqual(serializer.validated_data["merchant_name"], "otherstore")
+
+    def test_merchant_name_accepts_null(self):
+        serializer = PaymentGatewayProxySerializer(
+            data={"method": "GET", "path": "/some/path", "merchant_name": None}
+        )
+        self.assertTrue(serializer.is_valid())
+        self.assertIsNone(serializer.validated_data.get("merchant_name"))
+
     def test_headers_accepts_null(self):
         serializer = PaymentGatewayProxySerializer(
             data={"method": "GET", "path": "/some/path", "headers": None}

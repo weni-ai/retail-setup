@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass(frozen=True, slots=True)
@@ -7,3 +8,4 @@ class ProxyPaymentTransactionDTO:
 
     transaction_id: str
     payments: tuple
+    merchant_name: Optional[str] = None

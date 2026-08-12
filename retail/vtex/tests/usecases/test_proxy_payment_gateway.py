@@ -22,8 +22,33 @@ class TestProxyPaymentGatewayUseCase(TestCase):
 
         result = self.usecase.execute(dto=self.dto, project_uuid="test-uuid")
 
+        mock_context.assert_called_once_with("test-uuid", merchant_name=None)
         self.mock_service.proxy_payment_gateway.assert_called_once_with(
             account_domain="teststore.myvtex.com",
+            vtex_account="teststore",
+            method="GET",
+            path="/api/pvt/transactions/ABC123/interactions",
+            headers=None,
+            data=None,
+            params=None,
+        )
+        self.assertEqual(result, {"data": []})
+
+    @patch.object(ProxyPaymentGatewayUseCase, "_get_vtex_context")
+    def test_execute_passes_merchant_name_to_context(self, mock_context):
+        mock_context.return_value = ("teststore", "otherstore.myvtex.com")
+        self.mock_service.proxy_payment_gateway.return_value = {"data": []}
+
+        dto = ProxyPaymentGatewayDTO(
+            method="GET",
+            path="/api/pvt/transactions/ABC123/interactions",
+            merchant_name="otherstore",
+        )
+        result = self.usecase.execute(dto=dto, project_uuid="test-uuid")
+
+        mock_context.assert_called_once_with("test-uuid", merchant_name="otherstore")
+        self.mock_service.proxy_payment_gateway.assert_called_once_with(
+            account_domain="otherstore.myvtex.com",
             vtex_account="teststore",
             method="GET",
             path="/api/pvt/transactions/ABC123/interactions",
