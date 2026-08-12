@@ -341,6 +341,7 @@ class PaymentTransactionProxyView(BaseVtexProxyView):
         dto = ProxyPaymentTransactionDTO(
             transaction_id=serializer.validated_data["transaction_id"],
             payments=tuple(serializer.validated_data["payments"]),
+            merchant_name=serializer.validated_data.get("merchant_name"),
         )
 
         result = self.usecase.execute(dto=dto, project_uuid=self.project_uuid)
@@ -387,6 +388,7 @@ class PaymentGatewayProxyView(BaseVtexProxyView):
             headers=validated.get("headers"),
             data=validated.get("data"),
             params=validated.get("params"),
+            merchant_name=validated.get("merchant_name"),
         )
 
         result = self.usecase.execute(dto=dto, project_uuid=self.project_uuid)

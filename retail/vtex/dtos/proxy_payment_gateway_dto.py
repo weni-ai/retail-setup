@@ -11,3 +11,4 @@ class ProxyPaymentGatewayDTO:
     headers: Optional[dict] = None
     data: Optional[Union[dict, list]] = None
     params: Optional[dict] = None
+    merchant_name: Optional[str] = None

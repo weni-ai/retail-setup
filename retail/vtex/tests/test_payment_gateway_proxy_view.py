@@ -58,6 +58,7 @@ class TestPaymentGatewayProxyView(TestCase):
             "headers": {"X-Custom": "value"},
             "data": {"key": "value"},
             "params": {"an": "teststore"},
+            "merchant_name": "otherstore",
         }
         request = self.factory.post(self.url, payload, format="json")
         self.view(request)
@@ -69,6 +70,7 @@ class TestPaymentGatewayProxyView(TestCase):
         self.assertEqual(dto.headers, {"X-Custom": "value"})
         self.assertEqual(dto.data, {"key": "value"})
         self.assertEqual(dto.params, {"an": "teststore"})
+        self.assertEqual(dto.merchant_name, "otherstore")
         self.assertEqual(call_kwargs["project_uuid"], "test-uuid")
 
     @_jwt_auth_bypass("test-uuid")
@@ -133,6 +135,7 @@ class TestPaymentGatewayProxyView(TestCase):
         self.assertIsNone(dto.headers)
         self.assertIsNone(dto.data)
         self.assertIsNone(dto.params)
+        self.assertIsNone(dto.merchant_name)
 
     def test_returns_401_without_auth(self):
         request = self.factory.post(self.url, self.valid_payload, format="json")
