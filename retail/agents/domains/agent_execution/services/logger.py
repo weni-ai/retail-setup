@@ -321,19 +321,20 @@ class ExecutionLoggerService(ExecutionLoggerServiceInterface):
         exec_uuid: UUID,
         amount: Optional[Decimal] = None,
         currency: Optional[str] = None,
+        order_id: Optional[str] = None,
     ) -> None:
-        """Update order amount/currency for an execution.
+        """Update order amount, currency or id for an execution.
 
-        Useful when the order total/currency is computed after the
-        webhook is logged (for example, the cart abandonment service
-        calculates the total value during processing). Either field
-        can be omitted; the buffer drops ``None`` values rather than
-        overwriting existing entries.
+        Useful when those values are known after the webhook is logged
+        (cart total during abandonment, cloned orderForm id after
+        clone). Omitted fields stay ``None``; the buffer drops them
+        rather than overwriting existing entries.
         """
         self.buffer.update_metadata(
             execution_uuid=exec_uuid,
             amount=amount,
             currency=currency,
+            order_id=order_id,
         )
 
     def _extract_contact_urn(self, payload: Dict[str, Any]) -> Optional[str]:
