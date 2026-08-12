@@ -62,11 +62,12 @@ class TemplateMetadataSerializer(serializers.Serializer):
 
 
 class CreateTemplateSerializer(serializers.Serializer):
+    """Validate template creation payload; ``project_uuid`` comes from ``self.auth``."""
+
     template_translation = serializers.JSONField(required=True)
     template_name = serializers.CharField(required=True)
     category = serializers.CharField(required=True)
     app_uuid = serializers.CharField(required=True)
-    project_uuid = serializers.CharField(required=True)
     rule_code = serializers.CharField(required=False)
 
 
@@ -165,13 +166,14 @@ def _normalize_blank_footer(value: str | None) -> str | None:
 
 
 class UpdateTemplateContentSerializer(serializers.Serializer):
+    """Validate template content edits; ``project_uuid`` comes from ``self.auth``."""
+
     template_body = serializers.CharField(required=False)
     template_header = serializers.CharField(required=False)
     template_footer = serializers.CharField(required=False, allow_blank=True)
     template_button = serializers.ListField(required=False)
     template_body_params = serializers.ListField(required=False)
     app_uuid = serializers.CharField(required=True)
-    project_uuid = serializers.CharField(required=True)
     parameters = ParameterSerializer(many=True, required=False, allow_null=True)
     language = serializers.CharField(required=False, allow_null=True)
 
@@ -205,10 +207,11 @@ class UpdateLibraryTemplateSerializer(serializers.Serializer):
 
 
 class CreateCustomTemplateSerializer(serializers.Serializer):
+    """Validate custom template payload; ``project_uuid`` comes from ``self.auth``."""
+
     template_translation = serializers.JSONField(required=True)
     category = serializers.CharField()
     app_uuid = serializers.CharField(required=True)
-    project_uuid = serializers.CharField(required=True)
     integrated_agent_uuid = serializers.CharField(required=True)
     parameters = ParameterSerializer(many=True, required=True)
     display_name = serializers.CharField(required=True)
@@ -224,9 +227,8 @@ class ValidateTemplateSampleSerializer(UpdateTemplateContentSerializer):
     """Serializer for ``POST /api/v3/templates/<uuid>/sample/``.
 
     Schema-compatible with ``UpdateTemplateContentSerializer``; layers
-    on length caps and button-mode disjointness. The tenant-authority
-    check (body ``project_uuid`` vs. the authenticated project) lives in
-    the view, which owns the auth context. Anchor: FR-003 / FR-003a /
+    on length caps and button-mode disjointness. The project scope comes
+    from ``self.auth`` in the view. Anchor: FR-003 / FR-003a /
     FR-014 (see ``specs/004-template-sample-validation/spec.md``).
     """
 
