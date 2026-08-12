@@ -67,7 +67,11 @@ class CartAbandonmentCloneOrderFormTests(TestCase):
             },
         )
         self.mock_clone = MagicMock()
-        self.service = CartAbandonmentService(clone_order_form_use_case=self.mock_clone)
+        self.mock_logger = MagicMock()
+        self.service = CartAbandonmentService(
+            exec_logger=self.mock_logger,
+            clone_order_form_use_case=self.mock_clone,
+        )
         self.service.notification_lock_service = MagicMock()
         self.service.notification_lock_service.acquire_lock.return_value = True
 
@@ -99,6 +103,7 @@ class CartAbandonmentCloneOrderFormTests(TestCase):
             payload["marketing_data"],
             {"utmCampaign": "summer", "coupon": "SAVE10"},
         )
+        self.mock_logger.update_order_info.assert_any_call(order_id="clone-of")
 
     def test_clone_failure_falls_back_to_original_order_form_id(self):
         self.mock_clone.execute.return_value = None
@@ -123,6 +128,12 @@ class CartAbandonmentCloneOrderFormTests(TestCase):
         payload = mock_webhook.call_args.kwargs["payload"]
         self.assertEqual(payload["order_form_id"], "order-form-1")
         self.assertNotIn("marketing_data", payload)
+        self.assertFalse(
+            any(
+                call.kwargs.get("order_id")
+                for call in self.mock_logger.update_order_info.call_args_list
+            )
+        )
 
     def test_clone_exception_falls_back_to_original_order_form_id(self):
         self.mock_clone.execute.side_effect = RuntimeError("vtex down")

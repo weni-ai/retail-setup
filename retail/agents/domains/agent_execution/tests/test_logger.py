@@ -85,6 +85,21 @@ class LoggerWebhookReceivedTests(TestCase):
             execution_uuid=execution_uuid,
             amount=Decimal("199.90"),
             currency="USD",
+            order_id=None,
+        )
+
+    def test_update_order_info_sets_order_id(self):
+        execution_uuid = uuid4()
+        self.logger.update_order_info(
+            order_id="clone-of",
+            execution_uuid=execution_uuid,
+        )
+
+        self.buffer.update_metadata.assert_called_once_with(
+            execution_uuid=execution_uuid,
+            amount=None,
+            currency=None,
+            order_id="clone-of",
         )
 
     def test_update_order_info_no_op_without_uuid_or_context(self):

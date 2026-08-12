@@ -667,6 +667,7 @@ class CartAbandonmentService(BaseVtexUseCase):
 
         cart.notification_order_form_id = cloned.order_form_id
         cart.save(update_fields=["notification_order_form_id", "modified_on"])
+        self.exec_logger.update_order_info(order_id=cloned.order_form_id)
         logger.info(
             f"[CART_SERVICE] Persisted notification_order_form_id="
             f"{cloned.order_form_id}: {_build_log_context(cart, integration_config)}"
