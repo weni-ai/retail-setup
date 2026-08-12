@@ -3,6 +3,8 @@ import logging
 from typing import Optional
 from uuid import UUID
 
+from django.db.models import Q
+
 from retail.projects.models import Project
 from ..models import Cart
 
@@ -43,6 +45,36 @@ class CartRepository:
                     f"Cart found with order_form_id={order_form_id} but does not have flows_channel_uuid set."
                 )
 
+        return None
+
+    @staticmethod
+    def find_by_order_form_or_notification(
+        order_form_id: str, project: Project
+    ) -> Optional[Cart]:
+        """
+        Retrieve a cart by the shopper's order-form id or the cloned
+        notification order-form id, only if linked to a flows channel.
+
+        Orders placed from an abandoned-cart clone report the clone's
+        ``orderFormId``, so purchase-event lookup must match either field.
+        """
+        cart = Cart.objects.filter(
+            Q(order_form_id=order_form_id, project=project)
+            | Q(notification_order_form_id=order_form_id, project=project)
+        ).first()
+        if cart and cart.flows_channel_uuid:
+            logger.info(
+                f"Cart found for order_form_id={order_form_id} "
+                f"(matched original or notification clone) "
+                f"flows_channel_uuid={cart.flows_channel_uuid}."
+            )
+            return cart
+
+        if cart:
+            logger.info(
+                f"Cart found for order_form_id={order_form_id} but does not "
+                f"have flows_channel_uuid set."
+            )
         return None
 
     @staticmethod

@@ -471,6 +471,11 @@ ABANDONED_CART_DEFAULT_IMAGE_URL = env.str(
     "ABANDONED_CART_DEFAULT_IMAGE_URL",
     default="https://placehold.co/1200x628/png?text=Your+Product",
 )
+# When True, abandoned-cart notifications clone the shopper's orderForm so
+# the Lambda UTM lands on a cart reachable only through the message link.
+ABANDONED_CART_CLONE_ORDER_FORM_ENABLED = env.bool(
+    "ABANDONED_CART_CLONE_ORDER_FORM_ENABLED", default=False
+)
 PAYMENT_RECOVERY_AGENT_UUID = env.str("PAYMENT_RECOVERY_AGENT_UUID", default="")
 
 # Time window (in seconds) to ignore repeated order status events.

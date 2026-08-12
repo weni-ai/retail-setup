@@ -85,7 +85,9 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 self.mock_order_details
             )
-            self.mock_cart_repository.find_by_order_form.return_value = self.mock_cart
+            self.mock_cart_repository.find_by_order_form_or_notification.return_value = (
+                self.mock_cart
+            )
 
             # Act
             usecase.execute(self.order_id, str(self.project_uuid))
@@ -96,7 +98,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
                 vtex_account=self.mock_project.vtex_account,
                 order_id=self.order_id,
             )
-            self.mock_cart_repository.find_by_order_form.assert_called_once_with(
+            self.mock_cart_repository.find_by_order_form_or_notification.assert_called_once_with(
                 self.order_form_id, self.mock_project
             )
             self.mock_flows_service.send_purchase_event.assert_called_once()
@@ -119,7 +121,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
 
                 # Assert
                 self.mock_vtex_io_service.get_order_details_by_id.assert_not_called()
-                self.mock_cart_repository.find_by_order_form.assert_not_called()
+                self.mock_cart_repository.find_by_order_form_or_notification.assert_not_called()
                 self.mock_flows_service.send_purchase_event.assert_not_called()
 
     def test_execute_project_from_cache(self):
@@ -137,7 +139,9 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 self.mock_order_details
             )
-            self.mock_cart_repository.find_by_order_form.return_value = self.mock_cart
+            self.mock_cart_repository.find_by_order_form_or_notification.return_value = (
+                self.mock_cart
+            )
 
             # Act
             usecase.execute(self.order_id, str(self.project_uuid))
@@ -164,7 +168,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
 
                 # Assert
                 self.mock_vtex_io_service.get_order_details_by_id.assert_not_called()
-                self.mock_cart_repository.find_by_order_form.assert_not_called()
+                self.mock_cart_repository.find_by_order_form_or_notification.assert_not_called()
                 self.mock_flows_service.send_purchase_event.assert_not_called()
 
     def test_execute_order_not_found(self):
@@ -182,7 +186,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
 
             # Assert
             self.mock_vtex_io_service.get_order_details_by_id.assert_called_once()
-            self.mock_cart_repository.find_by_order_form.assert_not_called()
+            self.mock_cart_repository.find_by_order_form_or_notification.assert_not_called()
             self.mock_flows_service.send_purchase_event.assert_not_called()
 
     def test_execute_no_order_form_id(self):
@@ -208,7 +212,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
 
             # Assert
             self.mock_vtex_io_service.get_order_details_by_id.assert_called_once()
-            self.mock_cart_repository.find_by_order_form.assert_not_called()
+            self.mock_cart_repository.find_by_order_form_or_notification.assert_not_called()
             self.mock_flows_service.send_purchase_event.assert_not_called()
 
     def test_execute_cart_not_found(self):
@@ -222,14 +226,16 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 self.mock_order_details
             )
-            self.mock_cart_repository.find_by_order_form.return_value = None
+            self.mock_cart_repository.find_by_order_form_or_notification.return_value = (
+                None
+            )
 
             # Act
             usecase.execute(self.order_id, str(self.project_uuid))
 
             # Assert
             self.mock_vtex_io_service.get_order_details_by_id.assert_called_once()
-            self.mock_cart_repository.find_by_order_form.assert_called_once()
+            self.mock_cart_repository.find_by_order_form_or_notification.assert_called_once()
             self.mock_flows_service.send_purchase_event.assert_not_called()
 
     def test_execute_cart_already_notified(self):
@@ -248,14 +254,16 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 self.mock_order_details
             )
-            self.mock_cart_repository.find_by_order_form.return_value = notified_cart
+            self.mock_cart_repository.find_by_order_form_or_notification.return_value = (
+                notified_cart
+            )
 
             # Act
             usecase.execute(self.order_id, str(self.project_uuid))
 
             # Assert
             self.mock_vtex_io_service.get_order_details_by_id.assert_called_once()
-            self.mock_cart_repository.find_by_order_form.assert_called_once()
+            self.mock_cart_repository.find_by_order_form_or_notification.assert_called_once()
             self.mock_flows_service.send_purchase_event.assert_not_called()
             self.mock_cart_repository.update_capi_notification_sent.assert_not_called()
 
@@ -275,7 +283,9 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 self.mock_order_details
             )
-            self.mock_cart_repository.find_by_order_form.return_value = self.mock_cart
+            self.mock_cart_repository.find_by_order_form_or_notification.return_value = (
+                self.mock_cart
+            )
 
             # Act
             usecase.execute(self.order_id, str(self.project_uuid))
@@ -303,7 +313,9 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 order_details_without_phone
             )
-            self.mock_cart_repository.find_by_order_form.return_value = self.mock_cart
+            self.mock_cart_repository.find_by_order_form_or_notification.return_value = (
+                self.mock_cart
+            )
 
             # Act
             usecase.execute(self.order_id, str(self.project_uuid))
@@ -336,7 +348,9 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 order_details_usd
             )
-            self.mock_cart_repository.find_by_order_form.return_value = self.mock_cart
+            self.mock_cart_repository.find_by_order_form_or_notification.return_value = (
+                self.mock_cart
+            )
 
             # Act
             usecase.execute(self.order_id, str(self.project_uuid))
@@ -369,7 +383,9 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 order_details_no_currency
             )
-            self.mock_cart_repository.find_by_order_form.return_value = self.mock_cart
+            self.mock_cart_repository.find_by_order_form_or_notification.return_value = (
+                self.mock_cart
+            )
 
             # Act
             usecase.execute(self.order_id, str(self.project_uuid))
@@ -395,7 +411,9 @@ class HandlePurchaseEventUseCaseTest(TestCase):
             self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                 self.mock_order_details
             )
-            self.mock_cart_repository.find_by_order_form.return_value = self.mock_cart
+            self.mock_cart_repository.find_by_order_form_or_notification.return_value = (
+                self.mock_cart
+            )
 
             # Act
             usecase.execute(self.order_id, str(self.project_uuid))
@@ -464,7 +482,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
                 self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                     self.mock_order_details
                 )
-                self.mock_cart_repository.find_by_order_form.return_value = (
+                self.mock_cart_repository.find_by_order_form_or_notification.return_value = (
                     self.mock_cart
                 )
 
@@ -486,7 +504,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
                 )
                 # Verify the rest of the flow executed
                 self.mock_vtex_io_service.get_order_details_by_id.assert_called_once()
-                self.mock_cart_repository.find_by_order_form.assert_called_once()
+                self.mock_cart_repository.find_by_order_form_or_notification.assert_called_once()
                 self.mock_flows_service.send_purchase_event.assert_called_once()
 
     def test_execute_project_from_database_cache_miss_with_different_uuid(self):
@@ -514,7 +532,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
                 self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                     self.mock_order_details
                 )
-                self.mock_cart_repository.find_by_order_form.return_value = (
+                self.mock_cart_repository.find_by_order_form_or_notification.return_value = (
                     self.mock_cart
                 )
 
@@ -551,7 +569,7 @@ class HandlePurchaseEventUseCaseTest(TestCase):
                 self.mock_vtex_io_service.get_order_details_by_id.return_value = (
                     self.mock_order_details
                 )
-                self.mock_cart_repository.find_by_order_form.return_value = (
+                self.mock_cart_repository.find_by_order_form_or_notification.return_value = (
                     self.mock_cart
                 )
 
