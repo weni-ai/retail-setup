@@ -192,6 +192,42 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
             str(self.project.uuid), self.user.email
         )
 
+    def test_create_template_without_body_project_uuid(self):
+        """POST succeeds when project_uuid comes only from the JWT auth context."""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
+        )
+
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="test_template",
+            parent=self.parent,
+        )
+
+        captured_payload = {}
+
+        def capture_execute(payload):
+            captured_payload.update(payload)
+            return template
+
+        self.create_usecase.execute = capture_execute
+
+        payload = {
+            "template_translation": {"en": {"text": "Hello"}},
+            "template_name": "test_template",
+            "category": "test",
+            "app_uuid": str(uuid4()),
+        }
+
+        response = self.client.post(reverse("template-list"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(captured_payload["project_uuid"], str(self.project.uuid))
+        self.assertNotIn("project_uuid", payload)
+        self.assertNotIn("project_uuid", response.data)
+
     def test_create_template_invalid_data(self):
         """Test template creation fails with invalid data"""
         self.setup_internal_user_permissions(self.user)
@@ -397,6 +433,77 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["name"], "test_template")
 
+    def test_partial_update_template_content_without_body_project_uuid(self):
+        """PATCH succeeds when project_uuid comes only from the JWT auth context."""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
+        )
+
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="test_template",
+            parent=self.parent,
+        )
+        version = Version.objects.create(
+            template=template,
+            template_name="test_template",
+            integrations_app_uuid=uuid4(),
+            project=self.project,
+            status="APPROVED",
+        )
+        template.current_version = version
+        template.save()
+
+        captured_data = {}
+
+        def capture_execute(data):
+            captured_data.update(data)
+            return Template.objects.create(
+                uuid=uuid4(),
+                name="test_template",
+                parent=self.parent,
+            )
+
+        self.update_content_usecase.execute = capture_execute
+
+        payload = {
+            "template_body": "Updated template body with {{placeholder}}",
+            "app_uuid": str(uuid4()),
+            "parameters": None,
+        }
+
+        template_uuid = str(template.uuid)
+        url = reverse("template-detail", args=[template_uuid])
+
+        response = self.client.patch(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(captured_data["project_uuid"], str(self.project.uuid))
+        self.assertNotIn("project_uuid", payload)
+        self.assertNotIn("project_uuid", response.data)
+
+    def test_partial_update_without_body_project_uuid_missing_token_returns_403(
+        self,
+    ):
+        """Missing tenant in JWT must return 403, not a serializer project_uuid error."""
+        self.set_retail_auth(project_uuid=None, user_email=self.user.email)
+
+        payload = {
+            "template_body": "Updated template body",
+            "app_uuid": str(uuid4()),
+        }
+
+        response = self.client.patch(
+            reverse("template-detail", args=[str(uuid4())]),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertNotIn("project_uuid", response.data)
+
     def test_partial_update_template_content_with_custom_template_parameters(self):
         """Test template content update with custom template parameters"""
         self.setup_internal_user_permissions(self.user)
@@ -479,6 +586,7 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
         response = self.client.patch(url, payload, format="json", **headers)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotIn("project_uuid", response.data)
 
     def test_partial_update_template_content_not_found(self):
         """Test template content update with non-existent template"""
@@ -634,6 +742,76 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
         self.assertEqual(response.data["display_name"], "Custom Template")
         self.assertEqual(response.data["is_custom"], True)
 
+    def test_create_custom_template_without_body_project_uuid(self):
+        """POST custom succeeds when project_uuid comes only from JWT auth."""
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
+        )
+
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="custom_template",
+            display_name="Custom Template",
+            integrated_agent=self.integrated_agent,
+            rule_code="def custom_rule(): return True",
+            metadata={"test": "data"},
+        )
+
+        captured_payload = {}
+
+        def capture_execute(payload):
+            captured_payload.update(payload)
+            return template
+
+        self.create_custom_usecase.execute = capture_execute
+
+        payload = {
+            "template_translation": {
+                "template_header": "Test Header",
+                "template_body": "Test Body {{name}}",
+                "template_footer": "Test Footer",
+                "template_button": [{"type": "URL", "text": "Click here"}],
+            },
+            "category": "custom",
+            "app_uuid": str(uuid4()),
+            "integrated_agent_uuid": str(self.integrated_agent.uuid),
+            "parameters": [
+                {
+                    "name": "start_condition",
+                    "value": "user.is_active == true",
+                }
+            ],
+            "display_name": "Custom Template Display",
+        }
+
+        response = self.client.post(reverse("template-custom"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(captured_payload["project_uuid"], str(self.project.uuid))
+        self.assertNotIn("project_uuid", payload)
+        self.assertNotIn("project_uuid", response.data)
+
+    def test_create_custom_template_without_body_project_uuid_missing_token_returns_403(
+        self,
+    ):
+        self.set_retail_auth(project_uuid=None, user_email=self.user.email)
+
+        payload = {
+            "template_translation": {"en": {"text": "Custom"}},
+            "category": "custom",
+            "app_uuid": str(uuid4()),
+            "integrated_agent_uuid": str(self.integrated_agent.uuid),
+            "parameters": [{"name": "start_condition", "value": "true"}],
+            "display_name": "Custom Template",
+        }
+
+        response = self.client.post(reverse("template-custom"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertNotIn("project_uuid", response.data)
+
     def test_missing_project_uuid_in_token_returns_403(self):
         """Test that a token without project scope returns 403 Forbidden"""
         self.set_retail_auth(project_uuid=None, user_email=self.user.email)
@@ -643,7 +821,6 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
             "template_name": "test_template",
             "category": "test",
             "app_uuid": str(uuid4()),
-            "project_uuid": str(self.project.uuid),
         }
 
         response = self.client.post(
@@ -653,6 +830,7 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertNotIn("project_uuid", response.data)
 
     def test_missing_user_email_query_param_returns_403(self):
         """Test that missing user_email query parameter returns 403 Forbidden"""

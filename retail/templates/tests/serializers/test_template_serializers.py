@@ -315,19 +315,29 @@ class TestCreateTemplateSerializer(TestCase):
             "template_name": "test_template",
             "category": "UTILITY",
             "app_uuid": str(uuid4()),
-            "project_uuid": str(uuid4()),
             "rule_code": "def test(): pass",
         }
 
         serializer = CreateTemplateSerializer(data=data)
-        self.assertTrue(serializer.is_valid())
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_valid_data_without_project_uuid(self):
+        data = {
+            "template_translation": {"en": {"text": "Hello"}},
+            "template_name": "test_template",
+            "category": "UTILITY",
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = CreateTemplateSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertNotIn("project_uuid", serializer.validated_data)
 
     def test_missing_required_fields(self):
         data = {
             "template_translation": {"en": {"text": "Hello"}},
             "category": "UTILITY",
             "app_uuid": str(uuid4()),
-            "project_uuid": str(uuid4()),
         }
 
         serializer = CreateTemplateSerializer(data=data)
@@ -340,7 +350,6 @@ class TestCreateTemplateSerializer(TestCase):
             "template_name": "test_template",
             "category": "UTILITY",
             "app_uuid": str(uuid4()),
-            "project_uuid": str(uuid4()),
         }
 
         serializer = CreateTemplateSerializer(data=data)
@@ -348,15 +357,15 @@ class TestCreateTemplateSerializer(TestCase):
 
 
 class TestUpdateTemplateContentSerializer(TestCase):
-    def test_valid_data_with_body(self):
+    def test_valid_data_without_project_uuid(self):
         data = {
             "template_body": "Updated body",
             "app_uuid": str(uuid4()),
-            "project_uuid": str(uuid4()),
         }
 
         serializer = UpdateTemplateContentSerializer(data=data)
-        self.assertTrue(serializer.is_valid())
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertNotIn("project_uuid", serializer.validated_data)
 
     def test_valid_data_with_header(self):
         data = {
@@ -439,7 +448,7 @@ class TestUpdateTemplateContentSerializer(TestCase):
         self.assertIn("non_field_errors", serializer.errors)
 
     def test_invalid_data_no_content_fields(self):
-        data = {"app_uuid": str(uuid4()), "project_uuid": str(uuid4())}
+        data = {"app_uuid": str(uuid4())}
 
         serializer = UpdateTemplateContentSerializer(data=data)
         self.assertFalse(serializer.is_valid())
@@ -501,20 +510,32 @@ class TestCreateCustomTemplateSerializer(TestCase):
             "template_translation": {"en": {"text": "Custom template"}},
             "category": "UTILITY",
             "app_uuid": str(uuid4()),
-            "project_uuid": str(uuid4()),
             "integrated_agent_uuid": str(uuid4()),
             "parameters": [{"name": "start_condition", "value": "condition"}],
             "display_name": "Custom Template",
         }
 
         serializer = CreateCustomTemplateSerializer(data=data)
-        self.assertTrue(serializer.is_valid())
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_valid_data_without_project_uuid(self):
+        data = {
+            "template_translation": {"en": {"text": "Custom template"}},
+            "category": "UTILITY",
+            "app_uuid": str(uuid4()),
+            "integrated_agent_uuid": str(uuid4()),
+            "parameters": [{"name": "start_condition", "value": "condition"}],
+            "display_name": "Custom Template",
+        }
+
+        serializer = CreateCustomTemplateSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertNotIn("project_uuid", serializer.validated_data)
 
     def test_missing_required_fields(self):
         data = {
             "template_translation": {"en": {"text": "Custom template"}},
             "app_uuid": str(uuid4()),
-            "project_uuid": str(uuid4()),
             "integrated_agent_uuid": str(uuid4()),
             "parameters": [],
         }
@@ -574,6 +595,15 @@ class TestValidateTemplateSampleSerializer(TestCase):
 
     def _serializer(self, data):
         return ValidateTemplateSampleSerializer(data=data)
+
+    def test_valid_without_project_uuid(self):
+        data = {
+            "template_body": "Olá",
+            "app_uuid": self.app_uuid,
+        }
+        serializer = self._serializer(data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertNotIn("project_uuid", serializer.validated_data)
 
     def test_body_at_1024_chars_passes(self):
         data = {**self.base_data, "template_body": "x" * 1024}
