@@ -45,6 +45,19 @@ class BroadcastStatus(models.TextChoices):
     UNKNOWN = "unknown", "Unknown"
 
 
+# Statuses that count as a successful send for first_successful_sent_at.
+# READ is a later point on the same success lifecycle, so a jump straight
+# to read still counts. WIRED is Meta's ack of receipt, not a success
+# for this feature.
+SUCCESSFUL_SEND_STATUSES = frozenset(
+    {
+        BroadcastStatus.SENT,
+        BroadcastStatus.DELIVERED,
+        BroadcastStatus.READ,
+    }
+)
+
+
 class BroadcastMessage(models.Model):
     """Persistent log of every WhatsApp broadcast issued.
 
