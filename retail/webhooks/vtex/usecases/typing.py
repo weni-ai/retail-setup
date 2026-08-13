@@ -46,3 +46,10 @@ class CartAbandonmentDataDTO:
     # Additional data
     cart_link: str = ""
     additional_data: Dict[str, Any] = None
+
+    # Cloned orderForm used in the abandoned-cart message link (agent flow).
+    # When set, agent payload sends this as order_form_id so the Lambda UTM
+    # lands on a cart reachable only through the notification.
+    notification_order_form_id: str = None
+    # Source marketingData replicated onto the clone.
+    marketing_data: Dict[str, Any] = None

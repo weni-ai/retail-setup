@@ -85,7 +85,8 @@ class ExecutionLoggerServiceInterface(Protocol):
         self,
         amount: Optional[Decimal] = None,
         currency: Optional[str] = None,
+        order_id: Optional[str] = None,
         execution_uuid: Optional[UUID] = None,
     ) -> None:
-        """Update the order amount/currency on the active execution row."""
+        """Update order amount, currency or id on the active execution row."""
         ...

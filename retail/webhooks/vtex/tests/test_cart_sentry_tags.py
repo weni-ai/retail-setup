@@ -71,9 +71,18 @@ class BuildCartSentryTagsTest(TestCase):
         cart = MagicMock(spec=Cart)
         cart.project = None
         cart.uuid = uuid.uuid4()
+        cart.notification_order_form_id = None
 
         tags = _build_cart_sentry_tags(cart)
 
         self.assertEqual(tags["vtex_account"], "unknown")
         self.assertEqual(tags["project_uuid"], "unknown")
         self.assertNotIn("integration_type", tags)
+
+    def test_includes_notification_order_form_id_when_set(self):
+        self.cart.notification_order_form_id = "clone-of"
+        self.cart.save(update_fields=["notification_order_form_id"])
+
+        tags = _build_cart_sentry_tags(self.cart, self.integrated_feature)
+
+        self.assertEqual(tags["notification_order_form_id"], "clone-of")

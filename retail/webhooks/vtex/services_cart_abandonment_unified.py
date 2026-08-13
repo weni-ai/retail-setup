@@ -38,6 +38,10 @@ from retail.observability.sentry import (
     fingerprint_with_vtex_account,
     sentry_error_scope,
 )
+from retail.vtex.usecases.clone_order_form import (
+    ClonedOrderFormDTO,
+    CloneOrderFormUseCase,
+)
 
 
 # VTEX order statuses that count as a finalized purchase.
@@ -60,6 +64,8 @@ def _build_log_context(cart: Cart, integration_config=None) -> str:
         f"phone={cart.phone_number} project_uuid={project_uuid} "
         f"order_form={cart.order_form_id}"
     )
+    if cart.notification_order_form_id:
+        context += f" notification_order_form={cart.notification_order_form_id}"
 
     if integration_config:
         if isinstance(integration_config, IntegratedAgent):
@@ -88,6 +94,8 @@ def _build_cart_sentry_tags(
         "project_uuid": str(cart.project.uuid) if cart.project else "unknown",
         "cart_uuid": str(cart.uuid),
     }
+    if cart.notification_order_form_id:
+        tags["notification_order_form_id"] = cart.notification_order_form_id
 
     if isinstance(integration_config, IntegratedAgent):
         tags["integration_type"] = "agent"
@@ -109,11 +117,18 @@ class CartAbandonmentService(BaseVtexUseCase):
     but made flexible to work with both integration types.
     """
 
-    def __init__(self, exec_logger: Optional[ExecutionLoggerServiceInterface] = None):
+    def __init__(
+        self,
+        exec_logger: Optional[ExecutionLoggerServiceInterface] = None,
+        clone_order_form_use_case: Optional[CloneOrderFormUseCase] = None,
+    ):
         self.vtex_io_service = VtexIOService(VtexIOClient())
         self.notification_lock_service = PhoneNotificationLockService()
         self.exec_logger: ExecutionLoggerServiceInterface = (
             exec_logger or ExecutionLoggerService()
+        )
+        self.clone_order_form_use_case = (
+            clone_order_form_use_case or CloneOrderFormUseCase()
         )
 
     def process_abandoned_cart(
@@ -553,9 +568,17 @@ class CartAbandonmentService(BaseVtexUseCase):
         )
         self._update_cart_status(cart, "abandoned")
 
+        cloned = self._clone_order_form_for_notification(
+            cart, order_form, integration_config
+        )
+
         # Collect all cart abandonment data in a unified structure
         cart_data = self._collect_cart_abandonment_data(
-            cart, order_form, client_profile, integration_config
+            cart,
+            order_form,
+            client_profile,
+            integration_config,
+            cloned=cloned,
         )
 
         # For IntegratedAgent, we send raw data (DTO) without message structure.
@@ -579,12 +602,85 @@ class CartAbandonmentService(BaseVtexUseCase):
             f"flow_type={flow_type} final_status={cart.status}"
         )
 
+    def _clone_order_form_for_notification(
+        self,
+        cart: Cart,
+        order_form: dict,
+        integration_config: Union[IntegratedFeature, IntegratedAgent],
+    ) -> Optional[ClonedOrderFormDTO]:
+        """Clone the shopper's orderForm after all skip gates have passed.
+
+        On failure, logs a warning + Sentry scope and returns ``None`` so the
+        notification falls back to the original ``order_form_id``.
+        """
+        if not settings.ABANDONED_CART_CLONE_ORDER_FORM_ENABLED:
+            return None
+
+        # Clone is only consumed by the agent/Lambda payload path.
+        if not isinstance(integration_config, IntegratedAgent):
+            return None
+
+        log_context = _build_log_context(cart, integration_config)
+        # IO /order-form-details may omit orderFormId; the cart always has it.
+        source_order_form = dict(order_form)
+        if not source_order_form.get("orderFormId") and cart.order_form_id:
+            source_order_form["orderFormId"] = cart.order_form_id
+
+        try:
+            cloned = self.clone_order_form_use_case.execute(
+                project_uuid=str(cart.project.uuid),
+                vtex_account=cart.project.vtex_account,
+                order_form=source_order_form,
+            )
+        except Exception as exc:
+            sentry_tags = _build_cart_sentry_tags(cart, integration_config)
+            with sentry_error_scope(
+                fingerprint=fingerprint_with_vtex_account(
+                    ["cart_service", "clone-order-form", type(exc).__name__],
+                    sentry_tags,
+                ),
+                tags={**sentry_tags, "error_type": type(exc).__name__},
+                context={"detail": str(exc), "order_form_id": cart.order_form_id},
+            ):
+                logger.warning(
+                    f"[CART_SERVICE] Clone orderForm failed, falling back to "
+                    f"original: {log_context} error={exc}",
+                    exc_info=True,
+                )
+            return None
+
+        if not cloned:
+            sentry_tags = _build_cart_sentry_tags(cart, integration_config)
+            with sentry_error_scope(
+                fingerprint=fingerprint_with_vtex_account(
+                    ["cart_service", "clone-order-form", "returned-none"],
+                    sentry_tags,
+                ),
+                tags=sentry_tags,
+                context={"order_form_id": cart.order_form_id},
+            ):
+                logger.warning(
+                    f"[CART_SERVICE] Clone orderForm returned None, falling "
+                    f"back to original: {log_context}"
+                )
+            return None
+
+        cart.notification_order_form_id = cloned.order_form_id
+        cart.save(update_fields=["notification_order_form_id", "modified_on"])
+        self.exec_logger.update_order_info(order_id=cloned.order_form_id)
+        logger.info(
+            f"[CART_SERVICE] Persisted notification_order_form_id="
+            f"{cloned.order_form_id}: {_build_log_context(cart, integration_config)}"
+        )
+        return cloned
+
     def _collect_cart_abandonment_data(
         self,
         cart: Cart,
         order_form: dict,
         client_profile: dict,
         integration_config: Union[IntegratedFeature, IntegratedAgent],
+        cloned: Optional[ClonedOrderFormDTO] = None,
     ) -> CartAbandonmentDataDTO:
         """
         Collect all cart abandonment data in a unified DTO structure.
@@ -595,11 +691,15 @@ class CartAbandonmentService(BaseVtexUseCase):
             order_form (dict): Order form details.
             client_profile (dict): Client profile data.
             integration_config: Either IntegratedFeature or IntegratedAgent instance.
+            cloned: Optional clone result when the feature flag is enabled.
 
         Returns:
             CartAbandonmentDataDTO: Unified cart abandonment data structure.
         """
         config = self._get_config(integration_config)
+        notification_order_form_id = cloned.order_form_id if cloned else None
+        marketing_data = cloned.marketing_data if cloned else None
+        link_order_form_id = notification_order_form_id or cart.order_form_id
 
         return CartAbandonmentDataDTO(
             # Cart basic info
@@ -629,8 +729,10 @@ class CartAbandonmentService(BaseVtexUseCase):
                 else None
             ),
             # Additional data
-            cart_link=f"{cart.order_form_id}/",
+            cart_link=f"{link_order_form_id}/",
             additional_data=cart.config,
+            notification_order_form_id=notification_order_form_id,
+            marketing_data=marketing_data,
         )
 
     def _execute_agent_flow(
@@ -673,10 +775,17 @@ class CartAbandonmentService(BaseVtexUseCase):
                 abandoned_cart_config, cart_data, integrated_agent
             )
 
+            # Prefer the cloned orderForm so the Lambda UTM lands on a cart
+            # reachable only through the message link. Fall back to the
+            # shopper's original id when cloning is disabled or failed.
+            payload_order_form_id = (
+                cart_data.notification_order_form_id or cart_data.order_form_id
+            )
+
             # Build payload with essential data and configuration for agent flow
             payload = {
                 "cart_uuid": cart_data.cart_uuid,
-                "order_form_id": cart_data.order_form_id,
+                "order_form_id": payload_order_form_id,
                 "phone_number": cart_data.phone_number,
                 "client_name": cart_data.client_name,
                 "project_uuid": cart_data.project_uuid,
@@ -686,6 +795,9 @@ class CartAbandonmentService(BaseVtexUseCase):
                 # Cart items for image selection logic in the agent
                 "cart_items": cart_data.cart_items,
             }
+
+            if cart_data.marketing_data is not None:
+                payload["marketing_data"] = cart_data.marketing_data
 
             result = task_agent_webhook(
                 integrated_agent_uuid=str(integrated_agent.uuid),

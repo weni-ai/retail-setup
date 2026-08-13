@@ -188,7 +188,9 @@ class HandlePurchaseEventUseCase:
         Returns:
             The Cart entity or None if not found.
         """
-        return self.cart_repository.find_by_order_form(order_form_id, project)
+        return self.cart_repository.find_by_order_form_or_notification(
+            order_form_id, project
+        )
 
     def _build_purchase_event_payload(
         self, cart: Cart, order_details: dict, order_form_id: str
