@@ -1,3 +1,6 @@
+# 5.50.1
+- refactor: Improve order form clone shipping with two-step address/SLA logic and item filtering
+
 # 5.50.0
 - feat: Add first_successful_sent_at field to GalleryAgentSerializer
 - feat: Track first successful broadcast send on IntegratedAgent
