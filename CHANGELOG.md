@@ -1,3 +1,8 @@
+# 5.50.0
+- feat: Add first_successful_sent_at field to GalleryAgentSerializer
+- feat: Track first successful broadcast send on IntegratedAgent
+- feat: Clone orderForm for abandoned-cart UTM attribution
+
 # 5.49.0
 - feat: Add optional merchant_name to payment gateway and transaction proxy DTOs, serializers, and use cases
 - fix: Read template tenant from JWT instead of request body

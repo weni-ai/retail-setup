@@ -57,10 +57,25 @@ class CloneOrderFormUseCaseTest(TestCase):
             return_value=(self.vtex_account, "test-account.myvtex.com")
         )
 
+        self.clone_items = [
+            {"id": "sku-1", "quantity": 2, "seller": "1"},
+            {"id": "sku-2", "quantity": 1, "seller": "1"},
+        ]
         self.mock_checkout.create_cart.return_value = {"orderFormId": "clone-of"}
-        self.mock_checkout.add_items.return_value = {"orderFormId": "clone-of"}
+        self.mock_checkout.add_items.return_value = {
+            "orderFormId": "clone-of",
+            "items": self.clone_items,
+        }
         self.mock_checkout.set_client_profile_data.return_value = {}
-        self.mock_checkout.set_shipping_data.return_value = {}
+        self.mock_checkout.set_shipping_data.return_value = {
+            "orderFormId": "clone-of",
+            "items": self.clone_items,
+            "shippingData": {
+                "selectedAddresses": [
+                    {"postalCode": "01310-100", "addressId": "clone-addr"}
+                ]
+            },
+        }
         self.mock_checkout.set_client_preferences_data.return_value = {}
         self.mock_checkout.set_marketing_data.return_value = {}
 
@@ -90,7 +105,31 @@ class CloneOrderFormUseCaseTest(TestCase):
             ],
         )
         self.mock_checkout.set_client_profile_data.assert_called_once()
-        self.mock_checkout.set_shipping_data.assert_called_once()
+        self.assertEqual(self.mock_checkout.set_shipping_data.call_count, 2)
+        address_payload = self.mock_checkout.set_shipping_data.call_args_list[0].kwargs[
+            "shipping_data"
+        ]
+        self.assertEqual(
+            address_payload["selectedAddresses"], [{"postalCode": "01310-100"}]
+        )
+        self.assertNotIn("logisticsInfo", address_payload)
+        sla_payload = self.mock_checkout.set_shipping_data.call_args_list[1].kwargs[
+            "shipping_data"
+        ]
+        self.assertEqual(
+            sla_payload["logisticsInfo"],
+            [
+                {
+                    "itemIndex": 0,
+                    "selectedSla": "Normal",
+                    "selectedDeliveryChannel": "delivery",
+                }
+            ],
+        )
+        self.assertEqual(
+            sla_payload["selectedAddresses"],
+            [{"postalCode": "01310-100", "addressId": "clone-addr"}],
+        )
         self.mock_checkout.set_client_preferences_data.assert_called_once()
         self.mock_checkout.set_marketing_data.assert_called_once()
         self.mock_checkout.get_order_form.assert_not_called()
@@ -242,3 +281,240 @@ class CloneOrderFormUseCaseTest(TestCase):
         ]
         self.assertEqual(payload["corporateName"], "Corp Ltd")
         self.assertTrue(payload["isCorporate"])
+
+    def test_skips_gift_and_assembly_child_items(self):
+        source = _full_source_order_form(
+            items=[
+                {"id": "sku-1", "quantity": 1, "seller": "1"},
+                {"id": "sku-gift", "quantity": 1, "seller": "1", "isGift": True},
+                {
+                    "id": "sku-child",
+                    "quantity": 1,
+                    "seller": "1",
+                    "parentItemIndex": 0,
+                },
+            ]
+        )
+
+        self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=source,
+        )
+
+        order_items = self.mock_checkout.add_items.call_args.kwargs["order_items"]
+        self.assertEqual(order_items, [{"id": "sku-1", "quantity": 1, "seller": "1"}])
+
+    def test_shipping_drops_source_address_id_and_null_fields(self):
+        source = _full_source_order_form(
+            shippingData={
+                "selectedAddresses": [
+                    {
+                        "addressType": "search",
+                        "receiverName": None,
+                        "addressId": "-1782765895361",
+                        "isDisposable": True,
+                        "postalCode": "04040",
+                        "geoCoordinates": [-99.15, 19.34],
+                    }
+                ],
+                "logisticsInfo": [],
+            }
+        )
+
+        self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=source,
+        )
+
+        payload = self.mock_checkout.set_shipping_data.call_args.kwargs["shipping_data"]
+        address = payload["selectedAddresses"][0]
+        self.assertEqual(address["addressType"], "search")
+        self.assertEqual(address["postalCode"], "04040")
+        self.assertNotIn("addressId", address)
+        self.assertNotIn("receiverName", address)
+        self.assertEqual(self.mock_checkout.set_shipping_data.call_count, 1)
+
+    def test_shipping_remaps_logistics_indexes_to_clone_items(self):
+        source = _full_source_order_form(
+            items=[
+                {"id": "sku-1", "quantity": 1, "seller": "1"},
+                {"id": "sku-unavailable", "quantity": 1, "seller": "1"},
+            ],
+            shippingData={
+                "selectedAddresses": [{"postalCode": "04040", "country": "MEX"}],
+                "logisticsInfo": [
+                    {
+                        "itemIndex": 0,
+                        "selectedSla": "Pickup A",
+                        "selectedDeliveryChannel": "pickup-in-point",
+                        "pickupPointId": "PP135",
+                    },
+                    {
+                        "itemIndex": 1,
+                        "selectedSla": "Pickup A",
+                        "selectedDeliveryChannel": "pickup-in-point",
+                        "pickupPointId": "PP135",
+                    },
+                ],
+            },
+        )
+        self.mock_checkout.add_items.return_value = {
+            "orderFormId": "clone-of",
+            "items": [{"id": "sku-1", "quantity": 1, "seller": "1"}],
+        }
+        self.mock_checkout.set_shipping_data.return_value = {
+            "items": [{"id": "sku-1", "quantity": 1, "seller": "1"}],
+            "shippingData": {
+                "selectedAddresses": [
+                    {"postalCode": "04040", "addressId": "clone-addr"}
+                ]
+            },
+        }
+
+        self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=source,
+        )
+
+        sla_payload = self.mock_checkout.set_shipping_data.call_args_list[1].kwargs[
+            "shipping_data"
+        ]
+        self.assertEqual(
+            sla_payload["logisticsInfo"],
+            [
+                {
+                    "itemIndex": 0,
+                    "selectedSla": "Pickup A",
+                    "selectedDeliveryChannel": "pickup-in-point",
+                    "pickupPointId": "PP135",
+                }
+            ],
+        )
+        self.assertEqual(
+            sla_payload["selectedAddresses"],
+            [{"postalCode": "04040", "addressId": "clone-addr"}],
+        )
+
+    def test_remap_logistics_skips_incomplete_and_unmatched_rows(self):
+        remapped = self.use_case._remap_logistics_info(
+            source_items=[{"id": "sku-1", "seller": "1"}],
+            source_logistics=[
+                {"selectedSla": "Normal"},
+                {"itemIndex": 99, "selectedSla": "Normal"},
+                {
+                    "itemIndex": 0,
+                    "selectedSla": "Normal",
+                    "selectedDeliveryChannel": "delivery",
+                },
+            ],
+            clone_items=[{"id": "sku-1", "seller": "1"}],
+        )
+
+        self.assertEqual(
+            remapped,
+            [
+                {
+                    "itemIndex": 0,
+                    "selectedSla": "Normal",
+                    "selectedDeliveryChannel": "delivery",
+                }
+            ],
+        )
+
+    def test_remap_logistics_returns_empty_when_clone_has_no_items(self):
+        remapped = self.use_case._remap_logistics_info(
+            source_items=[{"id": "sku-1", "seller": "1"}],
+            source_logistics=[{"itemIndex": 0, "selectedSla": "Normal"}],
+            clone_items=[],
+        )
+
+        self.assertEqual(remapped, [])
+
+    def test_skips_sla_selection_when_address_step_fails(self):
+        self.mock_checkout.set_shipping_data.return_value = None
+
+        result = self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=_full_source_order_form(),
+        )
+
+        self.assertEqual(result.order_form_id, "clone-of")
+        self.assertEqual(self.mock_checkout.set_shipping_data.call_count, 1)
+
+    def test_sla_selection_failure_is_best_effort(self):
+        self.mock_checkout.set_shipping_data.side_effect = [
+            {
+                "items": self.clone_items,
+                "shippingData": {
+                    "selectedAddresses": [
+                        {"postalCode": "01310-100", "addressId": "clone-addr"}
+                    ]
+                },
+            },
+            None,
+        ]
+
+        result = self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=_full_source_order_form(),
+        )
+
+        self.assertEqual(result.order_form_id, "clone-of")
+        self.assertEqual(self.mock_checkout.set_shipping_data.call_count, 2)
+
+    def test_sla_payload_falls_back_to_source_addresses_when_clone_omits_them(self):
+        self.mock_checkout.set_shipping_data.return_value = {
+            "items": self.clone_items,
+            "shippingData": {},
+        }
+
+        self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=_full_source_order_form(),
+        )
+
+        sla_payload = self.mock_checkout.set_shipping_data.call_args_list[1].kwargs[
+            "shipping_data"
+        ]
+        self.assertEqual(
+            sla_payload["selectedAddresses"], [{"postalCode": "01310-100"}]
+        )
+
+    def test_shipping_with_logistics_only_skips_address_step(self):
+        source = _full_source_order_form(
+            shippingData={
+                "logisticsInfo": [
+                    {
+                        "itemIndex": 0,
+                        "selectedSla": "Normal",
+                        "selectedDeliveryChannel": "delivery",
+                    }
+                ],
+            }
+        )
+
+        self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=source,
+        )
+
+        self.assertEqual(self.mock_checkout.set_shipping_data.call_count, 1)
+        payload = self.mock_checkout.set_shipping_data.call_args.kwargs["shipping_data"]
+        self.assertNotIn("selectedAddresses", payload)
+        self.assertEqual(
+            payload["logisticsInfo"],
+            [
+                {
+                    "itemIndex": 0,
+                    "selectedSla": "Normal",
+                    "selectedDeliveryChannel": "delivery",
+                }
+            ],
+        )
