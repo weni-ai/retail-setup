@@ -32,6 +32,11 @@ class IntegratedAgent(models.Model):
     # Incremented atomically alongside ProjectBroadcastCounter on each
     # DELIVERED transition handled by the broadcast status consumer.
     broadcasts_delivered = models.PositiveBigIntegerField(default=0)
+    # Dispatch time of the first broadcast from this agent that reached a
+    # success status. Backfilled at deploy from BroadcastMessage; filled
+    # going forward by HandleStatusUpdateUseCase. NULL means no successful
+    # send has been observed since broadcast tracking began (2026-05-06).
+    first_successful_sent_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.agent} - {self.project}"

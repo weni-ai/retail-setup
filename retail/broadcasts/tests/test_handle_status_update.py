@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from uuid import uuid4
 
@@ -321,6 +321,105 @@ class HandleStatusUpdateUseCaseTest(TestCase):
 
         self.message.refresh_from_db()
         self.assertEqual(self.message.last_payload, payload)
+
+    def test_sent_transition_stamps_first_successful_sent_at(self):
+        self._dispatch(self._event(status=BroadcastStatus.SENT))
+
+        self.integrated_agent.refresh_from_db()
+        self.message.refresh_from_db()
+        self.assertEqual(
+            self.integrated_agent.first_successful_sent_at,
+            self.message.created_at,
+        )
+
+    def test_later_delivered_does_not_overwrite_first_successful_sent_at(self):
+        self._dispatch(self._event(status=BroadcastStatus.SENT))
+        self.integrated_agent.refresh_from_db()
+        stamped = self.integrated_agent.first_successful_sent_at
+        self.assertIsNotNone(stamped)
+
+        self._dispatch(self._event(broadcast_id=None, status=BroadcastStatus.DELIVERED))
+
+        self.integrated_agent.refresh_from_db()
+        self.assertEqual(self.integrated_agent.first_successful_sent_at, stamped)
+
+    def test_already_populated_first_successful_sent_at_skips_write(self):
+        self.integrated_agent.first_successful_sent_at = self.message.created_at
+        self.integrated_agent.save(update_fields=["first_successful_sent_at"])
+
+        with patch.object(self.use_case, "_register_first_successful_send") as register:
+            self._dispatch(self._event(status=BroadcastStatus.SENT))
+
+        register.assert_not_called()
+
+    def test_other_agent_broadcast_does_not_stamp_this_agent(self):
+        other_agent = Agent.objects.create(name="Agent B", project=self.project)
+        other_integrated = IntegratedAgent.objects.create(
+            agent=other_agent, project=self.project
+        )
+        BroadcastMessage.objects.create(
+            broadcast_id=99901,
+            project=self.project,
+            integrated_agent=other_integrated,
+            status=BroadcastStatus.QUEUED,
+        )
+
+        self.use_case.link_send_event(
+            BroadcastStatusEvent(
+                message_id="msg-other",
+                broadcast_id=99901,
+                status=BroadcastStatus.SENT,
+                payload={},
+            )
+        )
+
+        self.integrated_agent.refresh_from_db()
+        other_integrated.refresh_from_db()
+        self.assertIsNone(self.integrated_agent.first_successful_sent_at)
+        self.assertIsNotNone(other_integrated.first_successful_sent_at)
+
+    def test_non_success_statuses_do_not_stamp_first_successful_sent_at(self):
+        cases = (
+            (BroadcastStatus.QUEUED, BroadcastStatus.PENDING),
+            (BroadcastStatus.WIRED, BroadcastStatus.SENT),
+            (BroadcastStatus.FAILED, BroadcastStatus.SENT),
+            (BroadcastStatus.ERRORED, BroadcastStatus.SENT),
+        )
+        for status, initial in cases:
+            with self.subTest(status=status):
+                self.integrated_agent.first_successful_sent_at = None
+                self.integrated_agent.save(update_fields=["first_successful_sent_at"])
+                self.message.status = initial
+                self.message.external_message_id = self.external_message_id
+                self.message.save()
+
+                self._dispatch(self._event(broadcast_id=None, status=status))
+
+                self.integrated_agent.refresh_from_db()
+                self.assertIsNone(self.integrated_agent.first_successful_sent_at)
+
+    def test_read_transition_stamps_first_successful_sent_at(self):
+        self.message.external_message_id = self.external_message_id
+        self.message.save(update_fields=["external_message_id"])
+
+        self._dispatch(self._event(broadcast_id=None, status=BroadcastStatus.READ))
+
+        self.integrated_agent.refresh_from_db()
+        self.message.refresh_from_db()
+        self.assertEqual(
+            self.integrated_agent.first_successful_sent_at,
+            self.message.created_at,
+        )
+
+    def test_success_without_integrated_agent_does_not_raise(self):
+        self.message.integrated_agent = None
+        self.message.external_message_id = self.external_message_id
+        self.message.save()
+
+        self._dispatch(self._event(broadcast_id=None, status=BroadcastStatus.DELIVERED))
+
+        self.integrated_agent.refresh_from_db()
+        self.assertIsNone(self.integrated_agent.first_successful_sent_at)
 
 
 class HandleStatusUpdateIdempotencyTest(TestCase):

@@ -12,6 +12,7 @@ from retail.broadcasts.models import (
     BroadcastMessage,
     BroadcastStatus,
     ProjectBroadcastCounter,
+    SUCCESSFUL_SEND_STATUSES,
 )
 from retail.broadcasts.usecases.project_limit_guard import ProjectLimitGuard
 
@@ -119,11 +120,7 @@ class HandleStatusUpdateUseCase:
         broadcast_id = event.broadcast_id
 
         with transaction.atomic():
-            message = (
-                BroadcastMessage.objects.select_for_update()
-                .filter(broadcast_id=broadcast_id)
-                .first()
-            )
+            message = self._lock_broadcast_message(broadcast_id=broadcast_id)
 
             if message is None:
                 return
@@ -170,11 +167,7 @@ class HandleStatusUpdateUseCase:
         message_id = event.message_id
 
         with transaction.atomic():
-            message = (
-                BroadcastMessage.objects.select_for_update()
-                .filter(external_message_id=message_id)
-                .first()
-            )
+            message = self._lock_broadcast_message(external_message_id=message_id)
 
             if message is None:
                 return
@@ -187,10 +180,26 @@ class HandleStatusUpdateUseCase:
 
             self._apply_status_transition(message, event)
 
+    @staticmethod
+    def _lock_broadcast_message(**lookup) -> Optional[BroadcastMessage]:
+        """Lock the BroadcastMessage row and join its agent in the same query.
+
+        ``of=("self",)`` keeps FOR UPDATE on BroadcastMessage only.
+        Without it, ``select_related`` would also lock IntegratedAgent on
+        every status event — including after first_successful_sent_at is
+        already set, which is the contention this join is meant to avoid.
+        """
+        return (
+            BroadcastMessage.objects.select_for_update(of=("self",))
+            .select_related("integrated_agent")
+            .filter(**lookup)
+            .first()
+        )
+
     def _apply_status_transition(
         self, message: BroadcastMessage, event: BroadcastStatusEvent
     ) -> None:
-        """Persist the new status and handle side-effects on DELIVERED.
+        """Persist the new status and handle side-effects on success and DELIVERED.
 
         Accepts the already-locked BroadcastMessage object to avoid a
         redundant SELECT inside the caller's transaction.
@@ -243,6 +252,14 @@ class HandleStatusUpdateUseCase:
             f"previous_status={previous_status} new_status={new_status}"
         )
 
+        agent = message.integrated_agent
+        if (
+            new_status in SUCCESSFUL_SEND_STATUSES
+            and agent is not None
+            and agent.first_successful_sent_at is None
+        ):
+            self._register_first_successful_send(message)
+
         is_first_delivery = (
             new_status == BroadcastStatus.DELIVERED
             and previous_status != BroadcastStatus.DELIVERED
@@ -252,6 +269,31 @@ class HandleStatusUpdateUseCase:
                 project_id=message.project_id,
                 integrated_agent_id=message.integrated_agent_id,
                 broadcast_uuid=message.uuid,
+            )
+
+    def _register_first_successful_send(self, message: BroadcastMessage) -> None:
+        """Stamp the agent's first successful send, once.
+
+        Callers skip this method when the joined IntegratedAgent already
+        has a timestamp, so the common path (every later sent/delivered/
+        read) does not take a row lock on the agent. The
+        ``first_successful_sent_at__isnull=True`` predicate remains as
+        the race guard: two concurrent first-success events that both
+        loaded a NULL stamp collapse into a single effective UPDATE.
+        The stored value is the dispatch time (``created_at``), not the
+        moment the courier event arrived.
+        """
+        updated = IntegratedAgent.objects.filter(
+            pk=message.integrated_agent_id,
+            first_successful_sent_at__isnull=True,
+        ).update(first_successful_sent_at=message.created_at)
+
+        if updated:
+            logger.info(
+                f"[BROADCAST_TRACKING] first_successful_send_registered: "
+                f"broadcast_uuid={message.uuid} "
+                f"agent_id={message.integrated_agent_id} "
+                f"first_successful_sent_at={message.created_at.isoformat()}"
             )
 
     @staticmethod
