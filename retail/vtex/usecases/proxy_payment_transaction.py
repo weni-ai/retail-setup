@@ -27,11 +27,14 @@ class ProxyPaymentTransactionUseCase(BaseVtexUseCase):
         Returns:
             dict: Response from the VTEX IO proxy-payment-transaction route.
         """
-        vtex_account, account_domain = self._get_vtex_context(project_uuid)
+        vtex_account, account_domain = self._get_vtex_context(
+            project_uuid, merchant_name=dto.merchant_name
+        )
 
         logger.info(
             f"Proxying payment transaction for "
-            f"vtex_account={vtex_account} transaction_id={dto.transaction_id}"
+            f"vtex_account={vtex_account} account_domain={account_domain} "
+            f"transaction_id={dto.transaction_id}"
         )
 
         return self.vtex_io_service.proxy_payment_transaction(

@@ -10,7 +10,6 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
-from rest_framework.exceptions import ErrorDetail, ValidationError
 from weni_commons.auth import CanCommunicateInternally, IsWeniAuthenticated
 
 from retail.internal.permissions import HasWeniProjectPermission
@@ -80,9 +79,6 @@ _SAMPLE_DOMAIN_ERROR_HTTP_TRANSLATIONS = {
     ),
 }
 
-_PROJECT_UUID_MISMATCH_MESSAGE = "project_uuid does not match the authenticated project"
-_PROJECT_UUID_MISMATCH_CODE = "project_uuid_mismatch"
-
 
 class TemplateViewSet(WeniAuthMixin, ViewSet):
     permission_classes = [IsWeniAuthenticated, HasWeniProjectPermission]
@@ -139,9 +135,10 @@ class TemplateViewSet(WeniAuthMixin, ViewSet):
         Expected payload:
             {
                 "template_body": "<new body string with {{placeholders}}>",
-                "app_uuid": "<application identifier>",
-                "project_uuid": "<project identifier>"
+                "app_uuid": "<application identifier>"
             }
+
+        The project scope is read from the authenticated context (``self.auth``).
 
         URL format:
             PATCH /templates/{uuid}/
@@ -201,8 +198,6 @@ class TemplateViewSet(WeniAuthMixin, ViewSet):
         request_serializer = ValidateTemplateSampleSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
 
-        self._reject_cross_tenant_project_uuid(pk, request_serializer.validated_data)
-
         validated_data = {
             **request_serializer.validated_data,
             "project_uuid": self.auth.project_uuid,
@@ -248,45 +243,6 @@ class TemplateViewSet(WeniAuthMixin, ViewSet):
             project_uuid=validated_data["project_uuid"],
             parameters=validated_data.get("parameters"),
             language=validated_data.get("language"),
-        )
-
-    def _reject_cross_tenant_project_uuid(
-        self, template_uuid: UUID, validated_data: dict
-    ) -> None:
-        """Reject a sample whose body ``project_uuid`` diverges from the token.
-
-        The authenticated tenant (``self.auth``) is authoritative; a
-        divergent body value would let an operator authorized for project A
-        target project B's WABA. Emits the FR-008a audit log before raising
-        the 400. Anchor: FR-002b / FR-007f / FR-008a / SC-008.
-
-        Args:
-            template_uuid: The template UUID from the URL, for the audit log.
-            validated_data: The serializer's validated payload.
-        """
-        if not self.auth.has_project_uuid:
-            return
-
-        token_project_uuid = self.auth.project_uuid
-        body_project_uuid = validated_data.get("project_uuid")
-        if not body_project_uuid or body_project_uuid == token_project_uuid:
-            return
-
-        logger.warning(
-            "[TemplateSampleValidation] project_uuid_mismatch: "
-            f"token_project_uuid={token_project_uuid} "
-            f"body_project_uuid={body_project_uuid} "
-            f"template_uuid={template_uuid}"
-        )
-        raise ValidationError(
-            {
-                "project_uuid": [
-                    ErrorDetail(
-                        _PROJECT_UUID_MISMATCH_MESSAGE,
-                        code=_PROJECT_UUID_MISMATCH_CODE,
-                    )
-                ]
-            }
         )
 
 

@@ -23,12 +23,6 @@ class CreateProjectUserSerializer(serializers.Serializer):
     user_email = serializers.EmailField(required=True)
 
 
-class LinkProjectSerializer(serializers.Serializer):
-    """Validates the payload for linking a project to a VTEX account."""
-
-    project_uuid = serializers.UUIDField(required=True)
-
-
 class VtexProxySerializer(serializers.Serializer):
     """
     Validates the payload for VTEX proxy requests.
@@ -65,6 +59,7 @@ class ProxyPaymentTransactionSerializer(serializers.Serializer):
         required=True,
         allow_empty=False,
     )
+    merchant_name = serializers.CharField(required=False, allow_null=True)
 
 
 class PaymentGatewayProxySerializer(serializers.Serializer):
@@ -75,3 +70,4 @@ class PaymentGatewayProxySerializer(serializers.Serializer):
     headers = serializers.DictField(required=False, allow_null=True)
     data = serializers.JSONField(required=False, allow_null=True)
     params = serializers.DictField(required=False, allow_null=True)
+    merchant_name = serializers.CharField(required=False, allow_null=True)

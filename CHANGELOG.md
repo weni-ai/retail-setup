@@ -1,3 +1,10 @@
+# 5.49.0
+- feat: Add optional merchant_name to payment gateway and transaction proxy DTOs, serializers, and use cases
+- fix: Read template tenant from JWT instead of request body
+
+# 5.48.3
+- refactor: Read project_uuid from JWT context instead of request body in LinkProjectView
+
 # 5.48.2
 - Add cache-busting v param to Weni WebChat loader scripts
 

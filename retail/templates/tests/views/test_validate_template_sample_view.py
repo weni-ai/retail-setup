@@ -39,7 +39,6 @@ USECASE_PATCH_PATH = "retail.templates.views.ValidateTemplateSampleUseCase"
 INTEGRATIONS_SERVICE_PATCH_PATH = (
     "retail.services.integrations.service.IntegrationsService"
 )
-VIEW_LOGGER = "retail.templates.views"
 
 
 @with_test_settings
@@ -230,30 +229,84 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("template_body", response.data)
 
-    def test_project_uuid_mismatch_returns_400_and_emits_warning_log(
+    def test_sample_without_body_project_uuid_succeeds(self, mock_integrations_service):
+        """Replicates the App IO proxy pattern: body has no tenant field."""
+        self._set_up_authorized_request()
+
+        payload = {
+            "template_body": "Updated body",
+            "app_uuid": str(uuid4()),
+        }
+
+        result = ValidateTemplateSampleResult(
+            category="UTILITY",
+            template_updated=True,
+            template=self.template,
+            meta_sample_response={"success": True, "category": "UTILITY"},
+        )
+
+        with patch(USECASE_PATCH_PATH) as mock_use_case_class:
+            mock_use_case_class.return_value.execute.return_value = result
+            response = self.client.post(
+                self._sample_url(),
+                payload,
+                format="json",
+            )
+            dto = mock_use_case_class.return_value.execute.call_args.args[0]
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(dto.project_uuid, str(self.project.uuid))
+        self.assertNotIn("project_uuid", payload)
+        self.assertNotIn("project_uuid", response.data)
+
+    def test_body_project_uuid_is_ignored_and_token_tenant_is_used(
         self, mock_integrations_service
     ):
+        """Body ``project_uuid`` is not authoritative under Weni auth."""
         self._set_up_authorized_request()
         headers, _ = self._project_headers_and_params()
         payload = self._default_payload(project_uuid=str(uuid4()))
 
+        result = ValidateTemplateSampleResult(
+            category="UTILITY",
+            template_updated=True,
+            template=self.template,
+            meta_sample_response={"success": True, "category": "UTILITY"},
+        )
+
         with patch(USECASE_PATCH_PATH) as mock_use_case_class:
-            with self.assertLogs(VIEW_LOGGER, level="WARNING") as log_ctx:
-                response = self.client.post(
-                    self._sample_url(),
-                    payload,
-                    format="json",
-                    **headers,
-                )
+            mock_use_case_class.return_value.execute.return_value = result
+            response = self.client.post(
+                self._sample_url(),
+                payload,
+                format="json",
+                **headers,
+            )
+            dto = mock_use_case_class.return_value.execute.call_args.args[0]
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(dto.project_uuid, str(self.project.uuid))
+
+    def test_sample_without_body_project_uuid_missing_token_returns_403(
+        self, mock_integrations_service
+    ):
+        self.set_retail_auth(project_uuid=None, user_email=self.user.email)
+
+        payload = {
+            "template_body": "Updated body",
+            "app_uuid": str(uuid4()),
+        }
+
+        with patch(USECASE_PATCH_PATH) as mock_use_case_class:
+            response = self.client.post(
+                self._sample_url(),
+                payload,
+                format="json",
+            )
             mock_use_case_class.return_value.execute.assert_not_called()
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("project_uuid", response.data)
-        any_mismatch_log = any(
-            "[TemplateSampleValidation] project_uuid_mismatch:" in record.getMessage()
-            for record in log_ctx.records
-        )
-        self.assertTrue(any_mismatch_log)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertNotIn("project_uuid", response.data)
 
     def test_template_uuid_not_found_returns_404(self, mock_integrations_service):
         self._set_up_authorized_request()
@@ -275,27 +328,31 @@ class ValidateTemplateSampleViewTest(BaseTestMixin, APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_project_uuid_mismatch_is_rejected_before_use_case(
+    def test_body_project_uuid_does_not_short_circuit_sample_flow(
         self, mock_integrations_service
     ):
-        """Pin that the tenant-authority check short-circuits the sample flow.
-
-        A body ``project_uuid`` diverging from the authenticated tenant must
-        be rejected by the view before the use case runs, so a cross-tenant
-        body never reaches Meta.
-        """
+        """A divergent body tenant must not block the sample flow; JWT is authoritative."""
         self._set_up_authorized_request()
         payload = self._default_payload(project_uuid=str(uuid4()))
 
+        result = ValidateTemplateSampleResult(
+            category="UTILITY",
+            template_updated=True,
+            template=self.template,
+            meta_sample_response={"success": True, "category": "UTILITY"},
+        )
+
         with patch(USECASE_PATCH_PATH) as mock_use_case_class:
+            mock_use_case_class.return_value.execute.return_value = result
             response = self.client.post(
                 self._sample_url(),
                 payload,
                 format="json",
             )
-            mock_use_case_class.return_value.execute.assert_not_called()
+            dto = mock_use_case_class.return_value.execute.call_args.args[0]
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(dto.project_uuid, str(self.project.uuid))
 
 
 META_SERVICE_PATCH_PATH = "retail.services.meta.service.MetaService"
@@ -699,7 +756,7 @@ class ValidateTemplateSampleViewCrossTenantIsolationTest(BaseTestMixin, APITestC
             "current_version_id": self.template.current_version_id,
         }
 
-    def test_project_uuid_mismatch_blocks_request_and_emits_audit_log(
+    def test_body_project_uuid_is_ignored_for_cross_tenant_isolation(
         self, mock_integrations_service, mock_meta_service
     ):
         self.setup_internal_user_permissions(self.user)
@@ -708,29 +765,26 @@ class ValidateTemplateSampleViewCrossTenantIsolationTest(BaseTestMixin, APITestC
             permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
         )
         other_project_uuid = uuid4()
-        pre_snapshot = self._snapshot_template_state()
 
-        with self.assertLogs(VIEW_LOGGER, level="WARNING") as log_ctx:
+        result = ValidateTemplateSampleResult(
+            category="UTILITY",
+            template_updated=True,
+            template=self.template,
+            meta_sample_response={"success": True, "category": "UTILITY"},
+        )
+
+        with patch(USECASE_PATCH_PATH) as mock_use_case_class:
+            mock_use_case_class.return_value.execute.return_value = result
             response = self.client.post(
                 self._sample_url(),
                 self._default_payload(project_uuid=other_project_uuid),
                 format="json",
                 HTTP_PROJECT_UUID=str(self.project.uuid),
             )
+            dto = mock_use_case_class.return_value.execute.call_args.args[0]
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("project_uuid", response.data)
-
-        mock_meta_service.return_value.submit_template_sample.assert_not_called()
-        mock_integrations_service.return_value.get_channel_app.assert_not_called()
-
-        self.assertEqual(self._snapshot_template_state(), pre_snapshot)
-
-        any_mismatch_log = any(
-            "[TemplateSampleValidation] project_uuid_mismatch:" in record.getMessage()
-            for record in log_ctx.records
-        )
-        self.assertTrue(any_mismatch_log)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(dto.project_uuid, str(self.project.uuid))
 
     def test_unauthenticated_request_is_rejected_before_use_case(
         self, mock_integrations_service, mock_meta_service

@@ -14,7 +14,6 @@ from retail.vtex.dtos.register_order_form_dto import RegisterOrderFormDTO
 from retail.vtex.serializers import (
     CreateProjectUserSerializer,
     LeadSerializer,
-    LinkProjectSerializer,
     OrderFormTrackingSerializer,
     OrdersQueryParamsSerializer,
     PaymentGatewayProxySerializer,
@@ -342,6 +341,7 @@ class PaymentTransactionProxyView(BaseVtexProxyView):
         dto = ProxyPaymentTransactionDTO(
             transaction_id=serializer.validated_data["transaction_id"],
             payments=tuple(serializer.validated_data["payments"]),
+            merchant_name=serializer.validated_data.get("merchant_name"),
         )
 
         result = self.usecase.execute(dto=dto, project_uuid=self.project_uuid)
@@ -388,6 +388,7 @@ class PaymentGatewayProxyView(BaseVtexProxyView):
             headers=validated.get("headers"),
             data=validated.get("data"),
             params=validated.get("params"),
+            merchant_name=validated.get("merchant_name"),
         )
 
         result = self.usecase.execute(dto=dto, project_uuid=self.project_uuid)
@@ -468,20 +469,19 @@ class LinkProjectView(WeniAuthMixin, APIView):
     """
     Links an existing project to a VTEX account.
 
-    The IO front-end calls this route to attach a project_uuid to the
-    authenticated ``vtex_account``. The vtex_account uniqueness validations are
-    enforced at the root (Connect), which also triggers the Insights
-    migration; this view then mirrors the link locally.
+    Both ``vtex_account`` and ``project_uuid`` are read from the authenticated
+    JWT context (never from the body or path). The vtex_account uniqueness
+    validations are enforced at the root (Connect), which also triggers the
+    Insights migration; this view then mirrors the link locally.
     """
 
     def post(self, request: Request, vtex_account: str) -> Response:
         vtex_account = self.auth.vtex_account
-        serializer = LinkProjectSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        project_uuid = self.auth.project_uuid
 
         dto = LinkProjectDTO(
             vtex_account=vtex_account,
-            project_uuid=str(serializer.validated_data["project_uuid"]),
+            project_uuid=str(project_uuid),
         )
 
         try:
