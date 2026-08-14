@@ -1,8 +1,10 @@
 import logging
+from typing import Optional
 
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.dtos.proxy_payment_gateway_dto import ProxyPaymentGatewayDTO
 from retail.vtex.usecases.base import BaseVtexUseCase
+from retail.vtex.usecases.resolve_proxy_context import ResolveProxyContextUseCase
 
 logger = logging.getLogger(__name__)
 
@@ -13,8 +15,15 @@ class ProxyPaymentGatewayUseCase(BaseVtexUseCase):
     proxy route (/_v/proxy-payment-gateway).
     """
 
-    def __init__(self, vtex_io_service: VtexIOService):
+    def __init__(
+        self,
+        vtex_io_service: VtexIOService,
+        context_resolver: Optional[ResolveProxyContextUseCase] = None,
+    ):
         self.vtex_io_service = vtex_io_service
+        self.context_resolver = context_resolver or ResolveProxyContextUseCase(
+            vtex_io_service
+        )
 
     def execute(self, dto: ProxyPaymentGatewayDTO, project_uuid: str) -> dict:
         """
@@ -27,7 +36,7 @@ class ProxyPaymentGatewayUseCase(BaseVtexUseCase):
         Returns:
             dict: Response from the VTEX IO proxy-payment-gateway route.
         """
-        vtex_account, account_domain = self._get_vtex_context(
+        vtex_account, account_domain = self.context_resolver.execute(
             project_uuid, merchant_name=dto.merchant_name
         )
 

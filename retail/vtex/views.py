@@ -9,6 +9,7 @@ from retail.clients.exceptions import CustomAPIException
 from retail.internal.jwt_mixins import JWTModuleAuthMixin
 from retail.internal.views import KeycloakAPIView
 from retail.internal.weni_mixins import WeniAuthMixin
+from retail.vtex.exceptions import MerchantAccountNotAllowedError
 
 from retail.vtex.dtos.register_order_form_dto import RegisterOrderFormDTO
 from retail.vtex.serializers import (
@@ -56,6 +57,15 @@ class BaseVtexProxyView(JWTModuleAuthMixin, APIView):
 
     Includes shared behaviors like JWT authentication.
     """
+
+    def handle_exception(self, exc):
+        if isinstance(exc, MerchantAccountNotAllowedError):
+            logger.warning(str(exc))
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().handle_exception(exc)
 
 
 class OrdersProxyView(BaseVtexProxyView):

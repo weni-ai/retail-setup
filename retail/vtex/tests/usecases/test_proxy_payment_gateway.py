@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from django.test import TestCase
 
@@ -9,20 +9,25 @@ from retail.vtex.usecases.proxy_payment_gateway import ProxyPaymentGatewayUseCas
 class TestProxyPaymentGatewayUseCase(TestCase):
     def setUp(self):
         self.mock_service = MagicMock()
-        self.usecase = ProxyPaymentGatewayUseCase(vtex_io_service=self.mock_service)
+        self.mock_resolver = MagicMock()
+        self.usecase = ProxyPaymentGatewayUseCase(
+            vtex_io_service=self.mock_service,
+            context_resolver=self.mock_resolver,
+        )
         self.dto = ProxyPaymentGatewayDTO(
             method="GET",
             path="/api/pvt/transactions/ABC123/interactions",
         )
 
-    @patch.object(ProxyPaymentGatewayUseCase, "_get_vtex_context")
-    def test_execute_calls_service_with_correct_params(self, mock_context):
-        mock_context.return_value = ("teststore", "teststore.myvtex.com")
+    def test_execute_calls_service_with_correct_params(self):
+        self.mock_resolver.execute.return_value = ("teststore", "teststore.myvtex.com")
         self.mock_service.proxy_payment_gateway.return_value = {"data": []}
 
         result = self.usecase.execute(dto=self.dto, project_uuid="test-uuid")
 
-        mock_context.assert_called_once_with("test-uuid", merchant_name=None)
+        self.mock_resolver.execute.assert_called_once_with(
+            "test-uuid", merchant_name=None
+        )
         self.mock_service.proxy_payment_gateway.assert_called_once_with(
             account_domain="teststore.myvtex.com",
             vtex_account="teststore",
@@ -34,9 +39,11 @@ class TestProxyPaymentGatewayUseCase(TestCase):
         )
         self.assertEqual(result, {"data": []})
 
-    @patch.object(ProxyPaymentGatewayUseCase, "_get_vtex_context")
-    def test_execute_passes_merchant_name_to_context(self, mock_context):
-        mock_context.return_value = ("teststore", "otherstore.myvtex.com")
+    def test_execute_uses_merchant_account_for_jwt_and_host(self):
+        self.mock_resolver.execute.return_value = (
+            "otherstore",
+            "otherstore.myvtex.com",
+        )
         self.mock_service.proxy_payment_gateway.return_value = {"data": []}
 
         dto = ProxyPaymentGatewayDTO(
@@ -46,10 +53,12 @@ class TestProxyPaymentGatewayUseCase(TestCase):
         )
         result = self.usecase.execute(dto=dto, project_uuid="test-uuid")
 
-        mock_context.assert_called_once_with("test-uuid", merchant_name="otherstore")
+        self.mock_resolver.execute.assert_called_once_with(
+            "test-uuid", merchant_name="otherstore"
+        )
         self.mock_service.proxy_payment_gateway.assert_called_once_with(
             account_domain="otherstore.myvtex.com",
-            vtex_account="teststore",
+            vtex_account="otherstore",
             method="GET",
             path="/api/pvt/transactions/ABC123/interactions",
             headers=None,
@@ -58,9 +67,8 @@ class TestProxyPaymentGatewayUseCase(TestCase):
         )
         self.assertEqual(result, {"data": []})
 
-    @patch.object(ProxyPaymentGatewayUseCase, "_get_vtex_context")
-    def test_execute_forwards_optional_fields(self, mock_context):
-        mock_context.return_value = ("teststore", "teststore.myvtex.com")
+    def test_execute_forwards_optional_fields(self):
+        self.mock_resolver.execute.return_value = ("teststore", "teststore.myvtex.com")
         self.mock_service.proxy_payment_gateway.return_value = {}
 
         dto = ProxyPaymentGatewayDTO(
@@ -77,25 +85,26 @@ class TestProxyPaymentGatewayUseCase(TestCase):
         self.assertEqual(call_kwargs["data"], {"key": "value"})
         self.assertEqual(call_kwargs["params"], {"an": "teststore"})
 
-    @patch.object(ProxyPaymentGatewayUseCase, "_get_vtex_context")
-    def test_execute_raises_when_project_not_found(self, mock_context):
-        mock_context.side_effect = ValueError("Project not found for given UUID.")
+    def test_execute_raises_when_project_not_found(self):
+        self.mock_resolver.execute.side_effect = ValueError(
+            "Project not found for given UUID."
+        )
 
         with self.assertRaises(ValueError) as ctx:
             self.usecase.execute(dto=self.dto, project_uuid="invalid-uuid")
 
         self.assertIn("Project not found", str(ctx.exception))
 
-    @patch.object(ProxyPaymentGatewayUseCase, "_get_vtex_context")
-    def test_execute_raises_when_vtex_account_missing(self, mock_context):
-        mock_context.side_effect = ValueError("VTEX account not defined for project.")
+    def test_execute_raises_when_vtex_account_missing(self):
+        self.mock_resolver.execute.side_effect = ValueError(
+            "VTEX account not defined for project."
+        )
 
         with self.assertRaises(ValueError):
             self.usecase.execute(dto=self.dto, project_uuid="test-uuid")
 
-    @patch.object(ProxyPaymentGatewayUseCase, "_get_vtex_context")
-    def test_execute_returns_service_response(self, mock_context):
-        mock_context.return_value = ("teststore", "teststore.myvtex.com")
+    def test_execute_returns_service_response(self):
+        self.mock_resolver.execute.return_value = ("teststore", "teststore.myvtex.com")
         expected = {
             "status": 200,
             "data": [{"transactionId": "ABC123", "payments": []}],
@@ -105,3 +114,11 @@ class TestProxyPaymentGatewayUseCase(TestCase):
         result = self.usecase.execute(dto=self.dto, project_uuid="test-uuid")
 
         self.assertEqual(result, expected)
+
+    def test_defaults_context_resolver_from_service(self):
+        from retail.vtex.usecases.resolve_proxy_context import (
+            ResolveProxyContextUseCase,
+        )
+
+        usecase = ProxyPaymentGatewayUseCase(vtex_io_service=MagicMock())
+        self.assertIsInstance(usecase.context_resolver, ResolveProxyContextUseCase)
