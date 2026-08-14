@@ -48,12 +48,20 @@ class CheckOrderFormAlreadyNotifiedTests(TestCase):
         self._make_cart(status="delivered_success")
         new_cart = self._make_cart(status="created")
 
-        self.assertTrue(self.service._check_order_form_already_notified(new_cart))
+        self.assertTrue(
+            self.service._check_order_form_already_notified(
+                new_cart, self.integrated_feature
+            )
+        )
 
     def test_passes_when_no_previous_cart_exists(self):
         new_cart = self._make_cart(status="created")
 
-        self.assertFalse(self.service._check_order_form_already_notified(new_cart))
+        self.assertFalse(
+            self.service._check_order_form_already_notified(
+                new_cart, self.integrated_feature
+            )
+        )
 
     def test_passes_when_previous_cart_has_different_status(self):
         for status in ("created", "abandoned", "purchased", "empty", "delivered_error"):
@@ -63,7 +71,9 @@ class CheckOrderFormAlreadyNotifiedTests(TestCase):
                 new_cart = self._make_cart(status="created")
 
                 self.assertFalse(
-                    self.service._check_order_form_already_notified(new_cart)
+                    self.service._check_order_form_already_notified(
+                        new_cart, self.integrated_feature
+                    )
                 )
 
     def test_passes_when_previous_cart_belongs_to_other_project(self):
@@ -79,7 +89,11 @@ class CheckOrderFormAlreadyNotifiedTests(TestCase):
         )
         new_cart = self._make_cart(status="created")
 
-        self.assertFalse(self.service._check_order_form_already_notified(new_cart))
+        self.assertFalse(
+            self.service._check_order_form_already_notified(
+                new_cart, self.integrated_feature
+            )
+        )
 
     def test_passes_when_previous_cart_is_outside_window(self):
         old_cart = self._make_cart(status="delivered_success")
@@ -92,7 +106,11 @@ class CheckOrderFormAlreadyNotifiedTests(TestCase):
 
         new_cart = self._make_cart(status="created")
 
-        self.assertFalse(self.service._check_order_form_already_notified(new_cart))
+        self.assertFalse(
+            self.service._check_order_form_already_notified(
+                new_cart, self.integrated_feature
+            )
+        )
 
     def test_passes_when_cart_has_no_order_form_id(self):
         # Pre-existing delivered_success cart with the same NULL order form
@@ -100,7 +118,11 @@ class CheckOrderFormAlreadyNotifiedTests(TestCase):
         self._make_cart(order_form_id=None, status="delivered_success")
         new_cart = self._make_cart(order_form_id=None, status="created")
 
-        self.assertFalse(self.service._check_order_form_already_notified(new_cart))
+        self.assertFalse(
+            self.service._check_order_form_already_notified(
+                new_cart, self.integrated_feature
+            )
+        )
 
     def test_excludes_the_current_cart_from_the_lookup(self):
         # If, for any reason, the current cart already had delivered_success
@@ -108,4 +130,8 @@ class CheckOrderFormAlreadyNotifiedTests(TestCase):
         # itself.
         cart = self._make_cart(status="delivered_success")
 
-        self.assertFalse(self.service._check_order_form_already_notified(cart))
+        self.assertFalse(
+            self.service._check_order_form_already_notified(
+                cart, self.integrated_feature
+            )
+        )
