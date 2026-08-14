@@ -1,3 +1,7 @@
+# 5.52.0
+- fix: Skip already integrated passive agents on re-onboarding
+- feat: Allow abandoned-cart resend when SKU or qty change
+
 # 5.51.0
 - feat: Introduce MerchantAccountNotAllowedError and enhance context resolution for merchant accounts - #557
 
