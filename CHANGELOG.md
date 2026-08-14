@@ -1,3 +1,6 @@
+# 5.51.0
+- feat: Introduce MerchantAccountNotAllowedError and enhance context resolution for merchant accounts - #557
+
 # 5.50.1
 - refactor: Improve order form clone shipping with two-step address/SLA logic and item filtering
 
