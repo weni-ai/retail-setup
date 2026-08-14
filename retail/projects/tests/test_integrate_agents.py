@@ -30,7 +30,7 @@ class TestIntegrateAgentsUseCase(TestCase):
             progress=75,
         )
         self.mock_nexus_service = MagicMock()
-        self.mock_nexus_service.list_integrated_agents.return_value = []
+        self.mock_nexus_service.list_team_agents.return_value = {"agents": []}
         self.usecase = IntegrateAgentsUseCase(nexus_client=MagicMock())
         self.usecase.nexus_service = self.mock_nexus_service
 
@@ -123,10 +123,12 @@ class TestIntegrateAgentsUseCase(TestCase):
         ],
     )
     def test_skips_already_integrated_agents(self, _mock_agents):
-        self.mock_nexus_service.list_integrated_agents.return_value = [
-            {"uuid": "uuid-1"},
-            {"uuid": "uuid-3"},
-        ]
+        self.mock_nexus_service.list_team_agents.return_value = {
+            "agents": [
+                {"uuid": "uuid-1", "active": True},
+                {"uuid": "uuid-3", "active": True},
+            ]
+        }
         self.mock_nexus_service.integrate_agent.return_value = {"ok": True}
 
         self.usecase.execute("mystore")
@@ -147,7 +149,7 @@ class TestIntegrateAgentsUseCase(TestCase):
     )
     def test_integrates_all_when_nexus_list_returns_none(self, _mock_agents):
         """When Nexus list fails, all agents should still be integrated."""
-        self.mock_nexus_service.list_integrated_agents.return_value = None
+        self.mock_nexus_service.list_team_agents.return_value = None
         self.mock_nexus_service.integrate_agent.return_value = {"ok": True}
 
         self.usecase.execute("mystore")
