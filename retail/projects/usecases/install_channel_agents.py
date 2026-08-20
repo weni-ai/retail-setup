@@ -5,6 +5,7 @@ from retail.clients.integrations.client import IntegrationsClient
 from retail.clients.nexus.client import NexusClient
 from retail.interfaces.clients.integrations.interface import IntegrationsClientInterface
 from retail.interfaces.clients.nexus.client import NexusClientInterface
+from retail.projects.agentic_cx_tasks import task_ensure_agentic_cx_script_active
 from retail.projects.models import ProjectOnboarding
 from retail.projects.usecases.configure_wwc import (
     WWC_CREATION_CONFIG,
@@ -39,8 +40,7 @@ class ChannelInstaller(Protocol):
         project_uuid: str,
         channel_data: dict,
         language: str,
-    ) -> dict:
-        ...
+    ) -> dict: ...
 
 
 class WWCChannelInstaller:
@@ -164,6 +164,7 @@ class InstallChannelAgentsUseCase:
                 f"No agents configured for channel '{dto.channel}', "
                 f"skipping integration."
             )
+            task_ensure_agentic_cx_script_active.delay(dto.vtex_account)
             return
 
         integrated_uuids = get_integrated_agent_uuids(project_uuid, self.nexus_service)
@@ -176,6 +177,7 @@ class InstallChannelAgentsUseCase:
         )
 
         self._integrate_agents(agents, context, integrated_uuids)
+        task_ensure_agentic_cx_script_active.delay(dto.vtex_account)
 
     def _load_onboarding(self, vtex_account: str) -> ProjectOnboarding:
         """Loads and validates the onboarding record has a linked project."""

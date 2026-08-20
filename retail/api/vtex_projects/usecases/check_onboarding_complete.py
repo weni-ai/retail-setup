@@ -1,14 +1,12 @@
-import logging
-
 from dataclasses import dataclass
 from typing import Optional
 
 from django.core.cache import cache
 
-from retail.projects.models import ProjectOnboarding
-
-
-logger = logging.getLogger(__name__)
+from retail.projects.usecases.agentic_cx_script import (
+    CheckAgenticCxEligibilityUseCase,
+    onboarding_complete_cache_key,
+)
 
 CACHE_TIMEOUT = 60
 
@@ -29,10 +27,23 @@ INACTIVE_STATUS = OnboardingStatus(is_complete=False, account_id=None)
 
 
 class CheckOnboardingCompleteUseCase:
-    """Checks whether the onboarding process is fully completed for a VTEX account."""
+    """Checks whether the Agentic CX script should be active for a VTEX account.
+
+    Used by the VTEX IO app-install event. The result is a capability
+    check (channel, active agent, or completed onboarding), not the
+    wizard ``completed`` flag alone.
+    """
+
+    def __init__(
+        self,
+        eligibility_use_case: Optional[CheckAgenticCxEligibilityUseCase] = None,
+    ):
+        self._eligibility_use_case = (
+            eligibility_use_case or CheckAgenticCxEligibilityUseCase()
+        )
 
     def execute(self, vtex_account: str) -> OnboardingStatus:
-        cache_key = f"onboarding_complete_{vtex_account}"
+        cache_key = onboarding_complete_cache_key(vtex_account)
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
@@ -42,19 +53,9 @@ class CheckOnboardingCompleteUseCase:
         return result
 
     def _check(self, vtex_account: str) -> OnboardingStatus:
-        onboarding = self._get_onboarding(vtex_account)
-        if not onboarding:
-            return INACTIVE_STATUS
+        if self._eligibility_use_case.execute(vtex_account):
+            # accountId is reserved for the VTEX account ID that IO will
+            # provide in the future
+            return OnboardingStatus(is_complete=True, account_id=None)
 
-        if not onboarding.completed:
-            return INACTIVE_STATUS
-
-        # accountId is reserved for the VTEX account ID that IO will provide in the future
-        return OnboardingStatus(is_complete=True, account_id=None)
-
-    def _get_onboarding(self, vtex_account: str) -> Optional[ProjectOnboarding]:
-        try:
-            return ProjectOnboarding.objects.get(vtex_account=vtex_account)
-        except ProjectOnboarding.DoesNotExist:
-            logger.info(f"Onboarding not found for vtex_account={vtex_account}")
-            return None
+        return INACTIVE_STATUS

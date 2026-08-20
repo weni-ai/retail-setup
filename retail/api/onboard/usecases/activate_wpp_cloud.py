@@ -6,6 +6,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.api.onboard.usecases.dto import ActivateWppCloudDTO
+from retail.projects.agentic_cx_tasks import task_ensure_agentic_cx_script_active
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class ActivateWppCloudUseCase:
             raise ValidationError("ABANDONED_CART_AGENT_UUID is not configured.")
 
         try:
-            integrated_agent = IntegratedAgent.objects.get(
+            integrated_agent = IntegratedAgent.objects.select_related("project").get(
                 agent__uuid=abandoned_cart_uuid,
                 project__uuid=dto.project_uuid,
                 project__is_active=True,
@@ -36,6 +37,10 @@ class ActivateWppCloudUseCase:
 
         integrated_agent.contact_percentage = dto.percentage
         integrated_agent.save(update_fields=["contact_percentage"])
+
+        vtex_account = integrated_agent.project.vtex_account
+        if vtex_account:
+            task_ensure_agentic_cx_script_active.delay(vtex_account)
 
         logger.info(
             f"WPP Cloud abandoned cart activated: "
