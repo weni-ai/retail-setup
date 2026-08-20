@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from retail.projects.models import ProjectOnboarding
 
-TASK_PATH = "retail.projects.tasks.task_activate_agentic_cx_script"
+TASK_PATH = "retail.projects.agentic_cx_tasks.task_ensure_agentic_cx_script_active"
 
 
 class TestOnboardingCompletedSignal(TestCase):

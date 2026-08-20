@@ -54,7 +54,7 @@ class TestStartSetupUseCase(TestCase):
         )
 
     @patch("retail.projects.usecases.start_setup.task_setup_channel_and_start_crawl")
-    @patch("retail.projects.tasks.task_activate_agentic_cx_script")
+    @patch("retail.projects.agentic_cx_tasks.task_ensure_agentic_cx_script_active")
     def test_resets_existing_onboarding_on_retry(self, _mock_agentic, mock_task):
         """When an onboarding already exists, should reset transient fields."""
         ProjectOnboarding.objects.create(

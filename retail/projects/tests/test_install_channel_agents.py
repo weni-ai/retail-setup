@@ -23,9 +23,13 @@ class StubAgent(PassiveAgent):
 class TestInstallChannelAgentsUseCase(TestCase):
     def setUp(self):
         self._agentic_patcher = patch(
-            "retail.projects.tasks.task_activate_agentic_cx_script"
+            "retail.projects.agentic_cx_tasks.task_ensure_agentic_cx_script_active"
+        )
+        self._dispatch_patcher = patch(
+            "retail.projects.usecases.install_channel_agents.task_ensure_agentic_cx_script_active"
         )
         self._agentic_patcher.start()
+        self.mock_dispatch_task = self._dispatch_patcher.start()
 
         self.project = Project.objects.create(
             name="Test", uuid=uuid4(), vtex_account="mystore"
@@ -46,6 +50,7 @@ class TestInstallChannelAgentsUseCase(TestCase):
         self.usecase.nexus_service = MagicMock()
 
     def tearDown(self):
+        self._dispatch_patcher.stop()
         self._agentic_patcher.stop()
 
     def _build_dto(self, channel="wpp-cloud", channel_data=None):
@@ -402,3 +407,34 @@ class TestInstallChannelAgentsUseCase(TestCase):
             self.usecase.execute(self._build_dto(channel="wwc", channel_data={}))
 
         self.assertIn("Failed to configure", str(ctx.exception))
+        self.mock_dispatch_task.delay.assert_not_called()
+
+    @patch(
+        "retail.projects.usecases.install_channel_agents.get_channel_agents",
+        return_value=[StubAgent("uuid-1", "Agent A")],
+    )
+    def test_dispatches_agentic_cx_script_after_successful_install(self, _mock_agents):
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
+            "app_uuid": "wpp-app-uuid",
+            "flow_object_uuid": "wpp-channel-uuid",
+        }
+        self.usecase.nexus_service.list_team_agents.return_value = {"agents": []}
+        self.usecase.nexus_service.integrate_agent.return_value = {"ok": True}
+
+        self.usecase.execute(self._build_dto())
+
+        self.mock_dispatch_task.delay.assert_called_once_with("mystore")
+
+    @patch(
+        "retail.projects.usecases.install_channel_agents.get_channel_agents",
+        return_value=[],
+    )
+    def test_dispatches_agentic_cx_script_when_no_agents_configured(self, _mock_agents):
+        self.usecase.integrations_service.create_wpp_cloud_channel.return_value = {
+            "app_uuid": "wpp-app-uuid",
+            "flow_object_uuid": "wpp-channel-uuid",
+        }
+
+        self.usecase.execute(self._build_dto())
+
+        self.mock_dispatch_task.delay.assert_called_once_with("mystore")

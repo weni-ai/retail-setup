@@ -1,4 +1,5 @@
 from uuid import uuid4
+from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 
@@ -33,6 +34,11 @@ class TestActivateWppCloudUseCase(TestCase):
             is_active=True,
             contact_percentage=0,
         )
+        self._task_patcher = patch(
+            "retail.api.onboard.usecases.activate_wpp_cloud.task_ensure_agentic_cx_script_active"
+        )
+        self.mock_task = self._task_patcher.start()
+        self.addCleanup(self._task_patcher.stop)
         self.use_case = ActivateWppCloudUseCase()
 
     def test_sets_contact_percentage(self):
@@ -46,6 +52,7 @@ class TestActivateWppCloudUseCase(TestCase):
         self.integrated_agent.refresh_from_db()
         self.assertEqual(result.contact_percentage, 10)
         self.assertEqual(self.integrated_agent.contact_percentage, 10)
+        self.mock_task.delay.assert_called_once_with("mystore")
 
     def test_sets_percentage_to_zero(self):
         self.integrated_agent.contact_percentage = 50
@@ -72,6 +79,8 @@ class TestActivateWppCloudUseCase(TestCase):
         with self.assertRaises(NotFound):
             self.use_case.execute(dto)
 
+        self.mock_task.delay.assert_not_called()
+
     def test_raises_not_found_when_agent_inactive(self):
         self.integrated_agent.is_active = False
         self.integrated_agent.save()
@@ -83,6 +92,8 @@ class TestActivateWppCloudUseCase(TestCase):
 
         with self.assertRaises(NotFound):
             self.use_case.execute(dto)
+
+        self.mock_task.delay.assert_not_called()
 
     @override_settings(ABANDONED_CART_AGENT_UUID="")
     def test_raises_validation_error_when_uuid_not_configured(self):
