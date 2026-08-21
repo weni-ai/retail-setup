@@ -10,6 +10,7 @@ from retail.observability.sentry import (
 )
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.usecases.base import BaseVtexUseCase
+from retail.vtex.usecases.resolve_proxy_context import ResolveProxyContextUseCase
 
 
 logger = logging.getLogger(__name__)
@@ -22,14 +23,22 @@ class ProxyVtexUsecase(BaseVtexUseCase):
     Use case for proxying requests to VTEX IO API endpoints.
     """
 
-    def __init__(self, vtex_io_service: VtexIOService):
+    def __init__(
+        self,
+        vtex_io_service: VtexIOService,
+        context_resolver: Optional[ResolveProxyContextUseCase] = None,
+    ):
         """
         Initialize the proxy VTEX use case.
 
         Args:
             vtex_io_service (VtexIOService): The VTEX IO service instance.
+            context_resolver: Resolves JWT account and host, including merchant overrides.
         """
         self.vtex_io_service = vtex_io_service
+        self.context_resolver = context_resolver or ResolveProxyContextUseCase(
+            vtex_io_service
+        )
 
     def execute(
         self,
@@ -51,8 +60,8 @@ class ProxyVtexUsecase(BaseVtexUseCase):
             data (Union[dict, list], optional): Request body data for POST, PUT, PATCH requests.
             params (dict, optional): Query parameters to be appended to the URL.
             project_uuid (str): Project UUID to get the account domain.
-            merchant_name (str, optional): Overrides only the account domain used in
-                the proxy URL; JWT auth still uses the project's vtex_account.
+            merchant_name (str, optional): When allowed as a seller of the project
+                account, JWT and host both target this merchant.
 
         Returns:
             dict: Response data from VTEX platform.
@@ -62,7 +71,7 @@ class ProxyVtexUsecase(BaseVtexUseCase):
             CustomAPIException: When the upstream VTEX IO request fails.
         """
         try:
-            vtex_account, account_domain = self._get_vtex_context(
+            vtex_account, account_domain = self.context_resolver.execute(
                 project_uuid, merchant_name=merchant_name
             )
         except ValueError as exc:

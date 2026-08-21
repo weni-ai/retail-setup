@@ -24,6 +24,7 @@ from retail.services.integrations.service import IntegrationsService
 from retail.services.meta import MetaService
 from retail.interfaces.services.integrations import IntegrationsServiceInterface
 from retail.interfaces.services.meta import MetaServiceInterface
+from retail.projects.agentic_cx_tasks import task_ensure_agentic_cx_script_active
 from retail.projects.models import Project
 from retail.templates.usecases.create_library_template import (
     LibraryTemplateData,
@@ -727,6 +728,12 @@ class AssignAgentUseCase:
             direct_send=direct_send,
         )
         logger.info(f"[AssignAgent] integrated_agent created={integrated_agent.uuid}")
+
+        vtex_account = project.vtex_account
+        if vtex_account:
+            transaction.on_commit(
+                lambda: task_ensure_agentic_cx_script_active.delay(vtex_account)
+            )
 
         self._create_credentials(integrated_agent, agent, credentials)
 

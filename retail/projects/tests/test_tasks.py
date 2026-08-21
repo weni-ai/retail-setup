@@ -337,32 +337,44 @@ class TestTaskConfigureNexusDeprecatedAlias(TestCase):
         mock_release.assert_called_once_with("upload_nexus_contents", "mystore")
 
 
-class TestTaskActivateAgenticCxScript(TestCase):
-    @patch("retail.projects.tasks.VtexIOService")
-    def test_calls_service_with_correct_params(self, mock_service_cls):
-        mock_service = MagicMock()
-        mock_service_cls.return_value = mock_service
+class TestTaskEnsureAgenticCxScriptActive(TestCase):
+    @patch("retail.projects.agentic_cx_tasks.EnsureAgenticCxScriptActiveUseCase")
+    def test_new_task_delegates_to_use_case(self, mock_use_case_cls):
+        mock_use_case = MagicMock()
+        mock_use_case_cls.return_value = mock_use_case
+
+        from retail.projects.agentic_cx_tasks import (
+            task_ensure_agentic_cx_script_active,
+        )
+
+        task_ensure_agentic_cx_script_active("teststore")
+
+        mock_use_case.execute.assert_called_once_with("teststore")
+
+    @patch("retail.projects.agentic_cx_tasks.EnsureAgenticCxScriptActiveUseCase")
+    def test_deprecated_alias_delegates_to_use_case(self, mock_use_case_cls):
+        mock_use_case = MagicMock()
+        mock_use_case_cls.return_value = mock_use_case
 
         from retail.projects.tasks import task_activate_agentic_cx_script
 
         task_activate_agentic_cx_script("teststore")
 
-        mock_service.activate_agentic_cx_script.assert_called_once_with(
-            account_domain="teststore.myvtex.com",
-            vtex_account="teststore",
-        )
+        mock_use_case.execute.assert_called_once_with("teststore")
 
-    @patch("retail.projects.tasks.VtexIOService")
-    def test_propagates_service_exception(self, mock_service_cls):
+    @patch("retail.projects.agentic_cx_tasks.EnsureAgenticCxScriptActiveUseCase")
+    def test_propagates_use_case_exception(self, mock_use_case_cls):
         from retail.clients.exceptions import CustomAPIException
 
-        mock_service = MagicMock()
-        mock_service.activate_agentic_cx_script.side_effect = CustomAPIException(
+        mock_use_case = MagicMock()
+        mock_use_case.execute.side_effect = CustomAPIException(
             detail="Connection refused"
         )
-        mock_service_cls.return_value = mock_service
+        mock_use_case_cls.return_value = mock_use_case
 
-        from retail.projects.tasks import task_activate_agentic_cx_script
+        from retail.projects.agentic_cx_tasks import (
+            task_ensure_agentic_cx_script_active,
+        )
 
         with self.assertRaises(CustomAPIException):
-            task_activate_agentic_cx_script("teststore")
+            task_ensure_agentic_cx_script_active("teststore")

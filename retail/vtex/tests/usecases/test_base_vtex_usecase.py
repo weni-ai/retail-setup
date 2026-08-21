@@ -35,18 +35,15 @@ class BaseVtexUseCaseGetVtexContextTest(TestCase):
         self.assertEqual(vtex_account, "fakeaccount")
         self.assertEqual(domain, "fakeaccount.myvtex.com")
 
-    def test_merchant_name_overrides_domain_only(self):
-        vtex_account, domain = self.usecase._get_vtex_context(
-            str(self.project.uuid), merchant_name="otherstore"
-        )
+    def test_get_account_domain_returns_domain_only(self):
+        domain = self.usecase._get_account_domain(str(self.project.uuid))
 
-        self.assertEqual(vtex_account, "fakeaccount")
-        self.assertEqual(domain, "otherstore.myvtex.com")
+        self.assertEqual(domain, "fakeaccount.myvtex.com")
 
-    def test_cache_is_not_poisoned_by_merchant_override(self):
-        self.usecase._get_vtex_context(
-            str(self.project.uuid), merchant_name="otherstore"
-        )
+    def test_returns_cached_context_on_second_call(self):
+        self.usecase._get_vtex_context(str(self.project.uuid))
+        self.project.vtex_account = "changedaccount"
+        self.project.save()
 
         vtex_account, domain = self.usecase._get_vtex_context(str(self.project.uuid))
 

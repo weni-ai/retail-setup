@@ -50,6 +50,18 @@ PURCHASED_ORDER_STATUSES = frozenset({"invoiced"})
 # Lookback window aligned with the Cart cleanup task TTL.
 ORDER_FORM_DEDUPLICATION_WINDOW = timedelta(days=15)
 
+# Per-client dynamic rules. Read from IntegratedAgent.config (nested under
+# ``abandoned_cart``) or IntegratedFeature.config (legacy, usually at the
+# root). Missing or falsy values keep the fixed default for that client.
+ABANDONED_CART_CONFIG_KEY = "abandoned_cart"
+ALLOW_RESEND_ON_DIFFERENT_CART_ITEMS_KEY = "allow_resend_on_different_cart_items"
+NOTIFICATION_COOLDOWN_HOURS_KEY = "notification_cooldown_hours"
+ABANDONED_CART_NOTIFICATION_COOLDOWN_HOURS_KEY = (
+    "abandoned_cart_notification_cooldown_hours"
+)
+MINIMUM_CART_VALUE_KEY = "minimum_cart_value"
+HEADER_IMAGE_TYPE_KEY = "header_image_type"
+
 
 logger = logging.getLogger(__name__)
 
@@ -509,7 +521,7 @@ class CartAbandonmentService(BaseVtexUseCase):
             )
 
         # Skip when this order form already produced a successful notification
-        if self._check_order_form_already_notified(cart):
+        if self._check_order_form_already_notified(cart, integration_config):
             logger.info(
                 f"[CART_SERVICE] SKIP - Order form already notified: {log_context} "
                 f"final_status=skipped_order_form_already_notified "
@@ -536,7 +548,7 @@ class CartAbandonmentService(BaseVtexUseCase):
             return
 
         # Check if identical cart was already sent recently
-        if self._check_identical_cart_sent_recently(cart):
+        if self._check_identical_cart_sent_recently(cart, integration_config):
             logger.info(
                 f"[CART_SERVICE] SKIP - Identical cart: {log_context} "
                 f"final_status=skipped_identical_cart reason=identical_cart_sent_within_24h"
@@ -862,7 +874,9 @@ class CartAbandonmentService(BaseVtexUseCase):
         Returns:
             dict: Image configuration with type and any pre-computed data.
         """
-        header_image_type = abandoned_cart_config.get("header_image_type", "first_item")
+        header_image_type = abandoned_cart_config.get(
+            HEADER_IMAGE_TYPE_KEY, "first_item"
+        )
 
         # Valid options:
         # - "first_item": Use first item's image from cart
@@ -1054,7 +1068,7 @@ class CartAbandonmentService(BaseVtexUseCase):
         """
         log_context = _build_log_context(cart, integration_config)
         abandoned_cart_config = self._get_abandoned_cart_config(integration_config)
-        minimum_value = abandoned_cart_config.get("minimum_cart_value")
+        minimum_value = abandoned_cart_config.get(MINIMUM_CART_VALUE_KEY)
 
         if minimum_value is None:
             logger.info(
@@ -1088,7 +1102,25 @@ class CartAbandonmentService(BaseVtexUseCase):
         )
         return False
 
-    def _check_order_form_already_notified(self, cart: Cart) -> bool:
+    def _is_resend_on_different_cart_items_enabled(
+        self, integration_config: Union[IntegratedFeature, IntegratedAgent]
+    ) -> bool:
+        """Return True when the client opted into SKU/qty-aware dedup."""
+        if isinstance(integration_config, IntegratedAgent):
+            return bool(
+                self._get_abandoned_cart_config(integration_config).get(
+                    ALLOW_RESEND_ON_DIFFERENT_CART_ITEMS_KEY, False
+                )
+            )
+
+        config = self._get_config(integration_config)
+        return bool(config.get(ALLOW_RESEND_ON_DIFFERENT_CART_ITEMS_KEY, False))
+
+    def _check_order_form_already_notified(
+        self,
+        cart: Cart,
+        integration_config: Union[IntegratedFeature, IntegratedAgent],
+    ) -> bool:
         """
         Return True when this order form already produced a successful
         notification within ``ORDER_FORM_DEDUPLICATION_WINDOW``.
@@ -1096,8 +1128,15 @@ class CartAbandonmentService(BaseVtexUseCase):
         Same order form lingering on the user's browser must not trigger
         repeated notifications. The window matches the Cart cleanup task
         TTL so the rule degrades gracefully if the cleanup is delayed.
+
+        When ``allow_resend_on_different_cart_items`` is enabled for the
+        client, only a prior delivery with the same SKU/qty fingerprint
+        blocks a resend.
         """
-        log_context = _build_log_context(cart)
+        log_context = _build_log_context(cart, integration_config)
+        resend_on_different_items = self._is_resend_on_different_cart_items_enabled(
+            integration_config
+        )
 
         if not cart.order_form_id:
             logger.info(
@@ -1107,29 +1146,68 @@ class CartAbandonmentService(BaseVtexUseCase):
             return False
 
         window_start = timezone.now() - ORDER_FORM_DEDUPLICATION_WINDOW
-        previous_cart = (
+        previous_carts = list(
             Cart.objects.filter(
                 order_form_id=cart.order_form_id,
                 project=cart.project,
                 status="delivered_success",
                 modified_on__gte=window_start,
-            )
-            .exclude(uuid=cart.uuid)
-            .first()
+            ).exclude(uuid=cart.uuid)
         )
 
-        if previous_cart:
+        if not previous_carts:
+            logger.info(
+                f"[CART_SERVICE] Order form dedup PASSED: {log_context} "
+                f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days}"
+            )
+            return False
+
+        if not resend_on_different_items:
+            previous_cart = previous_carts[0]
             logger.info(
                 f"[CART_SERVICE] Order form dedup HIT: {log_context} "
                 f"previous_cart_uuid={previous_cart.uuid} "
                 f"previous_sent_at={previous_cart.modified_on} "
-                f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days}"
+                f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days} "
+                f"reason=order_form_delivered_within_window"
             )
             return True
 
+        cart_items = cart.config.get("cart_items", [])
+        if not cart_items:
+            logger.info(
+                f"[CART_SERVICE] Order form dedup HIT: {log_context} "
+                f"reason=no_cart_items_to_compare "
+                f"allow_resend_on_different_cart_items=true"
+            )
+            return True
+
+        current_fingerprint = self._build_cart_items_fingerprint(
+            cart_items, include_quantities=True
+        )
+        for previous_cart in previous_carts:
+            previous_items = previous_cart.config.get("cart_items", [])
+            if not previous_items:
+                continue
+
+            previous_fingerprint = self._build_cart_items_fingerprint(
+                previous_items, include_quantities=True
+            )
+            if current_fingerprint == previous_fingerprint:
+                logger.info(
+                    f"[CART_SERVICE] Order form dedup HIT: {log_context} "
+                    f"previous_cart_uuid={previous_cart.uuid} "
+                    f"previous_sent_at={previous_cart.modified_on} "
+                    f"matching_fingerprint={sorted(current_fingerprint)} "
+                    f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days} "
+                    f"reason=identical_cart_items_within_window"
+                )
+                return True
+
         logger.info(
             f"[CART_SERVICE] Order form dedup PASSED: {log_context} "
-            f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days}"
+            f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days} "
+            f"reason=different_cart_items allow_resend_on_different_cart_items=true"
         )
         return False
 
@@ -1144,7 +1222,7 @@ class CartAbandonmentService(BaseVtexUseCase):
             dict: Abandoned cart configuration or empty dict if not found.
         """
         config = getattr(integration_config, "config", {}) or {}
-        return config.get("abandoned_cart", {})
+        return config.get(ABANDONED_CART_CONFIG_KEY, {})
 
     def _check_abandoned_cart_notification_cooldown(
         self, cart: Cart, integration_config: Union[IntegratedFeature, IntegratedAgent]
@@ -1165,10 +1243,10 @@ class CartAbandonmentService(BaseVtexUseCase):
         # For IntegratedAgent, check abandoned_cart config first
         if isinstance(integration_config, IntegratedAgent):
             abandoned_cart_config = self._get_abandoned_cart_config(integration_config)
-            cooldown_hours = abandoned_cart_config.get("notification_cooldown_hours")
+            cooldown_hours = abandoned_cart_config.get(NOTIFICATION_COOLDOWN_HOURS_KEY)
         else:
             config = self._get_config(integration_config)
-            cooldown_hours = config.get("abandoned_cart_notification_cooldown_hours")
+            cooldown_hours = config.get(ABANDONED_CART_NOTIFICATION_COOLDOWN_HOURS_KEY)
 
         if not cooldown_hours:
             logger.info(
@@ -1204,17 +1282,22 @@ class CartAbandonmentService(BaseVtexUseCase):
         )
         return False
 
-    def _check_identical_cart_sent_recently(self, cart: Cart) -> bool:
+    def _check_identical_cart_sent_recently(
+        self,
+        cart: Cart,
+        integration_config: Union[IntegratedFeature, IntegratedAgent],
+    ) -> bool:
         """
         Check if a cart with identical items was already sent in the last 24 hours.
 
-        Args:
-            cart (Cart): The cart being processed.
-
-        Returns:
-            bool: True if identical cart was already sent recently.
+        Default behaviour compares SKU ids only. When
+        ``allow_resend_on_different_cart_items`` is enabled, quantities are
+        included in the fingerprint so a qty change allows a resend.
         """
-        log_context = _build_log_context(cart)
+        log_context = _build_log_context(cart, integration_config)
+        include_quantities = self._is_resend_on_different_cart_items_enabled(
+            integration_config
+        )
 
         cart_items = cart.config.get("cart_items", [])
         if not cart_items:
@@ -1224,18 +1307,17 @@ class CartAbandonmentService(BaseVtexUseCase):
             )
             return False
 
-        # Calculate 24 hours ago
         twenty_four_hours_ago = timezone.now() - timedelta(hours=24)
-
-        # Find carts with same phone number that were sent in the last 24 hours
-        recent_sent_carts = Cart.objects.filter(
-            phone_number=cart.phone_number,
-            project=cart.project,
-            status="delivered_success",
-            modified_on__gte=twenty_four_hours_ago,
+        recent_sent_carts = list(
+            Cart.objects.filter(
+                phone_number=cart.phone_number,
+                project=cart.project,
+                status="delivered_success",
+                modified_on__gte=twenty_four_hours_ago,
+            )
         )
 
-        recent_count = recent_sent_carts.count()
+        recent_count = len(recent_sent_carts)
         if not recent_sent_carts:
             logger.info(
                 f"[CART_SERVICE] Identical cart check PASSED: {log_context} "
@@ -1243,28 +1325,34 @@ class CartAbandonmentService(BaseVtexUseCase):
             )
             return False
 
-        # Create a normalized representation of current cart items
-        current_items_normalized = self._normalize_cart_items(cart_items)
+        current_fingerprint = self._build_cart_items_fingerprint(
+            cart_items, include_quantities=include_quantities
+        )
         logger.info(
             f"[CART_SERVICE] Checking for identical cart: {log_context} "
-            f"current_items={current_items_normalized} recent_carts_to_check={recent_count}"
+            f"current_fingerprint={sorted(current_fingerprint)} "
+            f"recent_carts_to_check={recent_count} "
+            f"include_quantities={include_quantities}"
         )
 
-        # Check each recent cart for identical items
         for recent_cart in recent_sent_carts:
             recent_items = recent_cart.config.get("cart_items", [])
-            if recent_items:
-                recent_items_normalized = self._normalize_cart_items(recent_items)
+            if not recent_items:
+                continue
 
-                if current_items_normalized == recent_items_normalized:
-                    logger.info(
-                        f"[CART_SERVICE] Identical cart check FAILED: {log_context} "
-                        f"matching_cart_uuid={recent_cart.uuid} "
-                        f"matching_cart_sent_at={recent_cart.modified_on} "
-                        f"matching_items={recent_items_normalized} "
-                        f"reason=identical_cart_sent_within_24h"
-                    )
-                    return True
+            recent_fingerprint = self._build_cart_items_fingerprint(
+                recent_items, include_quantities=include_quantities
+            )
+
+            if current_fingerprint == recent_fingerprint:
+                logger.info(
+                    f"[CART_SERVICE] Identical cart check FAILED: {log_context} "
+                    f"matching_cart_uuid={recent_cart.uuid} "
+                    f"matching_cart_sent_at={recent_cart.modified_on} "
+                    f"matching_fingerprint={sorted(recent_fingerprint)} "
+                    f"reason=identical_cart_sent_within_24h"
+                )
+                return True
 
         logger.info(
             f"[CART_SERVICE] Identical cart check PASSED: {log_context} "
@@ -1453,22 +1541,37 @@ class CartAbandonmentService(BaseVtexUseCase):
         logger.info("No matching products found in recent orders")
         return False
 
-    def _normalize_cart_items(self, cart_items: list) -> set:
-        """
-        Normalize cart items for comparison.
+    @staticmethod
+    def _parse_item_quantity(item: dict) -> int:
+        """Return a positive integer quantity; fall back to 1 when missing or invalid."""
+        try:
+            quantity = int(item.get("quantity", 1))
+        except (TypeError, ValueError):
+            return 1
+        return quantity if quantity > 0 else 1
 
-        Args:
-            cart_items (list): List of cart items.
-
-        Returns:
-            set: Normalized set of item identifiers.
-        """
-        normalized_items = set()
+    @staticmethod
+    def _build_cart_items_fingerprint(
+        cart_items: list, *, include_quantities: bool
+    ) -> frozenset:
+        """Build a comparable fingerprint for cart-item dedup checks."""
+        fingerprint: set = set()
         for item in cart_items:
             item_id = item.get("id")
-            if item_id:
-                normalized_items.add(str(item_id))
-        return normalized_items
+            if not item_id:
+                continue
+
+            if include_quantities:
+                fingerprint.add(
+                    (
+                        str(item_id),
+                        CartAbandonmentService._parse_item_quantity(item),
+                    )
+                )
+            else:
+                fingerprint.add(str(item_id))
+
+        return frozenset(fingerprint)
 
     def _get_config(
         self, integration_config: Union[IntegratedFeature, IntegratedAgent]

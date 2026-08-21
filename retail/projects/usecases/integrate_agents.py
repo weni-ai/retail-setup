@@ -35,7 +35,7 @@ class IntegrateAgentsUseCase:
     itself via its ``integrate(context, nexus_service)`` method.
 
     Agents already integrated in the project are detected via the
-    Nexus list and skipped to avoid duplicates.
+    Nexus app-teams list and skipped to avoid duplicates.
 
     Progress: 75% -> 100%.
     """

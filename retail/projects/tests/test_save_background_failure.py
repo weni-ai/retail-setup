@@ -10,7 +10,7 @@ from retail.projects.usecases.save_background_failure import (
 
 class TestSaveBackgroundFailureUseCase(TestCase):
     def setUp(self):
-        with patch("retail.projects.tasks.task_activate_agentic_cx_script"):
+        with patch("retail.projects.agentic_cx_tasks.task_ensure_agentic_cx_script_active"):
             self.onboarding = ProjectOnboarding.objects.create(
                 vtex_account="mystore",
                 completed=True,

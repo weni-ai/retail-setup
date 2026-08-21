@@ -565,6 +565,38 @@ class AssignAgentUseCaseTest(TestCase):
         self.assertEqual(integrated_agent.project, self.project)
         self.assertTrue(integrated_agent.is_active)
 
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.task_ensure_agentic_cx_script_active"
+    )
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign.CreateLibraryTemplateUseCase"
+    )
+    def test_execute_dispatches_agentic_cx_script_on_commit(
+        self, mock_create_library_use_case, mock_task
+    ):
+        mock_integrations_service = MagicMock()
+        mock_integrations_service.fetch_templates_from_user.return_value = {}
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations_service,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+        )
+        mock_create_library_use_case.return_value.execute.return_value = (
+            MagicMock(),
+            MagicMock(),
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            use_case.execute(
+                self.agent,
+                self.project.uuid,
+                uuid.uuid4(),
+                uuid.uuid4(),
+                {"api_key": "test_key"},
+                [],
+            )
+
+        mock_task.delay.assert_called_once_with("teststore")
+
     def test_execute_project_not_found(self):
         random_uuid = uuid.uuid4()
         with self.assertRaises(NotFound):
