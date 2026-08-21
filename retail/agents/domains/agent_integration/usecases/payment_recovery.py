@@ -1,15 +1,19 @@
 import logging
 from decimal import Decimal
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from uuid import UUID
 
 from rest_framework.exceptions import NotFound, ValidationError
 
 from retail.agents.domains.agent_execution.services.logger import ExecutionLoggerService
 from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.agents.domains.agent_webhook.usecases.base_agent_webhook import (
+    BaseAgentWebhookUseCase,
+)
 from retail.agents.domains.agent_webhook.usecases.order_status import (
     AgentOrderStatusUpdateUsecase,
 )
+from retail.agents.shared.cache import AgentRole
 from retail.agents.shared.vtex_order_value import (
     fetch_order_amount_details,
     propagate_order_amount_to_execution_log,
@@ -17,7 +21,15 @@ from retail.agents.shared.vtex_order_value import (
 from retail.interfaces.services.execution_logger import (
     ExecutionLoggerServiceInterface,
 )
+from retail.projects.models import Project
 from retail.services.vtex_io.service import VtexIOService
+from retail.vtex.usecases.resolve_order_origin_account import (
+    ResolveOrderOriginAccountUseCase,
+)
+from retail.vtex.usecases.resolve_order_origin_project import (
+    ProjectLookup,
+    ResolveOrderOriginProjectUseCase,
+)
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
 logger = logging.getLogger(__name__)
@@ -33,6 +45,9 @@ class PaymentRecoveryWebhookUseCase:
         self,
         vtex_io_service: Optional[VtexIOService] = None,
         exec_logger: Optional[ExecutionLoggerServiceInterface] = None,
+        origin_account_resolver: Optional[ResolveOrderOriginAccountUseCase] = None,
+        project_resolver: Optional[ResolveOrderOriginProjectUseCase] = None,
+        agent_lookup: Optional[BaseAgentWebhookUseCase] = None,
     ):
         """Initialize the use case with its VTEX IO dependency.
 
@@ -42,11 +57,21 @@ class PaymentRecoveryWebhookUseCase:
             exec_logger: Optional execution logger for agent-logs tracing.
                 When omitted, a default ``ExecutionLoggerService`` is used
                 (relies on the active execution contextvar when present).
+            origin_account_resolver: OMS hostname lookup. When omitted, built
+                with the same ``vtex_io_service`` so amount and origin share
+                one injected client.
+            project_resolver: Resolves the origin project from OMS hostname.
+            agent_lookup: Looks up the payment-recovery agent on a project.
         """
         self.vtex_io_service = vtex_io_service or VtexIOService()
         self.exec_logger: ExecutionLoggerServiceInterface = (
             exec_logger or ExecutionLoggerService()
         )
+        self.project_resolver = project_resolver or ResolveOrderOriginProjectUseCase(
+            origin_account_resolver=origin_account_resolver
+            or ResolveOrderOriginAccountUseCase(vtex_io_service=self.vtex_io_service)
+        )
+        self.agent_lookup = agent_lookup or BaseAgentWebhookUseCase()
 
     def get_integrated_agent(self, integrated_agent_uuid: UUID) -> IntegratedAgent:
         """Retrieve an active integrated agent by UUID.
@@ -150,10 +175,15 @@ class PaymentRecoveryWebhookUseCase:
         webhook_data: Dict[str, Any],
         vtex_account: str,
     ) -> Dict[str, str]:
-        """Build an OrderStatusDTO and delegate to AgentOrderStatusUpdateUsecase.
+        """Adapt the PIX hook into the shared order-event dispatcher.
 
-        The DTO is built with ``currentState="payment-pending"``. The raw
-        VTEX state (often ``"unknow"``) is stored as ``lastState``
+        Payment recovery has no separate lambda pipeline. The hook is
+        converted to ``OrderStatusDTO`` with ``currentState="payment-pending"``
+        and handed to ``AgentOrderStatusUpdateUsecase.execute`` together with
+        the payment-recovery ``IntegratedAgent``. That use case does not look
+        up the order-status agent; it dispatches whoever is passed in.
+
+        The raw VTEX state (often ``"unknow"``) is stored as ``lastState``
         while ``currentState`` is hardcoded because the payment recovery
         hook only fires for orders awaiting payment.
 
@@ -176,6 +206,35 @@ class PaymentRecoveryWebhookUseCase:
             vtex_account=vtex_account,
             log_prefix="[PAYMENT_RECOVERY]",
         )
+
+        logger.info(
+            f"[PAYMENT_RECOVERY] converting_state: "
+            f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
+            f"mapped_state=payment-pending data={webhook_data}"
+        )
+
+        order_status_dto = OrderStatusDTO(
+            recorder={},
+            domain="OrdersDocumentUpdated",
+            orderId=order_id,
+            currentState="payment-pending",
+            lastState=webhook_data.get("State"),
+            currentChangeDate=webhook_data.get("CurrentChange"),
+            lastChangeDate=webhook_data.get("LastChange"),
+            vtexAccount=vtex_account,
+        )
+
+        dispatch_usecase = AgentOrderStatusUpdateUsecase(
+            exec_logger=self.exec_logger,
+            vtex_io_service=self.vtex_io_service,
+        )
+        integrated_agent, vtex_account = self._resolve_origin_agent(
+            ingress_agent=integrated_agent,
+            dto=order_status_dto,
+            lookup_project=dispatch_usecase.get_project_by_vtex_account,
+        )
+        order_status_dto.vtexAccount = vtex_account
+        agent_uuid = integrated_agent.uuid
 
         if self._is_below_minimum_order_value(
             integrated_agent,
@@ -206,28 +265,7 @@ class PaymentRecoveryWebhookUseCase:
                 "message": "Order value below configured minimum",
             }
 
-        logger.info(
-            f"[PAYMENT_RECOVERY] converting_state: "
-            f"vtex_account={vtex_account} agent_uuid={agent_uuid} "
-            f"mapped_state=payment-pending data={webhook_data}"
-        )
-
-        order_status_dto = OrderStatusDTO(
-            recorder={},
-            domain="OrdersDocumentUpdated",
-            orderId=order_id,
-            currentState="payment-pending",
-            lastState=webhook_data.get("State"),
-            currentChangeDate=webhook_data.get("CurrentChange"),
-            lastChangeDate=webhook_data.get("LastChange"),
-            vtexAccount=vtex_account,
-        )
-
-        order_status_usecase = AgentOrderStatusUpdateUsecase(
-            exec_logger=self.exec_logger,
-            vtex_io_service=self.vtex_io_service,
-        )
-        order_status_usecase.execute(
+        dispatch_usecase.execute(
             integrated_agent,
             order_status_dto,
             order_amount_details=order_details,
@@ -243,6 +281,55 @@ class PaymentRecoveryWebhookUseCase:
             "status": "success",
             "message": "Payment recovery notification processed",
         }
+
+    def _resolve_origin_agent(
+        self,
+        ingress_agent: IntegratedAgent,
+        dto: OrderStatusDTO,
+        lookup_project: ProjectLookup,
+    ) -> Tuple[IntegratedAgent, str]:
+        """Return the payment-recovery agent of the order's origin sub-account.
+
+        When the origin project has no active payment-recovery agent, keep the
+        ingress agent so the event is not dropped.
+        """
+        ingress_project = ingress_agent.project
+        target_project = self.project_resolver.execute(
+            dto=dto,
+            ingress_project=ingress_project,
+            lookup_project=lookup_project,
+        )
+        if self._is_same_project(target_project, ingress_project):
+            return ingress_agent, ingress_project.vtex_account
+
+        target_agent = self.agent_lookup.get_integrated_agent_if_exists(
+            target_project, AgentRole.PAYMENT_RECOVERY
+        )
+        if target_agent is None:
+            logger.warning(
+                f"[PAYMENT_RECOVERY] origin_agent_not_found: "
+                f"ingress={ingress_project.vtex_account} "
+                f"origin={target_project.vtex_account} "
+                f"order_id={dto.orderId} ingress_agent={ingress_agent.uuid}"
+            )
+            return ingress_agent, ingress_project.vtex_account
+
+        logger.info(
+            f"[PAYMENT_RECOVERY] routed_by_hostname: "
+            f"ingress={ingress_project.vtex_account} "
+            f"origin={target_project.vtex_account} "
+            f"ingress_agent={ingress_agent.uuid} target_agent={target_agent.uuid} "
+            f"order_id={dto.orderId}"
+        )
+        return target_agent, target_project.vtex_account
+
+    @staticmethod
+    def _is_same_project(project: Project, other: Project) -> bool:
+        if project is other:
+            return True
+        project_uuid = getattr(project, "uuid", None)
+        other_uuid = getattr(other, "uuid", None)
+        return project_uuid is not None and project_uuid == other_uuid
 
     def _is_below_minimum_order_value(
         self,
