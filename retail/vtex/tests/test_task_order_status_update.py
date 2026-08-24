@@ -157,7 +157,9 @@ class TaskOrderStatusUpdateTests(TestCase):
 
         execution_uuid = uuid4()
         mock_logger = MagicMock()
-        mock_logger.log_webhook_received.side_effect = _mock_log_webhook_received(execution_uuid)
+        mock_logger.log_webhook_received.side_effect = _mock_log_webhook_received(
+            execution_uuid
+        )
         mock_logger_factory.return_value = mock_logger
 
         project = MagicMock(uuid=uuid4())
@@ -239,7 +241,9 @@ class TaskOrderStatusUpdateTests(TestCase):
 
         execution_uuid = uuid4()
         mock_logger = MagicMock()
-        mock_logger.log_webhook_received.side_effect = _mock_log_webhook_received(execution_uuid)
+        mock_logger.log_webhook_received.side_effect = _mock_log_webhook_received(
+            execution_uuid
+        )
         mock_logger_factory.return_value = mock_logger
 
         project = MagicMock(uuid=uuid4())
@@ -269,7 +273,9 @@ class TaskOrderStatusUpdateTests(TestCase):
 
         execution_uuid = uuid4()
         mock_logger = MagicMock()
-        mock_logger.log_webhook_received.side_effect = _mock_log_webhook_received(execution_uuid)
+        mock_logger.log_webhook_received.side_effect = _mock_log_webhook_received(
+            execution_uuid
+        )
         mock_logger_factory.return_value = mock_logger
 
         project = MagicMock(uuid=uuid4())
@@ -308,3 +314,37 @@ class TaskOrderStatusUpdateTests(TestCase):
         task_order_status_update(_build_order_update_data())
 
         mock_logger.log_execution_error.assert_not_called()
+
+    @patch("retail.vtex.tasks.ResolveOrderOriginProjectUseCase")
+    @patch("retail.vtex.tasks.AgentOrderStatusUpdateUsecase")
+    @patch("retail.agents.domains.agent_execution.task_helpers.ExecutionLoggerService")
+    def test_dispatches_to_project_returned_by_hostname_router(
+        self, mock_logger_factory, mock_use_case_cls, mock_router_cls
+    ):
+        from retail.vtex.tasks import task_order_status_update
+
+        mock_logger = MagicMock()
+        mock_logger.log_webhook_received.side_effect = _mock_log_webhook_received(
+            uuid4()
+        )
+        mock_logger_factory.return_value = mock_logger
+
+        hub = MagicMock(uuid=uuid4(), vtex_account="columbiamx")
+        target = MagicMock(uuid=uuid4(), vtex_account="martimx")
+        agent = MagicMock(uuid=uuid4())
+
+        mock_use_case = MagicMock()
+        mock_use_case.get_project_by_vtex_account.return_value = hub
+        mock_use_case.get_integrated_agent_if_exists.return_value = agent
+        mock_use_case_cls.return_value = mock_use_case
+
+        mock_router = MagicMock()
+        mock_router.execute.return_value = target
+        mock_router_cls.return_value = mock_router
+
+        order_data = _build_order_update_data()
+        task_order_status_update(order_data)
+
+        mock_use_case.get_integrated_agent_if_exists.assert_called_once_with(target)
+        dto = mock_use_case.execute.call_args.args[1]
+        self.assertEqual(dto.vtexAccount, "martimx")

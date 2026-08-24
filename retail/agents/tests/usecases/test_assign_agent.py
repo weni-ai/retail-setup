@@ -29,8 +29,10 @@ class AssignAgentUseCaseTest(TestCase):
             meta_language="pt_BR",
             vtex_locale="pt-BR",
         )
+        self.mock_sync_sub_accounts = MagicMock()
         self.use_case = AssignAgentUseCase(
-            fetch_country_phone_code_usecase=self.mock_fetch_phone_code
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=self.mock_sync_sub_accounts,
         )
         self.project = Project.objects.create(
             uuid=uuid.uuid4(), name="Test Project", vtex_account="teststore"
@@ -255,6 +257,7 @@ class AssignAgentUseCaseTest(TestCase):
         use_case = AssignAgentUseCase(
             integrations_service=mock_integrations_service,
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=self.mock_sync_sub_accounts,
         )
 
         integrated_agent = IntegratedAgent.objects.create(
@@ -311,6 +314,7 @@ class AssignAgentUseCaseTest(TestCase):
         use_case = AssignAgentUseCase(
             integrations_service=mock_integrations_service,
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=self.mock_sync_sub_accounts,
         )
 
         integrated_agent = IntegratedAgent.objects.create(
@@ -376,6 +380,7 @@ class AssignAgentUseCaseTest(TestCase):
         use_case = AssignAgentUseCase(
             integrations_service=mock_integrations_service,
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=self.mock_sync_sub_accounts,
         )
 
         integrated_agent = IntegratedAgent.objects.create(
@@ -442,6 +447,7 @@ class AssignAgentUseCaseTest(TestCase):
         use_case = AssignAgentUseCase(
             integrations_service=mock_integrations_service,
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=self.mock_sync_sub_accounts,
         )
 
         integrated_agent = IntegratedAgent.objects.create(
@@ -544,6 +550,7 @@ class AssignAgentUseCaseTest(TestCase):
         use_case = AssignAgentUseCase(
             integrations_service=mock_integrations_service,
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=self.mock_sync_sub_accounts,
         )
 
         mock_use_case_instance = mock_create_library_use_case.return_value
@@ -564,6 +571,12 @@ class AssignAgentUseCaseTest(TestCase):
         self.assertEqual(integrated_agent.agent, self.agent)
         self.assertEqual(integrated_agent.project, self.project)
         self.assertTrue(integrated_agent.is_active)
+        self.mock_sync_sub_accounts.execute.assert_called_once_with(self.project)
+
+    def test_sync_vtex_sub_accounts_does_not_raise(self):
+        self.mock_sync_sub_accounts.execute.side_effect = Exception("vtex down")
+        self.use_case._sync_vtex_sub_accounts(self.project)
+        self.mock_sync_sub_accounts.execute.assert_called_once_with(self.project)
 
     def test_execute_project_not_found(self):
         random_uuid = uuid.uuid4()
@@ -594,6 +607,7 @@ class AssignAgentUseCaseTest(TestCase):
         use_case = AssignAgentUseCase(
             integrations_service=mock_integrations_service,
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=self.mock_sync_sub_accounts,
         )
 
         use_case.execute(
@@ -627,6 +641,7 @@ class AssignAgentUseCaseTest(TestCase):
         use_case = AssignAgentUseCase(
             integrations_service=mock_integrations_service,
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=self.mock_sync_sub_accounts,
         )
 
         mock_use_case_instance = mock_create_library_use_case.return_value
@@ -824,6 +839,7 @@ class AssignAgentUseCaseTest(TestCase):
         use_case_with_mock = AssignAgentUseCase(
             integrations_service=mock_integrations_service,
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=self.mock_sync_sub_accounts,
         )
 
         integrated_agent = IntegratedAgent.objects.create(
@@ -854,6 +870,7 @@ class AssignAgentUseCaseTest(TestCase):
         use_case = AssignAgentUseCase(
             integrations_service=mock_integrations_service,
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=self.mock_sync_sub_accounts,
         )
 
         valid_template = PreApprovedTemplate.objects.create(
@@ -966,6 +983,7 @@ class AssignAgentUseCaseTest(TestCase):
         use_case = AssignAgentUseCase(
             integrations_service=mock_integrations_service,
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=self.mock_sync_sub_accounts,
         )
 
         mock_template = MagicMock()
@@ -1014,6 +1032,7 @@ class AssignAgentUseCaseTest(TestCase):
         use_case = AssignAgentUseCase(
             integrations_service=mock_integrations_service,
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=self.mock_sync_sub_accounts,
         )
 
         invalid_template1 = PreApprovedTemplate.objects.create(
