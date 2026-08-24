@@ -1,3 +1,7 @@
+# 5.53.0
+- fix: Ignore pre-cart VTEX orders in purchase detection
+- feat: Route order-status and PIX webhooks to origin sub-accounts
+
 # 5.52.0
 - fix: Skip already integrated passive agents on re-onboarding
 - feat: Allow abandoned-cart resend when SKU or qty change
