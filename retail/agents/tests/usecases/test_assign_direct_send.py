@@ -124,6 +124,7 @@ class AssignDirectSendBaseTest(TestCase):
             integrations_service=self.integrations_service,
             fetch_country_phone_code_usecase=self.fetch_country_phone_code,
             meta_service=self.meta_service,
+            sync_vtex_sub_accounts_usecase=MagicMock(),
         )
 
 

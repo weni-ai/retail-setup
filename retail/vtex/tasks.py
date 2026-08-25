@@ -17,6 +17,9 @@ from retail.broadcasts.usecases.mark_broadcast_converted import (
 from retail.vtex.models import Cart
 from retail.vtex.usecases.cart_abandonment import CartAbandonmentUseCase
 from retail.vtex.usecases.handle_purchase_event import HandlePurchaseEventUseCase
+from retail.vtex.usecases.resolve_order_origin_project import (
+    ResolveOrderOriginProjectUseCase,
+)
 from retail.webhooks.vtex.usecases.order_status import OrderStatusUseCase
 from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 
@@ -146,6 +149,18 @@ def task_order_status_update(order_update_data: dict):
                 f"[ORDER_STATUS] project_not_found: vtex_account={vtex_account}"
             )
             return
+
+        project = ResolveOrderOriginProjectUseCase().execute(
+            dto=order_status_dto,
+            ingress_project=project,
+            lookup_project=use_case.get_project_by_vtex_account,
+        )
+        if (
+            project.vtex_account
+            and project.vtex_account != order_status_dto.vtexAccount
+        ):
+            order_status_dto.vtexAccount = project.vtex_account
+            vtex_account = project.vtex_account
 
         if is_payment_approved(current_state):
             logger.info(

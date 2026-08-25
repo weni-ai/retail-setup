@@ -1,4 +1,5 @@
 import logging
+import re
 
 from decimal import Decimal
 from typing import Any, Dict, Optional, Tuple, Union
@@ -7,7 +8,7 @@ from uuid import UUID
 from django.utils import timezone
 from django.conf import settings
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from retail.agents.domains.agent_execution.services.logger import ExecutionLoggerService
 from retail.agents.domains.agent_integration.models import IntegratedAgent
@@ -46,6 +47,16 @@ from retail.vtex.usecases.clone_order_form import (
 
 # VTEX order statuses that count as a finalized purchase.
 PURCHASED_ORDER_STATUSES = frozenset({"invoiced"})
+
+# OMS List Orders via the generic VTEX IO proxy. per_page max is 100;
+# VTEX caps listing at 30 pages (~3000 orders per date window).
+OMS_LIST_ORDERS_PATH = "/api/oms/pvt/orders"
+OMS_LIST_PAGE_SIZE = 100
+OMS_LIST_MAX_PAGES = 30
+
+# VTEX may emit more than six fractional-second digits; fromisoformat
+# rejects that on some Python versions.
+_VTEX_DATETIME_FRACTION = re.compile(r"(\.\d{6})\d+(?=[Z+-]|$)")
 
 # Lookback window aligned with the Cart cleanup task TTL.
 ORDER_FORM_DEDUPLICATION_WINDOW = timedelta(days=15)
@@ -232,12 +243,11 @@ class CartAbandonmentService(BaseVtexUseCase):
                 f"items_count={len(cart_items)}"
             )
 
-            # Check orders by email (email already validated above)
-            orders = self._fetch_orders_by_email(cart, client_email)
+            orders = self._fetch_orders_placed_after_cart(cart, client_email)
             orders_count = len(orders.get("list", []))
             logger.info(
-                f"[CART_SERVICE] Orders fetched by email: {log_context} "
-                f"email={client_email} orders_found={orders_count}"
+                f"[CART_SERVICE] Orders fetched after cart creation: {log_context} "
+                f"orders_found={orders_count}"
             )
 
             self._evaluate_orders(
@@ -367,24 +377,80 @@ class CartAbandonmentService(BaseVtexUseCase):
         cart.config["cart_items"] = order_form.get("items", [])
         cart.save()
 
-    def _fetch_orders_by_email(self, cart: Cart, email: str) -> dict:
-        """
-        Fetch orders associated with a given email.
+    def _fetch_orders_placed_after_cart(self, cart: Cart, email: str) -> dict:
+        """List OMS orders placed after the cart row was created.
 
-        Args:
-            cart (Cart): The cart instance.
-            email (str): The client email address.
-
-        Returns:
-            dict: List of orders associated with the email.
+        Uses ``POST /_v/proxy-vtex`` so this service owns the OMS query
+        (date range, page size, pagination) instead of
+        ``/orders-by-email``, which ignores ``f_creationDate`` and only
+        returns the first page.
         """
         project_uuid = str(cart.project.uuid)
-        orders = self.vtex_io_service.get_order_details(
-            account_domain=self._get_account_domain(project_uuid),
-            vtex_account=cart.project.vtex_account,
-            user_email=email,
-        )
-        return orders or {"list": []}
+        account_domain = self._get_account_domain(project_uuid)
+        vtex_account = cart.project.vtex_account
+        date_from = self._to_oms_utc(cart.created_on)
+        date_to = self._to_oms_utc(timezone.now())
+
+        orders: list = []
+        page = 1
+        while page <= OMS_LIST_MAX_PAGES:
+            response = (
+                self.vtex_io_service.proxy_vtex(
+                    account_domain=account_domain,
+                    vtex_account=vtex_account,
+                    method="GET",
+                    path=OMS_LIST_ORDERS_PATH,
+                    params=self._build_orders_list_params(
+                        email, date_from, date_to, page
+                    ),
+                )
+                or {}
+            )
+            orders.extend(response.get("list") or [])
+            if page >= self._oms_total_pages(response):
+                break
+            page += 1
+        else:
+            logger.warning(
+                f"[CART_SERVICE] OMS list pagination hit max pages "
+                f"cart_uuid={cart.uuid} max_pages={OMS_LIST_MAX_PAGES}"
+            )
+
+        return {"list": orders}
+
+    @staticmethod
+    def _build_orders_list_params(
+        email: str, date_from: str, date_to: str, page: int
+    ) -> dict:
+        """Build unencoded OMS List Orders query params.
+
+        ``f_creationDate`` must not be pre-percent-encoded: the IO proxy
+        encodes ``params`` once. ``q`` is OMS text search (same as
+        ``/orders-by-email``), not an exact email match.
+        """
+        return {
+            "q": email,
+            "orderBy": "creationDate,desc",
+            "page": str(page),
+            "per_page": str(OMS_LIST_PAGE_SIZE),
+            "f_creationDate": f"creationDate:[{date_from} TO {date_to}]",
+        }
+
+    @staticmethod
+    def _to_oms_utc(value: datetime) -> str:
+        """Format a datetime as the UTC ISO string OMS date filters expect."""
+        if timezone.is_naive(value):
+            value = timezone.make_aware(value, dt_timezone.utc)
+        return value.astimezone(dt_timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+    @staticmethod
+    def _oms_total_pages(response: dict) -> int:
+        raw_pages = (response.get("paging") or {}).get("pages")
+        try:
+            pages = int(raw_pages)
+        except (TypeError, ValueError):
+            return 1
+        return pages if pages > 0 else 1
 
     def _evaluate_orders(
         self,
@@ -423,14 +489,31 @@ class CartAbandonmentService(BaseVtexUseCase):
             )
             return
 
-        recent_orders = orders.get("list", [])[:5]
-        invoiced_orders = self._filter_invoiced_orders(recent_orders)
+        orders_after_cart = self._filter_orders_created_after_cart(
+            orders.get("list", []), cart
+        )
+        if not orders_after_cart:
+            logger.info(
+                f"[CART_SERVICE] No orders created after the cart: {log_context} "
+                f"orders_returned={len(orders.get('list', []))} "
+                f"action=mark_as_abandoned reason=no_orders_created_after_cart"
+            )
+            self._mark_cart_as_abandoned(
+                cart,
+                order_form,
+                client_profile,
+                integration_config,
+                execution_uuid=execution_uuid,
+            )
+            return
+
+        invoiced_orders = self._filter_invoiced_orders(orders_after_cart)
 
         if not invoiced_orders:
             logger.info(
                 f"[CART_SERVICE] No invoiced orders among recent ones: {log_context} "
-                f"recent_orders_checked={len(recent_orders)} "
-                f"recent_statuses={[o.get('status') for o in recent_orders]} "
+                f"recent_orders_checked={len(orders_after_cart)} "
+                f"recent_statuses={[o.get('status') for o in orders_after_cart]} "
                 f"action=mark_as_abandoned reason=no_purchased_status_found"
             )
             self._mark_cart_as_abandoned(
@@ -1361,6 +1444,69 @@ class CartAbandonmentService(BaseVtexUseCase):
         return False
 
     @staticmethod
+    def _parse_vtex_datetime(raw_value: object) -> Optional[datetime]:
+        """Parse a VTEX ISO-8601 timestamp into an aware ``datetime``.
+
+        Returns ``None`` when the value is missing or not parseable.
+        """
+        if not raw_value or not isinstance(raw_value, str):
+            return None
+
+        normalized = raw_value.strip().replace("Z", "+00:00")
+        normalized = _VTEX_DATETIME_FRACTION.sub(r"\1", normalized)
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+
+        if timezone.is_naive(parsed):
+            return timezone.make_aware(parsed, dt_timezone.utc)
+        return parsed
+
+    @staticmethod
+    def _order_was_created_after_cart(
+        order: dict, cart_created_on: datetime
+    ) -> Optional[bool]:
+        """Return whether ``order`` was created after ``cart_created_on``.
+
+        ``None`` means ``creationDate`` is missing or unparseable, so the
+        caller must not treat the order as older than the cart.
+        """
+        created_on = CartAbandonmentService._parse_vtex_datetime(
+            order.get("creationDate")
+        )
+        if created_on is None:
+            return None
+
+        if timezone.is_naive(cart_created_on):
+            cart_created_on = timezone.make_aware(cart_created_on, dt_timezone.utc)
+        return created_on > cart_created_on
+
+    def _filter_orders_created_after_cart(self, orders: list, cart: Cart) -> list:
+        """Keep orders placed after the cart row was created.
+
+        OMS List Orders is already queried with ``f_creationDate``, but
+        the range is inclusive and ``q`` is a text search. This local
+        cut drops any leftover order whose ``creationDate`` is not
+        strictly after ``cart.created_on``.
+        """
+        kept: list = []
+        skipped = 0
+        for order in orders:
+            created_after = self._order_was_created_after_cart(order, cart.created_on)
+            if created_after is False:
+                skipped += 1
+                continue
+            kept.append(order)
+
+        logger.info(
+            f"[CART_SERVICE] Filtered orders created after cart "
+            f"cart_uuid={cart.uuid} kept={len(kept)} "
+            f"skipped_older_than_cart={skipped} returned={len(orders)}"
+        )
+        return kept
+
+    @staticmethod
     def _filter_invoiced_orders(recent_orders: list) -> list:
         """Return the subset of ``recent_orders`` whose status is in ``PURCHASED_ORDER_STATUSES``."""
         return [
@@ -1421,17 +1567,29 @@ class CartAbandonmentService(BaseVtexUseCase):
                 logger.info(f"Fetching details for order {order_id}")
                 order_details = self._fetch_order_details_by_id(cart, order_id)
                 if order_details:
+                    created_after_cart = self._order_was_created_after_cart(
+                        order_details, cart.created_on
+                    )
                     recent_orders_details.append(
                         {
                             "orderId": order_id,
                             "orderFormId": order_details.get("orderFormId"),
                             "status": order_details.get("status")
                             or order_meta.get("status"),
+                            "creationDate": order_details.get("creationDate"),
                             "items": order_details.get("itemMetadata", {}).get(
                                 "Items", []
                             ),
                         }
                     )
+
+                    if created_after_cart is False:
+                        logger.info(
+                            f"[CART_SERVICE] Skipping order created before cart "
+                            f"order_id={order_id} cart_uuid={cart.uuid} "
+                            f"creationDate={order_details.get('creationDate')}"
+                        )
+                        continue
 
                     if self._compare_cart_items_with_order_items(cart, order_details):
                         logger.info(
@@ -1507,29 +1665,15 @@ class CartAbandonmentService(BaseVtexUseCase):
             bool: True if there's any overlap between cart and order items.
         """
         cart_items = cart.config.get("cart_items", [])
-        order_items = order_details.get("itemMetadata", {}).get("Items", [])
-
-        if not cart_items or not order_items:
+        cart_item_ids = {str(item["id"]) for item in cart_items if item.get("id")}
+        order_item_ids = self._extract_order_sku_ids(order_details)
+        if not cart_item_ids or not order_item_ids:
             logger.info(
-                f"Cart or order items empty - cart: {len(cart_items)}, order: {len(order_items)}"
+                f"Cart or order items empty - cart: {len(cart_item_ids)}, "
+                f"order: {len(order_item_ids)}"
             )
             return False
 
-        # Create sets of item IDs for comparison
-        cart_item_ids = set()
-        order_item_ids = set()
-
-        # Extract IDs from cart items
-        for item in cart_items:
-            if item.get("id"):
-                cart_item_ids.add(str(item["id"]))
-
-        # Extract IDs from order items (from itemMetadata.Items)
-        for item in order_items:
-            if item.get("Id"):  # Note: order items use "Id" (capital I)
-                order_item_ids.add(str(item["Id"]))
-
-        # Check for matching products between cart and recent orders
         matching_products = cart_item_ids.intersection(order_item_ids)
 
         if matching_products:
@@ -1540,6 +1684,26 @@ class CartAbandonmentService(BaseVtexUseCase):
 
         logger.info("No matching products found in recent orders")
         return False
+
+    @staticmethod
+    def _extract_order_sku_ids(order_details: dict) -> set:
+        """Return SKU ids from the order, preferring line items.
+
+        ``items[].id`` is the purchased SKU. ``itemMetadata.Items[].Id``
+        is kept as fallback because some OMS payloads omit ``items``.
+        """
+        sku_ids = {
+            str(item["id"])
+            for item in order_details.get("items") or []
+            if item.get("id")
+        }
+        if sku_ids:
+            return sku_ids
+        return {
+            str(item["Id"])
+            for item in (order_details.get("itemMetadata") or {}).get("Items") or []
+            if item.get("Id")
+        }
 
     @staticmethod
     def _parse_item_quantity(item: dict) -> int:
