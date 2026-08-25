@@ -1,3 +1,6 @@
+# 5.54.0
+- fix: Ignore pre-cart VTEX orders in purchase detection
+
 # 5.53.0
 - fix: Ignore pre-cart VTEX orders in purchase detection
 - feat: Route order-status and PIX webhooks to origin sub-accounts
