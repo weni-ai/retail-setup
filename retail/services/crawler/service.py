@@ -59,3 +59,21 @@ class CrawlerService:
                 f"for store_url={store_url}: {e}"
             )
             return None
+
+    def check_url(self, crawl_url: str) -> Optional[Dict]:
+        """
+        Probes whether a URL is reachable the same way a crawl would fetch it.
+
+        Args:
+            crawl_url: The store URL to check.
+
+        Returns:
+            Dict with ``reachable`` and ``resolved_url``, or None on failure.
+        """
+        try:
+            return self.crawler_client.check_url(crawl_url)
+        except CustomAPIException as e:
+            logger.error(
+                f"Error {e.status_code} checking url for crawl_url={crawl_url}: {e}"
+            )
+            return None

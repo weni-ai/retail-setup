@@ -52,6 +52,7 @@ from retail.agents.domains.agent_integration.services.payment_recovery_hook impo
     build_payment_recovery_hook_payload,
 )
 from retail.vtex.usecases.proxy_vtex import ProxyVtexUsecase
+from retail.vtex.usecases.sync_vtex_sub_accounts import SyncVtexSubAccountsUseCase
 from retail.services.vtex_io.service import VtexIOService
 
 logger = logging.getLogger(__name__)
@@ -92,10 +93,14 @@ class AssignAgentUseCase:
         integrations_service: Optional[IntegrationsServiceInterface] = None,
         fetch_country_phone_code_usecase: Optional[FetchCountryPhoneCodeUseCase] = None,
         meta_service: Optional[MetaServiceInterface] = None,
+        sync_vtex_sub_accounts_usecase: Optional[SyncVtexSubAccountsUseCase] = None,
     ):
         self.integrations_service = integrations_service or IntegrationsService()
         self.fetch_country_phone_code_usecase = (
             fetch_country_phone_code_usecase or FetchCountryPhoneCodeUseCase()
+        )
+        self.sync_vtex_sub_accounts_usecase = (
+            sync_vtex_sub_accounts_usecase or SyncVtexSubAccountsUseCase()
         )
         self._meta_service = meta_service
 
@@ -136,6 +141,17 @@ class AssignAgentUseCase:
             return Project.objects.get(uuid=project_uuid)
         except Project.DoesNotExist:
             raise NotFound(f"Project not found: {project_uuid}")
+
+    def _sync_vtex_sub_accounts(self, project: Project) -> None:
+        """Refresh multistore metadata; never blocks agent assignment."""
+        try:
+            self.sync_vtex_sub_accounts_usecase.execute(project)
+        except Exception as exc:
+            logger.warning(
+                f"[AssignAgent] vtex_sub_accounts_sync_failed: "
+                f"project={project.uuid} vtex_account={project.vtex_account} "
+                f"error={exc}"
+            )
 
     def _create_integrated_agent(
         self,
@@ -709,6 +725,7 @@ class AssignAgentUseCase:
         The initial_template_language is automatically detected from VTEX tenant locale.
         """
         project = self._get_project(project_uuid)
+        self._sync_vtex_sub_accounts(project)
         self._validate_credentials(agent, credentials)
 
         templates = agent.templates.all()

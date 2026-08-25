@@ -22,6 +22,7 @@ from retail.projects.serializer import (
     OnboardingPatchSerializer,
     ProjectOnboardingSerializer,
     ContentBaseProgressSerializer,
+    CheckUrlSerializer,
 )
 from retail.projects.usecases.get_project_vtex_account import (
     GetProjectVtexAccountUseCase,
@@ -35,6 +36,7 @@ from retail.projects.usecases.onboarding_dto import (
     CrawlerWebhookDTO,
     InstallChannelAgentsDTO,
     RequestOnboardingSupportDTO,
+    CheckUrlDTO,
 )
 from retail.projects.usecases.project_vtex import ProjectVtexConfigUseCase
 from retail.projects.usecases.request_onboarding_support import (
@@ -44,6 +46,7 @@ from retail.projects.usecases.save_onboarding_failure import (
     SaveOnboardingFailureUseCase,
 )
 from retail.projects.usecases.start_setup import StartSetupUseCase
+from retail.projects.usecases.check_url import CheckUrlUseCase
 from retail.projects.usecases.get_content_base_progress import (
     GetContentBaseProgressUseCase,
 )
@@ -158,6 +161,26 @@ class StartSetupView(WeniAuthMixin, APIView):
         StartSetupUseCase().execute(dto)
 
         return Response({"status": "started"}, status=status.HTTP_201_CREATED)
+
+
+class CheckUrlView(WeniAuthMixin, APIView):
+    """
+    Preflights a crawl URL by asking the Crawler MS whether it is reachable.
+
+    Does not start onboarding or enqueue a crawl.
+    """
+
+    def post(self, request, vtex_account: str) -> Response:
+        account = self.auth.vtex_account
+        serializer = CheckUrlSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dto = CheckUrlDTO(
+            vtex_account=account,
+            crawl_url=serializer.validated_data["crawl_url"],
+        )
+        result = CheckUrlUseCase().execute(dto)
+        return Response(result.to_dict(), status=result.http_status)
 
 
 class CrawlerWebhookView(APIView):

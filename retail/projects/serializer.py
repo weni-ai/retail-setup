@@ -94,6 +94,12 @@ class ContentBaseProgressSerializer(serializers.Serializer):
     progress = serializers.IntegerField(read_only=True)
 
 
+class CheckUrlSerializer(serializers.Serializer):
+    """Serializer to validate the check-url request."""
+
+    crawl_url = serializers.URLField(required=True)
+
+
 class ProjectOnboardingSerializer(serializers.Serializer):
     """Serializer for the ProjectOnboarding status response."""
 
