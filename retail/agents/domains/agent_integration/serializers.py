@@ -1,4 +1,7 @@
+from typing import Dict
+
 from rest_framework import serializers
+from rest_framework.fields import Field
 
 from retail.templates.serializers import ReadTemplateSerializer
 from retail.agents.domains.agent_management.usecases.push import PushAgentUseCase
@@ -7,6 +10,9 @@ from retail.agents.domains.agent_integration.services.payment_recovery_hook impo
 )
 from retail.agents.domains.agent_integration.usecases.payment_recovery import (
     DEFAULT_DELAY_MINUTES,
+)
+from retail.agents.domains.agent_integration.usecases.message_time_restriction import (
+    project_message_time_restriction,
 )
 from retail.agents.shared.webhook_urls import build_integrated_agent_webhook_url
 
@@ -72,6 +78,53 @@ class AbandonedCartConfigSerializer(PartialUpdateSerializer):
         min_value=1,
         max_value=168,  # Max 7 days
     )
+
+
+class TimePeriodSerializer(serializers.Serializer):
+    """Closed send window in 24-hour HH:MM format.
+
+    ``from`` is a reserved Python keyword, so both fields are declared
+    in ``get_fields`` to keep the JSON contract identical to the stored
+    ``message_time_restriction`` shape consumed at dispatch time.
+    """
+
+    _HH_MM_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+    def get_fields(self) -> Dict[str, Field]:
+        return {"from": self._hh_mm_field(), "to": self._hh_mm_field()}
+
+    @classmethod
+    def _hh_mm_field(cls) -> serializers.RegexField:
+        return serializers.RegexField(
+            regex=cls._HH_MM_PATTERN,
+            error_messages={"invalid": "Enter a time in HH:MM 24-hour format."},
+        )
+
+    def validate(self, attrs: Dict[str, str]) -> Dict[str, str]:
+        if attrs["from"] >= attrs["to"]:
+            raise serializers.ValidationError({"to": "Must be later than from."})
+        return attrs
+
+
+class MessageTimeRestrictionPeriodsSerializer(serializers.Serializer):
+    """Send windows for weekdays (Mon-Fri) and Saturdays. Sunday never sends."""
+
+    weekdays = TimePeriodSerializer()
+    saturdays = TimePeriodSerializer()
+
+
+class MessageTimeRestrictionSerializer(serializers.Serializer):
+    """Full replace payload for abandoned-cart send-time restriction."""
+
+    is_active = serializers.BooleanField()
+    periods = MessageTimeRestrictionPeriodsSerializer()
+
+
+class MessageTimeRestrictionReadSerializer(serializers.Serializer):
+    """Read projection; ``periods`` is null when the restriction is unset."""
+
+    is_active = serializers.BooleanField()
+    periods = MessageTimeRestrictionPeriodsSerializer(allow_null=True)
 
 
 class PaymentRecoveryConfigSerializer(PartialUpdateSerializer):
@@ -145,6 +198,9 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
     abandoned_cart_config = serializers.SerializerMethodField(
         "get_abandoned_cart_config"
     )
+    message_time_restriction = serializers.SerializerMethodField(
+        "get_message_time_restriction"
+    )
     payment_recovery_config = serializers.SerializerMethodField(
         "get_payment_recovery_config"
     )
@@ -206,6 +262,10 @@ class ReadIntegratedAgentSerializer(serializers.Serializer):
                 "notification_cooldown_hours"
             ),
         }
+
+    def get_message_time_restriction(self, obj):
+        """Project the abandoned-cart send-time window from agent config."""
+        return project_message_time_restriction(obj.config)
 
     def get_payment_recovery_config(self, obj):
         """Get payment recovery (PIX) configuration from agent config."""
