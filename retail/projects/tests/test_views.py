@@ -7,6 +7,7 @@ from weni_commons.auth import WeniAuthContext, WeniAuthUser
 
 from retail.projects.models import Project, ProjectOnboarding
 from retail.projects.serializer import OnboardingPatchSerializer
+from retail.projects.usecases.check_url import CheckUrlResult
 from retail.projects.usecases.install_channel_agents import InstallChannelAgentsError
 
 
@@ -119,6 +120,79 @@ class TestStartSetupView(TestCase):
         self.assertEqual(last_failure["stage"], "start_setup_validation")
         self.assertEqual(last_failure["payload"], payload)
         self.assertIn("channel_data", last_failure["errors"])
+
+
+class TestCheckUrlView(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    @auth_bypass()
+    @patch("retail.projects.views.CheckUrlUseCase")
+    def test_returns_200_when_valid(self, mock_usecase_cls, _mock_auth):
+        mock_instance = MagicMock()
+        mock_instance.execute.return_value = CheckUrlResult(
+            valid=True,
+            crawl_url="https://www.mystore.com.br/",
+        )
+        mock_usecase_cls.return_value = mock_instance
+
+        response = self.client.post(
+            "/api/onboard/mystore/check-url/",
+            {"crawl_url": "https://www.mystore.com.br/"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"valid": True, "crawl_url": "https://www.mystore.com.br/"},
+        )
+        mock_instance.execute.assert_called_once()
+
+    @auth_bypass()
+    @patch("retail.projects.views.CheckUrlUseCase")
+    def test_returns_200_when_invalid(self, mock_usecase_cls, _mock_auth):
+        mock_instance = MagicMock()
+        mock_instance.execute.return_value = CheckUrlResult(valid=False)
+        mock_usecase_cls.return_value = mock_instance
+
+        response = self.client.post(
+            "/api/onboard/mystore/check-url/",
+            {"crawl_url": "https://www.mystore.com.br/"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"valid": False})
+
+    @auth_bypass()
+    @patch("retail.projects.views.CheckUrlUseCase")
+    def test_returns_502_when_crawler_unavailable(self, mock_usecase_cls, _mock_auth):
+        mock_instance = MagicMock()
+        mock_instance.execute.return_value = CheckUrlResult(
+            valid=False,
+            unavailable=True,
+        )
+        mock_usecase_cls.return_value = mock_instance
+
+        response = self.client.post(
+            "/api/onboard/mystore/check-url/",
+            {"crawl_url": "https://www.mystore.com.br/"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json(), {"valid": False, "error": "unavailable"})
+
+    @auth_bypass()
+    def test_returns_400_when_crawl_url_missing(self, _mock_auth):
+        response = self.client.post(
+            "/api/onboard/mystore/check-url/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
 
 
 class TestCrawlerWebhookView(TestCase):

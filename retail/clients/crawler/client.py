@@ -64,3 +64,24 @@ class CrawlerClient(RequestClient, CrawlerClientInterface):
             params={"store_url": store_url},
         )
         return response.json()
+
+    def check_url(self, crawl_url: str) -> Dict:
+        """
+        Probes whether a URL is reachable the same way a crawl would fetch it.
+
+        Args:
+            crawl_url: The store URL to check (must start with http:// or https://).
+
+        Returns:
+            Dict with ``reachable`` and ``resolved_url``.
+        """
+        url = f"{self.base_url}/api/check-url"
+        payload = {"crawl_url": crawl_url}
+
+        response = self.make_request(
+            url,
+            method="POST",
+            json=payload,
+            timeout=55,
+        )
+        return response.json()

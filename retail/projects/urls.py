@@ -34,6 +34,11 @@ urlpatterns = [
         name="onboarding-start-setup",
     ),
     path(
+        "onboard/<str:vtex_account>/check-url/",
+        project_views.CheckUrlView.as_view(),
+        name="onboarding-check-url",
+    ),
+    path(
         "onboard/<uuid:onboarding_uuid>/webhook/",
         project_views.CrawlerWebhookView.as_view(),
         name="onboarding-crawler-webhook",

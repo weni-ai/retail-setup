@@ -34,3 +34,15 @@ class CrawlerClientInterface(Protocol):
             (one of: faststore, vtex_io, legacy, unknown).
         """
         ...
+
+    def check_url(self, crawl_url: str) -> Dict:
+        """
+        Probes whether a URL is reachable the same way a crawl would fetch it.
+
+        Args:
+            crawl_url: The store URL to check (must start with http:// or https://).
+
+        Returns:
+            Dict with ``reachable`` and ``resolved_url``.
+        """
+        ...

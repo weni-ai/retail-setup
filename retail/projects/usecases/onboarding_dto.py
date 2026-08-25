@@ -24,6 +24,14 @@ class StartSetupDTO:
 
 
 @dataclass(frozen=True)
+class CheckUrlDTO:
+    """Data sent by the front-end to preflight a crawl URL."""
+
+    vtex_account: str
+    crawl_url: str
+
+
+@dataclass(frozen=True)
 class InstallChannelAgentsDTO:
     """Data sent to install agents for a new channel on an existing onboarding."""
 
