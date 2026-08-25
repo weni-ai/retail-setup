@@ -7,6 +7,7 @@ from typing import List
 from rest_framework.exceptions import APIException, ValidationError
 
 from retail.api.onboard.usecases.dto import ActivateWebchatDTO
+from retail.projects.agentic_cx_tasks import task_ensure_agentic_cx_script_active
 from retail.services.integrations.service import IntegrationsService
 from retail.services.webchat_push.service import WebchatPublishError, WebchatPushService
 
@@ -63,6 +64,8 @@ class PublishWebchatScriptUseCase:
         logger.info(
             f"Webchat script published successfully for app_uuid={dto.app_uuid} at {uploaded_urls}"
         )
+
+        task_ensure_agentic_cx_script_active.delay(dto.vtex_account)
 
         return PublishWebchatResult(script_urls=uploaded_urls)
 
