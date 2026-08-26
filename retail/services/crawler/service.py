@@ -68,11 +68,19 @@ class CrawlerService:
             crawl_url: The store URL to check.
 
         Returns:
-            Dict with ``reachable`` and ``resolved_url``, or None on failure.
+            Dict with ``reachable`` and ``resolved_url``, or None on
+            crawler-comms failure. HTTP 4xx from the crawler is a URL
+            rejection, not a comms failure, and is returned as
+            ``{"reachable": False}``.
         """
         try:
             return self.crawler_client.check_url(crawl_url)
         except CustomAPIException as e:
+            if 400 <= e.status_code < 500:
+                logger.info(
+                    f"Crawler rejected crawl_url={crawl_url} with status {e.status_code}"
+                )
+                return {"reachable": False}
             logger.error(
                 f"Error {e.status_code} checking url for crawl_url={crawl_url}: {e}"
             )

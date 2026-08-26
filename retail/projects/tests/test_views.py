@@ -151,7 +151,7 @@ class TestCheckUrlView(TestCase):
 
     @auth_bypass()
     @patch("retail.projects.views.CheckUrlUseCase")
-    def test_returns_200_when_invalid(self, mock_usecase_cls, _mock_auth):
+    def test_returns_400_when_invalid(self, mock_usecase_cls, _mock_auth):
         mock_instance = MagicMock()
         mock_instance.execute.return_value = CheckUrlResult(valid=False)
         mock_usecase_cls.return_value = mock_instance
@@ -162,7 +162,7 @@ class TestCheckUrlView(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"valid": False})
 
     @auth_bypass()
