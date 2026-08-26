@@ -81,3 +81,13 @@ class TestCrawlerService(TestCase):
 
         self.mock_client.check_url.assert_called_once_with(self.crawl_url)
         self.assertIsNone(result)
+
+    def test_check_url_returns_unreachable_on_client_error(self):
+        self.mock_client.check_url.side_effect = CustomAPIException(
+            status_code=400, detail={"errors": {"crawl_url": ["Invalid URL"]}}
+        )
+
+        result = self.service.check_url(self.crawl_url)
+
+        self.mock_client.check_url.assert_called_once_with(self.crawl_url)
+        self.assertEqual(result, {"reachable": False})

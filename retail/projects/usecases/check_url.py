@@ -27,16 +27,20 @@ class CheckUrlResult:
 
     @property
     def http_status(self) -> int:
-        return 502 if self.unavailable else 200
+        if self.unavailable:
+            return 502
+        if self.valid:
+            return 200
+        return 400
 
 
 class CheckUrlUseCase:
     """
     Proxies a reachability check to the Crawler MS.
 
-    Distinguishes crawler-comms failure (``unavailable``) from a reachable
-    check that returned ``reachable: false``, so the front-end can show
-    different copy.
+    Distinguishes crawler-comms failure (``unavailable``, HTTP 502) from a
+    check that returned ``reachable: false`` (HTTP 400), so the front-end
+    can show different copy.
     """
 
     def __init__(self, crawler_client: CrawlerClientInterface = None):

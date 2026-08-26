@@ -72,7 +72,7 @@ class TestCheckUrlResult(TestCase):
     def test_to_dict_when_unreachable(self):
         result = CheckUrlResult(valid=False)
         self.assertEqual(result.to_dict(), {"valid": False})
-        self.assertEqual(result.http_status, 200)
+        self.assertEqual(result.http_status, 400)
 
     def test_to_dict_when_unavailable(self):
         result = CheckUrlResult(valid=False, unavailable=True)
