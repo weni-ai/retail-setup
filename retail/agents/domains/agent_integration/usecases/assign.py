@@ -26,6 +26,7 @@ from retail.interfaces.services.integrations import IntegrationsServiceInterface
 from retail.interfaces.services.meta import MetaServiceInterface
 from retail.projects.agentic_cx_tasks import task_ensure_agentic_cx_script_active
 from retail.projects.models import Project
+from retail.vtex.usecases.resolve_storefront_origin import resolve_storefront_origin
 from retail.templates.usecases.create_library_template import (
     LibraryTemplateData,
     CreateLibraryTemplateUseCase,
@@ -43,6 +44,9 @@ from retail.services.aws_s3.converters import ImageUrlToBase64Converter
 from retail.agents.shared.country_code_utils import DEFAULT_TEMPLATE_LANGUAGE
 from retail.agents.domains.agent_integration.usecases.build_abandoned_cart_translation import (
     BuildAbandonedCartTranslationUseCase,
+)
+from retail.agents.domains.agent_integration.usecases.build_back_in_stock_translation import (
+    BuildBackInStockTranslationUseCase,
 )
 from retail.agents.domains.agent_integration.usecases.build_payment_recovery_translation import (
     BuildPaymentRecoveryTranslationUseCase,
@@ -84,7 +88,12 @@ class IntegrationsButtonFormat(TypedDict):
 AGENT_DEFAULT_TEMPLATE_DISPLAY_NAMES: Dict[str, str] = {
     "ABANDONED_CART_AGENT_UUID": "Abandoned Cart",
     "PAYMENT_RECOVERY_AGENT_UUID": "Payment Recovery",
+    "BACK_IN_STOCK_AGENT_UUID": "Back in stock",
 }
+
+BACK_IN_STOCK_BUTTON_EXAMPLE_PATH = (
+    "/checkout/cart/add?sku=1&qty=1&seller=1&redirect=true"
+)
 
 
 class AssignAgentUseCase:
@@ -287,12 +296,14 @@ class AssignAgentUseCase:
         """
         Return the contact_percentage override for specific agent types.
 
-        Payment recovery and order status must reach 100% of eligible
-        contacts from day one; other agents keep the model default (10%).
+        Payment recovery, order status and back in stock must reach 100%
+        of eligible contacts from day one (back in stock is an explicit
+        shopper opt-in). Other agents keep the model default (10%).
         """
         full_rollout_setting_names = (
             "PAYMENT_RECOVERY_AGENT_UUID",
             "ORDER_STATUS_AGENT_UUID",
+            "BACK_IN_STOCK_AGENT_UUID",
         )
         for setting_name in full_rollout_setting_names:
             agent_uuid = getattr(settings, setting_name, "")
@@ -721,6 +732,8 @@ class AssignAgentUseCase:
            create a default custom template using the custom template flow.
         4) If the agent is the Payment Recovery agent (PAYMENT_RECOVERY_AGENT_UUID),
            create a default custom template and a VTEX hook via proxy.
+        5) If the agent is the Back in stock agent (BACK_IN_STOCK_AGENT_UUID),
+           create a default custom marketing template.
 
         The initial_template_language is automatically detected from VTEX tenant locale.
         """
@@ -790,6 +803,16 @@ class AssignAgentUseCase:
                     f"[AssignAgent] Skipping hook creation — template failed for "
                     f"integrated_agent={integrated_agent.uuid}"
                 )
+
+        back_in_stock_agent_uuid = getattr(settings, "BACK_IN_STOCK_AGENT_UUID", "")
+        if back_in_stock_agent_uuid and str(agent.uuid) == back_in_stock_agent_uuid:
+            logger.info(f"[AssignAgent] back in stock agent detected={agent.uuid}")
+            self._create_default_back_in_stock_template(
+                integrated_agent=integrated_agent,
+                project=project,
+                project_uuid=project_uuid,
+                app_uuid=app_uuid,
+            )
 
         return integrated_agent
 
@@ -935,6 +958,108 @@ class AssignAgentUseCase:
                 "integrated agent %s: %s",
                 integrated_agent.uuid,
                 exc,
+            )
+
+    def _create_default_back_in_stock_template(
+        self,
+        integrated_agent: IntegratedAgent,
+        project: Project,
+        project_uuid: UUID,
+        app_uuid: UUID,
+    ) -> None:
+        """Create the unique marketing template for the back-in-stock agent.
+
+        Header IMAGE uses the same placeholder as abandoned cart. The URL
+        button host is the storefront; the lambda supplies ``button`` as
+        the add-to-cart path at send time.
+        """
+        template_language = integrated_agent.config.get(
+            "initial_template_language", DEFAULT_TEMPLATE_LANGUAGE
+        )
+
+        try:
+            logger.info(
+                f"[AssignAgent] Back in stock template flow start for "
+                f"integrated_agent={integrated_agent.uuid}, language={template_language}"
+            )
+
+            button_base_url = resolve_storefront_origin(project).origin
+            button_url_example = f"{button_base_url}{BACK_IN_STOCK_BUTTON_EXAMPLE_PATH}"
+            logger.info(
+                f"[AssignAgent] back_in_stock_button_url_resolved: "
+                f"project={project.uuid} vtex_account={project.vtex_account} "
+                f"button_base_url={button_base_url!r}"
+            )
+
+            placeholder_image_url = settings.ABANDONED_CART_DEFAULT_IMAGE_URL
+            image_converter = ImageUrlToBase64Converter()
+            placeholder_image_base64 = image_converter.convert(placeholder_image_url)
+            if not placeholder_image_base64:
+                raise ValueError(
+                    f"Failed to convert placeholder image URL to base64: "
+                    f"{placeholder_image_url}"
+                )
+
+            template_translation = (
+                BuildBackInStockTranslationUseCase.build_template_translation(
+                    language_code=template_language,
+                    button_base_url=button_base_url,
+                    button_url_example=button_url_example,
+                    header_image_base64=placeholder_image_base64,
+                )
+            )
+
+            payload: CreateCustomTemplateData = {
+                "template_translation": template_translation,
+                "category": "MARKETING",
+                "app_uuid": str(app_uuid),
+                "project_uuid": str(project_uuid),
+                "display_name": AGENT_DEFAULT_TEMPLATE_DISPLAY_NAMES[
+                    "BACK_IN_STOCK_AGENT_UUID"
+                ],
+                "start_condition": "If sku_id is not empty",
+                "parameters": [
+                    {
+                        "name": "start_condition",
+                        "value": "If sku_id is not empty",
+                    },
+                    {
+                        "name": "variables",
+                        "value": [
+                            {
+                                "name": "1",
+                                "type": "text",
+                                "definition": "Client name",
+                                "fallback": "Cliente",
+                            },
+                            {
+                                "name": "2",
+                                "type": "text",
+                                "definition": "Product name",
+                                "fallback": "Produto",
+                            },
+                        ],
+                    },
+                ],
+                "integrated_agent_uuid": integrated_agent.uuid,
+                "use_agent_rule": True,
+            }
+
+            use_case = CreateCustomTemplateUseCase()
+            use_case.execute(payload)
+            logger.info(
+                f"[AssignAgent] Back in stock template created for "
+                f"integrated_agent={integrated_agent.uuid}, language={template_language}"
+            )
+        except CustomTemplateAlreadyExists:
+            logger.info(
+                f"Custom back in stock template already exists for "
+                f"integrated agent {integrated_agent.uuid}"
+            )
+        except Exception as exc:
+            logger.exception(
+                "Error while creating default back in stock template for "
+                f"integrated agent {integrated_agent.uuid}: {exc}"
             )
 
     def _build_payment_recovery_webhook_url(

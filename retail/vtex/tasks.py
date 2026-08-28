@@ -26,6 +26,13 @@ from retail.webhooks.vtex.usecases.typing import OrderStatusDTO
 from retail.agents.domains.agent_webhook.usecases.abandoned_cart import (
     AgentAbandonedCartUseCase,
 )
+from retail.vtex.usecases.cleanup_back_in_stock_subscriptions import (
+    CleanupBackInStockSubscriptionsUseCase,
+)
+from retail.webhooks.vtex.usecases.dto import ProcessBackInStockNotificationDTO
+from retail.webhooks.vtex.usecases.process_back_in_stock_notification import (
+    ProcessBackInStockNotificationUseCase,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -315,6 +322,39 @@ def task_notify_lead(lead_uuid: str):
         )
 
 
+@shared_task(name="task_process_back_in_stock_notification")
+def task_process_back_in_stock_notification(
+    account: str,
+    sku_id: str,
+    phone: str,
+    name: str = "",
+    locale: str = "pt-BR",
+) -> None:
+    """Process a back-in-stock notification queued by the IO webhook.
+
+    The HTTP view already answered 200. Inactive agents are discarded
+    here. Do not log ``phone``. Wrapped in ``execution_log_scope`` so a
+    failed send finalises the AgentExecution row as ``error`` instead of
+    leaving it in ``processing``.
+    """
+    with execution_log_scope(
+        error_data={"vtex_account": account, "sku_id": sku_id},
+        log_prefix="[BACK_IN_STOCK]",
+        sentry_tags={"service": "back_in_stock", "vtex_account": account},
+        reraise=(Exception,),
+        suppress=(),
+    ) as exec_logger:
+        dto = ProcessBackInStockNotificationDTO(
+            sku_id=sku_id,
+            phone=phone,
+            name=name,
+            locale=locale,
+        )
+        ProcessBackInStockNotificationUseCase.from_vtex_account(
+            account, exec_logger=exec_logger
+        ).execute(dto)
+
+
 @shared_task(name="task_cleanup_old_carts")
 def task_cleanup_old_carts():
     try:
@@ -324,3 +364,15 @@ def task_cleanup_old_carts():
         logger.info("Old cart records have been cleaned up.")
     except Exception as e:
         logger.error(f"Error cleaning up old cart records: {str(e)}", exc_info=True)
+
+
+@shared_task(name="task_cleanup_back_in_stock_subscriptions")
+def task_cleanup_back_in_stock_subscriptions() -> None:
+    """Ask IO to delete already-sent back-in-stock subscriptions."""
+    try:
+        CleanupBackInStockSubscriptionsUseCase().execute()
+    except Exception as exc:
+        logger.error(
+            f"Error cleaning up back-in-stock subscriptions: {exc}",
+            exc_info=True,
+        )

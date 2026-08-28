@@ -21,6 +21,30 @@ class ExternalAbandonedCartSerializer(serializers.Serializer):
     name = serializers.CharField()
 
 
+class BackInStockShopperSerializer(serializers.Serializer):
+    """One shopper in a back-in-stock batch.
+
+    Array order is FIFO (index 0 subscribed first). ``phone`` is digits
+    only. ``name`` and ``locale`` are optional.
+    """
+
+    phone = serializers.RegexField(regex=r"^\d+$")
+    name = serializers.CharField(required=False, allow_blank=True, default="")
+    locale = serializers.CharField(required=False, allow_blank=True, default="pt-BR")
+
+
+class BackInStockNotificationSerializer(serializers.Serializer):
+    """Validate a back-in-stock batch from VTEX IO.
+
+    One SKU plus a non-empty shopper list. Tenant comes from the JWT,
+    not the body. Extra keys such as ``account`` or ``project_id`` are
+    ignored.
+    """
+
+    sku_id = serializers.CharField()
+    shoppers = BackInStockShopperSerializer(many=True, allow_empty=False)
+
+
 class OrderStatusSerializer(serializers.Serializer):
     recorder = serializers.JSONField()
     domain = serializers.CharField()
