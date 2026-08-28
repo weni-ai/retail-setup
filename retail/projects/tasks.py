@@ -3,19 +3,19 @@ import logging
 from celery import shared_task
 from django.core.cache import cache
 
+from retail.projects import agentic_cx_tasks
 from retail.projects.models import ProjectOnboarding
+from retail.projects.usecases.content_base_progress_helpers import (
+    STATUS_FAILED,
+    persist_content_base_progress,
+)
 from retail.projects.usecases.mark_onboarding_failed import mark_onboarding_failed
 from retail.projects.usecases.onboarding_orchestrator import OnboardingOrchestrator
 from retail.projects.usecases.pre_crawl_channel import PreCrawlChannelUseCase
 from retail.projects.usecases.save_background_failure import (
     SaveBackgroundFailureUseCase,
 )
-from retail.projects.usecases.content_base_progress_helpers import (
-    STATUS_FAILED,
-    persist_content_base_progress,
-)
 from retail.projects.usecases.upload_nexus_contents import UploadNexusContentsUseCase
-from retail.services.vtex_io.service import VtexIOService
 
 logger = logging.getLogger(__name__)
 
@@ -156,18 +156,22 @@ def task_wait_and_start_crawl(self, vtex_account: str, crawl_url: str) -> None:
     return _run_setup_channel_and_start_crawl(self, vtex_account, crawl_url)
 
 
+task_ensure_agentic_cx_script_active = (
+    agentic_cx_tasks.task_ensure_agentic_cx_script_active
+)
+
+
 @shared_task(name="task_activate_agentic_cx_script")
 def task_activate_agentic_cx_script(vtex_account: str) -> None:
     """
-    Notifies the VTEX IO app that the onboarding is complete
-    and the Agentic CX script can be installed on the storefront.
+    Deprecated alias for ``task_ensure_agentic_cx_script_active``.
+
+    Kept registered under the original Celery task name so in-flight
+    messages queued before the rename keep executing the capability-based
+    activation. New dispatches MUST use
+    ``task_ensure_agentic_cx_script_active`` directly.
     """
-    account_domain = f"{vtex_account}.myvtex.com"
-    VtexIOService().activate_agentic_cx_script(
-        account_domain=account_domain,
-        vtex_account=vtex_account,
-    )
-    logger.info(f"Agentic CX script activated for vtex_account={vtex_account}")
+    agentic_cx_tasks._run_ensure_agentic_cx_script_active(vtex_account)
 
 
 UPLOAD_NEXUS_LOCK_NAME = "upload_nexus_contents"

@@ -21,6 +21,7 @@ from retail.agents.domains.agent_integration.views import (
     PaymentRecoveryHookConfigView,
     PaymentRecoveryWebhookView,
     TemplateLanguagesView,
+    MessageTimeRestrictionView,
 )
 from retail.agents.domains.agent_webhook.views import AgentWebhookView
 from retail.webhooks.vtex.views.abandoned_cart_webhook import AbandonedCartWebhookView
@@ -65,6 +66,11 @@ urlpatterns = [
         "delivered-order-tracking/<uuid:pk>/",
         DeliveredOrderTrackingWebhookView.as_view(),
         name="delivered-order-tracking-webhook",
+    ),
+    path(
+        "assigneds/<uuid:pk>/abandoned-cart/message-time-restriction/",
+        MessageTimeRestrictionView.as_view(),
+        name="abandoned-cart-message-time-restriction",
     ),
     path(
         "assigneds/<uuid:pk>/payment-recovery/hook-config/",

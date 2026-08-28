@@ -26,6 +26,8 @@ from django.test import SimpleTestCase, override_settings
 from retail.agents.domains.agent_integration.serializers import (
     AbandonedCartConfigSerializer,
     DeliveredOrderTrackingEnableSerializer,
+    MessageTimeRestrictionReadSerializer,
+    MessageTimeRestrictionSerializer,
     ReadIntegratedAgentSerializer,
     RetrieveIntegratedAgentQueryParamsSerializer,
     TemplateLanguageSerializer,
@@ -215,6 +217,120 @@ class UpdateIntegratedAgentSerializerTests(SimpleTestCase):
         self.assertIn("abandoned_cart_config", serializer.errors)
 
 
+VALID_TIME_RESTRICTION = {
+    "is_active": True,
+    "periods": {
+        "weekdays": {"from": "08:00", "to": "20:00"},
+        "saturdays": {"from": "10:00", "to": "12:00"},
+    },
+}
+
+
+class MessageTimeRestrictionSerializerTests(SimpleTestCase):
+    def test_valid_payload_round_trips(self):
+        serializer = MessageTimeRestrictionSerializer(data=VALID_TIME_RESTRICTION)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data, VALID_TIME_RESTRICTION)
+
+    def test_is_active_is_required(self):
+        data = {"periods": VALID_TIME_RESTRICTION["periods"]}
+        serializer = MessageTimeRestrictionSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("is_active", serializer.errors)
+
+    def test_periods_are_required(self):
+        serializer = MessageTimeRestrictionSerializer(data={"is_active": False})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("periods", serializer.errors)
+
+    def test_weekdays_are_required(self):
+        data = {
+            "is_active": True,
+            "periods": {"saturdays": {"from": "10:00", "to": "12:00"}},
+        }
+        serializer = MessageTimeRestrictionSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("weekdays", serializer.errors["periods"])
+
+    def test_saturdays_are_required(self):
+        data = {
+            "is_active": True,
+            "periods": {"weekdays": {"from": "08:00", "to": "20:00"}},
+        }
+        serializer = MessageTimeRestrictionSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("saturdays", serializer.errors["periods"])
+
+    def test_rejects_invalid_time_format(self):
+        data = {
+            "is_active": True,
+            "periods": {
+                "weekdays": {"from": "8:00", "to": "20:00"},
+                "saturdays": {"from": "10:00", "to": "12:00"},
+            },
+        }
+        serializer = MessageTimeRestrictionSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("from", serializer.errors["periods"]["weekdays"])
+
+    def test_rejects_hour_out_of_range(self):
+        data = {
+            "is_active": True,
+            "periods": {
+                "weekdays": {"from": "08:00", "to": "24:00"},
+                "saturdays": {"from": "10:00", "to": "12:00"},
+            },
+        }
+        serializer = MessageTimeRestrictionSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("to", serializer.errors["periods"]["weekdays"])
+
+    def test_rejects_from_equal_to_to(self):
+        data = {
+            "is_active": True,
+            "periods": {
+                "weekdays": {"from": "08:00", "to": "08:00"},
+                "saturdays": {"from": "10:00", "to": "12:00"},
+            },
+        }
+        serializer = MessageTimeRestrictionSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("to", serializer.errors["periods"]["weekdays"])
+
+    def test_rejects_from_later_than_to(self):
+        data = {
+            "is_active": True,
+            "periods": {
+                "weekdays": {"from": "20:00", "to": "08:00"},
+                "saturdays": {"from": "10:00", "to": "12:00"},
+            },
+        }
+        serializer = MessageTimeRestrictionSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("to", serializer.errors["periods"]["weekdays"])
+
+    def test_inactive_payload_still_requires_valid_periods(self):
+        data = {
+            "is_active": False,
+            "periods": VALID_TIME_RESTRICTION["periods"],
+        }
+        serializer = MessageTimeRestrictionSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertFalse(serializer.validated_data["is_active"])
+
+
+class MessageTimeRestrictionReadSerializerTests(SimpleTestCase):
+    def test_projects_null_periods_when_unset(self):
+        serializer = MessageTimeRestrictionReadSerializer(
+            {"is_active": False, "periods": None}
+        )
+        self.assertEqual(serializer.data, {"is_active": False, "periods": None})
+
+    def test_projects_full_restriction(self):
+        serializer = MessageTimeRestrictionReadSerializer(VALID_TIME_RESTRICTION)
+        self.assertEqual(serializer.data, VALID_TIME_RESTRICTION)
+
+
 def _integrated_agent(**overrides):
     """Duck-typed integrated-agent stub used by the read serializer."""
     defaults = dict(
@@ -381,6 +497,38 @@ class ReadIntegratedAgentSerializerTests(SimpleTestCase):
                 "abandonment_time_minutes": 45,
                 "minimum_cart_value": 20.0,
                 "notification_cooldown_hours": 12,
+            },
+        )
+
+    def test_message_time_restriction_returns_inactive_when_absent(self):
+        obj = _integrated_agent(config={})
+        data = ReadIntegratedAgentSerializer(obj).data
+        self.assertEqual(
+            data["message_time_restriction"],
+            {"is_active": False, "periods": None},
+        )
+
+    def test_message_time_restriction_projects_stored_block(self):
+        obj = _integrated_agent(
+            config={
+                "message_time_restriction": {
+                    "is_active": True,
+                    "periods": {
+                        "weekdays": {"from": "08:00", "to": "20:00"},
+                        "saturdays": {"from": "10:00", "to": "12:00"},
+                    },
+                }
+            }
+        )
+        data = ReadIntegratedAgentSerializer(obj).data
+        self.assertEqual(
+            data["message_time_restriction"],
+            {
+                "is_active": True,
+                "periods": {
+                    "weekdays": {"from": "08:00", "to": "20:00"},
+                    "saturdays": {"from": "10:00", "to": "12:00"},
+                },
             },
         )
 

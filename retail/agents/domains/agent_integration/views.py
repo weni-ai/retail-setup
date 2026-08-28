@@ -25,6 +25,8 @@ from retail.agents.domains.agent_integration.serializers import (
     PaymentRecoveryHookConfigSerializer,
     PaymentRecoveryHookConfigReadSerializer,
     TemplateLanguageSerializer,
+    MessageTimeRestrictionSerializer,
+    MessageTimeRestrictionReadSerializer,
 )
 from retail.agents.domains.agent_integration.utils import TEMPLATE_LANGUAGES
 from retail.agents.domains.agent_integration.usecases.assign import AssignAgentUseCase
@@ -54,6 +56,9 @@ from retail.agents.domains.agent_integration.usecases.payment_recovery import (
 )
 from retail.agents.domains.agent_integration.usecases.payment_recovery_hook_config import (
     PaymentRecoveryHookConfigUseCase,
+)
+from retail.agents.domains.agent_integration.usecases.message_time_restriction import (
+    MessageTimeRestrictionUseCase,
 )
 
 from retail.internal.permissions import HasProjectPermission, HasWeniProjectPermission
@@ -403,6 +408,54 @@ class PaymentRecoveryHookConfigView(WeniAuthMixin, APIView):
         )
         response_serializer = PaymentRecoveryHookConfigReadSerializer(config_data)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
+class MessageTimeRestrictionView(WeniAuthMixin, APIView):
+    """Abandoned-cart send-time restriction for the IO frontend.
+
+    Called with the operator JWT: ``RetailAuthentication`` resolves user
+    and project from the token (not from ``Project-Uuid`` / ``user_email``
+    query params). Connect contributor or moderator is required.
+    """
+
+    permission_classes = [
+        IsWeniAuthenticated,
+        HasWeniProjectPermission,
+        IsIntegratedAgentFromProject,
+    ]
+
+    def _authorized_agent(self, request: Request, pk: UUID):
+        use_case = MessageTimeRestrictionUseCase()
+        integrated_agent = use_case.get_integrated_agent(pk)
+        self.check_object_permissions(request, integrated_agent)
+        return use_case, integrated_agent
+
+    def get(self, request: Request, pk: UUID) -> Response:
+        """Return the current send-time restriction for an integrated agent."""
+        use_case, integrated_agent = self._authorized_agent(request, pk)
+        serializer = MessageTimeRestrictionReadSerializer(
+            use_case.get_restriction(integrated_agent)
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def put(self, request: Request, pk: UUID) -> Response:
+        """Create or replace the send-time restriction for an integrated agent."""
+        use_case, integrated_agent = self._authorized_agent(request, pk)
+
+        serializer = MessageTimeRestrictionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        result = use_case.upsert_restriction(
+            integrated_agent, serializer.validated_data
+        )
+        response_serializer = MessageTimeRestrictionReadSerializer(result)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+    def delete(self, request: Request, pk: UUID) -> Response:
+        """Remove the send-time restriction so dispatch uses the default countdown."""
+        use_case, integrated_agent = self._authorized_agent(request, pk)
+        use_case.delete_restriction(integrated_agent)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class PaymentRecoveryWebhookView(APIView):
