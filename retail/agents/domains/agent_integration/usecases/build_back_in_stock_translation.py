@@ -11,28 +11,44 @@ class BuildBackInStockTranslationUseCase:
     _TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "pt_BR": {
             "body_text": (
-                "Ótimas notícias, {{1}}. {{2}} já está de volta ao estoque. "
-                "Toque no botão para comprar"
+                "Oi, {{1}}! 👋\n\n"
+                "Boa notícia: o *{{2}}* que você queria voltou ao estoque.\n\n"
+                "Você pediu pra avisarmos assim que ele chegasse — e já "
+                "deixamos seu carrinho pronto, com ele lá dentro. É só tocar "
+                "no botão abaixo e finalizar.\n\n"
+                "Estoque limitado: vale finalizar antes que ele acabe de novo. 🛒"
             ),
             "body_example": ["João", "Camiseta Azul"],
-            "button_url_text": "Comprar",
+            "footer_text": "Você recebeu porque pediu aviso de reposição.",
+            "button_url_text": "Comprar agora",
             "button_quick_reply_text": "Parar promoções",
         },
         "en": {
             "body_text": (
-                "Great news, {{1}}. {{2}} is back in stock. " "Tap the button to buy it"
+                "Hi, {{1}}! 👋\n\n"
+                "Good news: *{{2}}* that you wanted is back in stock.\n\n"
+                "You asked us to let you know when it arrived — and we already "
+                "left your cart ready, with it inside. Just tap the button "
+                "below to check out.\n\n"
+                "Limited stock: worth finishing before it's gone again. 🛒"
             ),
             "body_example": ["John", "Blue T-shirt"],
-            "button_url_text": "Buy",
+            "footer_text": "You received this because you asked for a restock alert.",
+            "button_url_text": "Buy now",
             "button_quick_reply_text": "Stop promotions",
         },
         "es": {
             "body_text": (
-                "Buenas noticias, {{1}}. {{2}} ya está de vuelta en stock. "
-                "Toca el botón para comprarlo"
+                "Hola, {{1}}! 👋\n\n"
+                "Buenas noticias: *{{2}}* que querías volvió al stock.\n\n"
+                "Pediste que te avisáramos en cuanto llegara — y ya dejamos "
+                "tu carrito listo, con él dentro. Toca el botón de abajo "
+                "para finalizar.\n\n"
+                "Stock limitado: conviene finalizar antes de que se agote otra vez. 🛒"
             ),
             "body_example": ["Juan", "Camiseta azul"],
-            "button_url_text": "Comprar",
+            "footer_text": "Lo recibiste porque pediste aviso de reposición.",
+            "button_url_text": "Comprar ahora",
             "button_quick_reply_text": "Parar promociones",
         },
     }
@@ -73,6 +89,7 @@ class BuildBackInStockTranslationUseCase:
         template_translation: Dict[str, Any] = {
             "template_body": translation_data["body_text"],
             "template_body_params": translation_data["body_example"],
+            "template_footer": translation_data["footer_text"],
             "template_button": [
                 {
                     "type": "URL",
