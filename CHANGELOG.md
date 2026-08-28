@@ -1,5 +1,9 @@
+# 5.55.0
+- feat: Add check-url endpoint to preflight crawl URL reachability via Crawler MS
+- feat: Add abandoned-cart send-time restriction endpoint
+
 # 5.54.0
-- fix: Ignore pre-cart VTEX orders in purchase detection
+- feat: Integrate Agentic CX script activation into onboarding and agent assignment processes
 
 # 5.53.0
 - fix: Ignore pre-cart VTEX orders in purchase detection
