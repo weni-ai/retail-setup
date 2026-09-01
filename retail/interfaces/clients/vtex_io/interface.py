@@ -102,6 +102,22 @@ class VtexIOClientInterface(ABC):
         pass
 
     @abstractmethod
+    def cleanup_availability_notify(
+        self, account_domain: str, vtex_account: str
+    ) -> dict:
+        """
+        Ask VTEX IO to delete already-sent back-in-stock subscriptions.
+
+        Args:
+            account_domain (str): VTEX account domain.
+            vtex_account (str): VTEX account for JWT token generation.
+
+        Returns:
+            dict: Cleanup result from VTEX IO.
+        """
+        pass
+
+    @abstractmethod
     def proxy_vtex(
         self,
         account_domain: str,

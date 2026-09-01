@@ -325,10 +325,21 @@ AGENT_EXECUTION_CELERY_QUEUE = env.str(
     "AGENT_EXECUTION_CELERY_QUEUE", default="agent-executions"
 )
 
+# Dedicated Celery queue for back-in-stock WhatsApp sends. The HTTP
+# webhook answers 200 as soon as the job is queued; a worker started
+# with ``celery-worker back-in-stock`` processes the send.
+BACK_IN_STOCK_CELERY_QUEUE = env.str(
+    "BACK_IN_STOCK_CELERY_QUEUE", default="back-in-stock"
+)
+
 CELERY_BEAT_SCHEDULE = {
     "task-cleanup-old-carts": {
         "task": "task_cleanup_old_carts",
         "schedule": crontab(minute=0, hour=2),
+    },
+    "task-cleanup-back-in-stock-subscriptions": {
+        "task": "task_cleanup_back_in_stock_subscriptions",
+        "schedule": crontab(minute=0, hour=3),
     },
     "task-cleanup-old-executions": {
         "task": "task_cleanup_old_executions",
@@ -343,6 +354,7 @@ CELERY_BEAT_SCHEDULE = {
 CELERY_TASK_ROUTES = {
     "task_cleanup_old_executions": {"queue": AGENT_EXECUTION_CELERY_QUEUE},
     "task_flush_execution_logs": {"queue": AGENT_EXECUTION_CELERY_QUEUE},
+    "task_process_back_in_stock_notification": {"queue": BACK_IN_STOCK_CELERY_QUEUE},
 }
 
 
@@ -477,6 +489,7 @@ ABANDONED_CART_CLONE_ORDER_FORM_ENABLED = env.bool(
     "ABANDONED_CART_CLONE_ORDER_FORM_ENABLED", default=False
 )
 PAYMENT_RECOVERY_AGENT_UUID = env.str("PAYMENT_RECOVERY_AGENT_UUID", default="")
+BACK_IN_STOCK_AGENT_UUID = env.str("BACK_IN_STOCK_AGENT_UUID", default="")
 
 # Time window (in seconds) to ignore repeated order status events.
 # An identical event (same project, agent, order, and current state) arriving

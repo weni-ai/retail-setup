@@ -130,6 +130,24 @@ class AgentActiveViewTest(TestCase):
 
     @_jwt_auth_bypass("teststore")
     @patch("retail.api.vtex_projects.views.CheckAgentActiveUseCase")
+    def test_accepts_back_in_stock_agent_type(self, mock_use_case_cls, _auth):
+        mock_use_case_cls.return_value.execute_any.return_value = True
+
+        request = self.factory.get(
+            f"/api/vtex-projects/{self.vtex_account}/agent-active/",
+            {"agent": "back_in_stock"},
+        )
+        response = self.view(request, vtex_account=self.vtex_account)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["is_active"])
+        mock_use_case_cls.return_value.execute_any.assert_called_once_with(
+            vtex_account=self.vtex_account,
+            agent_types=["back_in_stock"],
+        )
+
+    @_jwt_auth_bypass("teststore")
+    @patch("retail.api.vtex_projects.views.CheckAgentActiveUseCase")
     def test_accepts_repeated_agent_param_with_or_semantics(
         self, mock_use_case_cls, _auth
     ):
