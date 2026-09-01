@@ -121,3 +121,54 @@ class AssignBackInStockTemplateTest(TestCase):
             credentials={},
         )
         self.assertEqual(self.use_case._resolve_contact_percentage(agent), 100)
+
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign."
+        "EnsureBackInStockContactGroupUseCase"
+    )
+    def test_ensure_subscribers_group_delegates_to_use_case(self, mock_use_case_cls):
+        self.use_case._ensure_back_in_stock_subscribers_group(self.project.uuid)
+
+        mock_use_case_cls.return_value.execute.assert_called_once_with(
+            self.project.uuid
+        )
+
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign."
+        "EnsureBackInStockContactGroupUseCase"
+    )
+    @patch.object(AssignAgentUseCase, "_create_default_back_in_stock_template")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign."
+        "CreateLibraryTemplateUseCase"
+    )
+    def test_execute_ensures_subscribers_group(
+        self, mock_library_cls, mock_create_template, mock_group_cls
+    ):
+        mock_library_cls.return_value.execute.return_value = (MagicMock(), MagicMock())
+        agent = Agent.objects.create(
+            uuid=BACK_IN_STOCK_AGENT_UUID,
+            name="Back in stock",
+            lambda_arn="arn:aws:lambda:fake",
+            project=self.project,
+            credentials={},
+        )
+        mock_integrations = MagicMock()
+        mock_integrations.fetch_templates_from_user.return_value = {}
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=MagicMock(),
+        )
+
+        use_case.execute(
+            agent,
+            self.project.uuid,
+            uuid.uuid4(),
+            uuid.uuid4(),
+            {},
+            [],
+        )
+
+        mock_create_template.assert_called_once()
+        mock_group_cls.return_value.execute.assert_called_once_with(self.project.uuid)

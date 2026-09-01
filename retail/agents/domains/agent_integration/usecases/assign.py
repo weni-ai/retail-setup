@@ -48,6 +48,9 @@ from retail.agents.domains.agent_integration.usecases.build_abandoned_cart_trans
 from retail.agents.domains.agent_integration.usecases.build_back_in_stock_translation import (
     BuildBackInStockTranslationUseCase,
 )
+from retail.agents.domains.agent_integration.usecases.ensure_back_in_stock_contact_group import (
+    EnsureBackInStockContactGroupUseCase,
+)
 from retail.agents.domains.agent_integration.usecases.build_payment_recovery_translation import (
     BuildPaymentRecoveryTranslationUseCase,
 )
@@ -733,7 +736,8 @@ class AssignAgentUseCase:
         4) If the agent is the Payment Recovery agent (PAYMENT_RECOVERY_AGENT_UUID),
            create a default custom template and a VTEX hook via proxy.
         5) If the agent is the Back in stock agent (BACK_IN_STOCK_AGENT_UUID),
-           create a default custom marketing template.
+           create a default custom marketing template and ensure the
+           Flows contact group ``back-in-stock-subscribers`` exists.
 
         The initial_template_language is automatically detected from VTEX tenant locale.
         """
@@ -813,6 +817,7 @@ class AssignAgentUseCase:
                 project_uuid=project_uuid,
                 app_uuid=app_uuid,
             )
+            self._ensure_back_in_stock_subscribers_group(project_uuid)
 
         return integrated_agent
 
@@ -1061,6 +1066,10 @@ class AssignAgentUseCase:
                 "Error while creating default back in stock template for "
                 f"integrated agent {integrated_agent.uuid}: {exc}"
             )
+
+    def _ensure_back_in_stock_subscribers_group(self, project_uuid: UUID) -> None:
+        """Create the Flows subscribers group when it is missing."""
+        EnsureBackInStockContactGroupUseCase().execute(project_uuid)
 
     def _build_payment_recovery_webhook_url(
         self, integrated_agent: IntegratedAgent
