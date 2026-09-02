@@ -17,9 +17,32 @@ class ProcessBackInStockNotificationDTO:
 
 
 @dataclass(frozen=True)
-class EnqueueBackInStockNotificationsDTO:
+class SubscribeBackInStockDTO:
     account: str
-    shoppers: tuple[ProcessBackInStockNotificationDTO, ...]
+    sku_id: str
+    phone: str
+    name: str
+    seller: str
+    sales_channel: str
+    locale: str
+
+
+@dataclass(frozen=True)
+class BackInStockStockChangeDTO:
+    account: str
+    sku_id: str
+
+
+@dataclass(frozen=True)
+class BackInStockStockChangeResult:
+    accepted: bool
+    reason: str = ""
+
+    def to_dict(self) -> dict:
+        payload = {"accepted": self.accepted}
+        if not self.accepted:
+            payload["reason"] = self.reason
+        return payload
 
 
 @dataclass(frozen=True)

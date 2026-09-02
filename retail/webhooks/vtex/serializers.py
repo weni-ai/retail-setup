@@ -21,28 +21,29 @@ class ExternalAbandonedCartSerializer(serializers.Serializer):
     name = serializers.CharField()
 
 
-class BackInStockShopperSerializer(serializers.Serializer):
-    """One shopper in a back-in-stock batch.
+class BackInStockSubscribeSerializer(serializers.Serializer):
+    """Validate a storefront subscribe forwarded by VTEX IO.
 
-    Array order is FIFO (index 0 subscribed first). ``phone`` is digits
-    only. ``name`` and ``locale`` are optional.
-    """
-
-    phone = serializers.RegexField(regex=r"^\d+$")
-    name = serializers.CharField(required=False, allow_blank=True, default="")
-    locale = serializers.CharField(required=False, allow_blank=True, default="pt-BR")
-
-
-class BackInStockNotificationSerializer(serializers.Serializer):
-    """Validate a back-in-stock batch from VTEX IO.
-
-    One SKU plus a non-empty shopper list. Tenant comes from the JWT,
-    not the body. Extra keys such as ``account`` or ``project_id`` are
-    ignored.
+    Tenant comes from the JWT, not the body. Extra keys such as
+    ``account`` are ignored.
     """
 
     sku_id = serializers.CharField()
-    shoppers = BackInStockShopperSerializer(many=True, allow_empty=False)
+    phone = serializers.RegexField(regex=r"^\d+$")
+    name = serializers.CharField()
+    seller = serializers.CharField()
+    sales_channel = serializers.CharField()
+    locale = serializers.CharField(required=False, allow_blank=True, default="pt-BR")
+
+
+class BackInStockStockChangeSerializer(serializers.Serializer):
+    """Validate a catalog stock-change forwarded by VTEX IO.
+
+    The event does not carry quantity, seller or trade policy. Tenant
+    comes from the JWT, not the body.
+    """
+
+    sku_id = serializers.CharField()
 
 
 class OrderStatusSerializer(serializers.Serializer):

@@ -29,9 +29,17 @@ from retail.agents.domains.agent_webhook.usecases.abandoned_cart import (
 from retail.vtex.usecases.cleanup_back_in_stock_subscriptions import (
     CleanupBackInStockSubscriptionsUseCase,
 )
-from retail.webhooks.vtex.usecases.dto import ProcessBackInStockNotificationDTO
+from retail.webhooks.vtex.usecases.notify_back_in_stock_waiter import (
+    NotifyBackInStockWaiterUseCase,
+)
 from retail.webhooks.vtex.usecases.process_back_in_stock_notification import (
     ProcessBackInStockNotificationUseCase,
+)
+from retail.webhooks.vtex.usecases.process_back_in_stock_stock_change import (
+    ProcessBackInStockStockChangeUseCase,
+)
+from retail.webhooks.vtex.usecases.rebuild_back_in_stock_waiting_skus import (
+    RebuildBackInStockWaitingSkusUseCase,
 )
 
 
@@ -322,37 +330,64 @@ def task_notify_lead(lead_uuid: str):
         )
 
 
-@shared_task(name="task_process_back_in_stock_notification")
-def task_process_back_in_stock_notification(
-    account: str,
-    sku_id: str,
-    phone: str,
-    name: str = "",
-    locale: str = "pt-BR",
-) -> None:
-    """Process a back-in-stock notification queued by the IO webhook.
-
-    The HTTP view already answered 200. Inactive agents are discarded
-    here. Do not log ``phone``. Wrapped in ``execution_log_scope`` so a
-    failed send finalises the AgentExecution row as ``error`` instead of
-    leaving it in ``processing``.
-    """
+@shared_task(name="task_process_back_in_stock_stock_change")
+def task_process_back_in_stock_stock_change(account: str, sku_id: str) -> None:
+    """Queue 1: Logistics + Checkout for a SKU that passed SISMEMBER."""
     with execution_log_scope(
         error_data={"vtex_account": account, "sku_id": sku_id},
         log_prefix="[BACK_IN_STOCK]",
         sentry_tags={"service": "back_in_stock", "vtex_account": account},
         reraise=(Exception,),
         suppress=(),
+    ):
+        ProcessBackInStockStockChangeUseCase().execute(account=account, sku_id=sku_id)
+
+
+@shared_task(name="task_notify_back_in_stock_waiter")
+def task_notify_back_in_stock_waiter(
+    account: str,
+    waiter_uuid: str,
+    sku_id: str,
+    phone: str,
+    name: str = "",
+    locale: str = "pt-BR",
+) -> None:
+    """Queue 2: WhatsApp for one waiter. Do not log ``phone``."""
+    with execution_log_scope(
+        error_data={
+            "vtex_account": account,
+            "sku_id": sku_id,
+            "waiter_uuid": waiter_uuid,
+        },
+        log_prefix="[BACK_IN_STOCK]",
+        sentry_tags={"service": "back_in_stock", "vtex_account": account},
+        reraise=(Exception,),
+        suppress=(),
     ) as exec_logger:
-        dto = ProcessBackInStockNotificationDTO(
+        NotifyBackInStockWaiterUseCase(
+            send_use_case=ProcessBackInStockNotificationUseCase.from_vtex_account(
+                account, exec_logger=exec_logger
+            )
+        ).execute(
+            account=account,
+            waiter_uuid=waiter_uuid,
             sku_id=sku_id,
             phone=phone,
             name=name,
             locale=locale,
         )
-        ProcessBackInStockNotificationUseCase.from_vtex_account(
-            account, exec_logger=exec_logger
-        ).execute(dto)
+
+
+@shared_task(name="task_rebuild_back_in_stock_waiting_skus")
+def task_rebuild_back_in_stock_waiting_skus() -> None:
+    """Nightly rebuild of waiting_skus SET keys from pending waiters."""
+    try:
+        RebuildBackInStockWaitingSkusUseCase().execute()
+    except Exception as exc:
+        logger.error(
+            f"Error rebuilding back-in-stock waiting SKU index: {exc}",
+            exc_info=True,
+        )
 
 
 @shared_task(name="task_cleanup_old_carts")
@@ -368,7 +403,7 @@ def task_cleanup_old_carts():
 
 @shared_task(name="task_cleanup_back_in_stock_subscriptions")
 def task_cleanup_back_in_stock_subscriptions() -> None:
-    """Ask IO to delete already-sent back-in-stock subscriptions."""
+    """Delete old sent back-in-stock waiters from the database."""
     try:
         CleanupBackInStockSubscriptionsUseCase().execute()
     except Exception as exc:
