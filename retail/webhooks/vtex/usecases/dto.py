@@ -14,6 +14,8 @@ class ProcessBackInStockNotificationDTO:
     phone: str
     name: str
     locale: str
+    seller: str
+    sales_channel: str
 
 
 @dataclass(frozen=True)
@@ -49,20 +51,27 @@ class BackInStockStockChangeResult:
 class BackInStockLambdaPayload:
     """Minimum payload ActiveAgent.invoke needs besides injected project.
 
-    The lambda looks up the SKU and returns ``template``, SKU name,
-    ``image_url`` and the add-to-cart ``button`` path. ``store`` is the
-    shopper-facing origin used to build that cart URL. ``phone_number``
-    is for WhatsApp send only and must never be logged.
+    The lambda checks availability for the exact offer (``seller`` +
+    ``sales_channel``) and, when sendable, returns ``template``, SKU
+    name, ``image_url`` and the add-to-cart ``button`` path. ``store``
+    is the shopper-facing origin (the WhatsApp button ``base_url``).
+    ``phone_number`` is for WhatsApp send only and must never be logged.
     """
 
     sku_id: str
     client_name: str
     phone_number: str
     store: str
+    seller: str
+    sales_channel: str
+    quantity: int = 1
 
     def to_lambda_dict(self) -> dict:
         return {
             "sku_id": self.sku_id,
+            "seller_id": self.seller,
+            "sales_channel": self.sales_channel,
+            "quantity": self.quantity,
             "client_name": self.client_name,
             "phone_number": self.phone_number,
             "store": self.store,

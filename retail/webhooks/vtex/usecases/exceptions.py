@@ -10,10 +10,6 @@ class InvalidIntegratedAgentError(Exception):
     """Raised when the integrated agent cannot process abandoned cart notifications."""
 
 
-class BackInStockStockCheckError(Exception):
-    """Logistics or Checkout failed while evaluating a waiting SKU."""
-
-
 class BackInStockSendNotReadyError(Exception):
     """Raised when the WhatsApp send did not complete.
 

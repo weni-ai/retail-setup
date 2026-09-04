@@ -60,7 +60,16 @@ class NotifyBackInStockWaiterUseCaseTest(TestCase):
             phone=waiter.phone,
             name=waiter.name,
             locale=waiter.locale,
+            seller=waiter.seller,
+            sales_channel=waiter.sales_channel,
         )
+
+    def test_forwards_offer_fields_to_send_use_case(self):
+        self._execute(self.maria)
+
+        dto = self.mock_send.execute.call_args[0][0]
+        self.assertEqual(dto.seller, "1")
+        self.assertEqual(dto.sales_channel, "1")
 
     def test_marks_sent_and_srems_when_last_pending_for_sku(self):
         self._execute(self.maria)
@@ -104,6 +113,8 @@ class NotifyBackInStockWaiterUseCaseTest(TestCase):
             phone="5511999887766",
             name="Maria",
             locale="pt-BR",
+            seller="1",
+            sales_channel="1",
         )
 
         self.mock_send.execute.assert_not_called()

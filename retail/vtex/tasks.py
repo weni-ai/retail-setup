@@ -351,6 +351,8 @@ def task_notify_back_in_stock_waiter(
     phone: str,
     name: str = "",
     locale: str = "pt-BR",
+    seller: str = "",
+    sales_channel: str = "",
 ) -> None:
     """Queue 2: WhatsApp for one waiter. Do not log ``phone``."""
     with execution_log_scope(
@@ -375,6 +377,8 @@ def task_notify_back_in_stock_waiter(
             phone=phone,
             name=name,
             locale=locale,
+            seller=seller,
+            sales_channel=sales_channel,
         )
 
 

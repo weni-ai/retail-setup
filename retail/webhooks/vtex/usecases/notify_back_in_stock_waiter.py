@@ -43,6 +43,8 @@ class NotifyBackInStockWaiterUseCase:
         phone: str,
         name: str,
         locale: str,
+        seller: str,
+        sales_channel: str,
     ) -> None:
         waiter = self._retryable_waiter(waiter_uuid)
         if waiter is None:
@@ -59,6 +61,8 @@ class NotifyBackInStockWaiterUseCase:
                     phone=phone,
                     name=name,
                     locale=locale,
+                    seller=seller,
+                    sales_channel=sales_channel,
                 )
             )
         except Exception as exc:

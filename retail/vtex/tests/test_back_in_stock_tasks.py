@@ -50,6 +50,8 @@ class TaskNotifyBackInStockWaiterTest(TestCase):
             phone="5511999887766",
             name="Maria Silva",
             locale="pt-BR",
+            seller="1",
+            sales_channel="1",
         )
 
         mock_send_cls.from_vtex_account.assert_called_once_with(
@@ -65,6 +67,8 @@ class TaskNotifyBackInStockWaiterTest(TestCase):
             phone="5511999887766",
             name="Maria Silva",
             locale="pt-BR",
+            seller="1",
+            sales_channel="1",
         )
 
     @patch("retail.vtex.tasks.NotifyBackInStockWaiterUseCase")
