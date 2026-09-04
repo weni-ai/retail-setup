@@ -2,7 +2,7 @@ import uuid
 
 from django.core.cache import cache
 from django.db import IntegrityError
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
@@ -49,7 +49,11 @@ class SubscribeBackInStockUseCaseTest(TestCase):
         )
         self.redis = FakeRedis()
         self.index = WaitingSkusIndex(redis_client=self.redis)
-        self.use_case = SubscribeBackInStockUseCase(index=self.index)
+        self.group_subscriber = MagicMock()
+        self.use_case = SubscribeBackInStockUseCase(
+            index=self.index,
+            group_subscriber=self.group_subscriber,
+        )
 
     def tearDown(self):
         cache.clear()
@@ -65,6 +69,9 @@ class SubscribeBackInStockUseCaseTest(TestCase):
         key = self.index.key_for("gaboulstore")
         self.assertEqual(self.redis.sets[key], {"9"})
         self.assertEqual(self.redis.ttls[key], WAITING_SKUS_TTL_SECONDS)
+        self.group_subscriber.execute.assert_called_once_with(
+            self.project.uuid, "Maria Silva", "5511999887766"
+        )
 
     def test_duplicate_pending_does_not_insert_again(self):
         self.use_case.execute(_dto())
@@ -136,6 +143,7 @@ class SubscribeBackInStockUseCaseTest(TestCase):
             self.use_case.execute(_dto(account="unknown"))
 
         self.assertEqual(BackInStockWaiter.objects.count(), 0)
+        self.group_subscriber.execute.assert_not_called()
 
     def test_raises_when_multiple_projects_share_account(self):
         with patch.object(
@@ -145,6 +153,8 @@ class SubscribeBackInStockUseCaseTest(TestCase):
         ):
             with self.assertRaises(ProjectNotFoundError):
                 self.use_case.execute(_dto())
+
+        self.group_subscriber.execute.assert_not_called()
 
     def test_recovers_from_integrity_error_on_concurrent_insert(self):
         existing = BackInStockWaiter.objects.create(
@@ -177,3 +187,15 @@ class SubscribeBackInStockUseCaseTest(TestCase):
         self.assertEqual(
             BackInStockWaiter.objects.get().project.vtex_account, "gaboulstore"
         )
+
+    def test_keeps_waiter_when_flows_group_enrollment_fails(self):
+        self.group_subscriber.execute.side_effect = RuntimeError("flows down")
+
+        with self.assertLogs(
+            "retail.webhooks.vtex.usecases.subscribe_back_in_stock",
+            level="ERROR",
+        ):
+            self.use_case.execute(_dto())
+
+        self.assertEqual(BackInStockWaiter.objects.count(), 1)
+        self.assertEqual(BackInStockWaiter.objects.get().status, "pending")
