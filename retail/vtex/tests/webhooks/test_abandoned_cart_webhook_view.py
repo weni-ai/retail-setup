@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient, APITestCase
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
@@ -223,6 +224,83 @@ class AbandonedCartWebhookViewTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_process_cart_cls.assert_not_called()
+
+    @patch(PROCESS_CART_PATH)
+    @patch(RESOLVER_PATH)
+    @patch("retail.webhooks.vtex.views.abandoned_cart_webhook.logger")
+    def test_post_invalid_payload_logs_warning_not_exception(
+        self, mock_logger, mock_resolver_cls, mock_process_cart_cls
+    ):
+        integrated_agent = Mock()
+        mock_resolver_cls.return_value.resolve.return_value = integrated_agent
+
+        response = self.client.post(self.url, data={}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_logger.warning.assert_called_once()
+        warning_message = mock_logger.warning.call_args[0][0]
+        self.assertIn("Invalid webhook payload", warning_message)
+        self.assertIn(str(self.integrated_agent_uuid), warning_message)
+        mock_logger.exception.assert_not_called()
+        mock_process_cart_cls.assert_not_called()
+
+    @patch(PROCESS_CART_PATH)
+    @patch(RESOLVER_PATH)
+    @patch("retail.webhooks.vtex.views.abandoned_cart_webhook.logger")
+    def test_post_unexpected_error_still_logs_exception(
+        self, mock_logger, mock_resolver_cls, mock_process_cart_cls
+    ):
+        integrated_agent = Mock()
+        mock_resolver_cls.return_value.resolve.return_value = integrated_agent
+        mock_process_cart_instance = Mock()
+        mock_process_cart_instance.execute.side_effect = ValueError("boom")
+        mock_process_cart_cls.from_integrated_agent.return_value = (
+            mock_process_cart_instance
+        )
+
+        response = self.client.post(
+            self.url,
+            data={
+                "order_form_id": "order-123",
+                "phone": "5584987654321",
+                "name": "Test",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_logger.exception.assert_called_once()
+        mock_logger.warning.assert_not_called()
+
+    @patch(PROCESS_CART_PATH)
+    @patch(RESOLVER_PATH)
+    @patch("retail.webhooks.vtex.views.abandoned_cart_webhook.logger")
+    def test_post_processing_validation_error_still_logs_exception(
+        self, mock_logger, mock_resolver_cls, mock_process_cart_cls
+    ):
+        integrated_agent = Mock()
+        mock_resolver_cls.return_value.resolve.return_value = integrated_agent
+        mock_process_cart_instance = Mock()
+        mock_process_cart_instance.execute.side_effect = ValidationError(
+            {"error": "Phone number not allowed due to active restrictions"}
+        )
+        mock_process_cart_cls.from_integrated_agent.return_value = (
+            mock_process_cart_instance
+        )
+
+        response = self.client.post(
+            self.url,
+            data={
+                "order_form_id": "order-123",
+                "phone": "5584987654321",
+                "name": "Test",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_logger.exception.assert_called_once()
+        mock_logger.warning.assert_not_called()
 
 
 class FakeRedisLock:
