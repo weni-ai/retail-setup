@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Dict, List
 
 
 class FlowsClientInterface(ABC):
@@ -31,4 +31,18 @@ class FlowsClientInterface(ABC):
     @abstractmethod
     def create_contact_group(self, project_uuid: str, name: str) -> dict:
         """Create a Flows contact group for a project."""
+        pass
+
+    @abstractmethod
+    def create_contact(
+        self, project_uuid: str, name: str, urns: List[str], groups: List[str]
+    ) -> dict:
+        """POST /api/v2/contacts.json already assigned to the given groups."""
+        pass
+
+    @abstractmethod
+    def add_contact_to_group(
+        self, project_uuid: str, contacts: List[str], group: str
+    ) -> dict:
+        """POST /api/v2/contact_actions.json to add contacts to a group."""
         pass

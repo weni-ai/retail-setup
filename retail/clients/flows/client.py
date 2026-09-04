@@ -1,6 +1,6 @@
 """Client for connection with flows"""
 
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from django.conf import settings
 
@@ -19,8 +19,9 @@ class FlowsClient(RequestClient, FlowsClientInterface):
     def _module_jwt_headers(self, project_uuid: str) -> Dict[str, str]:
         """Bearer JWT with ``project_uuid`` for public Flows v2 routes.
 
-        ``GET/POST /api/v2/groups.json`` does not accept the internal OIDC
-        token used by ``/api/v2/internals/*``.
+        Public v2 routes (``groups.json``, ``contacts.json``,
+        ``contact_actions.json``) do not accept the internal OIDC token
+        used by ``/api/v2/internals/*``.
         """
         token = self.jwt_usecase.generate_jwt_token(project_uuid)
         return {
@@ -116,6 +117,34 @@ class FlowsClient(RequestClient, FlowsClientInterface):
             method="POST",
             params={"project": str(project_uuid)},
             json={"name": name},
+            headers=self._module_jwt_headers(project_uuid),
+        )
+        return response.json()
+
+    def create_contact(
+        self, project_uuid: str, name: str, urns: List[str], groups: List[str]
+    ) -> dict:
+        """POST /api/v2/contacts.json already assigned to ``groups``."""
+        url = f"{self.base_url}/api/v2/contacts.json"
+        response = self.make_request(
+            url,
+            method="POST",
+            params={"project": str(project_uuid)},
+            json={"name": name, "urns": urns, "groups": groups},
+            headers=self._module_jwt_headers(project_uuid),
+        )
+        return response.json()
+
+    def add_contact_to_group(
+        self, project_uuid: str, contacts: List[str], group: str
+    ) -> dict:
+        """POST /api/v2/contact_actions.json with ``action=add``."""
+        url = f"{self.base_url}/api/v2/contact_actions.json"
+        response = self.make_request(
+            url,
+            method="POST",
+            params={"project": str(project_uuid)},
+            json={"contacts": contacts, "action": "add", "group": group},
             headers=self._module_jwt_headers(project_uuid),
         )
         return response.json()
