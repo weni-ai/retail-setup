@@ -95,8 +95,18 @@ AGENT_DEFAULT_TEMPLATE_DISPLAY_NAMES: Dict[str, str] = {
 }
 
 BACK_IN_STOCK_BUTTON_EXAMPLE_PATH = (
-    "/checkout/cart/add?sku=1&qty=1&seller=1&redirect=true"
+    "checkout/cart/add?sku=1&qty=1&seller=1&redirect=true"
 )
+
+
+def back_in_stock_button_base_url(origin: str) -> str:
+    """Return ``https://host/`` so Meta gets ``https://host/{{1}}``.
+
+    ``append_placeholder_if_needed`` concatenates ``base_url + '{{1}}'``.
+    Origin without a trailing slash becomes ``https://host{{1}}``, which
+    Meta rejects as an invalid URI.
+    """
+    return f"{origin.rstrip('/')}/"
 
 
 class AssignAgentUseCase:
@@ -975,8 +985,8 @@ class AssignAgentUseCase:
         """Create the unique marketing template for the back-in-stock agent.
 
         Header IMAGE uses the same placeholder as abandoned cart. The URL
-        button host is the storefront; the lambda supplies ``button`` as
-        the add-to-cart path at send time.
+        button is ``https://host/{{1}}``; the lambda supplies the add-to-cart
+        path as ``button`` at send time.
         """
         template_language = integrated_agent.config.get(
             "initial_template_language", DEFAULT_TEMPLATE_LANGUAGE
@@ -988,7 +998,9 @@ class AssignAgentUseCase:
                 f"integrated_agent={integrated_agent.uuid}, language={template_language}"
             )
 
-            button_base_url = resolve_storefront_origin(project).origin
+            button_base_url = back_in_stock_button_base_url(
+                resolve_storefront_origin(project).origin
+            )
             button_url_example = f"{button_base_url}{BACK_IN_STOCK_BUTTON_EXAMPLE_PATH}"
             logger.info(
                 f"[AssignAgent] back_in_stock_button_url_resolved: "
