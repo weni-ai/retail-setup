@@ -95,6 +95,7 @@ class GalleryAgentSerializer(ReadAgentSerializer):
     assigned_agent_uuid = serializers.SerializerMethodField("get_assigned_agent_uuid")
     channel_uuid = serializers.SerializerMethodField()
     credentials = serializers.JSONField()
+    first_successful_sent_at = serializers.SerializerMethodField()
 
     def _get_assigned_integrated_agent(self, obj):
         project_uuid = self.context.get("project_uuid")
@@ -121,6 +122,10 @@ class GalleryAgentSerializer(ReadAgentSerializer):
         return (
             str(assigned.channel_uuid) if assigned and assigned.channel_uuid else None
         )
+
+    def get_first_successful_sent_at(self, obj):
+        assigned = self._get_assigned_integrated_agent(obj)
+        return assigned.first_successful_sent_at if assigned else None
 
 
 class PreApprovedTemplateSerializer(serializers.Serializer):

@@ -1,4 +1,5 @@
 import logging
+import re
 
 from decimal import Decimal
 from typing import Any, Dict, Optional, Tuple, Union
@@ -7,7 +8,7 @@ from uuid import UUID
 from django.utils import timezone
 from django.conf import settings
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from retail.agents.domains.agent_execution.services.logger import ExecutionLoggerService
 from retail.agents.domains.agent_integration.models import IntegratedAgent
@@ -38,13 +39,39 @@ from retail.observability.sentry import (
     fingerprint_with_vtex_account,
     sentry_error_scope,
 )
+from retail.vtex.usecases.clone_order_form import (
+    ClonedOrderFormDTO,
+    CloneOrderFormUseCase,
+)
 
 
 # VTEX order statuses that count as a finalized purchase.
 PURCHASED_ORDER_STATUSES = frozenset({"invoiced"})
 
+# OMS List Orders via the generic VTEX IO proxy. per_page max is 100;
+# VTEX caps listing at 30 pages (~3000 orders per date window).
+OMS_LIST_ORDERS_PATH = "/api/oms/pvt/orders"
+OMS_LIST_PAGE_SIZE = 100
+OMS_LIST_MAX_PAGES = 30
+
+# VTEX may emit more than six fractional-second digits; fromisoformat
+# rejects that on some Python versions.
+_VTEX_DATETIME_FRACTION = re.compile(r"(\.\d{6})\d+(?=[Z+-]|$)")
+
 # Lookback window aligned with the Cart cleanup task TTL.
 ORDER_FORM_DEDUPLICATION_WINDOW = timedelta(days=15)
+
+# Per-client dynamic rules. Read from IntegratedAgent.config (nested under
+# ``abandoned_cart``) or IntegratedFeature.config (legacy, usually at the
+# root). Missing or falsy values keep the fixed default for that client.
+ABANDONED_CART_CONFIG_KEY = "abandoned_cart"
+ALLOW_RESEND_ON_DIFFERENT_CART_ITEMS_KEY = "allow_resend_on_different_cart_items"
+NOTIFICATION_COOLDOWN_HOURS_KEY = "notification_cooldown_hours"
+ABANDONED_CART_NOTIFICATION_COOLDOWN_HOURS_KEY = (
+    "abandoned_cart_notification_cooldown_hours"
+)
+MINIMUM_CART_VALUE_KEY = "minimum_cart_value"
+HEADER_IMAGE_TYPE_KEY = "header_image_type"
 
 
 logger = logging.getLogger(__name__)
@@ -60,6 +87,8 @@ def _build_log_context(cart: Cart, integration_config=None) -> str:
         f"phone={cart.phone_number} project_uuid={project_uuid} "
         f"order_form={cart.order_form_id}"
     )
+    if cart.notification_order_form_id:
+        context += f" notification_order_form={cart.notification_order_form_id}"
 
     if integration_config:
         if isinstance(integration_config, IntegratedAgent):
@@ -88,6 +117,8 @@ def _build_cart_sentry_tags(
         "project_uuid": str(cart.project.uuid) if cart.project else "unknown",
         "cart_uuid": str(cart.uuid),
     }
+    if cart.notification_order_form_id:
+        tags["notification_order_form_id"] = cart.notification_order_form_id
 
     if isinstance(integration_config, IntegratedAgent):
         tags["integration_type"] = "agent"
@@ -109,11 +140,18 @@ class CartAbandonmentService(BaseVtexUseCase):
     but made flexible to work with both integration types.
     """
 
-    def __init__(self, exec_logger: Optional[ExecutionLoggerServiceInterface] = None):
+    def __init__(
+        self,
+        exec_logger: Optional[ExecutionLoggerServiceInterface] = None,
+        clone_order_form_use_case: Optional[CloneOrderFormUseCase] = None,
+    ):
         self.vtex_io_service = VtexIOService(VtexIOClient())
         self.notification_lock_service = PhoneNotificationLockService()
         self.exec_logger: ExecutionLoggerServiceInterface = (
             exec_logger or ExecutionLoggerService()
+        )
+        self.clone_order_form_use_case = (
+            clone_order_form_use_case or CloneOrderFormUseCase()
         )
 
     def process_abandoned_cart(
@@ -205,12 +243,11 @@ class CartAbandonmentService(BaseVtexUseCase):
                 f"items_count={len(cart_items)}"
             )
 
-            # Check orders by email (email already validated above)
-            orders = self._fetch_orders_by_email(cart, client_email)
+            orders = self._fetch_orders_placed_after_cart(cart, client_email)
             orders_count = len(orders.get("list", []))
             logger.info(
-                f"[CART_SERVICE] Orders fetched by email: {log_context} "
-                f"email={client_email} orders_found={orders_count}"
+                f"[CART_SERVICE] Orders fetched after cart creation: {log_context} "
+                f"orders_found={orders_count}"
             )
 
             self._evaluate_orders(
@@ -340,24 +377,80 @@ class CartAbandonmentService(BaseVtexUseCase):
         cart.config["cart_items"] = order_form.get("items", [])
         cart.save()
 
-    def _fetch_orders_by_email(self, cart: Cart, email: str) -> dict:
-        """
-        Fetch orders associated with a given email.
+    def _fetch_orders_placed_after_cart(self, cart: Cart, email: str) -> dict:
+        """List OMS orders placed after the cart row was created.
 
-        Args:
-            cart (Cart): The cart instance.
-            email (str): The client email address.
-
-        Returns:
-            dict: List of orders associated with the email.
+        Uses ``POST /_v/proxy-vtex`` so this service owns the OMS query
+        (date range, page size, pagination) instead of
+        ``/orders-by-email``, which ignores ``f_creationDate`` and only
+        returns the first page.
         """
         project_uuid = str(cart.project.uuid)
-        orders = self.vtex_io_service.get_order_details(
-            account_domain=self._get_account_domain(project_uuid),
-            vtex_account=cart.project.vtex_account,
-            user_email=email,
-        )
-        return orders or {"list": []}
+        account_domain = self._get_account_domain(project_uuid)
+        vtex_account = cart.project.vtex_account
+        date_from = self._to_oms_utc(cart.created_on)
+        date_to = self._to_oms_utc(timezone.now())
+
+        orders: list = []
+        page = 1
+        while page <= OMS_LIST_MAX_PAGES:
+            response = (
+                self.vtex_io_service.proxy_vtex(
+                    account_domain=account_domain,
+                    vtex_account=vtex_account,
+                    method="GET",
+                    path=OMS_LIST_ORDERS_PATH,
+                    params=self._build_orders_list_params(
+                        email, date_from, date_to, page
+                    ),
+                )
+                or {}
+            )
+            orders.extend(response.get("list") or [])
+            if page >= self._oms_total_pages(response):
+                break
+            page += 1
+        else:
+            logger.warning(
+                f"[CART_SERVICE] OMS list pagination hit max pages "
+                f"cart_uuid={cart.uuid} max_pages={OMS_LIST_MAX_PAGES}"
+            )
+
+        return {"list": orders}
+
+    @staticmethod
+    def _build_orders_list_params(
+        email: str, date_from: str, date_to: str, page: int
+    ) -> dict:
+        """Build unencoded OMS List Orders query params.
+
+        ``f_creationDate`` must not be pre-percent-encoded: the IO proxy
+        encodes ``params`` once. ``q`` is OMS text search (same as
+        ``/orders-by-email``), not an exact email match.
+        """
+        return {
+            "q": email,
+            "orderBy": "creationDate,desc",
+            "page": str(page),
+            "per_page": str(OMS_LIST_PAGE_SIZE),
+            "f_creationDate": f"creationDate:[{date_from} TO {date_to}]",
+        }
+
+    @staticmethod
+    def _to_oms_utc(value: datetime) -> str:
+        """Format a datetime as the UTC ISO string OMS date filters expect."""
+        if timezone.is_naive(value):
+            value = timezone.make_aware(value, dt_timezone.utc)
+        return value.astimezone(dt_timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+    @staticmethod
+    def _oms_total_pages(response: dict) -> int:
+        raw_pages = (response.get("paging") or {}).get("pages")
+        try:
+            pages = int(raw_pages)
+        except (TypeError, ValueError):
+            return 1
+        return pages if pages > 0 else 1
 
     def _evaluate_orders(
         self,
@@ -396,14 +489,31 @@ class CartAbandonmentService(BaseVtexUseCase):
             )
             return
 
-        recent_orders = orders.get("list", [])[:5]
-        invoiced_orders = self._filter_invoiced_orders(recent_orders)
+        orders_after_cart = self._filter_orders_created_after_cart(
+            orders.get("list", []), cart
+        )
+        if not orders_after_cart:
+            logger.info(
+                f"[CART_SERVICE] No orders created after the cart: {log_context} "
+                f"orders_returned={len(orders.get('list', []))} "
+                f"action=mark_as_abandoned reason=no_orders_created_after_cart"
+            )
+            self._mark_cart_as_abandoned(
+                cart,
+                order_form,
+                client_profile,
+                integration_config,
+                execution_uuid=execution_uuid,
+            )
+            return
+
+        invoiced_orders = self._filter_invoiced_orders(orders_after_cart)
 
         if not invoiced_orders:
             logger.info(
                 f"[CART_SERVICE] No invoiced orders among recent ones: {log_context} "
-                f"recent_orders_checked={len(recent_orders)} "
-                f"recent_statuses={[o.get('status') for o in recent_orders]} "
+                f"recent_orders_checked={len(orders_after_cart)} "
+                f"recent_statuses={[o.get('status') for o in orders_after_cart]} "
                 f"action=mark_as_abandoned reason=no_purchased_status_found"
             )
             self._mark_cart_as_abandoned(
@@ -494,7 +604,7 @@ class CartAbandonmentService(BaseVtexUseCase):
             )
 
         # Skip when this order form already produced a successful notification
-        if self._check_order_form_already_notified(cart):
+        if self._check_order_form_already_notified(cart, integration_config):
             logger.info(
                 f"[CART_SERVICE] SKIP - Order form already notified: {log_context} "
                 f"final_status=skipped_order_form_already_notified "
@@ -521,7 +631,7 @@ class CartAbandonmentService(BaseVtexUseCase):
             return
 
         # Check if identical cart was already sent recently
-        if self._check_identical_cart_sent_recently(cart):
+        if self._check_identical_cart_sent_recently(cart, integration_config):
             logger.info(
                 f"[CART_SERVICE] SKIP - Identical cart: {log_context} "
                 f"final_status=skipped_identical_cart reason=identical_cart_sent_within_24h"
@@ -553,9 +663,17 @@ class CartAbandonmentService(BaseVtexUseCase):
         )
         self._update_cart_status(cart, "abandoned")
 
+        cloned = self._clone_order_form_for_notification(
+            cart, order_form, integration_config
+        )
+
         # Collect all cart abandonment data in a unified structure
         cart_data = self._collect_cart_abandonment_data(
-            cart, order_form, client_profile, integration_config
+            cart,
+            order_form,
+            client_profile,
+            integration_config,
+            cloned=cloned,
         )
 
         # For IntegratedAgent, we send raw data (DTO) without message structure.
@@ -579,12 +697,85 @@ class CartAbandonmentService(BaseVtexUseCase):
             f"flow_type={flow_type} final_status={cart.status}"
         )
 
+    def _clone_order_form_for_notification(
+        self,
+        cart: Cart,
+        order_form: dict,
+        integration_config: Union[IntegratedFeature, IntegratedAgent],
+    ) -> Optional[ClonedOrderFormDTO]:
+        """Clone the shopper's orderForm after all skip gates have passed.
+
+        On failure, logs a warning + Sentry scope and returns ``None`` so the
+        notification falls back to the original ``order_form_id``.
+        """
+        if not settings.ABANDONED_CART_CLONE_ORDER_FORM_ENABLED:
+            return None
+
+        # Clone is only consumed by the agent/Lambda payload path.
+        if not isinstance(integration_config, IntegratedAgent):
+            return None
+
+        log_context = _build_log_context(cart, integration_config)
+        # IO /order-form-details may omit orderFormId; the cart always has it.
+        source_order_form = dict(order_form)
+        if not source_order_form.get("orderFormId") and cart.order_form_id:
+            source_order_form["orderFormId"] = cart.order_form_id
+
+        try:
+            cloned = self.clone_order_form_use_case.execute(
+                project_uuid=str(cart.project.uuid),
+                vtex_account=cart.project.vtex_account,
+                order_form=source_order_form,
+            )
+        except Exception as exc:
+            sentry_tags = _build_cart_sentry_tags(cart, integration_config)
+            with sentry_error_scope(
+                fingerprint=fingerprint_with_vtex_account(
+                    ["cart_service", "clone-order-form", type(exc).__name__],
+                    sentry_tags,
+                ),
+                tags={**sentry_tags, "error_type": type(exc).__name__},
+                context={"detail": str(exc), "order_form_id": cart.order_form_id},
+            ):
+                logger.warning(
+                    f"[CART_SERVICE] Clone orderForm failed, falling back to "
+                    f"original: {log_context} error={exc}",
+                    exc_info=True,
+                )
+            return None
+
+        if not cloned:
+            sentry_tags = _build_cart_sentry_tags(cart, integration_config)
+            with sentry_error_scope(
+                fingerprint=fingerprint_with_vtex_account(
+                    ["cart_service", "clone-order-form", "returned-none"],
+                    sentry_tags,
+                ),
+                tags=sentry_tags,
+                context={"order_form_id": cart.order_form_id},
+            ):
+                logger.warning(
+                    f"[CART_SERVICE] Clone orderForm returned None, falling "
+                    f"back to original: {log_context}"
+                )
+            return None
+
+        cart.notification_order_form_id = cloned.order_form_id
+        cart.save(update_fields=["notification_order_form_id", "modified_on"])
+        self.exec_logger.update_order_info(order_id=cloned.order_form_id)
+        logger.info(
+            f"[CART_SERVICE] Persisted notification_order_form_id="
+            f"{cloned.order_form_id}: {_build_log_context(cart, integration_config)}"
+        )
+        return cloned
+
     def _collect_cart_abandonment_data(
         self,
         cart: Cart,
         order_form: dict,
         client_profile: dict,
         integration_config: Union[IntegratedFeature, IntegratedAgent],
+        cloned: Optional[ClonedOrderFormDTO] = None,
     ) -> CartAbandonmentDataDTO:
         """
         Collect all cart abandonment data in a unified DTO structure.
@@ -595,11 +786,15 @@ class CartAbandonmentService(BaseVtexUseCase):
             order_form (dict): Order form details.
             client_profile (dict): Client profile data.
             integration_config: Either IntegratedFeature or IntegratedAgent instance.
+            cloned: Optional clone result when the feature flag is enabled.
 
         Returns:
             CartAbandonmentDataDTO: Unified cart abandonment data structure.
         """
         config = self._get_config(integration_config)
+        notification_order_form_id = cloned.order_form_id if cloned else None
+        marketing_data = cloned.marketing_data if cloned else None
+        link_order_form_id = notification_order_form_id or cart.order_form_id
 
         return CartAbandonmentDataDTO(
             # Cart basic info
@@ -629,8 +824,10 @@ class CartAbandonmentService(BaseVtexUseCase):
                 else None
             ),
             # Additional data
-            cart_link=f"{cart.order_form_id}/",
+            cart_link=f"{link_order_form_id}/",
             additional_data=cart.config,
+            notification_order_form_id=notification_order_form_id,
+            marketing_data=marketing_data,
         )
 
     def _execute_agent_flow(
@@ -673,10 +870,17 @@ class CartAbandonmentService(BaseVtexUseCase):
                 abandoned_cart_config, cart_data, integrated_agent
             )
 
+            # Prefer the cloned orderForm so the Lambda UTM lands on a cart
+            # reachable only through the message link. Fall back to the
+            # shopper's original id when cloning is disabled or failed.
+            payload_order_form_id = (
+                cart_data.notification_order_form_id or cart_data.order_form_id
+            )
+
             # Build payload with essential data and configuration for agent flow
             payload = {
                 "cart_uuid": cart_data.cart_uuid,
-                "order_form_id": cart_data.order_form_id,
+                "order_form_id": payload_order_form_id,
                 "phone_number": cart_data.phone_number,
                 "client_name": cart_data.client_name,
                 "project_uuid": cart_data.project_uuid,
@@ -686,6 +890,9 @@ class CartAbandonmentService(BaseVtexUseCase):
                 # Cart items for image selection logic in the agent
                 "cart_items": cart_data.cart_items,
             }
+
+            if cart_data.marketing_data is not None:
+                payload["marketing_data"] = cart_data.marketing_data
 
             result = task_agent_webhook(
                 integrated_agent_uuid=str(integrated_agent.uuid),
@@ -750,7 +957,9 @@ class CartAbandonmentService(BaseVtexUseCase):
         Returns:
             dict: Image configuration with type and any pre-computed data.
         """
-        header_image_type = abandoned_cart_config.get("header_image_type", "first_item")
+        header_image_type = abandoned_cart_config.get(
+            HEADER_IMAGE_TYPE_KEY, "first_item"
+        )
 
         # Valid options:
         # - "first_item": Use first item's image from cart
@@ -942,7 +1151,7 @@ class CartAbandonmentService(BaseVtexUseCase):
         """
         log_context = _build_log_context(cart, integration_config)
         abandoned_cart_config = self._get_abandoned_cart_config(integration_config)
-        minimum_value = abandoned_cart_config.get("minimum_cart_value")
+        minimum_value = abandoned_cart_config.get(MINIMUM_CART_VALUE_KEY)
 
         if minimum_value is None:
             logger.info(
@@ -976,7 +1185,25 @@ class CartAbandonmentService(BaseVtexUseCase):
         )
         return False
 
-    def _check_order_form_already_notified(self, cart: Cart) -> bool:
+    def _is_resend_on_different_cart_items_enabled(
+        self, integration_config: Union[IntegratedFeature, IntegratedAgent]
+    ) -> bool:
+        """Return True when the client opted into SKU/qty-aware dedup."""
+        if isinstance(integration_config, IntegratedAgent):
+            return bool(
+                self._get_abandoned_cart_config(integration_config).get(
+                    ALLOW_RESEND_ON_DIFFERENT_CART_ITEMS_KEY, False
+                )
+            )
+
+        config = self._get_config(integration_config)
+        return bool(config.get(ALLOW_RESEND_ON_DIFFERENT_CART_ITEMS_KEY, False))
+
+    def _check_order_form_already_notified(
+        self,
+        cart: Cart,
+        integration_config: Union[IntegratedFeature, IntegratedAgent],
+    ) -> bool:
         """
         Return True when this order form already produced a successful
         notification within ``ORDER_FORM_DEDUPLICATION_WINDOW``.
@@ -984,8 +1211,15 @@ class CartAbandonmentService(BaseVtexUseCase):
         Same order form lingering on the user's browser must not trigger
         repeated notifications. The window matches the Cart cleanup task
         TTL so the rule degrades gracefully if the cleanup is delayed.
+
+        When ``allow_resend_on_different_cart_items`` is enabled for the
+        client, only a prior delivery with the same SKU/qty fingerprint
+        blocks a resend.
         """
-        log_context = _build_log_context(cart)
+        log_context = _build_log_context(cart, integration_config)
+        resend_on_different_items = self._is_resend_on_different_cart_items_enabled(
+            integration_config
+        )
 
         if not cart.order_form_id:
             logger.info(
@@ -995,29 +1229,68 @@ class CartAbandonmentService(BaseVtexUseCase):
             return False
 
         window_start = timezone.now() - ORDER_FORM_DEDUPLICATION_WINDOW
-        previous_cart = (
+        previous_carts = list(
             Cart.objects.filter(
                 order_form_id=cart.order_form_id,
                 project=cart.project,
                 status="delivered_success",
                 modified_on__gte=window_start,
-            )
-            .exclude(uuid=cart.uuid)
-            .first()
+            ).exclude(uuid=cart.uuid)
         )
 
-        if previous_cart:
+        if not previous_carts:
+            logger.info(
+                f"[CART_SERVICE] Order form dedup PASSED: {log_context} "
+                f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days}"
+            )
+            return False
+
+        if not resend_on_different_items:
+            previous_cart = previous_carts[0]
             logger.info(
                 f"[CART_SERVICE] Order form dedup HIT: {log_context} "
                 f"previous_cart_uuid={previous_cart.uuid} "
                 f"previous_sent_at={previous_cart.modified_on} "
-                f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days}"
+                f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days} "
+                f"reason=order_form_delivered_within_window"
             )
             return True
 
+        cart_items = cart.config.get("cart_items", [])
+        if not cart_items:
+            logger.info(
+                f"[CART_SERVICE] Order form dedup HIT: {log_context} "
+                f"reason=no_cart_items_to_compare "
+                f"allow_resend_on_different_cart_items=true"
+            )
+            return True
+
+        current_fingerprint = self._build_cart_items_fingerprint(
+            cart_items, include_quantities=True
+        )
+        for previous_cart in previous_carts:
+            previous_items = previous_cart.config.get("cart_items", [])
+            if not previous_items:
+                continue
+
+            previous_fingerprint = self._build_cart_items_fingerprint(
+                previous_items, include_quantities=True
+            )
+            if current_fingerprint == previous_fingerprint:
+                logger.info(
+                    f"[CART_SERVICE] Order form dedup HIT: {log_context} "
+                    f"previous_cart_uuid={previous_cart.uuid} "
+                    f"previous_sent_at={previous_cart.modified_on} "
+                    f"matching_fingerprint={sorted(current_fingerprint)} "
+                    f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days} "
+                    f"reason=identical_cart_items_within_window"
+                )
+                return True
+
         logger.info(
             f"[CART_SERVICE] Order form dedup PASSED: {log_context} "
-            f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days}"
+            f"window_days={ORDER_FORM_DEDUPLICATION_WINDOW.days} "
+            f"reason=different_cart_items allow_resend_on_different_cart_items=true"
         )
         return False
 
@@ -1032,7 +1305,7 @@ class CartAbandonmentService(BaseVtexUseCase):
             dict: Abandoned cart configuration or empty dict if not found.
         """
         config = getattr(integration_config, "config", {}) or {}
-        return config.get("abandoned_cart", {})
+        return config.get(ABANDONED_CART_CONFIG_KEY, {})
 
     def _check_abandoned_cart_notification_cooldown(
         self, cart: Cart, integration_config: Union[IntegratedFeature, IntegratedAgent]
@@ -1053,10 +1326,10 @@ class CartAbandonmentService(BaseVtexUseCase):
         # For IntegratedAgent, check abandoned_cart config first
         if isinstance(integration_config, IntegratedAgent):
             abandoned_cart_config = self._get_abandoned_cart_config(integration_config)
-            cooldown_hours = abandoned_cart_config.get("notification_cooldown_hours")
+            cooldown_hours = abandoned_cart_config.get(NOTIFICATION_COOLDOWN_HOURS_KEY)
         else:
             config = self._get_config(integration_config)
-            cooldown_hours = config.get("abandoned_cart_notification_cooldown_hours")
+            cooldown_hours = config.get(ABANDONED_CART_NOTIFICATION_COOLDOWN_HOURS_KEY)
 
         if not cooldown_hours:
             logger.info(
@@ -1092,17 +1365,22 @@ class CartAbandonmentService(BaseVtexUseCase):
         )
         return False
 
-    def _check_identical_cart_sent_recently(self, cart: Cart) -> bool:
+    def _check_identical_cart_sent_recently(
+        self,
+        cart: Cart,
+        integration_config: Union[IntegratedFeature, IntegratedAgent],
+    ) -> bool:
         """
         Check if a cart with identical items was already sent in the last 24 hours.
 
-        Args:
-            cart (Cart): The cart being processed.
-
-        Returns:
-            bool: True if identical cart was already sent recently.
+        Default behaviour compares SKU ids only. When
+        ``allow_resend_on_different_cart_items`` is enabled, quantities are
+        included in the fingerprint so a qty change allows a resend.
         """
-        log_context = _build_log_context(cart)
+        log_context = _build_log_context(cart, integration_config)
+        include_quantities = self._is_resend_on_different_cart_items_enabled(
+            integration_config
+        )
 
         cart_items = cart.config.get("cart_items", [])
         if not cart_items:
@@ -1112,18 +1390,17 @@ class CartAbandonmentService(BaseVtexUseCase):
             )
             return False
 
-        # Calculate 24 hours ago
         twenty_four_hours_ago = timezone.now() - timedelta(hours=24)
-
-        # Find carts with same phone number that were sent in the last 24 hours
-        recent_sent_carts = Cart.objects.filter(
-            phone_number=cart.phone_number,
-            project=cart.project,
-            status="delivered_success",
-            modified_on__gte=twenty_four_hours_ago,
+        recent_sent_carts = list(
+            Cart.objects.filter(
+                phone_number=cart.phone_number,
+                project=cart.project,
+                status="delivered_success",
+                modified_on__gte=twenty_four_hours_ago,
+            )
         )
 
-        recent_count = recent_sent_carts.count()
+        recent_count = len(recent_sent_carts)
         if not recent_sent_carts:
             logger.info(
                 f"[CART_SERVICE] Identical cart check PASSED: {log_context} "
@@ -1131,34 +1408,103 @@ class CartAbandonmentService(BaseVtexUseCase):
             )
             return False
 
-        # Create a normalized representation of current cart items
-        current_items_normalized = self._normalize_cart_items(cart_items)
+        current_fingerprint = self._build_cart_items_fingerprint(
+            cart_items, include_quantities=include_quantities
+        )
         logger.info(
             f"[CART_SERVICE] Checking for identical cart: {log_context} "
-            f"current_items={current_items_normalized} recent_carts_to_check={recent_count}"
+            f"current_fingerprint={sorted(current_fingerprint)} "
+            f"recent_carts_to_check={recent_count} "
+            f"include_quantities={include_quantities}"
         )
 
-        # Check each recent cart for identical items
         for recent_cart in recent_sent_carts:
             recent_items = recent_cart.config.get("cart_items", [])
-            if recent_items:
-                recent_items_normalized = self._normalize_cart_items(recent_items)
+            if not recent_items:
+                continue
 
-                if current_items_normalized == recent_items_normalized:
-                    logger.info(
-                        f"[CART_SERVICE] Identical cart check FAILED: {log_context} "
-                        f"matching_cart_uuid={recent_cart.uuid} "
-                        f"matching_cart_sent_at={recent_cart.modified_on} "
-                        f"matching_items={recent_items_normalized} "
-                        f"reason=identical_cart_sent_within_24h"
-                    )
-                    return True
+            recent_fingerprint = self._build_cart_items_fingerprint(
+                recent_items, include_quantities=include_quantities
+            )
+
+            if current_fingerprint == recent_fingerprint:
+                logger.info(
+                    f"[CART_SERVICE] Identical cart check FAILED: {log_context} "
+                    f"matching_cart_uuid={recent_cart.uuid} "
+                    f"matching_cart_sent_at={recent_cart.modified_on} "
+                    f"matching_fingerprint={sorted(recent_fingerprint)} "
+                    f"reason=identical_cart_sent_within_24h"
+                )
+                return True
 
         logger.info(
             f"[CART_SERVICE] Identical cart check PASSED: {log_context} "
             f"carts_compared={recent_count} reason=no_identical_items_found"
         )
         return False
+
+    @staticmethod
+    def _parse_vtex_datetime(raw_value: object) -> Optional[datetime]:
+        """Parse a VTEX ISO-8601 timestamp into an aware ``datetime``.
+
+        Returns ``None`` when the value is missing or not parseable.
+        """
+        if not raw_value or not isinstance(raw_value, str):
+            return None
+
+        normalized = raw_value.strip().replace("Z", "+00:00")
+        normalized = _VTEX_DATETIME_FRACTION.sub(r"\1", normalized)
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+
+        if timezone.is_naive(parsed):
+            return timezone.make_aware(parsed, dt_timezone.utc)
+        return parsed
+
+    @staticmethod
+    def _order_was_created_after_cart(
+        order: dict, cart_created_on: datetime
+    ) -> Optional[bool]:
+        """Return whether ``order`` was created after ``cart_created_on``.
+
+        ``None`` means ``creationDate`` is missing or unparseable, so the
+        caller must not treat the order as older than the cart.
+        """
+        created_on = CartAbandonmentService._parse_vtex_datetime(
+            order.get("creationDate")
+        )
+        if created_on is None:
+            return None
+
+        if timezone.is_naive(cart_created_on):
+            cart_created_on = timezone.make_aware(cart_created_on, dt_timezone.utc)
+        return created_on > cart_created_on
+
+    def _filter_orders_created_after_cart(self, orders: list, cart: Cart) -> list:
+        """Keep orders placed after the cart row was created.
+
+        OMS List Orders is already queried with ``f_creationDate``, but
+        the range is inclusive and ``q`` is a text search. This local
+        cut drops any leftover order whose ``creationDate`` is not
+        strictly after ``cart.created_on``.
+        """
+        kept: list = []
+        skipped = 0
+        for order in orders:
+            created_after = self._order_was_created_after_cart(order, cart.created_on)
+            if created_after is False:
+                skipped += 1
+                continue
+            kept.append(order)
+
+        logger.info(
+            f"[CART_SERVICE] Filtered orders created after cart "
+            f"cart_uuid={cart.uuid} kept={len(kept)} "
+            f"skipped_older_than_cart={skipped} returned={len(orders)}"
+        )
+        return kept
 
     @staticmethod
     def _filter_invoiced_orders(recent_orders: list) -> list:
@@ -1221,17 +1567,29 @@ class CartAbandonmentService(BaseVtexUseCase):
                 logger.info(f"Fetching details for order {order_id}")
                 order_details = self._fetch_order_details_by_id(cart, order_id)
                 if order_details:
+                    created_after_cart = self._order_was_created_after_cart(
+                        order_details, cart.created_on
+                    )
                     recent_orders_details.append(
                         {
                             "orderId": order_id,
                             "orderFormId": order_details.get("orderFormId"),
                             "status": order_details.get("status")
                             or order_meta.get("status"),
+                            "creationDate": order_details.get("creationDate"),
                             "items": order_details.get("itemMetadata", {}).get(
                                 "Items", []
                             ),
                         }
                     )
+
+                    if created_after_cart is False:
+                        logger.info(
+                            f"[CART_SERVICE] Skipping order created before cart "
+                            f"order_id={order_id} cart_uuid={cart.uuid} "
+                            f"creationDate={order_details.get('creationDate')}"
+                        )
+                        continue
 
                     if self._compare_cart_items_with_order_items(cart, order_details):
                         logger.info(
@@ -1307,29 +1665,15 @@ class CartAbandonmentService(BaseVtexUseCase):
             bool: True if there's any overlap between cart and order items.
         """
         cart_items = cart.config.get("cart_items", [])
-        order_items = order_details.get("itemMetadata", {}).get("Items", [])
-
-        if not cart_items or not order_items:
+        cart_item_ids = {str(item["id"]) for item in cart_items if item.get("id")}
+        order_item_ids = self._extract_order_sku_ids(order_details)
+        if not cart_item_ids or not order_item_ids:
             logger.info(
-                f"Cart or order items empty - cart: {len(cart_items)}, order: {len(order_items)}"
+                f"Cart or order items empty - cart: {len(cart_item_ids)}, "
+                f"order: {len(order_item_ids)}"
             )
             return False
 
-        # Create sets of item IDs for comparison
-        cart_item_ids = set()
-        order_item_ids = set()
-
-        # Extract IDs from cart items
-        for item in cart_items:
-            if item.get("id"):
-                cart_item_ids.add(str(item["id"]))
-
-        # Extract IDs from order items (from itemMetadata.Items)
-        for item in order_items:
-            if item.get("Id"):  # Note: order items use "Id" (capital I)
-                order_item_ids.add(str(item["Id"]))
-
-        # Check for matching products between cart and recent orders
         matching_products = cart_item_ids.intersection(order_item_ids)
 
         if matching_products:
@@ -1341,22 +1685,57 @@ class CartAbandonmentService(BaseVtexUseCase):
         logger.info("No matching products found in recent orders")
         return False
 
-    def _normalize_cart_items(self, cart_items: list) -> set:
-        """
-        Normalize cart items for comparison.
+    @staticmethod
+    def _extract_order_sku_ids(order_details: dict) -> set:
+        """Return SKU ids from the order, preferring line items.
 
-        Args:
-            cart_items (list): List of cart items.
-
-        Returns:
-            set: Normalized set of item identifiers.
+        ``items[].id`` is the purchased SKU. ``itemMetadata.Items[].Id``
+        is kept as fallback because some OMS payloads omit ``items``.
         """
-        normalized_items = set()
+        sku_ids = {
+            str(item["id"])
+            for item in order_details.get("items") or []
+            if item.get("id")
+        }
+        if sku_ids:
+            return sku_ids
+        return {
+            str(item["Id"])
+            for item in (order_details.get("itemMetadata") or {}).get("Items") or []
+            if item.get("Id")
+        }
+
+    @staticmethod
+    def _parse_item_quantity(item: dict) -> int:
+        """Return a positive integer quantity; fall back to 1 when missing or invalid."""
+        try:
+            quantity = int(item.get("quantity", 1))
+        except (TypeError, ValueError):
+            return 1
+        return quantity if quantity > 0 else 1
+
+    @staticmethod
+    def _build_cart_items_fingerprint(
+        cart_items: list, *, include_quantities: bool
+    ) -> frozenset:
+        """Build a comparable fingerprint for cart-item dedup checks."""
+        fingerprint: set = set()
         for item in cart_items:
             item_id = item.get("id")
-            if item_id:
-                normalized_items.add(str(item_id))
-        return normalized_items
+            if not item_id:
+                continue
+
+            if include_quantities:
+                fingerprint.add(
+                    (
+                        str(item_id),
+                        CartAbandonmentService._parse_item_quantity(item),
+                    )
+                )
+            else:
+                fingerprint.add(str(item_id))
+
+        return frozenset(fingerprint)
 
     def _get_config(
         self, integration_config: Union[IntegratedFeature, IntegratedAgent]

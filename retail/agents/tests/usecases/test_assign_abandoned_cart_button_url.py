@@ -25,6 +25,7 @@ class AssignAbandonedCartButtonUrlTest(TestCase):
         )
         self.use_case = AssignAgentUseCase(
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=MagicMock(),
         )
         self.project = Project.objects.create(
             uuid=uuid.uuid4(),

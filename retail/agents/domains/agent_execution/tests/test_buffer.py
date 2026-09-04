@@ -462,6 +462,19 @@ class ExecutionBufferUpdateMetadataTests(_BufferTestBase):
         self.assertEqual(self._hash_str(execution_uuid, "amount"), "199.99")
         self.assertEqual(self._hash_str(execution_uuid, "currency"), "BRL")
 
+    def test_order_id_metadata_update_writes_to_hash(self):
+        execution_uuid = self.buffer.start_execution(
+            integrated_agent_uuid=None,
+            contact_urn="unknown",
+            webhook_payload={},
+            order_id="original-of",
+        )
+        self.buffer.update_metadata(
+            execution_uuid=execution_uuid, order_id="clone-of"
+        )
+
+        self.assertEqual(self._hash_str(execution_uuid, "order_id"), "clone-of")
+
     def test_terminal_persists_all_terminal_fields(self):
         execution_uuid = self.buffer.start_execution(
             integrated_agent_uuid=None,
@@ -580,6 +593,26 @@ class ExecutionBufferLifecycleTests(_BufferTestBase):
         self.assertEqual(row.status, AgentExecutionStatus.SUCCESS)
         self.assertEqual(row.broadcast_id, 42)
         self.assertEqual(row.contact_urn, "whatsapp:+5511999999999")
+
+    def test_order_id_metadata_update_is_flushed_to_db(self):
+        execution_uuid = self.buffer.start_execution(
+            integrated_agent_uuid=None,
+            contact_urn="unknown",
+            webhook_payload={},
+            order_id="original-of",
+        )
+        self.buffer.update_metadata(
+            execution_uuid=execution_uuid, order_id="clone-of"
+        )
+        self.buffer.update_status(
+            execution_uuid=execution_uuid,
+            status=AgentExecutionStatus.SUCCESS,
+        )
+
+        self._flush()
+
+        row = AgentExecution.objects.get(uuid=execution_uuid)
+        self.assertEqual(row.order_id, "clone-of")
 
     def test_update_status_persists_broadcast_message_uuid_as_fk(self):
         """``broadcast_message_uuid`` flows through the Hash and is

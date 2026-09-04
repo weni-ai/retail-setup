@@ -24,6 +24,7 @@ class ResolveContactPercentageTest(TestCase):
         self.mock_fetch_phone_code = MagicMock(spec=FetchCountryPhoneCodeUseCase)
         self.use_case = AssignAgentUseCase(
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=MagicMock(),
         )
         self.project = Project.objects.create(
             uuid=uuid.uuid4(), name="Test Project", vtex_account="teststore"
@@ -99,6 +100,7 @@ class AssignPaymentRecoveryBuildConfigTest(TestCase):
         )
         self.use_case = AssignAgentUseCase(
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=MagicMock(),
         )
         self.project = Project.objects.create(
             uuid=uuid.uuid4(), name="Test Project", vtex_account="teststore"
@@ -140,6 +142,7 @@ class AssignPaymentRecoveryTemplateTest(TestCase):
         )
         self.use_case = AssignAgentUseCase(
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=MagicMock(),
         )
         self.project = Project.objects.create(
             uuid=uuid.uuid4(), name="Test Project", vtex_account="teststore"
@@ -253,6 +256,7 @@ class AssignPaymentRecoveryHookTest(TestCase):
         )
         self.use_case = AssignAgentUseCase(
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=MagicMock(),
         )
         self.project = Project.objects.create(
             uuid=uuid.uuid4(), name="Test Project", vtex_account="teststore"
@@ -350,6 +354,7 @@ class GetReservedDisplayNamesTest(TestCase):
         self.mock_fetch_phone_code = MagicMock(spec=FetchCountryPhoneCodeUseCase)
         self.use_case = AssignAgentUseCase(
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=MagicMock(),
         )
         self.project = Project.objects.create(
             uuid=uuid.uuid4(), name="Test Project", vtex_account="teststore"
@@ -414,6 +419,7 @@ class CreateTemplatesSkipReservedDisplayNamesTest(TestCase):
         self.use_case = AssignAgentUseCase(
             integrations_service=self.mock_integrations_service,
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=MagicMock(),
         )
         self.project = Project.objects.create(
             uuid=uuid.uuid4(), name="Test Project", vtex_account="teststore"

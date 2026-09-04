@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 from rest_framework.exceptions import APIException, ValidationError
@@ -13,6 +13,12 @@ from retail.services.webchat_push.service import WebchatPublishError
 
 class TestPublishWebchatScriptUseCase(TestCase):
     def setUp(self):
+        self._task_patcher = patch(
+            "retail.api.onboard.usecases.publish_webchat_script.task_ensure_agentic_cx_script_active"
+        )
+        self.mock_task = self._task_patcher.start()
+        self.addCleanup(self._task_patcher.stop)
+
         self.integrations_service = MagicMock()
         self.webchat_push_service = MagicMock()
         self.usecase = PublishWebchatScriptUseCase(
@@ -52,6 +58,7 @@ class TestPublishWebchatScriptUseCase(TestCase):
             account_id=self.dto.account_id,
             vtex_account=self.dto.vtex_account,
         )
+        self.mock_task.delay.assert_called_once_with(self.dto.vtex_account)
 
     def test_execute_raises_validation_error_when_app_not_found(self):
         self.integrations_service.get_channel_app.return_value = None
@@ -85,6 +92,8 @@ class TestPublishWebchatScriptUseCase(TestCase):
 
         with self.assertRaises(APIException):
             self.usecase.execute(self.dto)
+
+        self.mock_task.delay.assert_not_called()
 
     def test_result_to_dict(self):
         result = PublishWebchatResult(script_urls=["https://example.com/webchat.js"])

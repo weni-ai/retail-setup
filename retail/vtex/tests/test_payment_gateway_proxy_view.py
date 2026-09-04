@@ -3,6 +3,7 @@ from unittest.mock import patch
 from django.test import TestCase
 from rest_framework.test import APIRequestFactory
 
+from retail.vtex.exceptions import MerchantAccountNotAllowedError
 from retail.vtex.views import PaymentGatewayProxyView
 
 
@@ -58,6 +59,7 @@ class TestPaymentGatewayProxyView(TestCase):
             "headers": {"X-Custom": "value"},
             "data": {"key": "value"},
             "params": {"an": "teststore"},
+            "merchant_name": "otherstore",
         }
         request = self.factory.post(self.url, payload, format="json")
         self.view(request)
@@ -69,6 +71,7 @@ class TestPaymentGatewayProxyView(TestCase):
         self.assertEqual(dto.headers, {"X-Custom": "value"})
         self.assertEqual(dto.data, {"key": "value"})
         self.assertEqual(dto.params, {"an": "teststore"})
+        self.assertEqual(dto.merchant_name, "otherstore")
         self.assertEqual(call_kwargs["project_uuid"], "test-uuid")
 
     @_jwt_auth_bypass("test-uuid")
@@ -133,6 +136,24 @@ class TestPaymentGatewayProxyView(TestCase):
         self.assertIsNone(dto.headers)
         self.assertIsNone(dto.data)
         self.assertIsNone(dto.params)
+        self.assertIsNone(dto.merchant_name)
+
+    @_jwt_auth_bypass("test-uuid")
+    @patch("retail.vtex.views.ProxyPaymentGatewayUseCase")
+    def test_returns_403_when_merchant_not_allowed(self, mock_cls, _auth):
+        mock_cls.return_value.execute.side_effect = MerchantAccountNotAllowedError(
+            "otherstore", "fakeaccount"
+        )
+
+        request = self.factory.post(
+            self.url,
+            {**self.valid_payload, "merchant_name": "otherstore"},
+            format="json",
+        )
+        response = self.view(request)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("otherstore", response.data["detail"])
 
     def test_returns_401_without_auth(self):
         request = self.factory.post(self.url, self.valid_payload, format="json")

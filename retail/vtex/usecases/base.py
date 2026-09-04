@@ -34,10 +34,10 @@ class BaseVtexUseCase(ABC):
             raise ValueError("VTEX account not defined for project.")
 
         vtex_account = project.vtex_account
-        domain = f"{vtex_account}.myvtex.com"
-        result = (vtex_account, domain)
-        cache.set(cache_key, result, timeout=VTEX_CONTEXT_CACHE_TTL)
-        return result
+        project_domain = f"{vtex_account}.myvtex.com"
+        context = (vtex_account, project_domain)
+        cache.set(cache_key, context, timeout=VTEX_CONTEXT_CACHE_TTL)
+        return context
 
     def _get_account_domain(self, project_uuid: str) -> str:
         """Shortcut that returns only the domain."""

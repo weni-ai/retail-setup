@@ -6,6 +6,8 @@ from rest_framework.test import APIClient
 from weni_commons.auth import WeniAuthContext, WeniAuthUser
 
 from retail.projects.models import Project, ProjectOnboarding
+from retail.projects.serializer import OnboardingPatchSerializer
+from retail.projects.usecases.check_url import CheckUrlResult
 from retail.projects.usecases.install_channel_agents import InstallChannelAgentsError
 
 
@@ -118,6 +120,79 @@ class TestStartSetupView(TestCase):
         self.assertEqual(last_failure["stage"], "start_setup_validation")
         self.assertEqual(last_failure["payload"], payload)
         self.assertIn("channel_data", last_failure["errors"])
+
+
+class TestCheckUrlView(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    @auth_bypass()
+    @patch("retail.projects.views.CheckUrlUseCase")
+    def test_returns_200_when_valid(self, mock_usecase_cls, _mock_auth):
+        mock_instance = MagicMock()
+        mock_instance.execute.return_value = CheckUrlResult(
+            valid=True,
+            crawl_url="https://www.mystore.com.br/",
+        )
+        mock_usecase_cls.return_value = mock_instance
+
+        response = self.client.post(
+            "/api/onboard/mystore/check-url/",
+            {"crawl_url": "https://www.mystore.com.br/"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"valid": True, "crawl_url": "https://www.mystore.com.br/"},
+        )
+        mock_instance.execute.assert_called_once()
+
+    @auth_bypass()
+    @patch("retail.projects.views.CheckUrlUseCase")
+    def test_returns_400_when_invalid(self, mock_usecase_cls, _mock_auth):
+        mock_instance = MagicMock()
+        mock_instance.execute.return_value = CheckUrlResult(valid=False)
+        mock_usecase_cls.return_value = mock_instance
+
+        response = self.client.post(
+            "/api/onboard/mystore/check-url/",
+            {"crawl_url": "https://www.mystore.com.br/"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"valid": False})
+
+    @auth_bypass()
+    @patch("retail.projects.views.CheckUrlUseCase")
+    def test_returns_502_when_crawler_unavailable(self, mock_usecase_cls, _mock_auth):
+        mock_instance = MagicMock()
+        mock_instance.execute.return_value = CheckUrlResult(
+            valid=False,
+            unavailable=True,
+        )
+        mock_usecase_cls.return_value = mock_instance
+
+        response = self.client.post(
+            "/api/onboard/mystore/check-url/",
+            {"crawl_url": "https://www.mystore.com.br/"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json(), {"valid": False, "error": "unavailable"})
+
+    @auth_bypass()
+    def test_returns_400_when_crawl_url_missing(self, _mock_auth):
+        response = self.client.post(
+            "/api/onboard/mystore/check-url/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
 
 
 class TestCrawlerWebhookView(TestCase):
@@ -277,7 +352,7 @@ class TestOnboardingPatchView(TestCase):
         )
 
     @auth_bypass()
-    @patch("retail.projects.tasks.task_activate_agentic_cx_script")
+    @patch("retail.projects.agentic_cx_tasks.task_ensure_agentic_cx_script_active")
     def test_patches_completed_field(self, _mock_task, _mock_auth):
         response = self.client.patch(
             "/api/onboard/mystore/",
@@ -302,7 +377,7 @@ class TestOnboardingPatchView(TestCase):
         self.assertEqual(self.onboarding.current_page, "setup_channel")
 
     @auth_bypass()
-    @patch("retail.projects.tasks.task_activate_agentic_cx_script")
+    @patch("retail.projects.agentic_cx_tasks.task_ensure_agentic_cx_script_active")
     def test_partial_patch_only_completed(self, _mock_task, _mock_auth):
         self.onboarding.current_page = "initial_page"
         self.onboarding.save()
@@ -319,7 +394,7 @@ class TestOnboardingPatchView(TestCase):
         self.assertEqual(self.onboarding.current_page, "initial_page")
 
     @auth_bypass(vtex_account="unknown")
-    @patch("retail.projects.tasks.task_activate_agentic_cx_script")
+    @patch("retail.projects.agentic_cx_tasks.task_ensure_agentic_cx_script_active")
     def test_returns_404_for_unknown_vtex_account(self, _mock_task, _mock_auth):
         response = self.client.patch(
             "/api/onboard/unknown/",
@@ -328,6 +403,34 @@ class TestOnboardingPatchView(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+    def test_patch_does_not_wipe_channels_when_instance_is_stale(self):
+        """
+        Reproduces the start-setup / PATCH race: PATCH loaded an empty
+        config, start-setup then wrote channels, and a full save() from
+        the stale instance must not overwrite config.
+        """
+        stale = ProjectOnboarding.objects.get(pk=self.onboarding.pk)
+        self.assertEqual(stale.config, {})
+
+        ProjectOnboarding.objects.filter(pk=self.onboarding.pk).update(
+            config={"channels": {"wwc": {}}},
+            current_step="PROJECT_CONFIG",
+            progress=0,
+        )
+
+        serializer = OnboardingPatchSerializer(
+            stale, data={"current_page": "setup_channel"}, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        self.onboarding.refresh_from_db()
+        self.assertEqual(self.onboarding.current_page, "setup_channel")
+        self.assertEqual(
+            self.onboarding.config,
+            {"channels": {"wwc": {}}},
+        )
 
     @auth_bypass(vtex_account=None)
     def test_missing_tenant_returns_403(self, _mock_auth):

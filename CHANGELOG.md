@@ -1,3 +1,39 @@
+# 5.53.0
+- fix: Ignore pre-cart VTEX orders in purchase detection
+- feat: Route order-status and PIX webhooks to origin sub-accounts
+
+# 5.52.0
+- fix: Skip already integrated passive agents on re-onboarding
+- feat: Allow abandoned-cart resend when SKU or qty change
+
+# 5.51.0
+- feat: Introduce MerchantAccountNotAllowedError and enhance context resolution for merchant accounts - #557
+
+# 5.50.1
+- refactor: Improve order form clone shipping with two-step address/SLA logic and item filtering
+
+# 5.50.0
+- feat: Add first_successful_sent_at field to GalleryAgentSerializer
+- feat: Track first successful broadcast send on IntegratedAgent
+- feat: Clone orderForm for abandoned-cart UTM attribution
+
+# 5.49.0
+- feat: Add optional merchant_name to payment gateway and transaction proxy DTOs, serializers, and use cases
+- fix: Read template tenant from JWT instead of request body
+
+# 5.48.3
+- refactor: Read project_uuid from JWT context instead of request body in LinkProjectView
+
+# 5.48.2
+- Add cache-busting v param to Weni WebChat loader scripts
+
+# 5.48.1
+- feat: Enhance OnboardingPatchSerializer to save only updated fields and add test for concurrent updates
+- feat: Add optional merchant_name field to VtexProxySerializer and update related use cases
+
+# 5.48.0
+- feat: Adopt weni-commons JWT auth and read tenant from token
+
 # 5.47.1
 - fix: Mark content base progress complete when crawl fails
 

@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.test import TestCase
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -255,6 +256,43 @@ class CartRepositoryTest(TestCase):
             mock_filter.assert_called_once_with(
                 order_form_id=different_order_form_id, project=self.project
             )
+
+    def test_find_by_order_form_or_notification_matches_notification_id(self):
+        mock_cart = MagicMock(spec=Cart)
+        mock_cart.flows_channel_uuid = self.flows_channel_uuid
+        mock_queryset = MagicMock()
+        mock_queryset.first.return_value = mock_cart
+
+        with patch.object(
+            Cart.objects, "filter", return_value=mock_queryset
+        ) as mock_filter:
+            result = CartRepository.find_by_order_form_or_notification(
+                "clone-of", self.project
+            )
+
+        self.assertEqual(result, mock_cart)
+        mock_filter.assert_called_once()
+        filter_arg = mock_filter.call_args.args[0]
+        self.assertEqual(
+            str(filter_arg),
+            str(
+                Q(order_form_id="clone-of", project=self.project)
+                | Q(notification_order_form_id="clone-of", project=self.project)
+            ),
+        )
+
+    def test_find_by_order_form_or_notification_requires_flows_channel(self):
+        mock_cart = MagicMock(spec=Cart)
+        mock_cart.flows_channel_uuid = None
+        mock_queryset = MagicMock()
+        mock_queryset.first.return_value = mock_cart
+
+        with patch.object(Cart.objects, "filter", return_value=mock_queryset):
+            result = CartRepository.find_by_order_form_or_notification(
+                "clone-of", self.project
+            )
+
+        self.assertIsNone(result)
 
     def test_create_cart_with_empty_order_form_id(self):
         """Test creating a cart with empty order_form_id."""

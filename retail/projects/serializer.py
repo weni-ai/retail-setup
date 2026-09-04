@@ -57,11 +57,23 @@ class CrawlerWebhookSerializer(serializers.Serializer):
 
 
 class OnboardingPatchSerializer(serializers.ModelSerializer):
-    """Serializer for PATCH updates to ProjectOnboarding (front-end editable fields)."""
+    """Serializer for PATCH updates to ProjectOnboarding (front-end editable fields).
+
+    Saves only the patched columns via ``update_fields`` so concurrent
+    writers that updated other fields are not overwritten by a stale
+    in-memory instance (DRF's default ``ModelSerializer.update`` does a
+    full ``instance.save()``).
+    """
 
     class Meta:
         model = ProjectOnboarding
         fields = ["completed", "current_page", "skipped"]
+
+    def update(self, instance, validated_data):
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save(update_fields=list(validated_data.keys()))
+        return instance
 
 
 class InstallChannelAgentsSerializer(serializers.Serializer):
@@ -80,6 +92,12 @@ class ContentBaseProgressSerializer(serializers.Serializer):
     """Serializer for the content base crawl/upload progress response."""
 
     progress = serializers.IntegerField(read_only=True)
+
+
+class CheckUrlSerializer(serializers.Serializer):
+    """Serializer to validate the check-url request."""
+
+    crawl_url = serializers.URLField(required=True)
 
 
 class ProjectOnboardingSerializer(serializers.Serializer):

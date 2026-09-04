@@ -1,8 +1,10 @@
 import logging
+from typing import Optional
 
 from retail.services.vtex_io.service import VtexIOService
 from retail.vtex.dtos.proxy_payment_transaction_dto import ProxyPaymentTransactionDTO
 from retail.vtex.usecases.base import BaseVtexUseCase
+from retail.vtex.usecases.resolve_proxy_context import ResolveProxyContextUseCase
 
 logger = logging.getLogger(__name__)
 
@@ -13,8 +15,15 @@ class ProxyPaymentTransactionUseCase(BaseVtexUseCase):
     agentic-cx proxy-payment-transaction route.
     """
 
-    def __init__(self, vtex_io_service: VtexIOService):
+    def __init__(
+        self,
+        vtex_io_service: VtexIOService,
+        context_resolver: Optional[ResolveProxyContextUseCase] = None,
+    ):
         self.vtex_io_service = vtex_io_service
+        self.context_resolver = context_resolver or ResolveProxyContextUseCase(
+            vtex_io_service
+        )
 
     def execute(self, dto: ProxyPaymentTransactionDTO, project_uuid: str) -> dict:
         """
@@ -27,11 +36,14 @@ class ProxyPaymentTransactionUseCase(BaseVtexUseCase):
         Returns:
             dict: Response from the VTEX IO proxy-payment-transaction route.
         """
-        vtex_account, account_domain = self._get_vtex_context(project_uuid)
+        vtex_account, account_domain = self.context_resolver.execute(
+            project_uuid, merchant_name=dto.merchant_name
+        )
 
         logger.info(
             f"Proxying payment transaction for "
-            f"vtex_account={vtex_account} transaction_id={dto.transaction_id}"
+            f"vtex_account={vtex_account} account_domain={account_domain} "
+            f"transaction_id={dto.transaction_id}"
         )
 
         return self.vtex_io_service.proxy_payment_transaction(

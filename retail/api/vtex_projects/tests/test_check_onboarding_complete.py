@@ -1,5 +1,6 @@
+from unittest.mock import MagicMock, patch
+
 from django.test import TestCase, override_settings
-from unittest.mock import patch, MagicMock
 
 from retail.api.vtex_projects.usecases.check_onboarding_complete import (
     CheckOnboardingCompleteUseCase,
@@ -7,6 +8,7 @@ from retail.api.vtex_projects.usecases.check_onboarding_complete import (
     INACTIVE_STATUS,
 )
 from retail.internal.test_mixins import TEST_SETTINGS_OVERRIDES
+from retail.projects.usecases.agentic_cx_script import onboarding_complete_cache_key
 
 
 @override_settings(**TEST_SETTINGS_OVERRIDES)
@@ -15,7 +17,10 @@ class CheckOnboardingCompleteUseCaseTest(TestCase):
         from django.core.cache import cache
 
         cache.clear()
-        self.use_case = CheckOnboardingCompleteUseCase()
+        self.mock_eligibility = MagicMock()
+        self.use_case = CheckOnboardingCompleteUseCase(
+            eligibility_use_case=self.mock_eligibility
+        )
         self.vtex_account = "teststore"
 
     def tearDown(self):
@@ -23,43 +28,18 @@ class CheckOnboardingCompleteUseCaseTest(TestCase):
 
         cache.clear()
 
-    def _make_onboarding(self, completed=True):
-        mock = MagicMock()
-        mock.completed = completed
-        return mock
-
-    @patch(
-        "retail.api.vtex_projects.usecases.check_onboarding_complete.ProjectOnboarding.objects"
-    )
-    def test_returns_complete_when_onboarding_finished(self, mock_qs):
-        onboarding = self._make_onboarding(completed=True)
-        mock_qs.get.return_value = onboarding
+    def test_returns_complete_when_eligible(self):
+        self.mock_eligibility.execute.return_value = True
 
         result = self.use_case.execute(self.vtex_account)
 
         self.assertTrue(result.is_complete)
         self.assertIsNone(result.account_id)
         self.assertEqual(result.to_dict(), {"is_complete": True, "accountId": None})
+        self.mock_eligibility.execute.assert_called_once_with(self.vtex_account)
 
-    @patch(
-        "retail.api.vtex_projects.usecases.check_onboarding_complete.ProjectOnboarding.objects"
-    )
-    def test_returns_incomplete_when_not_completed(self, mock_qs):
-        onboarding = self._make_onboarding(completed=False)
-        mock_qs.get.return_value = onboarding
-
-        result = self.use_case.execute(self.vtex_account)
-
-        self.assertFalse(result.is_complete)
-        self.assertIsNone(result.account_id)
-
-    @patch(
-        "retail.api.vtex_projects.usecases.check_onboarding_complete.ProjectOnboarding.objects"
-    )
-    def test_returns_incomplete_when_onboarding_not_found(self, mock_qs):
-        from retail.projects.models import ProjectOnboarding
-
-        mock_qs.get.side_effect = ProjectOnboarding.DoesNotExist
+    def test_returns_incomplete_when_not_eligible(self):
+        self.mock_eligibility.execute.return_value = False
 
         result = self.use_case.execute(self.vtex_account)
 
@@ -77,22 +57,19 @@ class CheckOnboardingCompleteUseCaseTest(TestCase):
 
         self.assertEqual(result, cached_result)
         mock_cache.get.assert_called_once_with(
-            f"onboarding_complete_{self.vtex_account}"
+            onboarding_complete_cache_key(self.vtex_account)
         )
+        self.mock_eligibility.execute.assert_not_called()
 
-    @patch(
-        "retail.api.vtex_projects.usecases.check_onboarding_complete.ProjectOnboarding.objects"
-    )
     @patch("retail.api.vtex_projects.usecases.check_onboarding_complete.cache")
-    def test_caches_result_with_correct_timeout(self, mock_cache, mock_qs):
+    def test_caches_result_with_correct_timeout(self, mock_cache):
         mock_cache.get.return_value = None
-        onboarding = self._make_onboarding(completed=True)
-        mock_qs.get.return_value = onboarding
+        self.mock_eligibility.execute.return_value = True
 
         result = self.use_case.execute(self.vtex_account)
 
         mock_cache.set.assert_called_once_with(
-            f"onboarding_complete_{self.vtex_account}",
+            onboarding_complete_cache_key(self.vtex_account),
             result,
             timeout=CACHE_TIMEOUT,
         )

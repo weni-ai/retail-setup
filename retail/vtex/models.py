@@ -24,6 +24,10 @@ class Cart(models.Model):
 
     uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
     order_form_id = models.CharField(null=True, blank=True)
+    # Cloned VTEX cart used only in the abandoned-cart message link.
+    # Kept separate from order_form_id so dedup/cooldown still key off the
+    # shopper's original cart.
+    notification_order_form_id = models.CharField(null=True, blank=True)
     created_on = models.DateTimeField(auto_now_add=True)
     modified_on = models.DateTimeField(auto_now=True)
     status = models.CharField(
@@ -64,6 +68,10 @@ class Cart(models.Model):
         indexes = [
             models.Index(fields=["project", "status"]),
             models.Index(fields=["order_form_id", "project"]),
+            models.Index(
+                fields=["notification_order_form_id", "project"],
+                name="vtex_cart_notific_9631db_idx",
+            ),
             models.Index(fields=["abandoned"]),
             models.Index(fields=["phone_number"]),
             models.Index(fields=["phone_number", "status", "modified_on"]),
