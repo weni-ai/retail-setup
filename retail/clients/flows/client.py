@@ -79,3 +79,26 @@ class FlowsClient(RequestClient, FlowsClientInterface):
             headers=headers,
         )
         return response
+
+    def get_contact_groups(self, project_uuid: str, name: str) -> dict:
+        """GET /api/v2/groups.json filtered by name for the given project."""
+        url = f"{self.base_url}/api/v2/groups.json"
+        response = self.make_request(
+            url,
+            method="GET",
+            params={"project": str(project_uuid), "name": name},
+            headers=self.authentication_instance.headers,
+        )
+        return response.json()
+
+    def create_contact_group(self, project_uuid: str, name: str) -> dict:
+        """POST /api/v2/groups.json to create a group in the given project."""
+        url = f"{self.base_url}/api/v2/groups.json"
+        response = self.make_request(
+            url,
+            method="POST",
+            params={"project": str(project_uuid)},
+            json={"name": name},
+            headers=self.authentication_instance.headers,
+        )
+        return response.json()

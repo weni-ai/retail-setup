@@ -271,6 +271,15 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         )
         return response.json()
 
+    def cleanup_availability_notify(
+        self, account_domain: str, vtex_account: str
+    ) -> dict:
+        """POST already-sent subscription cleanup to the VTEX IO app."""
+        url = self._get_url(account_domain, "/availability-notify/cleanup")
+        headers = self._get_jwt_headers(vtex_account)
+        response = self.make_request(url, method="POST", headers=headers)
+        return response.json()
+
     def proxy_vtex(
         self,
         account_domain: str,

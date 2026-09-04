@@ -1,8 +1,12 @@
-from typing import Optional
+import logging
+from typing import Callable, Optional
 
 from retail.clients.exceptions import CustomAPIException
 from retail.interfaces.clients.flows.interface import FlowsClientInterface
 from retail.clients.flows.client import FlowsClient
+
+
+logger = logging.getLogger(__name__)
 
 
 class FlowsService:
@@ -46,3 +50,43 @@ class FlowsService:
             dict: API response from the Flows service.
         """
         return self.client.send_purchase_event(payload=payload, jwt_token=jwt_token)
+
+    def get_contact_groups(self, project_uuid: str, name: str) -> Optional[dict]:
+        """Return Flows groups matching ``name``, or ``None`` on infra failure."""
+        return self._call_contact_group_client(
+            "list",
+            self.client.get_contact_groups,
+            project_uuid=project_uuid,
+            name=name,
+        )
+
+    def create_contact_group(self, project_uuid: str, name: str) -> Optional[dict]:
+        """Create a Flows contact group, or ``None`` on infra failure."""
+        return self._call_contact_group_client(
+            "create",
+            self.client.create_contact_group,
+            project_uuid=project_uuid,
+            name=name,
+        )
+
+    def _call_contact_group_client(
+        self,
+        action: str,
+        client_method: Callable[..., dict],
+        project_uuid: str,
+        name: str,
+    ) -> Optional[dict]:
+        try:
+            return client_method(project_uuid=project_uuid, name=name)
+        except CustomAPIException as exc:
+            logger.error(
+                f"Failed to {action} Flows contact group for "
+                f"project={project_uuid} name={name}: status={exc.status_code}"
+            )
+            return None
+        except Exception as exc:
+            logger.exception(
+                f"Failed to {action} Flows contact group for "
+                f"project={project_uuid} name={name}: {exc}"
+            )
+            return None

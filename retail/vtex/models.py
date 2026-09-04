@@ -108,3 +108,59 @@ class Lead(models.Model):
         indexes = [
             models.Index(fields=["vtex_account"]),
         ]
+
+
+class BackInStockWaiter(models.Model):
+    """Shopper waiting for a VTEX SKU offer to come back in stock.
+
+    Unique per project + SKU + phone + seller + sales channel. Redis
+    only indexes SKUs that still have at least one ``pending`` row.
+    """
+
+    STATUS_PENDING = "pending"
+    STATUS_SENT = "sent"
+    STATUS_ERROR = "error"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_SENT, "Sent"),
+        (STATUS_ERROR, "Error"),
+    ]
+
+    uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="back_in_stock_waiters",
+    )
+    sku_id = models.CharField(max_length=64)
+    phone = models.CharField(max_length=32)
+    name = models.CharField(max_length=255)
+    seller = models.CharField(max_length=64)
+    sales_channel = models.CharField(max_length=64)
+    locale = models.CharField(max_length=16, default="pt-BR")
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    error_details = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "sku_id", "phone", "seller", "sales_channel"],
+                name="uniq_back_in_stock_waiter_offer",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["project", "status", "sku_id"]),
+            models.Index(fields=["status", "sent_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"BackInStockWaiter sku={self.sku_id} status={self.status} "
+            f"project={self.project_id}"
+        )

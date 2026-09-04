@@ -22,3 +22,13 @@ class FlowsClientInterface(ABC):
             Response: API response containing the broadcast information.
         """
         pass
+
+    @abstractmethod
+    def get_contact_groups(self, project_uuid: str, name: str) -> dict:
+        """List Flows contact groups filtered by name for a project."""
+        pass
+
+    @abstractmethod
+    def create_contact_group(self, project_uuid: str, name: str) -> dict:
+        """Create a Flows contact group for a project."""
+        pass

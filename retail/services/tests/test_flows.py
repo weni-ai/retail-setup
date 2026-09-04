@@ -75,3 +75,69 @@ class TestFlowsService(TestCase):
         self.mock_client.send_whatsapp_broadcast.assert_called_once_with(
             payload=self.payload
         )
+
+    def test_get_contact_groups_returns_payload(self):
+        expected = {"results": [{"uuid": "g1", "name": "back-in-stock-subscribers"}]}
+        self.mock_client.get_contact_groups.return_value = expected
+
+        result = self.service.get_contact_groups(
+            "proj-uuid", "back-in-stock-subscribers"
+        )
+
+        self.mock_client.get_contact_groups.assert_called_once_with(
+            project_uuid="proj-uuid", name="back-in-stock-subscribers"
+        )
+        self.assertEqual(result, expected)
+
+    def test_get_contact_groups_returns_none_on_client_error(self):
+        self.mock_client.get_contact_groups.side_effect = CustomAPIException(
+            status_code=500, detail="down"
+        )
+
+        result = self.service.get_contact_groups(
+            "proj-uuid", "back-in-stock-subscribers"
+        )
+
+        self.assertIsNone(result)
+
+    def test_get_contact_groups_returns_none_on_unexpected_error(self):
+        self.mock_client.get_contact_groups.side_effect = RuntimeError("boom")
+
+        result = self.service.get_contact_groups(
+            "proj-uuid", "back-in-stock-subscribers"
+        )
+
+        self.assertIsNone(result)
+
+    def test_create_contact_group_returns_payload(self):
+        expected = {"uuid": "g1", "name": "back-in-stock-subscribers"}
+        self.mock_client.create_contact_group.return_value = expected
+
+        result = self.service.create_contact_group(
+            "proj-uuid", "back-in-stock-subscribers"
+        )
+
+        self.mock_client.create_contact_group.assert_called_once_with(
+            project_uuid="proj-uuid", name="back-in-stock-subscribers"
+        )
+        self.assertEqual(result, expected)
+
+    def test_create_contact_group_returns_none_on_client_error(self):
+        self.mock_client.create_contact_group.side_effect = CustomAPIException(
+            status_code=400, detail="bad"
+        )
+
+        result = self.service.create_contact_group(
+            "proj-uuid", "back-in-stock-subscribers"
+        )
+
+        self.assertIsNone(result)
+
+    def test_create_contact_group_returns_none_on_unexpected_error(self):
+        self.mock_client.create_contact_group.side_effect = RuntimeError("boom")
+
+        result = self.service.create_contact_group(
+            "proj-uuid", "back-in-stock-subscribers"
+        )
+
+        self.assertIsNone(result)

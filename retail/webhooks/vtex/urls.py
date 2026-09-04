@@ -2,6 +2,8 @@ from django.urls import path
 
 from retail.webhooks.vtex.views.order_status import OrderStatusWebhook
 from .views.abandoned_cart_notification import AbandonedCartNotification
+from .views.back_in_stock_stock_change import BackInStockStockChange
+from .views.back_in_stock_subscribe import BackInStockSubscribe
 
 
 urlpatterns = [
@@ -14,5 +16,15 @@ urlpatterns = [
         "vtex/order-status/api/notification/",
         OrderStatusWebhook.as_view(),
         name="order-status",
+    ),
+    path(
+        "vtex/back-in-stock/api/subscribe/",
+        BackInStockSubscribe.as_view(),
+        name="back-in-stock-subscribe",
+    ),
+    path(
+        "vtex/back-in-stock/api/stock-change/",
+        BackInStockStockChange.as_view(),
+        name="back-in-stock-stock-change",
     ),
 ]
