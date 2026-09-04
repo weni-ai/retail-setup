@@ -8,9 +8,9 @@ from retail.clients.flows.client import FlowsClient
 @override_settings(FLOWS_REST_ENDPOINT="http://test-flows.local")
 class FlowsClientContactGroupTest(SimpleTestCase):
     def setUp(self):
-        self.client = FlowsClient()
-        self.client.authentication_instance = MagicMock()
-        self.client.authentication_instance.headers = {"Authorization": "Bearer token"}
+        jwt_usecase = MagicMock()
+        jwt_usecase.generate_jwt_token.return_value = "module-jwt"
+        self.client = FlowsClient(jwt_usecase=jwt_usecase)
 
     @patch.object(FlowsClient, "make_request")
     def test_get_contact_groups_uses_v2_route(self, mock_make_request):
@@ -26,8 +26,12 @@ class FlowsClientContactGroupTest(SimpleTestCase):
             "http://test-flows.local/api/v2/groups.json",
             method="GET",
             params={"project": "proj-uuid", "name": "back-in-stock-subscribers"},
-            headers={"Authorization": "Bearer token"},
+            headers={
+                "Authorization": "Bearer module-jwt",
+                "Content-Type": "application/json",
+            },
         )
+        self.client.jwt_usecase.generate_jwt_token.assert_called_once_with("proj-uuid")
         self.assertEqual(result, {"results": []})
 
     @patch.object(FlowsClient, "make_request")
@@ -48,6 +52,10 @@ class FlowsClientContactGroupTest(SimpleTestCase):
             method="POST",
             params={"project": "proj-uuid"},
             json={"name": "back-in-stock-subscribers"},
-            headers={"Authorization": "Bearer token"},
+            headers={
+                "Authorization": "Bearer module-jwt",
+                "Content-Type": "application/json",
+            },
         )
+        self.client.jwt_usecase.generate_jwt_token.assert_called_once_with("proj-uuid")
         self.assertEqual(result["uuid"], "group-uuid")

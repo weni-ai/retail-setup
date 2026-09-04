@@ -1,15 +1,32 @@
 """Client for connection with flows"""
 
+from typing import Dict, Optional
+
 from django.conf import settings
 
 from retail.clients.base import RequestClient, InternalAuthentication
 from retail.interfaces.clients.flows.interface import FlowsClientInterface
+from retail.interfaces.jwt import JWTInterface
+from retail.jwt_keys.usecases.generate_jwt import JWTUsecase
 
 
 class FlowsClient(RequestClient, FlowsClientInterface):
-    def __init__(self):
+    def __init__(self, jwt_usecase: Optional[JWTInterface] = None):
         self.base_url = settings.FLOWS_REST_ENDPOINT
         self.authentication_instance = InternalAuthentication()
+        self.jwt_usecase = jwt_usecase or JWTUsecase()
+
+    def _module_jwt_headers(self, project_uuid: str) -> Dict[str, str]:
+        """Bearer JWT with ``project_uuid`` for public Flows v2 routes.
+
+        ``GET/POST /api/v2/groups.json`` does not accept the internal OIDC
+        token used by ``/api/v2/internals/*``.
+        """
+        token = self.jwt_usecase.generate_jwt_token(project_uuid)
+        return {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
 
     def get_user_api_token(self, user_email: str, project_uuid: str):
         """
@@ -87,7 +104,7 @@ class FlowsClient(RequestClient, FlowsClientInterface):
             url,
             method="GET",
             params={"project": str(project_uuid), "name": name},
-            headers=self.authentication_instance.headers,
+            headers=self._module_jwt_headers(project_uuid),
         )
         return response.json()
 
@@ -99,6 +116,6 @@ class FlowsClient(RequestClient, FlowsClientInterface):
             method="POST",
             params={"project": str(project_uuid)},
             json={"name": name},
-            headers=self.authentication_instance.headers,
+            headers=self._module_jwt_headers(project_uuid),
         )
         return response.json()
