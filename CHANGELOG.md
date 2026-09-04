@@ -1,3 +1,6 @@
+# 5.55.1
+- feat: Add check-url endpoint to preflight crawl URL reachability via Crawler MS
+
 # 5.55.0
 - feat: Add check-url endpoint to preflight crawl URL reachability via Crawler MS
 - feat: Add abandoned-cart send-time restriction endpoint
