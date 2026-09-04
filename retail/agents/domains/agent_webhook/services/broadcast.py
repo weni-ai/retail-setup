@@ -42,6 +42,11 @@ from weni_datalake_sdk.paths.commerce_webhook import CommerceWebhookPath
 logger = logging.getLogger(__name__)
 
 
+def _url_button_suffix(button: str) -> str:
+    """Strip a leading slash so Meta ``https://host/{{1}}`` does not become ``//``."""
+    return button.lstrip("/")
+
+
 @dataclass(frozen=True)
 class BroadcastDispatchResult:
     """Outcome of a successful broadcast dispatch through Flows.
@@ -176,7 +181,9 @@ class Broadcast:
             message["msg"]["buttons"] = [
                 {
                     "sub_type": "url",
-                    "parameters": [{"type": "text", "text": button}],
+                    "parameters": [
+                        {"type": "text", "text": _url_button_suffix(button)}
+                    ],
                 }
             ]
 

@@ -11,6 +11,7 @@ from retail.webhooks.vtex.usecases.dto import ProcessBackInStockNotificationDTO
 from retail.webhooks.vtex.usecases.exceptions import BackInStockSendNotReadyError
 from retail.webhooks.vtex.usecases.process_back_in_stock_notification import (
     DISCARD_AGENT_INACTIVE,
+    DISCARD_NOT_DISPATCHED,
     NOTIFICATION_SENT,
     ProcessBackInStockNotificationUseCase,
 )
@@ -19,6 +20,9 @@ from retail.webhooks.vtex.usecases.process_back_in_stock_notification import (
 BACK_IN_STOCK_AGENT_UUID = str(uuid.uuid4())
 LAMBDA_PAYLOAD = {
     "sku_id": "9",
+    "seller_id": "1",
+    "sales_channel": "1",
+    "quantity": 1,
     "client_name": "Maria Silva",
     "phone_number": "5511999887766",
     "store": "https://test-account.myvtex.com",
@@ -59,6 +63,8 @@ class ProcessBackInStockNotificationUseCaseTest(TestCase):
             phone="5511999887766",
             name="Maria Silva",
             locale="pt-BR",
+            seller="1",
+            sales_channel="1",
         )
         self.execution_uuid = uuid.uuid4()
         self.mock_webhook = MagicMock()
@@ -147,11 +153,13 @@ class ProcessBackInStockNotificationUseCaseTest(TestCase):
         self.assertIn("store=https://test-account.myvtex.com", combined)
         self.assertNotIn("5511999887766", combined)
 
-    def test_raises_when_lambda_does_not_dispatch(self):
+    def test_discards_and_keeps_pending_when_lambda_does_not_dispatch(self):
         self.mock_webhook.execute_from_task.return_value = None
 
-        with self.assertRaises(BackInStockSendNotReadyError):
-            self._use_case().execute(self.dto)
+        result = self._use_case().execute(self.dto)
+
+        self.assertTrue(result.discarded)
+        self.assertEqual(result.reason, DISCARD_NOT_DISPATCHED)
 
     def test_raises_when_lambda_call_fails(self):
         self.mock_webhook.execute_from_task.side_effect = RuntimeError("lambda down")

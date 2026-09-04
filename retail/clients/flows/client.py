@@ -1,15 +1,33 @@
 """Client for connection with flows"""
 
+from typing import Dict, List, Optional
+
 from django.conf import settings
 
 from retail.clients.base import RequestClient, InternalAuthentication
 from retail.interfaces.clients.flows.interface import FlowsClientInterface
+from retail.interfaces.jwt import JWTInterface
+from retail.jwt_keys.usecases.generate_jwt import JWTUsecase
 
 
 class FlowsClient(RequestClient, FlowsClientInterface):
-    def __init__(self):
+    def __init__(self, jwt_usecase: Optional[JWTInterface] = None):
         self.base_url = settings.FLOWS_REST_ENDPOINT
         self.authentication_instance = InternalAuthentication()
+        self.jwt_usecase = jwt_usecase or JWTUsecase()
+
+    def _module_jwt_headers(self, project_uuid: str) -> Dict[str, str]:
+        """Bearer JWT with ``project_uuid`` for public Flows v2 routes.
+
+        Public v2 routes (``groups.json``, ``contacts.json``,
+        ``contact_actions.json``) do not accept the internal OIDC token
+        used by ``/api/v2/internals/*``.
+        """
+        token = self.jwt_usecase.generate_jwt_token(project_uuid)
+        return {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
 
     def get_user_api_token(self, user_email: str, project_uuid: str):
         """
@@ -87,7 +105,7 @@ class FlowsClient(RequestClient, FlowsClientInterface):
             url,
             method="GET",
             params={"project": str(project_uuid), "name": name},
-            headers=self.authentication_instance.headers,
+            headers=self._module_jwt_headers(project_uuid),
         )
         return response.json()
 
@@ -99,6 +117,34 @@ class FlowsClient(RequestClient, FlowsClientInterface):
             method="POST",
             params={"project": str(project_uuid)},
             json={"name": name},
-            headers=self.authentication_instance.headers,
+            headers=self._module_jwt_headers(project_uuid),
+        )
+        return response.json()
+
+    def create_contact(
+        self, project_uuid: str, name: str, urns: List[str], groups: List[str]
+    ) -> dict:
+        """POST /api/v2/contacts.json already assigned to ``groups``."""
+        url = f"{self.base_url}/api/v2/contacts.json"
+        response = self.make_request(
+            url,
+            method="POST",
+            params={"project": str(project_uuid)},
+            json={"name": name, "urns": urns, "groups": groups},
+            headers=self._module_jwt_headers(project_uuid),
+        )
+        return response.json()
+
+    def add_contact_to_group(
+        self, project_uuid: str, contacts: List[str], group: str
+    ) -> dict:
+        """POST /api/v2/contact_actions.json with ``action=add``."""
+        url = f"{self.base_url}/api/v2/contact_actions.json"
+        response = self.make_request(
+            url,
+            method="POST",
+            params={"project": str(project_uuid)},
+            json={"contacts": contacts, "action": "add", "group": group},
+            headers=self._module_jwt_headers(project_uuid),
         )
         return response.json()

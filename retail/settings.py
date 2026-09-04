@@ -325,16 +325,26 @@ AGENT_EXECUTION_CELERY_QUEUE = env.str(
     "AGENT_EXECUTION_CELERY_QUEUE", default="agent-executions"
 )
 
-# Dedicated Celery queue for back-in-stock WhatsApp sends. The HTTP
-# webhook answers 200 as soon as the job is queued; a worker started
-# with ``celery-worker back-in-stock`` processes the send.
-BACK_IN_STOCK_CELERY_QUEUE = env.str(
-    "BACK_IN_STOCK_CELERY_QUEUE", default="back-in-stock"
+# Dedicated Celery queues for back-in-stock ingest (Logistics/Checkout)
+# and WhatsApp notify. Nightly rebuild/cleanup stay on the default
+# Celery queue — they are low-volume cron jobs.
+BACK_IN_STOCK_STOCK_CHANGE_CELERY_QUEUE = env.str(
+    "BACK_IN_STOCK_STOCK_CHANGE_CELERY_QUEUE",
+    default="back-in-stock-stock-change",
+)
+BACK_IN_STOCK_NOTIFY_CELERY_QUEUE = env.str(
+    "BACK_IN_STOCK_NOTIFY_CELERY_QUEUE", default="back-in-stock-notify"
 )
 
 CELERY_BEAT_SCHEDULE = {
     "task-cleanup-old-carts": {
         "task": "task_cleanup_old_carts",
+        "schedule": crontab(minute=0, hour=2),
+    },
+    "task-rebuild-back-in-stock-waiting-skus": {
+        "task": "task_rebuild_back_in_stock_waiting_skus",
+        # 02:00 America/Sao_Paulo. CELERY_TIMEZONE is already BRT
+        # (America/Maceio, no DST), so hour=2 matches 02:00 BRT.
         "schedule": crontab(minute=0, hour=2),
     },
     "task-cleanup-back-in-stock-subscriptions": {
@@ -354,7 +364,10 @@ CELERY_BEAT_SCHEDULE = {
 CELERY_TASK_ROUTES = {
     "task_cleanup_old_executions": {"queue": AGENT_EXECUTION_CELERY_QUEUE},
     "task_flush_execution_logs": {"queue": AGENT_EXECUTION_CELERY_QUEUE},
-    "task_process_back_in_stock_notification": {"queue": BACK_IN_STOCK_CELERY_QUEUE},
+    "task_process_back_in_stock_stock_change": {
+        "queue": BACK_IN_STOCK_STOCK_CHANGE_CELERY_QUEUE
+    },
+    "task_notify_back_in_stock_waiter": {"queue": BACK_IN_STOCK_NOTIFY_CELERY_QUEUE},
 }
 
 
