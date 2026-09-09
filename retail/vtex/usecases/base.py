@@ -15,10 +15,9 @@ class BaseVtexUseCase(ABC):
 
     def _get_vtex_context(self, project_uuid: str) -> Tuple[str, str]:
         """
-        Retrieves VTEX account and domain for a project (single DB hit, cached).
+        Retrieves VTEX account and domain for a project (cached).
 
-        Returns:
-            Tuple of (vtex_account, account_domain).
+        Live desk copilots resolve the account from their parent project.
         """
         cache_key = f"project_vtex_context_{project_uuid}"
         cached = cache.get(cache_key)
@@ -30,10 +29,9 @@ class BaseVtexUseCase(ABC):
         except Project.DoesNotExist:
             raise ValueError("Project not found for given UUID.")
 
-        if not project.vtex_account:
+        vtex_account = project.resolve_vtex_account()
+        if not vtex_account:
             raise ValueError("VTEX account not defined for project.")
-
-        vtex_account = project.vtex_account
         project_domain = f"{vtex_account}.myvtex.com"
         context = (vtex_account, project_domain)
         cache.set(cache_key, context, timeout=VTEX_CONTEXT_CACHE_TTL)

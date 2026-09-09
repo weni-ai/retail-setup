@@ -112,3 +112,20 @@ class TestLinkProjectToOnboardingUseCase(TestCase):
 
         LinkProjectToOnboardingUseCase.execute(project)
         # Should not raise
+
+    def test_does_not_link_copilot_project(self):
+        onboarding = ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+        )
+        copilot = Project.objects.create(
+            name="Copilot",
+            uuid=uuid4(),
+            vtex_account="mystore",
+            is_live_desk_copilot=True,
+            parent_project=self.project,
+        )
+
+        LinkProjectToOnboardingUseCase.execute(copilot)
+
+        onboarding.refresh_from_db()
+        self.assertIsNone(onboarding.project_id)

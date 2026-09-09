@@ -29,7 +29,11 @@ class LinkProjectToOnboardingUseCase:
         Args:
             project: The newly created/updated Project instance.
         """
-        if not project.vtex_account or not project.is_active:
+        if not project.is_active:
+            return
+        if project.is_live_desk_copilot:
+            return
+        if not project.vtex_account:
             return
 
         try:
