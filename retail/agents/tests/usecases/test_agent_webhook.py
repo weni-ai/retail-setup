@@ -1,6 +1,7 @@
 from django.test import TestCase
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
+from decimal import Decimal
 
 from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_webhook.services.broadcast import (
@@ -629,6 +630,51 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
 
         self.exec_logger.update_contact_urn.assert_not_called()
 
+    def test_execute_updates_order_info_when_lambda_returns_amount(self):
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = {
+            "template": "back_in_stock",
+            "contact_urn": "whatsapp:5511999999999",
+            "amount": 29.9,
+            "currency": "BRL",
+        }
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
+        self.mock_broadcast_handler.send_message.return_value = _dispatch_result(
+            response={"id": 1}
+        )
+        self.mock_broadcast_handler.get_current_template.return_value = MagicMock(
+            uuid=uuid4()
+        )
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.update_order_info.assert_called_once_with(
+            amount=Decimal("29.90"),
+            currency="BRL",
+        )
+
+    def test_execute_does_not_update_order_info_when_lambda_omits_amount(self):
+        self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
+        self.mock_lambda_handler.parse_response.return_value = {
+            "template": "order_update",
+            "contact_urn": "whatsapp:5511999999999",
+        }
+        self.mock_lambda_handler.validate_response.return_value = True
+        self.mock_broadcast_handler.can_send_to_contact.return_value = True
+        self.mock_broadcast_handler.build_message.return_value = {"msg": "ok"}
+        self.mock_broadcast_handler.send_message.return_value = _dispatch_result(
+            response={"id": 1}
+        )
+        self.mock_broadcast_handler.get_current_template.return_value = MagicMock(
+            uuid=uuid4()
+        )
+
+        self.usecase.execute(self.mock_agent, self._build_request_data())
+
+        self.exec_logger.update_order_info.assert_not_called()
+
     def test_execute_logs_lambda_response_with_error_fallback_when_parse_returns_none(
         self,
     ):
@@ -648,7 +694,12 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
         self.mock_broadcast_handler.send_message.assert_not_called()
 
     def test_execute_logs_skip_when_validation_fails(self):
-        parsed = {"status": "ERROR", "error": "boom"}
+        parsed = {
+            "status": "ERROR",
+            "error": "boom",
+            "amount": 29.9,
+            "currency": "BRL",
+        }
         self.mock_lambda_handler.invoke.return_value = {"Payload": MagicMock()}
         self.mock_lambda_handler.parse_response.return_value = parsed
         self.mock_lambda_handler.validate_response.return_value = False
@@ -659,6 +710,7 @@ class AgentWebhookUseCaseLoggingTest(TestCase):
             reason="Lambda response validation failed",
             skip_data={"status": "ERROR", "error": "boom"},
         )
+        self.exec_logger.update_order_info.assert_not_called()
         self.mock_broadcast_handler.send_message.assert_not_called()
 
     def test_execute_logs_skip_when_contact_not_allowed(self):

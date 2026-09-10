@@ -21,6 +21,40 @@ class OrderAmountDetails:
     currency: Optional[str]
 
 
+def _quantize_positive_amount(raw_value: Any) -> Optional[Decimal]:
+    """Parse a shopper-facing amount; reject zero, negative, or invalid."""
+    if raw_value in (None, ""):
+        return None
+    try:
+        amount = Decimal(str(raw_value)).quantize(_AMOUNT_QUANTUM)
+    except (TypeError, ValueError, ArithmeticError):
+        return None
+    if amount <= 0:
+        return None
+    return amount
+
+
+def parse_lambda_amount_details(
+    payload: Optional[Dict[str, Any]],
+) -> OrderAmountDetails:
+    """Read ``amount`` (major units) and ``currency`` from a lambda response.
+
+    Unlike VTEX order JSON, lambda amounts are already in major units
+    (e.g. ``29.90``), the same shape ``update_order_info`` stores.
+    """
+    if not payload:
+        return OrderAmountDetails(amount=None, currency=None)
+
+    currency = payload.get("currency")
+    if not isinstance(currency, str) or not currency.strip():
+        currency = None
+    else:
+        currency = currency.strip()
+
+    amount = _quantize_positive_amount(payload.get("amount"))
+    return OrderAmountDetails(amount=amount, currency=currency)
+
+
 def parse_order_amount_details(
     order_details: Optional[Dict[str, Any]],
 ) -> OrderAmountDetails:
