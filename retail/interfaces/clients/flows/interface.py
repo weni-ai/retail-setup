@@ -34,6 +34,11 @@ class FlowsClientInterface(ABC):
         pass
 
     @abstractmethod
+    def get_contacts(self, project_uuid: str, urn: str) -> dict:
+        """GET /api/v2/contacts.json filtered by URN for a project."""
+        pass
+
+    @abstractmethod
     def create_contact(
         self, project_uuid: str, name: str, urns: List[str], groups: List[str]
     ) -> dict:

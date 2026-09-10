@@ -61,6 +61,27 @@ class FlowsClientContactGroupTest(SimpleTestCase):
         self.assertEqual(result["uuid"], "group-uuid")
 
     @patch.object(FlowsClient, "make_request")
+    def test_get_contacts_filters_by_urn(self, mock_make_request):
+        response = MagicMock()
+        response.json.return_value = {"results": [{"uuid": "c1"}]}
+        mock_make_request.return_value = response
+
+        result = self.client.get_contacts(
+            project_uuid="proj-uuid", urn="whatsapp:5511999887766"
+        )
+
+        mock_make_request.assert_called_once_with(
+            "http://test-flows.local/api/v2/contacts.json",
+            method="GET",
+            params={"project": "proj-uuid", "urn": "whatsapp:5511999887766"},
+            headers={
+                "Authorization": "Bearer module-jwt",
+                "Content-Type": "application/json",
+            },
+        )
+        self.assertEqual(result["results"][0]["uuid"], "c1")
+
+    @patch.object(FlowsClient, "make_request")
     def test_create_contact_posts_name_urns_and_groups(self, mock_make_request):
         response = MagicMock()
         response.json.return_value = {"uuid": "contact-uuid"}

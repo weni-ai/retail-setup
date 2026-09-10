@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class RebuildBackInStockWaitingSkusUseCase:
-    """Rebuild each store SET from pending waiters (database is the source of truth)."""
+    """Rebuild each store SET from pending and in-flight waiters."""
 
     def __init__(
         self,
@@ -24,7 +24,9 @@ class RebuildBackInStockWaitingSkusUseCase:
 
     def execute(self) -> None:
         project_rows = (
-            BackInStockWaiter.objects.filter(status=BackInStockWaiter.STATUS_PENDING)
+            BackInStockWaiter.objects.filter(
+                status__in=BackInStockWaiter.INDEXED_STATUSES
+            )
             .exclude(project__vtex_account__isnull=True)
             .exclude(project__vtex_account="")
             .values_list("project_id", "project__vtex_account")
@@ -51,7 +53,7 @@ class RebuildBackInStockWaitingSkusUseCase:
         sku_ids = list(
             BackInStockWaiter.objects.filter(
                 project_id=project_id,
-                status=BackInStockWaiter.STATUS_PENDING,
+                status__in=BackInStockWaiter.INDEXED_STATUSES,
             )
             .values_list("sku_id", flat=True)
             .distinct()

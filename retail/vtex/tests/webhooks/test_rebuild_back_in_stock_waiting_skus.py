@@ -89,6 +89,21 @@ class RebuildBackInStockWaitingSkusUseCaseTest(TestCase):
 
         self.assertEqual(self.redis.sets[self.index.key_for("gaboulstore")], {"9"})
 
+    def test_keeps_sending_sku_in_the_index(self):
+        BackInStockWaiter.objects.create(
+            project=self.project,
+            sku_id="12",
+            phone="5511999887766",
+            name="Maria",
+            seller="1",
+            sales_channel="1",
+            status=BackInStockWaiter.STATUS_SENDING,
+        )
+
+        self.use_case.execute_for_account("gaboulstore")
+
+        self.assertEqual(self.redis.sets[self.index.key_for("gaboulstore")], {"12"})
+
     def test_does_not_rebuild_accounts_without_pending(self):
         BackInStockWaiter.objects.create(
             project=self.other,
