@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 class AddBackInStockSubscriberToGroupUseCase:
     """Put the subscriber in the Flows group without blocking subscribe.
 
-    New contacts are created already in the group. An existing URN gets
-    ``contact_actions`` add, which is idempotent. Flows failures are
+    Looks up the URN first. Existing contacts get ``contact_actions`` add.
+    New contacts are created already in the group. A POST 400 after a
+    lookup miss (rare race) still falls back to add. Flows failures are
     logged; the waiter in Retail remains the source of truth for notify.
     """
 
@@ -47,6 +48,13 @@ class AddBackInStockSubscriberToGroupUseCase:
 
     def _put_contact_in_group(self, project_uuid: str, name: str, phone: str) -> None:
         urn = f"whatsapp:{phone}"
+        existing = self._flows_service.get_contacts(project_uuid=project_uuid, urn=urn)
+        if existing is not None and existing.get("results"):
+            self._add_existing_contact_to_group(project_uuid, urn)
+            return
+        self._create_contact_in_group(project_uuid, name, urn)
+
+    def _create_contact_in_group(self, project_uuid: str, name: str, urn: str) -> None:
         try:
             created = self._flows_service.create_contact(
                 project_uuid=project_uuid,

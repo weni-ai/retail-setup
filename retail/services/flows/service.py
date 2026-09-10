@@ -1,5 +1,5 @@
 import logging
-from typing import Callable, List, Optional
+from typing import Any, Callable, List, Optional
 
 from retail.clients.exceptions import CustomAPIException
 from retail.interfaces.clients.flows.interface import FlowsClientInterface
@@ -75,6 +75,22 @@ class FlowsService:
             name=name,
         )
 
+    def get_contacts(self, project_uuid: str, urn: str) -> Optional[dict]:
+        """Return Flows contacts matching ``urn``, or ``None`` on infra failure."""
+        try:
+            return self.client.get_contacts(project_uuid=project_uuid, urn=urn)
+        except CustomAPIException as exc:
+            logger.error(
+                f"Failed to get Flows contact for project={project_uuid}: "
+                f"status={exc.status_code}"
+            )
+            return None
+        except Exception as exc:
+            logger.exception(
+                f"Failed to get Flows contact for project={project_uuid}: {exc}"
+            )
+            return None
+
     def create_contact(
         self, project_uuid: str, name: str, urns: List[str], groups: List[str]
     ) -> Optional[dict]:
@@ -92,7 +108,7 @@ class FlowsService:
                 groups=groups,
             )
         except CustomAPIException as exc:
-            if _is_urn_owned_by_another_contact(exc):
+            if _is_urn_already_taken(exc.status_code, exc.detail):
                 raise FlowsContactUrnAlreadyExistsError() from exc
             logger.error(
                 f"Failed to create Flows contact for project={project_uuid}: "
@@ -151,7 +167,8 @@ class FlowsService:
             return None
 
 
-def _is_urn_owned_by_another_contact(exc: CustomAPIException) -> bool:
-    if exc.status_code != 400:
+def _is_urn_already_taken(status_code: Optional[int], detail: Any) -> bool:
+    """True when Flows 400 means the WhatsApp URN already has a contact."""
+    if status_code != 400:
         return False
-    return URN_BELONGS_TO_ANOTHER_CONTACT in str(exc.detail).lower()
+    return URN_BELONGS_TO_ANOTHER_CONTACT in str(detail).lower()

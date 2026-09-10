@@ -1,7 +1,9 @@
 import uuid
+from datetime import timedelta
 from unittest.mock import MagicMock
 
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from retail.vtex.models import BackInStockWaiter
 from retail.projects.models import Project
@@ -131,6 +133,19 @@ class NotifyBackInStockWaiterUseCaseTest(TestCase):
         self.assertEqual(self.maria.error_details, [])
         self.assertIn("9", self.redis.sets[self.index.key_for("gaboulstore")])
 
+    def test_releases_sending_to_pending_when_lambda_skips(self):
+        self.maria.status = BackInStockWaiter.STATUS_SENDING
+        self.maria.save(update_fields=["status"])
+        self.mock_send.execute.return_value = ProcessBackInStockNotificationResult(
+            discarded=True, reason="Agent is not active for this account."
+        )
+
+        self._execute(self.maria)
+
+        self.maria.refresh_from_db()
+        self.assertEqual(self.maria.status, BackInStockWaiter.STATUS_PENDING)
+        self.assertIn("9", self.redis.sets[self.index.key_for("gaboulstore")])
+
     def test_marks_error_and_reraises_when_send_fails(self):
         self.mock_send.execute.side_effect = BackInStockSendNotReadyError("send failed")
 
@@ -161,7 +176,44 @@ class NotifyBackInStockWaiterUseCaseTest(TestCase):
 
         self.use_case._mark_sent(self.maria)
         self.use_case._mark_error(self.maria, ERROR_SEND_FAILED, "late")
+        self.use_case._release_to_pending(self.maria)
 
         self.maria.refresh_from_db()
         self.assertEqual(self.maria.status, BackInStockWaiter.STATUS_SENT)
         self.assertEqual(self.maria.error_details, [])
+
+    def test_second_notify_worker_does_not_send_when_already_claimed(self):
+        claimed = self.use_case._claim_for_send(str(self.maria.uuid))
+        duplicate = self.use_case._claim_for_send(str(self.maria.uuid))
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.status, BackInStockWaiter.STATUS_NOTIFYING)
+        self.assertIsNone(duplicate)
+
+        self._execute(self.maria)
+
+        self.mock_send.execute.assert_not_called()
+
+    def test_claims_sending_waiter_before_send(self):
+        self.maria.status = BackInStockWaiter.STATUS_SENDING
+        self.maria.save(update_fields=["status"])
+
+        self._execute(self.maria)
+
+        self.mock_send.execute.assert_called_once()
+        self.maria.refresh_from_db()
+        self.assertEqual(self.maria.status, BackInStockWaiter.STATUS_SENT)
+
+    def test_reclaims_stale_notifying_waiter(self):
+        BackInStockWaiter.objects.filter(pk=self.maria.pk).update(
+            status=BackInStockWaiter.STATUS_NOTIFYING,
+            updated_at=timezone.now()
+            - BackInStockWaiter.CLAIM_STALE_AFTER
+            - timedelta(seconds=1),
+        )
+
+        self._execute(self.maria)
+
+        self.mock_send.execute.assert_called_once()
+        self.maria.refresh_from_db()
+        self.assertEqual(self.maria.status, BackInStockWaiter.STATUS_SENT)

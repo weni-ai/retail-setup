@@ -138,6 +138,23 @@ class SubscribeBackInStockUseCaseTest(TestCase):
         self.assertEqual(waiter.error_details, [])
         self.assertEqual(BackInStockWaiter.objects.count(), 1)
 
+    def test_does_not_reset_sending_waiter(self):
+        waiter = BackInStockWaiter.objects.create(
+            project=self.project,
+            sku_id="9",
+            phone="5511999887766",
+            name="Maria Silva",
+            seller="1",
+            sales_channel="1",
+            status=BackInStockWaiter.STATUS_SENDING,
+        )
+
+        self.use_case.execute(_dto(name="Maria 2"))
+
+        waiter.refresh_from_db()
+        self.assertEqual(waiter.status, BackInStockWaiter.STATUS_SENDING)
+        self.assertEqual(waiter.name, "Maria Silva")
+
     def test_raises_when_project_missing(self):
         with self.assertRaises(ProjectNotFoundError):
             self.use_case.execute(_dto(account="unknown"))

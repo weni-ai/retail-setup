@@ -2,6 +2,8 @@ import logging
 from typing import Any, Optional
 
 from django.conf import settings
+from django.db.models import Q, QuerySet
+from django.utils import timezone
 
 from retail.agents.domains.agent_webhook.usecases.base_agent_webhook import (
     BaseAgentWebhookUseCase,
@@ -16,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class ProcessBackInStockStockChangeUseCase:
-    """Queue 1: fan out one notify task per pending waiter of the SKU.
+    """Queue 1: claim pending waiters, then fan out one notify task each.
 
     Availability (inventory, seller and trade policy) is resolved by the
     agent lambda at notify time, so this job only decides *who* is waiting
@@ -43,19 +45,19 @@ class ProcessBackInStockStockChangeUseCase:
             )
             return
 
-        waiters = list(
-            BackInStockWaiter.objects.filter(
-                project=project,
-                sku_id=sku_id,
-                status=BackInStockWaiter.STATUS_PENDING,
-            ).order_by("created_at")
-        )
+        waiters = list(self._claimable_waiters(project, sku_id))
         if not waiters:
-            self._index.srem_waiting_sku(account, sku_id)
-            logger.info(
-                f"[BACK_IN_STOCK] Stale waiting SKU removed: vtex_account={account} "
-                f"sku_id={sku_id}"
-            )
+            if not self._has_indexed_waiters(project, sku_id):
+                self._index.srem_waiting_sku(account, sku_id)
+                logger.info(
+                    f"[BACK_IN_STOCK] Stale waiting SKU removed: vtex_account={account} "
+                    f"sku_id={sku_id}"
+                )
+            else:
+                logger.info(
+                    f"[BACK_IN_STOCK] Stock-change job skipped: vtex_account={account} "
+                    f"sku_id={sku_id} reason=waiters_already_claimed"
+                )
             return
 
         if not self._has_active_back_in_stock_agent(project):
@@ -65,12 +67,16 @@ class ProcessBackInStockStockChangeUseCase:
             )
             return
 
+        queued = 0
         for waiter in waiters:
+            if not self._claim_for_queue(waiter):
+                continue
             self._enqueue_notify(account, waiter)
+            queued += 1
 
         logger.info(
             f"[BACK_IN_STOCK] Stock-change job finished: vtex_account={account} "
-            f"sku_id={sku_id} queued={len(waiters)}"
+            f"sku_id={sku_id} queued={queued}"
         )
 
     def _has_active_back_in_stock_agent(self, project: Project) -> bool:
@@ -79,6 +85,40 @@ class ProcessBackInStockStockChangeUseCase:
                 project, AgentRole.BACK_IN_STOCK
             )
             is not None
+        )
+
+    def _claimable_waiters(self, project: Project, sku_id: str) -> QuerySet:
+        return (
+            BackInStockWaiter.objects.filter(project=project, sku_id=sku_id)
+            .filter(self._queue_claim_filter())
+            .order_by("created_at")
+        )
+
+    def _has_indexed_waiters(self, project: Project, sku_id: str) -> bool:
+        return BackInStockWaiter.objects.filter(
+            project=project,
+            sku_id=sku_id,
+            status__in=BackInStockWaiter.INDEXED_STATUSES,
+        ).exists()
+
+    def _claim_for_queue(self, waiter: BackInStockWaiter) -> bool:
+        claimed = bool(
+            BackInStockWaiter.objects.filter(pk=waiter.pk)
+            .filter(self._queue_claim_filter())
+            .update(
+                status=BackInStockWaiter.STATUS_SENDING,
+                updated_at=timezone.now(),
+            )
+        )
+        if claimed:
+            waiter.status = BackInStockWaiter.STATUS_SENDING
+        return claimed
+
+    def _queue_claim_filter(self) -> Q:
+        stale_before = timezone.now() - BackInStockWaiter.CLAIM_STALE_AFTER
+        return Q(status=BackInStockWaiter.STATUS_PENDING) | Q(
+            status__in=BackInStockWaiter.IN_FLIGHT_STATUSES,
+            updated_at__lt=stale_before,
         )
 
     def _enqueue_notify(self, account: str, waiter: BackInStockWaiter) -> None:

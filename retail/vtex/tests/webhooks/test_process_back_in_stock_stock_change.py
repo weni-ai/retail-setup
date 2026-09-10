@@ -1,8 +1,10 @@
 import uuid
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from retail.agents.domains.agent_webhook.usecases.base_agent_webhook import (
     BaseAgentWebhookUseCase,
@@ -88,6 +90,10 @@ class ProcessBackInStockStockChangeUseCaseTest(TestCase):
             self.mock_notify.apply_async.call_args.kwargs["queue"],
             "back-in-stock-notify",
         )
+        self.maria.refresh_from_db()
+        self.joao.refresh_from_db()
+        self.assertEqual(self.maria.status, BackInStockWaiter.STATUS_SENDING)
+        self.assertEqual(self.joao.status, BackInStockWaiter.STATUS_SENDING)
 
     def test_forwards_offer_fields_to_notify(self):
         self.use_case.execute("gaboulstore", "9")
@@ -135,6 +141,45 @@ class ProcessBackInStockStockChangeUseCaseTest(TestCase):
         with patch.object(Project.objects, "get") as mock_get:
             self.use_case.execute("gaboulstore", "9")
             mock_get.assert_not_called()
+
+    def test_second_stock_change_does_not_reenqueue_claimed_waiters(self):
+        self.use_case.execute("gaboulstore", "9")
+        self.mock_notify.apply_async.reset_mock()
+
+        self.use_case.execute("gaboulstore", "9")
+
+        self.mock_notify.apply_async.assert_not_called()
+        self.assertIn("9", self.redis.sets[self.index.key_for("gaboulstore")])
+
+    def test_does_not_claim_when_another_worker_already_queued(self):
+        self.assertTrue(self.use_case._claim_for_queue(self.maria))
+        self.assertFalse(self.use_case._claim_for_queue(self.maria))
+        self.maria.refresh_from_db()
+        self.assertEqual(self.maria.status, BackInStockWaiter.STATUS_SENDING)
+
+    def test_skips_enqueue_when_claim_loses_race_during_fanout(self):
+        with patch.object(self.use_case, "_claim_for_queue", return_value=False):
+            self.use_case.execute("gaboulstore", "9")
+
+        self.mock_notify.apply_async.assert_not_called()
+
+    def test_reclaims_stale_sending_waiter(self):
+        self.joao.delete()
+        self.maria.status = BackInStockWaiter.STATUS_SENDING
+        self.maria.save(update_fields=["status"])
+        BackInStockWaiter.objects.filter(pk=self.maria.pk).update(
+            updated_at=timezone.now()
+            - BackInStockWaiter.CLAIM_STALE_AFTER
+            - timedelta(seconds=1)
+        )
+
+        self.use_case.execute("gaboulstore", "9")
+
+        queued = [
+            call.kwargs["kwargs"]["waiter_uuid"]
+            for call in self.mock_notify.apply_async.call_args_list
+        ]
+        self.assertEqual(queued, [str(self.maria.uuid)])
 
     def test_lazy_notify_task_is_the_celery_task(self):
         from retail.vtex.tasks import task_notify_back_in_stock_waiter

@@ -14,9 +14,9 @@ SENT_WAITER_RETENTION_DAYS = 30
 class CleanupBackInStockSubscriptionsUseCase:
     """Purge ``sent`` waiters after 30 days.
 
-    ``pending`` and ``error`` stay until a WhatsApp send succeeds (or
-    the shopper subscribes again). Avise-me rows are never dropped
-    just because they are old.
+    ``pending``, in-flight, and ``error`` stay until a WhatsApp send
+    succeeds (or the shopper subscribes again). Avise-me rows are
+    never dropped just because they are old.
     """
 
     def execute(self) -> None:

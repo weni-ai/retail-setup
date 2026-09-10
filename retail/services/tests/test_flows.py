@@ -6,6 +6,7 @@ from retail.clients.exceptions import CustomAPIException
 from retail.services.flows.service import (
     FlowsContactUrnAlreadyExistsError,
     FlowsService,
+    _is_urn_already_taken,
 )
 
 
@@ -145,6 +146,33 @@ class TestFlowsService(TestCase):
 
         self.assertIsNone(result)
 
+    def test_get_contacts_returns_payload(self):
+        expected = {"results": [{"uuid": "c1"}]}
+        self.mock_client.get_contacts.return_value = expected
+
+        result = self.service.get_contacts("proj-uuid", "whatsapp:5511999887766")
+
+        self.mock_client.get_contacts.assert_called_once_with(
+            project_uuid="proj-uuid", urn="whatsapp:5511999887766"
+        )
+        self.assertEqual(result, expected)
+
+    def test_get_contacts_returns_none_on_client_error(self):
+        self.mock_client.get_contacts.side_effect = CustomAPIException(
+            status_code=500, detail="down"
+        )
+
+        result = self.service.get_contacts("proj-uuid", "whatsapp:5511999887766")
+
+        self.assertIsNone(result)
+
+    def test_get_contacts_returns_none_on_unexpected_error(self):
+        self.mock_client.get_contacts.side_effect = RuntimeError("boom")
+
+        result = self.service.get_contacts("proj-uuid", "whatsapp:5511999887766")
+
+        self.assertIsNone(result)
+
     def test_create_contact_returns_payload(self):
         expected = {"uuid": "c1"}
         self.mock_client.create_contact.return_value = expected
@@ -257,3 +285,19 @@ class TestFlowsService(TestCase):
         )
 
         self.assertIsNone(result)
+
+
+class IsFlowsUrnAlreadyTakenTest(TestCase):
+    def test_detects_flows_400_urn_conflict(self):
+        self.assertTrue(
+            _is_urn_already_taken(
+                400, {"urns": ["URN belongs to another contact: uuid"]}
+            )
+        )
+
+    def test_rejects_other_400s_and_non_400(self):
+        self.assertFalse(
+            _is_urn_already_taken(400, {"name": ["This field is required."]})
+        )
+        self.assertFalse(_is_urn_already_taken(500, "URN belongs to another contact"))
+        self.assertFalse(_is_urn_already_taken(None, None))

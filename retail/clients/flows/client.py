@@ -121,6 +121,17 @@ class FlowsClient(RequestClient, FlowsClientInterface):
         )
         return response.json()
 
+    def get_contacts(self, project_uuid: str, urn: str) -> dict:
+        """GET /api/v2/contacts.json filtered by URN for the given project."""
+        url = f"{self.base_url}/api/v2/contacts.json"
+        response = self.make_request(
+            url,
+            method="GET",
+            params={"project": str(project_uuid), "urn": urn},
+            headers=self._module_jwt_headers(project_uuid),
+        )
+        return response.json()
+
     def create_contact(
         self, project_uuid: str, name: str, urns: List[str], groups: List[str]
     ) -> dict:

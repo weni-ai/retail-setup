@@ -1,3 +1,4 @@
+from datetime import timedelta
 from uuid import uuid4
 
 from django.db import models
@@ -114,17 +115,31 @@ class BackInStockWaiter(models.Model):
     """Shopper waiting for a VTEX SKU offer to come back in stock.
 
     Unique per project + SKU + phone + seller + sales channel. Redis
-    only indexes SKUs that still have at least one ``pending`` row.
+    indexes SKUs that still have a ``pending`` or in-flight row.
+
+    ``sending`` is claimed by the stock-change job before enqueueing
+    notify. ``notifying`` is claimed by the notify worker before the
+    lambda call, so a duplicate Celery delivery cannot send twice.
     """
 
     STATUS_PENDING = "pending"
+    STATUS_SENDING = "sending"
+    STATUS_NOTIFYING = "notifying"
     STATUS_SENT = "sent"
     STATUS_ERROR = "error"
     STATUS_CHOICES = [
         (STATUS_PENDING, "Pending"),
+        (STATUS_SENDING, "Sending"),
+        (STATUS_NOTIFYING, "Notifying"),
         (STATUS_SENT, "Sent"),
         (STATUS_ERROR, "Error"),
     ]
+    IN_FLIGHT_STATUSES = (STATUS_SENDING, STATUS_NOTIFYING)
+    INDEXED_STATUSES = (STATUS_PENDING, STATUS_SENDING, STATUS_NOTIFYING)
+    # Abandoned in-flight rows (dead worker / lost Celery task) can be
+    # reclaimed after this window. Keep it well above lambda latency so a
+    # slow send is not stolen by another worker.
+    CLAIM_STALE_AFTER = timedelta(minutes=10)
 
     uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
     project = models.ForeignKey(
@@ -144,6 +159,7 @@ class BackInStockWaiter(models.Model):
         default=STATUS_PENDING,
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     error_details = models.JSONField(default=list, blank=True)
 

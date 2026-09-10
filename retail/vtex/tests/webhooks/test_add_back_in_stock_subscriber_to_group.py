@@ -23,6 +23,7 @@ class AddBackInStockSubscriberToGroupUseCaseTest(SimpleTestCase):
             flows_service=self.mock_flows,
             ensure_group=self.mock_ensure,
         )
+        self.mock_flows.get_contacts.return_value = {"results": []}
 
     def test_creates_contact_already_in_the_group(self):
         self.mock_flows.create_contact.return_value = {"uuid": "c1"}
@@ -34,6 +35,10 @@ class AddBackInStockSubscriberToGroupUseCaseTest(SimpleTestCase):
             self.use_case.execute(PROJECT_UUID, "Maria Silva", "5511999887766")
 
         self.mock_ensure.execute.assert_called_once_with(PROJECT_UUID)
+        self.mock_flows.get_contacts.assert_called_once_with(
+            project_uuid=str(PROJECT_UUID),
+            urn=CONTACT_URN,
+        )
         self.mock_flows.create_contact.assert_called_once_with(
             project_uuid=str(PROJECT_UUID),
             name="Maria Silva",
@@ -42,6 +47,33 @@ class AddBackInStockSubscriberToGroupUseCaseTest(SimpleTestCase):
         )
         self.mock_flows.add_contact_to_group.assert_not_called()
         self.assertIn("Flows contact created in group", " ".join(logs.output))
+
+    def test_adds_existing_contact_without_posting_create(self):
+        self.mock_flows.get_contacts.return_value = {"results": [{"uuid": "c1"}]}
+        self.mock_flows.add_contact_to_group.return_value = {}
+
+        with self.assertLogs(
+            "retail.webhooks.vtex.usecases.add_back_in_stock_subscriber_to_group",
+            level="INFO",
+        ) as logs:
+            self.use_case.execute(PROJECT_UUID, "Maria Silva", "5511999887766")
+
+        self.mock_flows.create_contact.assert_not_called()
+        self.mock_flows.add_contact_to_group.assert_called_once_with(
+            project_uuid=str(PROJECT_UUID),
+            contacts=[CONTACT_URN],
+            group=BACK_IN_STOCK_SUBSCRIBERS_GROUP_NAME,
+        )
+        self.assertIn("Existing Flows contact added to group", " ".join(logs.output))
+
+    def test_creates_contact_when_lookup_fails(self):
+        self.mock_flows.get_contacts.return_value = None
+        self.mock_flows.create_contact.return_value = {"uuid": "c1"}
+
+        self.use_case.execute(PROJECT_UUID, "Maria Silva", "5511999887766")
+
+        self.mock_flows.create_contact.assert_called_once()
+        self.mock_flows.add_contact_to_group.assert_not_called()
 
     def test_adds_existing_urn_via_contact_actions(self):
         self.mock_flows.create_contact.side_effect = FlowsContactUrnAlreadyExistsError()
