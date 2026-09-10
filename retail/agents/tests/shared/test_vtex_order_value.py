@@ -7,6 +7,7 @@ from retail.agents.shared.vtex_order_value import (
     OrderAmountDetails,
     apply_order_amount_details,
     fetch_order_amount_details,
+    parse_lambda_amount_details,
     parse_order_amount_details,
     propagate_order_amount_to_execution_log,
 )
@@ -143,3 +144,28 @@ class PropagateOrderAmountToExecutionLogTest(TestCase):
         )
 
         exec_logger.update_order_info.assert_not_called()
+
+
+class ParseLambdaAmountDetailsTest(TestCase):
+    def test_parses_major_units_and_currency(self):
+        details = parse_lambda_amount_details({"amount": 29.9, "currency": "BRL"})
+        self.assertEqual(details.amount, Decimal("29.90"))
+        self.assertEqual(details.currency, "BRL")
+
+    def test_returns_empty_when_payload_missing(self):
+        self.assertEqual(
+            parse_lambda_amount_details(None),
+            OrderAmountDetails(amount=None, currency=None),
+        )
+
+    def test_rejects_zero_and_negative_amount(self):
+        self.assertIsNone(parse_lambda_amount_details({"amount": 0}).amount)
+        self.assertIsNone(parse_lambda_amount_details({"amount": -1}).amount)
+
+    def test_ignores_non_string_currency(self):
+        details = parse_lambda_amount_details({"amount": 1, "currency": 10})
+        self.assertEqual(details.amount, Decimal("1.00"))
+        self.assertIsNone(details.currency)
+        details = parse_lambda_amount_details({"amount": "nope", "currency": " MXN "})
+        self.assertIsNone(details.amount)
+        self.assertEqual(details.currency, "MXN")

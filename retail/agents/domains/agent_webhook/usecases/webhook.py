@@ -23,6 +23,10 @@ from retail.agents.shared.cache import (
     IntegratedAgentCacheHandler,
     IntegratedAgentCacheHandlerRedis,
 )
+from retail.agents.shared.vtex_order_value import (
+    apply_order_amount_details,
+    parse_lambda_amount_details,
+)
 from retail.broadcasts.usecases.record_broadcast_sent import (
     BroadcastDispatchContext,
 )
@@ -136,6 +140,8 @@ class AgentWebhookUseCase:
                 skip_data={"status": data.get("status"), "error": data.get("error")},
             )
             return None
+
+        apply_order_amount_details(exec_logger, parse_lambda_amount_details(data))
 
         if not self.broadcast_handler.can_send_to_contact(integrated_agent, data):
             logger.info(
