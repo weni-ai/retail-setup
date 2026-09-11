@@ -11,6 +11,7 @@ from retail.services.vtex_io.service import VtexIOService
 logger = logging.getLogger(__name__)
 
 _AMOUNT_QUANTUM = Decimal("0.01")
+_ZERO_AMOUNT = Decimal("0.00")
 
 
 @dataclass(frozen=True)
@@ -21,15 +22,15 @@ class OrderAmountDetails:
     currency: Optional[str]
 
 
-def _quantize_positive_amount(raw_value: Any) -> Optional[Decimal]:
-    """Parse a shopper-facing amount; reject zero, negative, or invalid."""
+def _quantize_non_negative_amount(raw_value: Any) -> Optional[Decimal]:
+    """Parse a shopper-facing amount; reject invalid or negative, allow zero."""
     if raw_value in (None, ""):
         return None
     try:
         amount = Decimal(str(raw_value)).quantize(_AMOUNT_QUANTUM)
     except (TypeError, ValueError, ArithmeticError):
         return None
-    if amount <= 0:
+    if amount < 0:
         return None
     return amount
 
@@ -37,21 +38,30 @@ def _quantize_positive_amount(raw_value: Any) -> Optional[Decimal]:
 def parse_lambda_amount_details(
     payload: Optional[Dict[str, Any]],
 ) -> OrderAmountDetails:
-    """Read ``amount`` (major units) and ``currency`` from a lambda response.
+    """Read ``amount`` and ``currency`` from lambda ``extra`` when present.
 
-    Unlike VTEX order JSON, lambda amounts are already in major units
-    (e.g. ``29.90``), the same shape ``update_order_info`` stores.
+    ``extra`` is additive (back-in-stock and future agents). Agents that
+    omit it keep today's behavior: no amount write, send still proceeds.
+    Values are never read from ``template_variables`` or the payload root.
     """
-    if not payload:
-        return OrderAmountDetails(amount=None, currency=None)
+    empty = OrderAmountDetails(amount=None, currency=None)
+    extra = payload.get("extra") if payload else None
+    if not isinstance(extra, dict):
+        return empty
+    if "amount" not in extra and "currency" not in extra:
+        return empty
 
-    currency = payload.get("currency")
+    currency = extra.get("currency")
     if not isinstance(currency, str) or not currency.strip():
         currency = None
     else:
         currency = currency.strip()
 
-    amount = _quantize_positive_amount(payload.get("amount"))
+    if "amount" not in extra:
+        return OrderAmountDetails(amount=None, currency=currency)
+
+    parsed_amount = _quantize_non_negative_amount(extra.get("amount"))
+    amount = _ZERO_AMOUNT if parsed_amount is None else parsed_amount
     return OrderAmountDetails(amount=amount, currency=currency)
 
 
