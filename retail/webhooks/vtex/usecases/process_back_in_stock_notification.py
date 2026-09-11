@@ -9,6 +9,10 @@ from retail.agents.domains.agent_webhook.usecases.base_agent_webhook import (
 )
 from retail.agents.domains.agent_webhook.usecases.webhook import AgentWebhookUseCase
 from retail.agents.shared.cache import AgentRole, IntegratedAgentCacheHandler
+from retail.agents.shared.vtex_order_value import (
+    apply_order_amount_details,
+    parse_lambda_amount_details,
+)
 from retail.interfaces.services.execution_logger import (
     ExecutionLoggerServiceInterface,
 )
@@ -160,6 +164,7 @@ class ProcessBackInStockNotificationUseCase(BaseAgentWebhookUseCase):
             )
             return False
 
+        apply_order_amount_details(exec_logger, parse_lambda_amount_details(result))
         logger.info(f"[BACK_IN_STOCK] Sent: {log_context}")
         return True
 
