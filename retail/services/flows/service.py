@@ -1,5 +1,5 @@
 import logging
-from typing import Callable, Optional
+from typing import Any, Callable, List, Optional
 
 from retail.clients.exceptions import CustomAPIException
 from retail.interfaces.clients.flows.interface import FlowsClientInterface
@@ -7,6 +7,12 @@ from retail.clients.flows.client import FlowsClient
 
 
 logger = logging.getLogger(__name__)
+
+URN_BELONGS_TO_ANOTHER_CONTACT = "urn belongs to another contact"
+
+
+class FlowsContactUrnAlreadyExistsError(Exception):
+    """Flows rejected POST /contacts.json because the URN is already taken."""
 
 
 class FlowsService:
@@ -69,6 +75,75 @@ class FlowsService:
             name=name,
         )
 
+    def get_contacts(self, project_uuid: str, urn: str) -> Optional[dict]:
+        """Return Flows contacts matching ``urn``, or ``None`` on infra failure."""
+        try:
+            return self.client.get_contacts(project_uuid=project_uuid, urn=urn)
+        except CustomAPIException as exc:
+            logger.error(
+                f"Failed to get Flows contact for project={project_uuid}: "
+                f"status={exc.status_code}"
+            )
+            return None
+        except Exception as exc:
+            logger.exception(
+                f"Failed to get Flows contact for project={project_uuid}: {exc}"
+            )
+            return None
+
+    def create_contact(
+        self, project_uuid: str, name: str, urns: List[str], groups: List[str]
+    ) -> Optional[dict]:
+        """Create a Flows contact in ``groups``.
+
+        Raises ``FlowsContactUrnAlreadyExistsError`` when Flows returns 400
+        because the URN already belongs to another contact. Other failures
+        return ``None``.
+        """
+        try:
+            return self.client.create_contact(
+                project_uuid=project_uuid,
+                name=name,
+                urns=urns,
+                groups=groups,
+            )
+        except CustomAPIException as exc:
+            if _is_urn_already_taken(exc.status_code, exc.detail):
+                raise FlowsContactUrnAlreadyExistsError() from exc
+            logger.error(
+                f"Failed to create Flows contact for project={project_uuid}: "
+                f"status={exc.status_code}"
+            )
+            return None
+        except Exception as exc:
+            logger.exception(
+                f"Failed to create Flows contact for project={project_uuid}: {exc}"
+            )
+            return None
+
+    def add_contact_to_group(
+        self, project_uuid: str, contacts: List[str], group: str
+    ) -> Optional[dict]:
+        """Add contacts to a Flows group, or ``None`` on infra failure."""
+        try:
+            return self.client.add_contact_to_group(
+                project_uuid=project_uuid,
+                contacts=contacts,
+                group=group,
+            )
+        except CustomAPIException as exc:
+            logger.error(
+                f"Failed to add Flows contact to group for "
+                f"project={project_uuid} group={group}: status={exc.status_code}"
+            )
+            return None
+        except Exception as exc:
+            logger.exception(
+                f"Failed to add Flows contact to group for "
+                f"project={project_uuid} group={group}: {exc}"
+            )
+            return None
+
     def _call_contact_group_client(
         self,
         action: str,
@@ -90,3 +165,10 @@ class FlowsService:
                 f"project={project_uuid} name={name}: {exc}"
             )
             return None
+
+
+def _is_urn_already_taken(status_code: Optional[int], detail: Any) -> bool:
+    """True when Flows 400 means the WhatsApp URN already has a contact."""
+    if status_code != 400:
+        return False
+    return URN_BELONGS_TO_ANOTHER_CONTACT in str(detail).lower()

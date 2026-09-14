@@ -9,6 +9,10 @@ from retail.agents.domains.agent_webhook.usecases.base_agent_webhook import (
 )
 from retail.agents.domains.agent_webhook.usecases.webhook import AgentWebhookUseCase
 from retail.agents.shared.cache import AgentRole, IntegratedAgentCacheHandler
+from retail.agents.shared.vtex_order_value import (
+    apply_order_amount_details,
+    parse_lambda_amount_details,
+)
 from retail.interfaces.services.execution_logger import (
     ExecutionLoggerServiceInterface,
 )
@@ -25,6 +29,7 @@ from retail.webhooks.vtex.usecases.exceptions import BackInStockSendNotReadyErro
 logger = logging.getLogger(__name__)
 
 DISCARD_AGENT_INACTIVE = "Agent is not active for this account."
+DISCARD_NOT_DISPATCHED = "Lambda did not dispatch a send."
 NOTIFICATION_SENT = "Notification sent."
 
 
@@ -86,7 +91,11 @@ class ProcessBackInStockNotificationUseCase(BaseAgentWebhookUseCase):
             )
 
         payload = self._build_lambda_payload(dto, project, log_context)
-        self._start_agent_flow(dto, payload, integrated_agent, log_context)
+        dispatched = self._start_agent_flow(dto, payload, integrated_agent, log_context)
+        if not dispatched:
+            return ProcessBackInStockNotificationResult(
+                discarded=True, reason=DISCARD_NOT_DISPATCHED
+            )
         return ProcessBackInStockNotificationResult(
             discarded=False, reason=NOTIFICATION_SENT
         )
@@ -109,6 +118,8 @@ class ProcessBackInStockNotificationUseCase(BaseAgentWebhookUseCase):
             client_name=dto.name,
             phone_number=dto.phone,
             store=storefront.origin,
+            seller=dto.seller,
+            sales_channel=dto.sales_channel,
         )
 
     def _start_agent_flow(
@@ -117,7 +128,14 @@ class ProcessBackInStockNotificationUseCase(BaseAgentWebhookUseCase):
         payload: BackInStockLambdaPayload,
         integrated_agent: IntegratedAgent,
         log_context: str,
-    ) -> None:
+    ) -> bool:
+        """Invoke the agent lambda. Return True when it dispatched a send.
+
+        A ``None`` result means the lambda decided not to send (e.g. the
+        offer is out of stock): the waiter stays pending for the next
+        restock, so this is a skip, not a failure. Only an actual
+        exception is raised, so the Celery task can surface infra errors.
+        """
         exec_logger = self._exec_logger or ExecutionLoggerService()
         webhook = self._agent_webhook or AgentWebhookUseCase(exec_logger=exec_logger)
         lambda_payload = payload.to_lambda_dict()
@@ -144,11 +162,11 @@ class ProcessBackInStockNotificationUseCase(BaseAgentWebhookUseCase):
                 f"[BACK_IN_STOCK] Send skipped: {log_context} "
                 f"reason=lambda_or_broadcast_did_not_dispatch"
             )
-            raise BackInStockSendNotReadyError(
-                "Back in stock WhatsApp send did not dispatch."
-            )
+            return False
 
+        apply_order_amount_details(exec_logger, parse_lambda_amount_details(result))
         logger.info(f"[BACK_IN_STOCK] Sent: {log_context}")
+        return True
 
     def _log_context(self, dto: ProcessBackInStockNotificationDTO) -> str:
         return f"vtex_account={self.account} sku_id={dto.sku_id}"

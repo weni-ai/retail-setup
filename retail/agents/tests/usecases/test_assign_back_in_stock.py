@@ -7,6 +7,7 @@ from retail.agents.domains.agent_integration.models import IntegratedAgent
 from retail.agents.domains.agent_integration.usecases.assign import (
     BACK_IN_STOCK_BUTTON_EXAMPLE_PATH,
     AssignAgentUseCase,
+    back_in_stock_button_base_url,
 )
 from retail.agents.domains.agent_integration.usecases.fetch_country_phone_code import (
     FetchCountryPhoneCodeUseCase,
@@ -68,10 +69,10 @@ class AssignBackInStockTemplateTest(TestCase):
 
         payload = mock_template_usecase.execute.call_args[0][0]
         button = payload["template_translation"]["template_button"][0]
-        self.assertEqual(button["url"]["base_url"], "https://www.realstore.com.br")
+        self.assertEqual(button["url"]["base_url"], "https://www.realstore.com.br/")
         self.assertEqual(
             button["url"]["url_suffix_example"],
-            f"https://www.realstore.com.br{BACK_IN_STOCK_BUTTON_EXAMPLE_PATH}",
+            f"https://www.realstore.com.br/{BACK_IN_STOCK_BUTTON_EXAMPLE_PATH}",
         )
         self.assertEqual(payload["display_name"], "Back in stock")
         self.assertEqual(payload["category"], "MARKETING")
@@ -109,8 +110,18 @@ class AssignBackInStockTemplateTest(TestCase):
 
         payload = mock_template_usecase.execute.call_args[0][0]
         button = payload["template_translation"]["template_button"][0]
-        self.assertEqual(button["url"]["base_url"], "https://teststore.myvtex.com")
+        self.assertEqual(button["url"]["base_url"], "https://teststore.myvtex.com/")
         self.assertNotIn("vtexcommercestable", button["url"]["base_url"])
+
+    def test_button_base_url_keeps_a_single_trailing_slash(self):
+        self.assertEqual(
+            back_in_stock_button_base_url("https://loja.com"),
+            "https://loja.com/",
+        )
+        self.assertEqual(
+            back_in_stock_button_base_url("https://loja.com/"),
+            "https://loja.com/",
+        )
 
     def test_contact_percentage_is_100(self):
         agent = Agent.objects.create(

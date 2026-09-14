@@ -3,7 +3,11 @@ from unittest.mock import MagicMock
 from django.test import TestCase
 
 from retail.clients.exceptions import CustomAPIException
-from retail.services.flows.service import FlowsService
+from retail.services.flows.service import (
+    FlowsContactUrnAlreadyExistsError,
+    FlowsService,
+    _is_urn_already_taken,
+)
 
 
 class TestFlowsService(TestCase):
@@ -141,3 +145,159 @@ class TestFlowsService(TestCase):
         )
 
         self.assertIsNone(result)
+
+    def test_get_contacts_returns_payload(self):
+        expected = {"results": [{"uuid": "c1"}]}
+        self.mock_client.get_contacts.return_value = expected
+
+        result = self.service.get_contacts("proj-uuid", "whatsapp:5511999887766")
+
+        self.mock_client.get_contacts.assert_called_once_with(
+            project_uuid="proj-uuid", urn="whatsapp:5511999887766"
+        )
+        self.assertEqual(result, expected)
+
+    def test_get_contacts_returns_none_on_client_error(self):
+        self.mock_client.get_contacts.side_effect = CustomAPIException(
+            status_code=500, detail="down"
+        )
+
+        result = self.service.get_contacts("proj-uuid", "whatsapp:5511999887766")
+
+        self.assertIsNone(result)
+
+    def test_get_contacts_returns_none_on_unexpected_error(self):
+        self.mock_client.get_contacts.side_effect = RuntimeError("boom")
+
+        result = self.service.get_contacts("proj-uuid", "whatsapp:5511999887766")
+
+        self.assertIsNone(result)
+
+    def test_create_contact_returns_payload(self):
+        expected = {"uuid": "c1"}
+        self.mock_client.create_contact.return_value = expected
+
+        result = self.service.create_contact(
+            "proj-uuid",
+            "Maria Silva",
+            ["whatsapp:5511999887766"],
+            ["back-in-stock-subscribers"],
+        )
+
+        self.mock_client.create_contact.assert_called_once_with(
+            project_uuid="proj-uuid",
+            name="Maria Silva",
+            urns=["whatsapp:5511999887766"],
+            groups=["back-in-stock-subscribers"],
+        )
+        self.assertEqual(result, expected)
+
+    def test_create_contact_raises_when_urn_belongs_to_another_contact(self):
+        self.mock_client.create_contact.side_effect = CustomAPIException(
+            status_code=400,
+            detail={"urns": ["URN belongs to another contact: uuid"]},
+        )
+
+        with self.assertRaises(FlowsContactUrnAlreadyExistsError):
+            self.service.create_contact(
+                "proj-uuid",
+                "Maria Silva",
+                ["whatsapp:5511999887766"],
+                ["back-in-stock-subscribers"],
+            )
+
+    def test_create_contact_returns_none_on_other_client_error(self):
+        self.mock_client.create_contact.side_effect = CustomAPIException(
+            status_code=500, detail="down"
+        )
+
+        result = self.service.create_contact(
+            "proj-uuid",
+            "Maria Silva",
+            ["whatsapp:5511999887766"],
+            ["back-in-stock-subscribers"],
+        )
+
+        self.assertIsNone(result)
+
+    def test_create_contact_returns_none_on_400_without_urn_conflict(self):
+        self.mock_client.create_contact.side_effect = CustomAPIException(
+            status_code=400, detail={"name": ["This field is required."]}
+        )
+
+        result = self.service.create_contact(
+            "proj-uuid",
+            "Maria Silva",
+            ["whatsapp:5511999887766"],
+            ["back-in-stock-subscribers"],
+        )
+
+        self.assertIsNone(result)
+
+    def test_create_contact_returns_none_on_unexpected_error(self):
+        self.mock_client.create_contact.side_effect = RuntimeError("boom")
+
+        result = self.service.create_contact(
+            "proj-uuid",
+            "Maria Silva",
+            ["whatsapp:5511999887766"],
+            ["back-in-stock-subscribers"],
+        )
+
+        self.assertIsNone(result)
+
+    def test_add_contact_to_group_returns_payload(self):
+        self.mock_client.add_contact_to_group.return_value = {}
+
+        result = self.service.add_contact_to_group(
+            "proj-uuid",
+            ["whatsapp:5511999887766"],
+            "back-in-stock-subscribers",
+        )
+
+        self.mock_client.add_contact_to_group.assert_called_once_with(
+            project_uuid="proj-uuid",
+            contacts=["whatsapp:5511999887766"],
+            group="back-in-stock-subscribers",
+        )
+        self.assertEqual(result, {})
+
+    def test_add_contact_to_group_returns_none_on_client_error(self):
+        self.mock_client.add_contact_to_group.side_effect = CustomAPIException(
+            status_code=500, detail="down"
+        )
+
+        result = self.service.add_contact_to_group(
+            "proj-uuid",
+            ["whatsapp:5511999887766"],
+            "back-in-stock-subscribers",
+        )
+
+        self.assertIsNone(result)
+
+    def test_add_contact_to_group_returns_none_on_unexpected_error(self):
+        self.mock_client.add_contact_to_group.side_effect = RuntimeError("boom")
+
+        result = self.service.add_contact_to_group(
+            "proj-uuid",
+            ["whatsapp:5511999887766"],
+            "back-in-stock-subscribers",
+        )
+
+        self.assertIsNone(result)
+
+
+class IsFlowsUrnAlreadyTakenTest(TestCase):
+    def test_detects_flows_400_urn_conflict(self):
+        self.assertTrue(
+            _is_urn_already_taken(
+                400, {"urns": ["URN belongs to another contact: uuid"]}
+            )
+        )
+
+    def test_rejects_other_400s_and_non_400(self):
+        self.assertFalse(
+            _is_urn_already_taken(400, {"name": ["This field is required."]})
+        )
+        self.assertFalse(_is_urn_already_taken(500, "URN belongs to another contact"))
+        self.assertFalse(_is_urn_already_taken(None, None))

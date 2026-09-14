@@ -7,6 +7,7 @@ from retail.agents.shared.vtex_order_value import (
     OrderAmountDetails,
     apply_order_amount_details,
     fetch_order_amount_details,
+    parse_lambda_amount_details,
     parse_order_amount_details,
     propagate_order_amount_to_execution_log,
 )
@@ -143,3 +144,84 @@ class PropagateOrderAmountToExecutionLogTest(TestCase):
         )
 
         exec_logger.update_order_info.assert_not_called()
+
+
+class ParseLambdaAmountDetailsTest(TestCase):
+    def test_parses_major_units_and_currency_from_extra(self):
+        details = parse_lambda_amount_details(
+            {"extra": {"amount": 11.0, "currency": "BRL"}}
+        )
+        self.assertEqual(details.amount, Decimal("11.00"))
+        self.assertEqual(details.currency, "BRL")
+
+    def test_returns_empty_when_payload_or_extra_missing(self):
+        empty = OrderAmountDetails(amount=None, currency=None)
+        self.assertEqual(parse_lambda_amount_details(None), empty)
+        self.assertEqual(parse_lambda_amount_details({"status": 0}), empty)
+        self.assertEqual(parse_lambda_amount_details({"extra": "not-a-dict"}), empty)
+        self.assertEqual(parse_lambda_amount_details({"extra": {}}), empty)
+        self.assertEqual(
+            parse_lambda_amount_details({"extra": {"sku": "9"}}),
+            empty,
+        )
+        self.assertEqual(
+            parse_lambda_amount_details({"amount": 29.9, "currency": "BRL"}),
+            empty,
+        )
+
+    def test_defaults_amount_to_zero_when_extra_amount_is_null_or_invalid(self):
+        details = parse_lambda_amount_details({"extra": {"currency": "BRL"}})
+        self.assertIsNone(details.amount)
+        self.assertEqual(details.currency, "BRL")
+        self.assertEqual(
+            parse_lambda_amount_details({"extra": {"amount": None}}).amount,
+            Decimal("0.00"),
+        )
+        self.assertEqual(
+            parse_lambda_amount_details({"extra": {"amount": ""}}).amount,
+            Decimal("0.00"),
+        )
+        self.assertEqual(
+            parse_lambda_amount_details({"extra": {"amount": -1}}).amount,
+            Decimal("0.00"),
+        )
+        self.assertEqual(
+            parse_lambda_amount_details({"extra": {"amount": "nope"}}).amount,
+            Decimal("0.00"),
+        )
+        self.assertEqual(
+            parse_lambda_amount_details({"extra": {"amount": object()}}).amount,
+            Decimal("0.00"),
+        )
+
+    def test_ignores_blank_currency_in_extra(self):
+        details = parse_lambda_amount_details(
+            {"extra": {"amount": 1, "currency": "   "}}
+        )
+        self.assertEqual(details.amount, Decimal("1.00"))
+        self.assertIsNone(details.currency)
+
+    def test_keeps_explicit_zero_from_extra(self):
+        details = parse_lambda_amount_details({"extra": {"amount": 0}})
+        self.assertEqual(details.amount, Decimal("0.00"))
+
+    def test_ignores_root_and_template_variable_amounts(self):
+        details = parse_lambda_amount_details(
+            {
+                "amount": 29.9,
+                "currency": "BRL",
+                "template_variables": {"amount": 50, "currency": "USD"},
+                "extra": {"amount": 11.0, "currency": "MXN"},
+            }
+        )
+        self.assertEqual(details.amount, Decimal("11.00"))
+        self.assertEqual(details.currency, "MXN")
+
+    def test_ignores_non_string_currency_in_extra(self):
+        details = parse_lambda_amount_details({"extra": {"amount": 1, "currency": 10}})
+        self.assertEqual(details.amount, Decimal("1.00"))
+        self.assertIsNone(details.currency)
+        details = parse_lambda_amount_details(
+            {"extra": {"amount": 1, "currency": " MXN "}}
+        )
+        self.assertEqual(details.currency, "MXN")
