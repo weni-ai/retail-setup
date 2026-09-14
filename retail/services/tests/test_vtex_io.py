@@ -158,6 +158,45 @@ class TestVtexIOService(TestCase):
         )
         self.assertEqual(result, {"status": 200})
 
+    def test_cleanup_availability_notify_delegates_to_client(self):
+        expected = {"deleted": 3, "scanned": 10, "skipped": False}
+        self.mock_client.cleanup_availability_notify.return_value = expected
+
+        result = self.service.cleanup_availability_notify(
+            account_domain=self.account_domain,
+            vtex_account=self.vtex_account,
+        )
+
+        self.mock_client.cleanup_availability_notify.assert_called_once_with(
+            account_domain=self.account_domain,
+            vtex_account=self.vtex_account,
+        )
+        self.assertEqual(result, expected)
+
+    def test_cleanup_availability_notify_returns_none_on_client_error(self):
+        from retail.clients.exceptions import CustomAPIException
+
+        self.mock_client.cleanup_availability_notify.side_effect = CustomAPIException(
+            detail="fail", status_code=500
+        )
+
+        result = self.service.cleanup_availability_notify(
+            account_domain=self.account_domain,
+            vtex_account=self.vtex_account,
+        )
+
+        self.assertIsNone(result)
+
+    def test_cleanup_availability_notify_returns_none_on_unexpected_error(self):
+        self.mock_client.cleanup_availability_notify.side_effect = RuntimeError("boom")
+
+        result = self.service.cleanup_availability_notify(
+            account_domain=self.account_domain,
+            vtex_account=self.vtex_account,
+        )
+
+        self.assertIsNone(result)
+
     def test_proxy_payment_gateway_with_minimal_params(self):
         self.mock_client.proxy_payment_gateway.return_value = {}
 

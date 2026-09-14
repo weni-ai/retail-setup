@@ -79,6 +79,27 @@ class CheckAgentActiveUseCaseTest(TestCase):
         )
 
     @patch(
+        "retail.api.vtex_projects.usecases.check_agent_active.IntegratedAgent.objects"
+    )
+    @patch("retail.api.vtex_projects.usecases.check_agent_active.Project.objects")
+    @patch("retail.api.vtex_projects.usecases.check_agent_active.settings")
+    def test_returns_true_when_back_in_stock_agent_active(
+        self, mock_settings, mock_project_qs, mock_ia_qs
+    ):
+        mock_settings.BACK_IN_STOCK_AGENT_UUID = "bis-123"
+        mock_project_qs.get.return_value = self.project
+        mock_ia_qs.filter.return_value.exists.return_value = True
+
+        result = self.use_case.execute(self.vtex_account, "back_in_stock")
+
+        self.assertTrue(result)
+        mock_ia_qs.filter.assert_called_once_with(
+            agent__uuid="bis-123",
+            project=self.project,
+            is_active=True,
+        )
+
+    @patch(
         "retail.api.vtex_projects.usecases.check_agent_active.IntegratedFeature.objects"
     )
     @patch(

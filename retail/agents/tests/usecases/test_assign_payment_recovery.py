@@ -404,6 +404,18 @@ class GetReservedDisplayNamesTest(TestCase):
         reserved = self.use_case._get_reserved_display_names(agent)
         self.assertEqual(reserved, [])
 
+    @override_settings(BACK_IN_STOCK_AGENT_UUID=ABANDONED_CART_UUID)
+    def test_returns_back_in_stock_for_back_in_stock_agent(self):
+        agent = Agent.objects.create(
+            uuid=ABANDONED_CART_UUID,
+            name="Back in stock",
+            lambda_arn="arn:aws:lambda:fake",
+            project=self.project,
+            credentials={},
+        )
+        reserved = self.use_case._get_reserved_display_names(agent)
+        self.assertEqual(reserved, ["Back in stock"])
+
 
 class CreateTemplatesSkipReservedDisplayNamesTest(TestCase):
     def setUp(self):

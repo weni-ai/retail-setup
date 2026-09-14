@@ -17,6 +17,24 @@ class VtexIOClientProxyResponseTest(TestCase):
         self.assertEqual(headers["Accept-Encoding"], "identity")
 
     @patch.object(VtexIOClient, "make_request")
+    def test_cleanup_availability_notify_posts_to_io_route(self, mock_make_request):
+        response = MagicMock()
+        response.json.return_value = {"deleted": 1, "scanned": 2, "skipped": False}
+        mock_make_request.return_value = response
+
+        result = self.client.cleanup_availability_notify(
+            account_domain="lojasrede.myvtex.com",
+            vtex_account="lojasrede",
+        )
+
+        mock_make_request.assert_called_once()
+        args, kwargs = mock_make_request.call_args
+        self.assertEqual(kwargs.get("method") or args[1], "POST")
+        url = args[0] if args else kwargs.get("url")
+        self.assertIn("/_v/availability-notify/cleanup", url)
+        self.assertEqual(result, {"deleted": 1, "scanned": 2, "skipped": False})
+
+    @patch.object(VtexIOClient, "make_request")
     def test_proxy_vtex_raises_custom_api_exception_on_invalid_json(
         self, mock_make_request
     ):
