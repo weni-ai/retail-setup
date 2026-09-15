@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.request import Request
@@ -12,19 +14,26 @@ from retail.webhooks.vtex.usecases.subscribe_back_in_stock import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class BackInStockSubscribe(WeniAuthMixin, APIView):
     """Accept a back-in-stock subscribe from VTEX IO.
 
-    Tenant (``vtex_account``) comes from ``self.auth``. Redis SADD runs
-    in this request before the 200.
+    The account in the URL identifies the store in access logs and dashboards;
+    the tenant itself comes from ``self.auth``. Redis SADD runs in this request
+    before the 200.
     """
 
-    def post(self, request: Request) -> Response:
+    def post(self, request: Request, vtex_account: str) -> Response:
+        account = self.auth.vtex_account
+        logger.info(f"[BACK_IN_STOCK] Processing subscribe: vtex_account={account}")
+
         serializer = BackInStockSubscribeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         dto = SubscribeBackInStockDTO(
-            account=self.auth.vtex_account,
+            account=account,
             sku_id=data["sku_id"],
             phone=data["phone"],
             name=data["name"],

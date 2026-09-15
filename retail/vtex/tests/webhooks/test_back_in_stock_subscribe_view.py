@@ -4,14 +4,14 @@ from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIClient
 
 from retail.internal.test_mixins import patch_retail_auth
 from retail.webhooks.vtex.usecases.exceptions import ProjectNotFoundError
-from retail.webhooks.vtex.views.back_in_stock_subscribe import BackInStockSubscribe
 
 
-WEBHOOK_PATH = "/webhook/vtex/back-in-stock/api/subscribe/"
+ACCOUNT = "gaboulstore"
+WEBHOOK_PATH = f"/webhook/vtex/back-in-stock/{ACCOUNT}/subscribe/"
 USE_CASE_PATH = (
     "retail.webhooks.vtex.views.back_in_stock_subscribe.SubscribeBackInStockUseCase"
 )
@@ -38,8 +38,7 @@ VALID_PAYLOAD = {
 class BackInStockSubscribeViewTest(TestCase):
     def setUp(self):
         cache.clear()
-        self.factory = APIRequestFactory()
-        self.view = BackInStockSubscribe.as_view()
+        self.client = APIClient()
         self.use_case_patcher = patch(USE_CASE_PATH)
         self.mock_use_case_cls = self.use_case_patcher.start()
         self.addCleanup(self.use_case_patcher.stop)
@@ -48,11 +47,13 @@ class BackInStockSubscribeViewTest(TestCase):
         cache.clear()
 
     def test_url_matches_io_contract(self):
-        self.assertEqual(reverse("back-in-stock-subscribe"), WEBHOOK_PATH)
+        self.assertEqual(
+            reverse("back-in-stock-subscribe", args=[ACCOUNT]), WEBHOOK_PATH
+        )
 
-    def _post(self, payload):
-        request = self.factory.post(WEBHOOK_PATH, payload, format="json")
-        return self.view(request)
+    def _post(self, payload, path_account=ACCOUNT):
+        path = reverse("back-in-stock-subscribe", args=[path_account])
+        return self.client.post(path, payload, format="json")
 
     def test_returns_401_without_token(self):
         response = self._post(VALID_PAYLOAD)
@@ -60,18 +61,26 @@ class BackInStockSubscribeViewTest(TestCase):
         self.assertIn(response.status_code, [401, 403])
         self.mock_use_case_cls.return_value.execute.assert_not_called()
 
-    @patch_retail_auth(vtex_account="gaboulstore")
+    @patch_retail_auth(vtex_account=ACCOUNT)
     def test_uses_claim_account_not_body_account(self, _auth):
         response = self._post(VALID_PAYLOAD)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         dto = self.mock_use_case_cls.return_value.execute.call_args[0][0]
-        self.assertEqual(dto.account, "gaboulstore")
+        self.assertEqual(dto.account, ACCOUNT)
         self.assertEqual(dto.sku_id, "9")
         self.assertEqual(dto.seller, "1")
         self.assertEqual(response.data, {"accepted": True})
 
-    @patch_retail_auth(vtex_account="gaboulstore")
+    @patch_retail_auth(vtex_account=ACCOUNT)
+    def test_uses_claim_account_not_path_account(self, _auth):
+        response = self._post(VALID_PAYLOAD, path_account="americanas1224")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dto = self.mock_use_case_cls.return_value.execute.call_args[0][0]
+        self.assertEqual(dto.account, ACCOUNT)
+
+    @patch_retail_auth(vtex_account=ACCOUNT)
     def test_returns_400_when_phone_has_non_digits(self, _auth):
         payload = {**VALID_PAYLOAD, "phone": "+55 11 99988-7766"}
 
@@ -80,7 +89,7 @@ class BackInStockSubscribeViewTest(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.mock_use_case_cls.return_value.execute.assert_not_called()
 
-    @patch_retail_auth(vtex_account="gaboulstore")
+    @patch_retail_auth(vtex_account=ACCOUNT)
     def test_returns_404_when_project_missing(self, _auth):
         self.mock_use_case_cls.return_value.execute.side_effect = ProjectNotFoundError()
 
