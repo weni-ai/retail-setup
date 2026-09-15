@@ -67,3 +67,62 @@ class BaseVtexUseCaseGetVtexContextTest(TestCase):
             self.usecase._get_vtex_context(str(project.uuid))
 
         self.assertIn("VTEX account not defined", str(ctx.exception))
+
+    def test_copilot_uses_parent_vtex_account(self):
+        parent = Project.objects.create(
+            name="Parent",
+            uuid=uuid4(),
+            vtex_account="parentaccount",
+        )
+        copilot = Project.objects.create(
+            name="Copilot",
+            uuid=uuid4(),
+            vtex_account=None,
+            is_live_desk_copilot=True,
+            parent_project=parent,
+        )
+
+        vtex_account, domain = self.usecase._get_vtex_context(str(copilot.uuid))
+
+        self.assertEqual(vtex_account, "parentaccount")
+        self.assertEqual(domain, "parentaccount.myvtex.com")
+
+    def test_parent_clear_cache_invalidates_copilot_context(self):
+        parent = Project.objects.create(
+            name="Parent",
+            uuid=uuid4(),
+            vtex_account="parentaccount",
+        )
+        copilot = Project.objects.create(
+            name="Copilot",
+            uuid=uuid4(),
+            is_live_desk_copilot=True,
+            parent_project=parent,
+        )
+        self.usecase._get_vtex_context(str(copilot.uuid))
+        parent.vtex_account = "newaccount"
+        parent.save()
+        parent.clear_cache()
+
+        vtex_account, domain = self.usecase._get_vtex_context(str(copilot.uuid))
+
+        self.assertEqual(vtex_account, "newaccount")
+        self.assertEqual(domain, "newaccount.myvtex.com")
+
+    def test_copilot_raises_when_parent_has_no_vtex_account(self):
+        parent = Project.objects.create(
+            name="Parent",
+            uuid=uuid4(),
+            vtex_account=None,
+        )
+        copilot = Project.objects.create(
+            name="Copilot",
+            uuid=uuid4(),
+            is_live_desk_copilot=True,
+            parent_project=parent,
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            self.usecase._get_vtex_context(str(copilot.uuid))
+
+        self.assertIn("VTEX account not defined", str(ctx.exception))

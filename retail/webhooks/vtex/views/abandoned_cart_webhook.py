@@ -46,7 +46,12 @@ class AbandonedCartWebhookView(APIView):
             serializer = ExternalAbandonedCartSerializer(
                 data=self._build_payload(request)
             )
-            serializer.is_valid(raise_exception=True)
+            if not serializer.is_valid():
+                logger.warning(
+                    f"[AbandonedCart] Invalid webhook payload - agent={pk}: "
+                    f"{serializer.errors}"
+                )
+                return self._webhook_received_response()
 
             dto = ProcessAbandonedCartNotificationDTO(
                 order_form_id=serializer.validated_data["order_form_id"],

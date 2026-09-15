@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 
 from retail.webhooks.vtex.views.order_status import OrderStatusWebhook
 from .views.abandoned_cart_notification import AbandonedCartNotification
@@ -18,13 +18,20 @@ urlpatterns = [
         name="order-status",
     ),
     path(
-        "vtex/back-in-stock/api/subscribe/",
-        BackInStockSubscribe.as_view(),
-        name="back-in-stock-subscribe",
-    ),
-    path(
-        "vtex/back-in-stock/api/stock-change/",
-        BackInStockStockChange.as_view(),
-        name="back-in-stock-stock-change",
+        "vtex/back-in-stock/<str:vtex_account>/",
+        include(
+            [
+                path(
+                    "subscribe/",
+                    BackInStockSubscribe.as_view(),
+                    name="back-in-stock-subscribe",
+                ),
+                path(
+                    "stock-change/",
+                    BackInStockStockChange.as_view(),
+                    name="back-in-stock-stock-change",
+                ),
+            ]
+        ),
     ),
 ]

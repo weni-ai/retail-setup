@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.request import Request
@@ -11,19 +13,26 @@ from retail.webhooks.vtex.usecases.handle_back_in_stock_stock_change import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class BackInStockStockChange(WeniAuthMixin, APIView):
     """Accept a catalog stock-change from VTEX IO.
 
-    Only SISMEMBER (or rebuild-on-missing) happens in this request.
-    Tenant (``vtex_account``) comes from ``self.auth``.
+    Only SISMEMBER (or rebuild-on-missing) happens in this request. The account
+    in the URL identifies the store in access logs and dashboards; the tenant
+    itself comes from ``self.auth``.
     """
 
-    def post(self, request: Request) -> Response:
+    def post(self, request: Request, vtex_account: str) -> Response:
+        account = self.auth.vtex_account
+        logger.info(f"[BACK_IN_STOCK] Processing stock change: vtex_account={account}")
+
         serializer = BackInStockStockChangeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         result = HandleBackInStockStockChangeUseCase().execute(
             BackInStockStockChangeDTO(
-                account=self.auth.vtex_account,
+                account=account,
                 sku_id=serializer.validated_data["sku_id"],
             )
         )

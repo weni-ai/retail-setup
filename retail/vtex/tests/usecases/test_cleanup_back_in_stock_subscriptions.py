@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -78,3 +79,24 @@ class CleanupBackInStockSubscriptionsUseCaseTest(TestCase):
         self.use_case.execute()
 
         self.assertTrue(BackInStockWaiter.objects.filter(pk=error.pk).exists())
+
+    @patch(
+        "retail.vtex.usecases.cleanup_back_in_stock_subscriptions.CLEANUP_BATCH_SIZE",
+        2,
+    )
+    def test_deletes_stale_sent_waiters_across_batches(self):
+        stale = timezone.now() - timedelta(days=SENT_WAITER_RETENTION_DAYS + 1)
+        for index in range(5):
+            waiter = self._waiter(
+                phone=f"551199988776{index}",
+                status=BackInStockWaiter.STATUS_SENT,
+            )
+            BackInStockWaiter.objects.filter(pk=waiter.pk).update(
+                sent_at=stale, created_at=stale
+            )
+        kept = self._waiter(phone="5511777665544")
+
+        self.use_case.execute()
+
+        self.assertEqual(BackInStockWaiter.objects.count(), 1)
+        self.assertTrue(BackInStockWaiter.objects.filter(pk=kept.pk).exists())

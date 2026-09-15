@@ -4,6 +4,7 @@ from django.test import TestCase
 
 from retail.projects.models import Project
 from retail.projects.usecases.project_creation import (
+    ParentProjectNotFoundError,
     ProjectCreationUseCase,
     VtexAccountConflictError,
 )
@@ -36,6 +37,8 @@ class TestProjectCreationUseCase(TestCase):
             self.base_project_dto.organization_uuid,
         )
         self.assertIsNone(created_project.vtex_account)
+        self.assertFalse(created_project.is_live_desk_copilot)
+        self.assertIsNone(created_project.parent_project_id)
 
     def test_create_new_project_with_vtex(self):
         ProjectCreationUseCase.create_project(self.vtex_project_dto)
@@ -265,3 +268,302 @@ class TestProjectCreationUseCase(TestCase):
             ProjectCreationUseCase.create_project(self.vtex_project_dto)
 
         self.assertIn(self.vtex_project_dto.vtex_account, str(ctx.exception))
+
+    def test_creates_copilot_linked_to_parent_without_own_vtex_account(self):
+        parent = Project.objects.create(
+            name="Parent Project",
+            uuid=uuid4(),
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+        )
+        dto = ProjectCreationDTO(
+            name="Copilot Project",
+            uuid=str(uuid4()),
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+            is_live_desk_copilot=True,
+            parent_project_uuid=str(parent.uuid),
+        )
+
+        ProjectCreationUseCase.create_project(dto)
+
+        copilot = Project.objects.get(uuid=dto.uuid)
+        self.assertTrue(copilot.is_live_desk_copilot)
+        self.assertEqual(copilot.parent_project_id, parent.id)
+        self.assertIsNone(copilot.vtex_account)
+
+    def test_copilot_does_not_conflict_with_parent_vtex_account(self):
+        parent = Project.objects.create(
+            name="Parent Project",
+            uuid=uuid4(),
+            organization_uuid=str(uuid4()),
+            vtex_account="sharedstore",
+        )
+        dto = ProjectCreationDTO(
+            name="Copilot Project",
+            uuid=str(uuid4()),
+            organization_uuid=str(uuid4()),
+            vtex_account="sharedstore",
+            is_live_desk_copilot=True,
+            parent_project_uuid=str(parent.uuid),
+        )
+
+        ProjectCreationUseCase.create_project(dto)
+
+        self.assertEqual(Project.objects.filter(vtex_account="sharedstore").count(), 1)
+
+    def test_copilot_without_parent_uuid_raises(self):
+        dto = ProjectCreationDTO(
+            name="Copilot Project",
+            uuid=str(uuid4()),
+            organization_uuid=str(uuid4()),
+            is_live_desk_copilot=True,
+            parent_project_uuid=None,
+        )
+
+        with self.assertRaises(ParentProjectNotFoundError) as ctx:
+            ProjectCreationUseCase.create_project(dto)
+
+        self.assertIn(dto.uuid, str(ctx.exception))
+        self.assertIn("missing parent_project_uuid", str(ctx.exception))
+
+    def test_copilot_with_empty_parent_uuid_raises(self):
+        dto = ProjectCreationDTO(
+            name="Copilot Project",
+            uuid=str(uuid4()),
+            organization_uuid=str(uuid4()),
+            is_live_desk_copilot=True,
+            parent_project_uuid="",
+        )
+
+        with self.assertRaises(ParentProjectNotFoundError):
+            ProjectCreationUseCase.create_project(dto)
+
+    def test_copilot_with_unknown_parent_raises(self):
+        missing_parent_uuid = str(uuid4())
+        dto = ProjectCreationDTO(
+            name="Copilot Project",
+            uuid=str(uuid4()),
+            organization_uuid=str(uuid4()),
+            is_live_desk_copilot=True,
+            parent_project_uuid=missing_parent_uuid,
+        )
+
+        with self.assertRaises(ParentProjectNotFoundError) as ctx:
+            ProjectCreationUseCase.create_project(dto)
+
+        self.assertIn(missing_parent_uuid, str(ctx.exception))
+        self.assertIn(dto.uuid, str(ctx.exception))
+
+    def test_updates_existing_project_with_copilot_fields(self):
+        parent = Project.objects.create(
+            name="Parent Project",
+            uuid=uuid4(),
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+        )
+        project_uuid = str(uuid4())
+        Project.objects.create(
+            name="Old Name",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+        )
+
+        dto = ProjectCreationDTO(
+            name="Copilot Name",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            is_live_desk_copilot=True,
+            parent_project_uuid=str(parent.uuid),
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.objects.get(uuid=project_uuid)
+        self.assertEqual(project.name, "Copilot Name")
+        self.assertTrue(project.is_live_desk_copilot)
+        self.assertEqual(project.parent_project_id, parent.id)
+        self.assertIsNone(project.vtex_account)
+
+    def test_copilot_update_clears_own_vtex_account(self):
+        parent = Project.objects.create(
+            name="Parent Project",
+            uuid=uuid4(),
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+        )
+        project_uuid = str(uuid4())
+        Project.objects.create(
+            name="Store Project",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account="stale-account",
+        )
+
+        dto = ProjectCreationDTO(
+            name="Copilot Name",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+            is_live_desk_copilot=True,
+            parent_project_uuid=str(parent.uuid),
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.objects.get(uuid=project_uuid)
+        self.assertTrue(project.is_live_desk_copilot)
+        self.assertIsNone(project.vtex_account)
+        self.assertEqual(project.parent_project_id, parent.id)
+
+    def test_regular_project_ignores_parent_project_uuid(self):
+        dto = ProjectCreationDTO(
+            name="Regular Project",
+            uuid=str(uuid4()),
+            organization_uuid=str(uuid4()),
+            is_live_desk_copilot=False,
+            parent_project_uuid=str(uuid4()),
+        )
+
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.objects.get(uuid=dto.uuid)
+        self.assertFalse(project.is_live_desk_copilot)
+        self.assertIsNone(project.parent_project_id)
+
+    def test_creates_copilot_without_vtex_in_payload(self):
+        parent = Project.objects.create(
+            name="Parent Project",
+            uuid=uuid4(),
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+        )
+        dto = ProjectCreationDTO(
+            name="Copilot Project",
+            uuid=str(uuid4()),
+            organization_uuid=str(uuid4()),
+            vtex_account=None,
+            is_live_desk_copilot=True,
+            parent_project_uuid=str(parent.uuid),
+        )
+
+        ProjectCreationUseCase.create_project(dto)
+
+        copilot = Project.objects.get(uuid=dto.uuid)
+        self.assertTrue(copilot.is_live_desk_copilot)
+        self.assertEqual(copilot.parent_project_id, parent.id)
+        self.assertIsNone(copilot.vtex_account)
+
+    def test_copilot_links_to_inactive_parent(self):
+        parent = Project.all_objects.create(
+            name="Inactive Parent",
+            uuid=uuid4(),
+            organization_uuid=str(uuid4()),
+            vtex_account="inactivestore",
+            is_active=False,
+        )
+        dto = ProjectCreationDTO(
+            name="Copilot Project",
+            uuid=str(uuid4()),
+            organization_uuid=str(uuid4()),
+            is_live_desk_copilot=True,
+            parent_project_uuid=str(parent.uuid),
+        )
+
+        ProjectCreationUseCase.create_project(dto)
+
+        copilot = Project.objects.get(uuid=dto.uuid)
+        self.assertEqual(copilot.parent_project_id, parent.id)
+
+    def test_inactive_project_updated_to_copilot_clears_vtex_without_conflict(self):
+        parent = Project.objects.create(
+            name="Parent Project",
+            uuid=uuid4(),
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+        )
+        project_uuid = str(uuid4())
+        Project.all_objects.create(
+            name="Inactive Store",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+            is_active=False,
+        )
+
+        dto = ProjectCreationDTO(
+            name="Copilot Name",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+            is_live_desk_copilot=True,
+            parent_project_uuid=str(parent.uuid),
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.all_objects.get(uuid=project_uuid)
+        self.assertFalse(project.is_active)
+        self.assertTrue(project.is_live_desk_copilot)
+        self.assertEqual(project.parent_project_id, parent.id)
+        self.assertIsNone(project.vtex_account)
+
+    def test_copilot_retry_updates_existing_copilot(self):
+        parent = Project.objects.create(
+            name="Parent Project",
+            uuid=uuid4(),
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+        )
+        project_uuid = str(uuid4())
+        Project.objects.create(
+            name="Old Copilot Name",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            is_live_desk_copilot=True,
+            parent_project=parent,
+        )
+
+        dto = ProjectCreationDTO(
+            name="New Copilot Name",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+            language="pt-br",
+            is_live_desk_copilot=True,
+            parent_project_uuid=str(parent.uuid),
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.objects.get(uuid=project_uuid)
+        self.assertEqual(project.name, "New Copilot Name")
+        self.assertEqual(project.language, "pt-br")
+        self.assertTrue(project.is_live_desk_copilot)
+        self.assertEqual(project.parent_project_id, parent.id)
+        self.assertIsNone(project.vtex_account)
+
+    def test_regular_event_clears_copilot_parent(self):
+        parent = Project.objects.create(
+            name="Parent Project",
+            uuid=uuid4(),
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+        )
+        project_uuid = str(uuid4())
+        Project.objects.create(
+            name="Copilot Project",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            is_live_desk_copilot=True,
+            parent_project=parent,
+        )
+
+        dto = ProjectCreationDTO(
+            name="Regular Again",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            is_live_desk_copilot=False,
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.objects.get(uuid=project_uuid)
+        self.assertEqual(project.name, "Regular Again")
+        self.assertFalse(project.is_live_desk_copilot)
+        self.assertIsNone(project.parent_project_id)
