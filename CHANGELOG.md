@@ -1,3 +1,9 @@
+# 5.56.1
+- refactor: Add vtex_account to back-in-stock webhook paths
+
+# 5.56.0
+- feat: Add VTEX back-in-stock WhatsApp notification pipeline
+
 # 5.55.1
 - feat: Add check-url endpoint to preflight crawl URL reachability via Crawler MS
 

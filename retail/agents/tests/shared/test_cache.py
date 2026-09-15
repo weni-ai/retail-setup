@@ -14,6 +14,7 @@ from retail.agents.shared.cache import (
 PAYMENT_RECOVERY_AGENT_UUID = str(uuid.uuid4())
 ABANDONED_CART_AGENT_UUID = str(uuid.uuid4())
 ORDER_STATUS_AGENT_UUID = str(uuid.uuid4())
+BACK_IN_STOCK_AGENT_UUID = str(uuid.uuid4())
 
 
 class IntegratedAgentCacheHandlerRedisWebhookTest(TestCase):
@@ -110,6 +111,7 @@ class IntegratedAgentCacheHandlerRedisRoleCacheTest(TestCase):
             (AgentRole.PAYMENT_RECOVERY, "payment_recovery"),
             (AgentRole.ABANDONED_CART, "abandoned_cart"),
             (AgentRole.ORDER_STATUS, "order_status"),
+            (AgentRole.BACK_IN_STOCK, "back_in_stock"),
         ):
             with self.subTest(role=role):
                 key = self.cache_handler.get_role_cache_key(self.project_uuid, role)
@@ -183,10 +185,17 @@ class ResolveRoleTest(TestCase):
         role = self.cache_handler.resolve_role(self.integrated_agent)
         self.assertEqual(role, AgentRole.ORDER_STATUS)
 
+    @override_settings(BACK_IN_STOCK_AGENT_UUID=BACK_IN_STOCK_AGENT_UUID)
+    def test_resolves_back_in_stock_role(self):
+        self.integrated_agent.agent.uuid = BACK_IN_STOCK_AGENT_UUID
+        role = self.cache_handler.resolve_role(self.integrated_agent)
+        self.assertEqual(role, AgentRole.BACK_IN_STOCK)
+
     @override_settings(
         PAYMENT_RECOVERY_AGENT_UUID=PAYMENT_RECOVERY_AGENT_UUID,
         ABANDONED_CART_AGENT_UUID=ABANDONED_CART_AGENT_UUID,
         ORDER_STATUS_AGENT_UUID=ORDER_STATUS_AGENT_UUID,
+        BACK_IN_STOCK_AGENT_UUID=BACK_IN_STOCK_AGENT_UUID,
     )
     def test_returns_none_for_unrelated_agent(self):
         self.integrated_agent.agent.uuid = str(uuid.uuid4())
@@ -197,6 +206,7 @@ class ResolveRoleTest(TestCase):
         PAYMENT_RECOVERY_AGENT_UUID="",
         ABANDONED_CART_AGENT_UUID="",
         ORDER_STATUS_AGENT_UUID="",
+        BACK_IN_STOCK_AGENT_UUID="",
     )
     def test_returns_none_when_settings_are_empty(self):
         self.integrated_agent.agent.uuid = PAYMENT_RECOVERY_AGENT_UUID
@@ -236,6 +246,7 @@ class InvalidateAllForTest(TestCase):
         PAYMENT_RECOVERY_AGENT_UUID="",
         ABANDONED_CART_AGENT_UUID="",
         ORDER_STATUS_AGENT_UUID="",
+        BACK_IN_STOCK_AGENT_UUID="",
     )
     @patch("django.core.cache.cache.delete")
     def test_clears_only_webhook_key_when_role_unknown(self, mock_cache_delete):

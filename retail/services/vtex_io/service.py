@@ -1,7 +1,12 @@
-from typing import Union
+import logging
+from typing import Optional, Union
 
+from retail.clients.exceptions import CustomAPIException
 from retail.interfaces.clients.vtex_io.interface import VtexIOClientInterface
 from retail.clients.vtex_io.client import VtexIOClient
+
+
+logger = logging.getLogger(__name__)
 
 
 class VtexIOService:
@@ -124,6 +129,32 @@ class VtexIOService:
             account_domain=account_domain,
             vtex_account=vtex_account,
         )
+
+    def cleanup_availability_notify(
+        self, account_domain: str, vtex_account: str
+    ) -> Optional[dict]:
+        """Delete already-sent back-in-stock subscriptions on VTEX IO.
+
+        Infra failures are logged and collapsed to ``None`` so the daily
+        task can continue with the next account.
+        """
+        try:
+            return self.client.cleanup_availability_notify(
+                account_domain=account_domain,
+                vtex_account=vtex_account,
+            )
+        except CustomAPIException as exc:
+            logger.error(
+                f"Availability-notify cleanup failed for "
+                f"vtex_account={vtex_account}: status={exc.status_code}"
+            )
+            return None
+        except Exception as exc:
+            logger.error(
+                f"Availability-notify cleanup failed for "
+                f"vtex_account={vtex_account}: {exc}"
+            )
+            return None
 
     def proxy_vtex(
         self,

@@ -254,3 +254,51 @@ class LegacyBroadcastPayloadSnapshotTest(TestCase):
                 },
             },
         )
+
+    def test_url_button_strips_leading_slash_for_meta_placeholder(self):
+        template = self._make_template(template_name="weni_back_in_stock")
+        data = {
+            "template_variables": {
+                "1": "Maria",
+                "2": "Camiseta",
+                "button": "/checkout/cart/add?sku=9&qty=1&seller=1&sc=1",
+            },
+            "contact_urn": _CONTACT_URN,
+            "language": "pt-BR",
+        }
+
+        result = self.handler.build_broadcast_template_message(
+            data=data,
+            channel_uuid=_CHANNEL_UUID,
+            project_uuid=_PROJECT_UUID,
+            template=template,
+        )
+
+        self.assertEqual(
+            result["msg"]["buttons"][0]["parameters"][0]["text"],
+            "checkout/cart/add?sku=9&qty=1&seller=1&sc=1",
+        )
+
+    def test_url_button_without_leading_slash_is_unchanged(self):
+        template = self._make_template(template_name="weni_back_in_stock")
+        data = {
+            "template_variables": {
+                "1": "Maria",
+                "2": "Camiseta",
+                "button": "checkout/cart/add?sku=9&qty=1&seller=1&sc=1",
+            },
+            "contact_urn": _CONTACT_URN,
+            "language": "pt-BR",
+        }
+
+        result = self.handler.build_broadcast_template_message(
+            data=data,
+            channel_uuid=_CHANNEL_UUID,
+            project_uuid=_PROJECT_UUID,
+            template=template,
+        )
+
+        self.assertEqual(
+            result["msg"]["buttons"][0]["parameters"][0]["text"],
+            "checkout/cart/add?sku=9&qty=1&seller=1&sc=1",
+        )

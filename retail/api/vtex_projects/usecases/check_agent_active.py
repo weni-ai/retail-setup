@@ -15,6 +15,7 @@ AGENT_UUID_SETTINGS_MAP = {
     "abandoned_cart": "ABANDONED_CART_AGENT_UUID",
     "order_status": "ORDER_STATUS_AGENT_UUID",
     "payment_recovery": "PAYMENT_RECOVERY_AGENT_UUID",
+    "back_in_stock": "BACK_IN_STOCK_AGENT_UUID",
 }
 
 CACHE_TIMEOUT = 60

@@ -22,12 +22,14 @@ class AgentRole(str, Enum):
     ABANDONED_CART = "abandoned_cart"
     ORDER_STATUS = "order_status"
     PAYMENT_RECOVERY = "payment_recovery"
+    BACK_IN_STOCK = "back_in_stock"
 
 
 ROLE_SETTING_NAMES: Dict[AgentRole, str] = {
     AgentRole.ABANDONED_CART: "ABANDONED_CART_AGENT_UUID",
     AgentRole.ORDER_STATUS: "ORDER_STATUS_AGENT_UUID",
     AgentRole.PAYMENT_RECOVERY: "PAYMENT_RECOVERY_AGENT_UUID",
+    AgentRole.BACK_IN_STOCK: "BACK_IN_STOCK_AGENT_UUID",
 }
 
 

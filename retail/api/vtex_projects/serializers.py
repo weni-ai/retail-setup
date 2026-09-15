@@ -1,7 +1,12 @@
 from rest_framework import serializers
 
 
-ALLOWED_AGENT_TYPES = ("abandoned_cart", "order_status", "payment_recovery")
+ALLOWED_AGENT_TYPES = (
+    "abandoned_cart",
+    "order_status",
+    "payment_recovery",
+    "back_in_stock",
+)
 
 
 class AgentActiveQuerySerializer(serializers.Serializer):
