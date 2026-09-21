@@ -1,3 +1,6 @@
+# 5.56.2
+- feat: Add Romanian to the template language catalog
+
 # 5.56.1
 - refactor: Add vtex_account to back-in-stock webhook paths
 
