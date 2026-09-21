@@ -19,4 +19,5 @@ TEMPLATE_LANGUAGES: List[TemplateLanguage] = [
     TemplateLanguage(code="pt_BR", display_name="Português (BR)"),
     TemplateLanguage(code="en", display_name="English (US)"),
     TemplateLanguage(code="es", display_name="Español"),
+    TemplateLanguage(code="ro", display_name="Română"),
 ]
