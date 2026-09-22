@@ -585,6 +585,30 @@ class CloneOrderFormUseCaseTest(TestCase):
         payload = self.mock_checkout.set_shipping_data.call_args.kwargs["shipping_data"]
         self.assertNotIn("addressId", payload["selectedAddresses"][0])
 
+    def test_shipping_omits_address_id_when_saved_address_has_none(self):
+        source = _full_source_order_form(
+            shippingData={
+                "selectedAddresses": [
+                    {
+                        "addressType": "residential",
+                        "isDisposable": False,
+                        "postalCode": "01310-100",
+                    }
+                ],
+                "logisticsInfo": [],
+            }
+        )
+
+        self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=source,
+        )
+
+        payload = self.mock_checkout.set_shipping_data.call_args.kwargs["shipping_data"]
+        self.assertNotIn("addressId", payload["selectedAddresses"][0])
+        self.assertEqual(payload["selectedAddresses"][0]["postalCode"], "01310-100")
+
     def test_add_items_sends_fulfillment_seller_chain(self):
         source = _full_source_order_form(
             items=[
