@@ -1,3 +1,6 @@
+# 5.56.3
+- refactor: Enhance clone order form with seller chain support, pre-item profile/address attachment, and retry logic
+
 # 5.56.2
 - feat: Add Romanian to the template language catalog
 
