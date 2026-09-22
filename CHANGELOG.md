@@ -1,3 +1,6 @@
+# 5.57.0
+- feat: Support copilot project creation and parent VTEX lookup
+
 # 5.56.3
 - refactor: Enhance clone order form with seller chain support, pre-item profile/address attachment, and retry logic
 
