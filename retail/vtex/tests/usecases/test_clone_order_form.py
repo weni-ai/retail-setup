@@ -81,6 +81,7 @@ class CloneOrderFormUseCaseTest(TestCase):
 
     def test_execute_full_clone_success(self):
         source = _full_source_order_form()
+        self.mock_checkout.reset_mock()
 
         result = self.use_case.execute(
             project_uuid=self.project_uuid,
@@ -133,6 +134,18 @@ class CloneOrderFormUseCaseTest(TestCase):
         self.mock_checkout.set_client_preferences_data.assert_called_once()
         self.mock_checkout.set_marketing_data.assert_called_once()
         self.mock_checkout.get_order_form.assert_not_called()
+        self.assertEqual(
+            [call[0] for call in self.mock_checkout.mock_calls],
+            [
+                "create_cart",
+                "set_client_profile_data",
+                "set_shipping_data",
+                "add_items",
+                "set_shipping_data",
+                "set_client_preferences_data",
+                "set_marketing_data",
+            ],
+        )
 
     def test_execute_returns_none_when_no_items(self):
         source = _full_source_order_form(items=[])
@@ -518,3 +531,174 @@ class CloneOrderFormUseCaseTest(TestCase):
                 }
             ],
         )
+
+    def test_shipping_keeps_saved_address_id_after_profile_attaches(self):
+        source = _full_source_order_form(
+            shippingData={
+                "selectedAddresses": [
+                    {
+                        "addressType": "residential",
+                        "addressId": "saved-addr",
+                        "isDisposable": False,
+                        "postalCode": "01310-100",
+                    }
+                ],
+                "logisticsInfo": [],
+            }
+        )
+
+        self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=source,
+        )
+
+        payload = self.mock_checkout.set_shipping_data.call_args.kwargs["shipping_data"]
+        address = payload["selectedAddresses"][0]
+        self.assertEqual(address["addressId"], "saved-addr")
+        self.assertFalse(address["isDisposable"])
+        self.assertEqual(self.mock_checkout.set_shipping_data.call_count, 1)
+
+    def test_shipping_drops_saved_address_id_when_profile_fails(self):
+        self.mock_checkout.set_client_profile_data.return_value = None
+        source = _full_source_order_form(
+            shippingData={
+                "selectedAddresses": [
+                    {
+                        "addressType": "residential",
+                        "addressId": "saved-addr",
+                        "isDisposable": False,
+                        "postalCode": "01310-100",
+                    }
+                ],
+                "logisticsInfo": [],
+            }
+        )
+
+        result = self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=source,
+        )
+
+        self.assertEqual(result.order_form_id, "clone-of")
+        payload = self.mock_checkout.set_shipping_data.call_args.kwargs["shipping_data"]
+        self.assertNotIn("addressId", payload["selectedAddresses"][0])
+
+    def test_add_items_sends_fulfillment_seller_chain(self):
+        source = _full_source_order_form(
+            items=[
+                {
+                    "id": "sku-1",
+                    "quantity": 1,
+                    "seller": "1",
+                    "sellerChain": ["1", "mainstoreswl01"],
+                }
+            ]
+        )
+
+        self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=source,
+        )
+
+        order_items = self.mock_checkout.add_items.call_args.kwargs["order_items"]
+        self.assertEqual(
+            order_items,
+            [
+                {
+                    "id": "sku-1",
+                    "quantity": 1,
+                    "seller": "1",
+                    "sellerChain": ["1", "mainstoreswl01"],
+                }
+            ],
+        )
+
+    def test_add_items_omits_seller_chain_without_fulfillment_seller(self):
+        source = _full_source_order_form(
+            items=[
+                {
+                    "id": "sku-1",
+                    "quantity": 1,
+                    "seller": "1",
+                    "sellerChain": ["1"],
+                },
+                {
+                    "id": "sku-2",
+                    "quantity": 1,
+                    "seller": "1",
+                    "sellerChain": ["mainstoreswl01"],
+                },
+            ]
+        )
+
+        self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=source,
+        )
+
+        order_items = self.mock_checkout.add_items.call_args.kwargs["order_items"]
+        self.assertEqual(
+            order_items,
+            [
+                {"id": "sku-1", "quantity": 1, "seller": "1"},
+                {"id": "sku-2", "quantity": 1, "seller": "1"},
+            ],
+        )
+
+    def test_add_items_retries_without_seller_chain_when_checkout_rejects(self):
+        self.mock_checkout.add_items.side_effect = [
+            None,
+            {
+                "orderFormId": "clone-of",
+                "items": [{"id": "sku-1", "quantity": 1, "seller": "1"}],
+            },
+        ]
+        source = _full_source_order_form(
+            items=[
+                {
+                    "id": "sku-1",
+                    "quantity": 1,
+                    "seller": "1",
+                    "sellerChain": ["1", "mainstoreswl01"],
+                }
+            ]
+        )
+
+        result = self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=source,
+        )
+
+        self.assertEqual(result.order_form_id, "clone-of")
+        self.assertEqual(self.mock_checkout.add_items.call_count, 2)
+        retried_items = self.mock_checkout.add_items.call_args_list[1].kwargs[
+            "order_items"
+        ]
+        self.assertEqual(retried_items, [{"id": "sku-1", "quantity": 1, "seller": "1"}])
+
+    def test_add_items_returns_none_when_seller_chain_retry_fails(self):
+        self.mock_checkout.add_items.side_effect = [None, None]
+        source = _full_source_order_form(
+            items=[
+                {
+                    "id": "sku-1",
+                    "quantity": 1,
+                    "seller": "1",
+                    "sellerChain": ["1", "mainstoreswl01"],
+                }
+            ]
+        )
+
+        result = self.use_case.execute(
+            project_uuid=self.project_uuid,
+            vtex_account=self.vtex_account,
+            order_form=source,
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(self.mock_checkout.add_items.call_count, 2)
