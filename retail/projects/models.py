@@ -1,4 +1,5 @@
 import uuid as uuid_lib
+from typing import Optional
 
 from django.db import models
 from django.core.cache import cache
@@ -25,6 +26,14 @@ class Project(models.Model):
     config = models.JSONField(default=dict)
     is_blocked = models.BooleanField(default=False, db_index=True)
     is_active = models.BooleanField(default=True, db_index=True)
+    is_live_desk_copilot = models.BooleanField(default=False)
+    parent_project = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        related_name="copilot_projects",
+        null=True,
+        blank=True,
+    )
     modified_on = models.DateTimeField(auto_now=True)
 
     objects = ActiveProjectManager()
@@ -40,17 +49,58 @@ class Project(models.Model):
             models.Index(fields=["uuid"]),
             models.Index(fields=["vtex_account"]),
         ]
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(is_live_desk_copilot=False, parent_project__isnull=True)
+                    | models.Q(is_live_desk_copilot=True, parent_project__isnull=False)
+                ),
+                name="projects_project_copilot_requires_parent",
+            ),
+        ]
 
     def clear_cache(self) -> None:
         """
         Clears all cache entries related to this project.
         Should be called after updates to VTEX account or related fields.
         """
-        if self.uuid:
-            cache.delete(f"project_domain_{self.uuid}")
-            cache.delete(f"project_by_uuid_{self.uuid}")
+        copilot_uuids = Project.all_objects.filter(parent_project=self).values_list(
+            "uuid", flat=True
+        )
+        uuids_to_clear = [self.uuid, *copilot_uuids]
+        for project_uuid in uuids_to_clear:
+            if project_uuid:
+                cache.delete(f"project_domain_{project_uuid}")
+                cache.delete(f"project_by_uuid_{project_uuid}")
+                cache.delete(f"project_vtex_context_{project_uuid}")
         if self.vtex_account:
             cache.delete(f"project_by_vtex_account_{self.vtex_account}")
+
+    def resolve_vtex_account(self) -> Optional[str]:
+        """Return the VTEX account used for proxy calls.
+
+        Live desk copilots inherit the account from ``parent_project``,
+        which remains the source of truth.
+        """
+        source = self._vtex_account_source()
+        if source is None:
+            return None
+        return source.vtex_account or None
+
+    def _vtex_account_source(self) -> Optional["Project"]:
+        """Return the project that owns the VTEX account.
+
+        Uses ``all_objects`` so a soft-deleted parent still provides the
+        account instead of disappearing behind the active-only manager.
+        """
+        if not self.is_live_desk_copilot:
+            return self
+        if not self.parent_project_id:
+            return None
+        try:
+            return Project.all_objects.get(pk=self.parent_project_id)
+        except Project.DoesNotExist:
+            return None
 
     def clear_integrated_agents_cache(self) -> None:
         """
