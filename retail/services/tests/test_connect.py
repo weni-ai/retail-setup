@@ -96,8 +96,10 @@ class ConnectServiceTest(TestCase):
         result = self.service.send_contract_acceptance_email(
             user_email="user@example.com",
             acceptance_id="acceptance-uuid",
-            subject="Your contract",
-            body_html="<p>Hello</p>",
+            language="es-MX",
+            plan_name="Growth",
+            contract_version="v2.1",
+            accepted_at="2026-06-10T14:32:00+00:00",
             file_name="contract-v2.1.pdf",
             file_base64="JVBERi0=",
         )
@@ -106,8 +108,10 @@ class ConnectServiceTest(TestCase):
         self.mock_client.send_contract_acceptance_email.assert_called_once_with(
             user_email="user@example.com",
             acceptance_id="acceptance-uuid",
-            subject="Your contract",
-            body_html="<p>Hello</p>",
+            language="es-MX",
+            plan_name="Growth",
+            contract_version="v2.1",
+            accepted_at="2026-06-10T14:32:00+00:00",
             file_name="contract-v2.1.pdf",
             file_base64="JVBERi0=",
         )
@@ -121,8 +125,10 @@ class ConnectServiceTest(TestCase):
         result = self.service.send_contract_acceptance_email(
             user_email="user@example.com",
             acceptance_id="acceptance-uuid",
-            subject="Your contract",
-            body_html="<p>Hello</p>",
+            language="es-MX",
+            plan_name="Growth",
+            contract_version="v2.1",
+            accepted_at="2026-06-10T14:32:00+00:00",
             file_name="contract-v2.1.pdf",
             file_base64="JVBERi0=",
         )

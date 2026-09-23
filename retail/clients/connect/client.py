@@ -109,8 +109,10 @@ class ConnectClient(RequestClient, ConnectClientInterface):
         self,
         user_email: str,
         acceptance_id: str,
-        subject: str,
-        body_html: str,
+        language: str,
+        plan_name: str,
+        contract_version: str,
+        accepted_at: str,
         file_name: str,
         file_base64: str,
     ) -> Dict:
@@ -119,8 +121,10 @@ class ConnectClient(RequestClient, ConnectClientInterface):
         payload: Dict = {
             "user_email": user_email,
             "acceptance_id": acceptance_id,
-            "subject": subject,
-            "body_html": body_html,
+            "language": language,
+            "plan_name": plan_name,
+            "contract_version": contract_version,
+            "accepted_at": accepted_at,
             "file_name": file_name,
             "file_base64": file_base64,
         }

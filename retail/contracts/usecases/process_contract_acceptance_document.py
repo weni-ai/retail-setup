@@ -16,7 +16,6 @@ from retail.contracts.models import ContractAcceptance
 from retail.contracts.renderers import ContractPdfRendererInterface
 from retail.contracts.translations import (
     CONTRACTOR_LEGAL,
-    build_contract_email,
     build_electronic_acceptance_notice,
     format_acceptance_date_only,
     format_acceptance_datetime,
@@ -53,18 +52,13 @@ class ProcessContractAcceptanceDocumentUseCase:
             self._build_context(acceptance, language),
         )
 
-        email = build_contract_email(
-            language=language,
-            plan_name=acceptance.plan_snapshot.get("plan", ""),
-            contract_version=acceptance.contract_version,
-            accepted_at=acceptance.accepted_at,
-        )
-
         email_result = self.connect_service.send_contract_acceptance_email(
             user_email=acceptance.email_at_acceptance,
             acceptance_id=str(acceptance.uuid),
-            subject=email["subject"],
-            body_html=email["body_html"],
+            language=language,
+            plan_name=acceptance.plan_snapshot.get("plan") or "",
+            contract_version=acceptance.contract_version,
+            accepted_at=acceptance.accepted_at.isoformat(),
             file_name=f"contract-{acceptance.contract_version}.pdf",
             file_base64=base64.b64encode(pdf_bytes).decode("ascii"),
         )
