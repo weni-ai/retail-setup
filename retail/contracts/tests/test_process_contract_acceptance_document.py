@@ -72,17 +72,13 @@ class ProcessContractAcceptanceDocumentUseCaseTests(TestCase):
         self.assertIn("accepted_at_date_only", context)
         self.assertEqual(context["company_name"], "Test Store")
 
-        expected_date = self.acceptance.accepted_at.strftime("%d/%m/%Y")
         self.connect_service.send_contract_acceptance_email.assert_called_once_with(
             user_email="user@example.com",
             acceptance_id=str(self.acceptance.uuid),
-            subject="Tu contrato",
-            body_html=(
-                "<p>Hola,</p>"
-                "<p>Tu aceptación de contrato fue registrada.</p>"
-                f"<p>Plan: Growth<br/>Versión: v2.1<br/>Fecha: {expected_date}</p>"
-                "<p>El documento aceptado está adjunto a este correo.</p>"
-            ),
+            language="es-MX",
+            plan_name="Growth",
+            contract_version="v2.1",
+            accepted_at=self.acceptance.accepted_at.isoformat(),
             file_name="contract-v2.1.pdf",
             file_base64=base64.b64encode(b"%PDF-1.4 fake").decode("ascii"),
         )

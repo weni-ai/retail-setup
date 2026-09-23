@@ -8,7 +8,6 @@ from the project language field (e.g. "pt-br" -> "pt"). Falls back to
 import logging
 import re
 from datetime import datetime, timedelta, timezone as dt_timezone
-from html import escape
 
 from django.utils import timezone as dj_timezone
 
@@ -169,40 +168,6 @@ ORDER_FORM_PARTIALS = {
 }
 
 
-CONTRACT_EMAIL_TRANSLATIONS = {
-    "en": {
-        "subject": "Your contract",
-        "body": (
-            "<p>Hello,</p>"
-            "<p>Your contract acceptance has been registered.</p>"
-            "<p>Plan: {plan}<br/>Version: {version}<br/>Date: {date}</p>"
-            "<p>The accepted document is attached to this email.</p>"
-        ),
-        "date_format": "%m/%d/%Y",
-    },
-    "pt": {
-        "subject": "Seu contrato",
-        "body": (
-            "<p>Olá,</p>"
-            "<p>Seu aceite de contrato foi registrado.</p>"
-            "<p>Plano: {plan}<br/>Versão: {version}<br/>Data: {date}</p>"
-            "<p>O documento aceito está anexado a este e-mail.</p>"
-        ),
-        "date_format": "%d/%m/%Y",
-    },
-    "es": {
-        "subject": "Tu contrato",
-        "body": (
-            "<p>Hola,</p>"
-            "<p>Tu aceptación de contrato fue registrada.</p>"
-            "<p>Plan: {plan}<br/>Versión: {version}<br/>Fecha: {date}</p>"
-            "<p>El documento aceptado está adjunto a este correo.</p>"
-        ),
-        "date_format": "%d/%m/%Y",
-    },
-}
-
-
 def resolve_language_prefix(language: str) -> str:
     """Return a supported language prefix, falling back to English."""
     prefix = (language or "").split("-")[0].lower()
@@ -309,21 +274,3 @@ def build_electronic_acceptance_notice(
         platform_name=CONTRACTOR_LEGAL["platform_name"],
         acceptance_id=acceptance_id,
     )
-
-
-def build_contract_email(
-    language: str, plan_name: str, contract_version: str, accepted_at
-) -> dict:
-    """Build the localized email subject and HTML body for an acceptance.
-
-    The whole email is composed here so the downstream sender (Connect)
-    only has to deliver it; both the PDF and the email therefore speak the
-    same language.
-    """
-    config = CONTRACT_EMAIL_TRANSLATIONS[resolve_language_prefix(language)]
-    body = config["body"].format(
-        plan=escape(plan_name or "-"),
-        version=escape(contract_version),
-        date=accepted_at.strftime(config["date_format"]),
-    )
-    return {"subject": config["subject"], "body_html": body}

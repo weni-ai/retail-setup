@@ -6,7 +6,6 @@ from retail.contracts.translations import (
     CONTRACT_PDF_TRANSLATIONS,
     ORDER_FORM_PARTIALS,
     apply_local_offset,
-    build_contract_email,
     build_electronic_acceptance_notice,
     format_acceptance_date_only,
     format_acceptance_datetime,
@@ -61,26 +60,6 @@ class ContractTranslationsTests(TestCase):
             get_order_form_partial("fr-FR"),
             ORDER_FORM_PARTIALS["en"],
         )
-
-    def test_build_contract_email_localizes_subject_body_and_date(self):
-        accepted_at = datetime(2026, 6, 10, 14, 32, tzinfo=dt_timezone.utc)
-
-        email_pt = build_contract_email("pt-br", "Growth", "v2.1", accepted_at)
-        self.assertEqual(email_pt["subject"], "Seu contrato")
-        self.assertIn("Plano: Growth", email_pt["body_html"])
-        self.assertIn("10/06/2026", email_pt["body_html"])
-
-        email_en = build_contract_email("en-US", "Growth", "v2.1", accepted_at)
-        self.assertEqual(email_en["subject"], "Your contract")
-        self.assertIn("06/10/2026", email_en["body_html"])
-
-    def test_build_contract_email_falls_back_plan_placeholder(self):
-        accepted_at = datetime(2026, 6, 10, tzinfo=dt_timezone.utc)
-
-        email = build_contract_email("es", "", "v2.1", accepted_at)
-
-        self.assertEqual(email["subject"], "Tu contrato")
-        self.assertIn("Plan: -", email["body_html"])
 
     def test_format_acceptance_datetime_portuguese(self):
         accepted_at = datetime(2025, 6, 10, 17, 32, tzinfo=dt_timezone.utc)

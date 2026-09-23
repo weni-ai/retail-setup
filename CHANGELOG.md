@@ -1,3 +1,12 @@
+# 5.57.0
+- feat: Support copilot project creation and parent VTEX lookup
+
+# 5.56.3
+- refactor: Enhance clone order form with seller chain support, pre-item profile/address attachment, and retry logic
+
+# 5.56.2
+- feat: Add Romanian to the template language catalog
+
 # 5.56.1
 - refactor: Add vtex_account to back-in-stock webhook paths
 
