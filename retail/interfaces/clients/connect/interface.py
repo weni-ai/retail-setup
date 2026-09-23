@@ -35,8 +35,10 @@ class ConnectClientInterface(Protocol):
         self,
         user_email: str,
         acceptance_id: str,
-        subject: str,
-        body_html: str,
+        language: str,
+        plan_name: str,
+        contract_version: str,
+        accepted_at: str,
         file_name: str,
         file_base64: str,
     ) -> Dict:
