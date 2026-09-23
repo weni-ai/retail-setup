@@ -1,3 +1,6 @@
+# 5.58.0
+- refactor: Replace pre-built email subject/body with raw metadata params in contract acceptance email
+
 # 5.57.0
 - feat: Support copilot project creation and parent VTEX lookup
 
