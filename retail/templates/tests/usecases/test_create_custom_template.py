@@ -23,6 +23,10 @@ from retail.services.rule_generator import (
     RuleGeneratorUnprocessableEntity,
     RuleGeneratorInternalServerError,
 )
+from retail.templates.adapters.template_library_to_custom_adapter import (
+    TemplateTranslationAdapter,
+)
+from retail.templates.handlers.template_metadata import TemplateMetadataHandler
 
 
 @override_settings(
@@ -509,3 +513,77 @@ class CreateCustomTemplateUseCaseTest(TestCase):
         self.assertEqual(use_case.rule_generator, custom_rule_generator)
         self.assertEqual(use_case.template_adapter, custom_adapter)
         self.assertEqual(use_case.metadata_handler, custom_handler)
+
+
+class CreateCustomTemplateRemovedComponentsDispatchTest(TestCase):
+    """Create request → adapter → task_create_template payload."""
+
+    def setUp(self):
+        self.project = Project.objects.create(name="Test Project", uuid=uuid4())
+        self.agent = Agent.objects.create(
+            uuid=uuid4(),
+            name="Test Agent",
+            slug="pix-agent",
+            description="Test",
+            project=self.project,
+        )
+        self.integrated_agent = IntegratedAgent.objects.create(
+            uuid=uuid4(),
+            agent=self.agent,
+            project=self.project,
+            is_active=True,
+        )
+        self.rule_generator = Mock(spec=RuleGenerator)
+        self.rule_generator.generate_code.return_value = "def rule(): return True"
+        self.use_case = CreateCustomTemplateUseCase(
+            rule_generator=self.rule_generator,
+            template_adapter=TemplateTranslationAdapter(),
+            template_metadata_handler=TemplateMetadataHandler(),
+        )
+
+    @patch("retail.templates.usecases.create_custom_template.task_create_template")
+    def test_create_dispatches_template_without_removed_variables_or_buttons(
+        self, mock_task
+    ):
+        self.use_case.execute(
+            {
+                "template_translation": {
+                    "template_body": "Seu pagamento ainda está pendente.",
+                    "template_body_params": ["João"],
+                    "template_header": "Pedido",
+                    "template_button": [
+                        {
+                            "type": "PAYMENT_REQUEST",
+                            "text": "Copiar código Pix",
+                            "payment_setting": {"type": "pix_dynamic_code"},
+                        }
+                    ],
+                    "language": "pt_BR",
+                },
+                "category": "UTILITY",
+                "app_uuid": str(uuid4()),
+                "project_uuid": str(self.project.uuid),
+                "integrated_agent_uuid": self.integrated_agent.uuid,
+                "display_name": "Pix only",
+                "parameters": [
+                    {"name": "start_condition", "value": "always"},
+                ],
+            }
+        )
+
+        translation = mock_task.delay.call_args.kwargs["template_translation"]
+        self.assertEqual(
+            translation["body"],
+            {"type": "BODY", "text": "Seu pagamento ainda está pendente."},
+        )
+        self.assertEqual(
+            translation["buttons"],
+            [
+                {
+                    "button_type": "PAYMENT_REQUEST",
+                    "text": "Copiar código Pix",
+                    "payment_setting": {"type": "pix_dynamic_code"},
+                }
+            ],
+        )
+        self.assertNotIn("footer", translation)
