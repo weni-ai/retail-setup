@@ -1,3 +1,7 @@
+# 5.59.0
+- feat: Enhance GetContentBaseProgressUseCase with legacy crawl handling
+- feat: Add retail.metrics app with product metric event recording endpoint
+
 # 5.58.0
 - refactor: Replace pre-built email subject/body with raw metadata params in contract acceptance email
 
