@@ -31,6 +31,43 @@ class TestGetContentBaseProgressUseCase(TestCase):
 
         self.assertEqual(progress, 0)
 
+    def test_returns_one_hundred_when_legacy_crawl_succeeded_without_snapshot(self):
+        ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+            crawler_result=ProjectOnboarding.SUCCESS,
+        )
+
+        progress = GetContentBaseProgressUseCase().execute("mystore")
+
+        self.assertEqual(progress, 100)
+
+    def test_returns_one_hundred_when_legacy_crawl_failed_without_snapshot(self):
+        ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+            crawler_result=ProjectOnboarding.FAIL,
+        )
+
+        progress = GetContentBaseProgressUseCase().execute("mystore")
+
+        self.assertEqual(progress, 100)
+
+    def test_uses_snapshot_when_present_even_if_crawl_already_succeeded(self):
+        ProjectOnboarding.objects.create(
+            vtex_account="mystore",
+            crawler_result=ProjectOnboarding.SUCCESS,
+            config={
+                "content_base_progress": {
+                    "crawl_percent": 100,
+                    "upload_percent": 50,
+                    "status": "uploading",
+                }
+            },
+        )
+
+        progress = GetContentBaseProgressUseCase().execute("mystore")
+
+        self.assertEqual(progress, 66)
+
     def test_returns_one_hundred_when_complete(self):
         ProjectOnboarding.objects.create(
             vtex_account="mystore",
