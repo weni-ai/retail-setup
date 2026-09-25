@@ -102,6 +102,34 @@ class VtexIOClientInterface(ABC):
         pass
 
     @abstractmethod
+    def install_back_in_stock_app(self, vtex_account: str) -> dict:
+        """
+        Ask agentic-cx to install ``vtex.agentic-cx-back-in-stock`` on the store.
+
+        Args:
+            vtex_account (str): Production VTEX account. The JWT claim and the
+                host must be this same account.
+
+        Returns:
+            dict: Install result from VTEX IO.
+        """
+        pass
+
+    @abstractmethod
+    def uninstall_back_in_stock_app(self, vtex_account: str) -> dict:
+        """
+        Ask agentic-cx to uninstall ``vtex.agentic-cx-back-in-stock`` from the store.
+
+        Args:
+            vtex_account (str): Production VTEX account. The JWT claim and the
+                host must be this same account.
+
+        Returns:
+            dict: Uninstall result from VTEX IO.
+        """
+        pass
+
+    @abstractmethod
     def cleanup_availability_notify(
         self, account_domain: str, vtex_account: str
     ) -> dict:

@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from django.test import TestCase
 
 from retail.services.vtex_io.service import VtexIOService
@@ -196,6 +196,52 @@ class TestVtexIOService(TestCase):
         )
 
         self.assertIsNone(result)
+
+    def test_install_back_in_stock_app_delegates_to_client(self):
+        expected = {"app": "vtex.agentic-cx-back-in-stock@0.x", "installed": True}
+        self.mock_client.install_back_in_stock_app.return_value = expected
+
+        result = self.service.install_back_in_stock_app(self.vtex_account)
+
+        self.mock_client.install_back_in_stock_app.assert_called_once_with(
+            self.vtex_account
+        )
+        self.assertEqual(result, expected)
+
+    def test_install_back_in_stock_app_returns_none_on_client_error(self):
+        from retail.clients.exceptions import CustomAPIException
+
+        self.mock_client.install_back_in_stock_app.side_effect = CustomAPIException(
+            detail="fail", status_code=401
+        )
+
+        self.assertIsNone(self.service.install_back_in_stock_app(self.vtex_account))
+        self.mock_client.install_back_in_stock_app.assert_called_once_with(
+            self.vtex_account
+        )
+
+    @patch("retail.services.vtex_io.service.time.sleep")
+    def test_install_retries_once_when_first_attempt_is_unavailable(self, _sleep):
+        from retail.clients.exceptions import CustomAPIException
+
+        expected = {"installed": True}
+        self.mock_client.install_back_in_stock_app.side_effect = [
+            CustomAPIException(detail="unavailable", status_code=503),
+            expected,
+        ]
+
+        result = self.service.install_back_in_stock_app(self.vtex_account)
+
+        self.assertEqual(result, expected)
+        self.assertEqual(self.mock_client.install_back_in_stock_app.call_count, 2)
+        _sleep.assert_called_once()
+
+    @patch("retail.services.vtex_io.service.time.sleep")
+    def test_uninstall_back_in_stock_app_returns_none_on_unexpected_error(self, _sleep):
+        self.mock_client.uninstall_back_in_stock_app.side_effect = RuntimeError("boom")
+
+        self.assertIsNone(self.service.uninstall_back_in_stock_app(self.vtex_account))
+        self.assertEqual(self.mock_client.uninstall_back_in_stock_app.call_count, 2)
 
     def test_proxy_payment_gateway_with_minimal_params(self):
         self.mock_client.proxy_payment_gateway.return_value = {}
