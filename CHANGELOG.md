@@ -1,3 +1,6 @@
+# 5.61.0
+- feat: Install back-in-stock IO app on agent assign
+
 # 5.60.0
 - fix: Allow template edits that drop variables or buttons
 
