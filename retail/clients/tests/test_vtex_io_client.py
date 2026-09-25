@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from retail.clients.exceptions import CustomAPIException
 from retail.clients.vtex_io.client import VtexIOClient
@@ -33,6 +33,48 @@ class VtexIOClientProxyResponseTest(TestCase):
         url = args[0] if args else kwargs.get("url")
         self.assertIn("/_v/availability-notify/cleanup", url)
         self.assertEqual(result, {"deleted": 1, "scanned": 2, "skipped": False})
+
+    @patch.object(VtexIOClient, "make_request")
+    @override_settings(VTEX_IO_WORKSPACE="weni")
+    def test_install_back_in_stock_app_posts_production_host(self, mock_make_request):
+        response = MagicMock()
+        response.json.return_value = {
+            "app": "vtex.agentic-cx-back-in-stock@0.x",
+            "installed": True,
+        }
+        mock_make_request.return_value = response
+
+        result = self.client.install_back_in_stock_app("recorrenciacharlie")
+
+        mock_make_request.assert_called_once()
+        args, kwargs = mock_make_request.call_args
+        self.assertEqual(
+            args[0],
+            "https://recorrenciacharlie.myvtex.com/_v/back-in-stock/app/install",
+        )
+        self.assertEqual(kwargs["method"], "POST")
+        self.assertEqual(kwargs["headers"]["X-Weni-Auth"], "token")
+        self.assertNotIn("weni--", args[0])
+        self.assertEqual(result["installed"], True)
+
+    @patch.object(VtexIOClient, "make_request")
+    def test_uninstall_back_in_stock_app_posts_production_host(self, mock_make_request):
+        response = MagicMock()
+        response.json.return_value = {
+            "app": "vtex.agentic-cx-back-in-stock@0.x",
+            "uninstalled": True,
+        }
+        mock_make_request.return_value = response
+
+        result = self.client.uninstall_back_in_stock_app("recorrenciacharlie")
+
+        args, kwargs = mock_make_request.call_args
+        self.assertEqual(
+            args[0],
+            "https://recorrenciacharlie.myvtex.com/_v/back-in-stock/app/uninstall",
+        )
+        self.assertEqual(kwargs["headers"]["X-Weni-Auth"], "token")
+        self.assertEqual(result["uninstalled"], True)
 
     @patch.object(VtexIOClient, "make_request")
     def test_proxy_vtex_raises_custom_api_exception_on_invalid_json(

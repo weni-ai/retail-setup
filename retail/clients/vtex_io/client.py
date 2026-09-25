@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 JWT_EXPIRATION_MINUTES = 1
 
+BACK_IN_STOCK_APP_INSTALL_PATH = "/back-in-stock/app/install"
+BACK_IN_STOCK_APP_UNINSTALL_PATH = "/back-in-stock/app/uninstall"
+
 VTEX_IO_PROXY_SERVICE = "vtex_io_proxy"
 VTEX_IO_PROXY_PAYMENT_GATEWAY_SERVICE = "vtex_io_proxy_payment_gateway"
 VTEX_IO_PROXY_PAYMENT_TRANSACTION_SERVICE = "vtex_io_proxy_payment_transaction"
@@ -268,6 +271,30 @@ class VtexIOClient(RequestClient, VtexIOClientInterface):
         headers = self._get_jwt_headers(vtex_account)
         response = self.make_request(
             url, method="PATCH", json={"agentic_cx_script": True}, headers=headers
+        )
+        return response.json()
+
+    def install_back_in_stock_app(self, vtex_account: str) -> dict:
+        """POST install of ``vtex.agentic-cx-back-in-stock`` on the production store."""
+        return self._post_back_in_stock_app(
+            vtex_account, BACK_IN_STOCK_APP_INSTALL_PATH
+        )
+
+    def uninstall_back_in_stock_app(self, vtex_account: str) -> dict:
+        """POST uninstall of ``vtex.agentic-cx-back-in-stock`` on the production store."""
+        return self._post_back_in_stock_app(
+            vtex_account, BACK_IN_STOCK_APP_UNINSTALL_PATH
+        )
+
+    def _post_back_in_stock_app(self, vtex_account: str, path: str) -> dict:
+        """POST a back-in-stock app route on the production account host.
+
+        A workspace prefix (``VTEX_IO_WORKSPACE``) would install the app on
+        the workspace, not on the store shoppers use.
+        """
+        url = f"https://{vtex_account}.myvtex.com/_v{path}"
+        response = self.make_request(
+            url, method="POST", headers=self._get_jwt_headers(vtex_account)
         )
         return response.json()
 
