@@ -129,6 +129,44 @@ class TestBodyTransformer(TestCase):
         }
         self.assertEqual(result, expected)
 
+    def test_transform_omits_example_when_body_has_no_variable(self):
+        template_data = {
+            "body": "Hei! Produsele alese de tine încă te așteaptă în coș",
+            "body_params": ["Cliente"],
+        }
+        result = self.transformer.transform(template_data)
+        self.assertEqual(
+            result,
+            {
+                "type": "BODY",
+                "text": template_data["body"],
+            },
+        )
+
+    def test_transform_trims_example_to_remaining_placeholders(self):
+        template_data = {
+            "body": "Olá {{1}}",
+            "body_params": ["João", "pedido-removido"],
+        }
+        result = self.transformer.transform(template_data)
+        self.assertEqual(
+            result["example"],
+            {"body_text": [["João"]]},
+        )
+
+    def test_transform_keeps_non_positional_placeholder_examples(self):
+        template_data = {
+            "body": "Hello {{name}}",
+            "body_params": ["Ana", "extra"],
+        }
+        result = self.transformer.transform(template_data)
+        self.assertEqual(result["example"], {"body_text": [["Ana", "extra"]]})
+
+    def test_transform_wraps_non_list_body_params(self):
+        template_data = {"body": "Hello {{1}}", "body_params": "John"}
+        result = self.transformer.transform(template_data)
+        self.assertEqual(result["example"], {"body_text": ["John"]})
+
     def test_transform_without_body(self):
         template_data = {}
         result = self.transformer.transform(template_data)
@@ -210,6 +248,36 @@ class TestButtonTransformer(TestCase):
         ]
         self.assertEqual(result, expected)
 
+    def test_transform_payment_request_button(self):
+        template_data = {
+            "buttons": [
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Copiar código Pix",
+                    "payment_setting": {"type": "pix_dynamic_code"},
+                },
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Outros meios de pagamento",
+                },
+            ]
+        }
+        result = self.transformer.transform(template_data)
+        self.assertEqual(
+            result,
+            [
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Copiar código Pix",
+                    "payment_setting": {"type": "pix_dynamic_code"},
+                },
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Outros meios de pagamento",
+                },
+            ],
+        )
+
     def test_transform_phone_button(self):
         template_data = {
             "buttons": [
@@ -253,18 +321,71 @@ class TestButtonTransformer(TestCase):
         ]
         self.assertEqual(result, expected)
 
-    def test_skip_already_translated_button(self):
+    def test_passthrough_static_url_button_without_example(self):
         template_data = {
             "buttons": [
                 {
                     "type": "URL",
                     "text": "Already Translated",
                     "url": "https://example.com",
+                    "example": ["https://example.com/123"],
                 }
             ]
         }
         result = self.transformer.transform(template_data)
-        self.assertEqual(result, [])
+        self.assertEqual(
+            result,
+            [
+                {
+                    "type": "URL",
+                    "text": "Already Translated",
+                    "url": "https://example.com",
+                }
+            ],
+        )
+
+    def test_passthrough_dynamic_url_button_keeps_example(self):
+        template_data = {
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Checkout",
+                    "url": "https://store.com/checkout?id={{1}}",
+                    "example": ["abc123"],
+                }
+            ]
+        }
+        result = self.transformer.transform(template_data)
+        self.assertEqual(
+            result,
+            [
+                {
+                    "type": "URL",
+                    "text": "Checkout",
+                    "url": "https://store.com/checkout?id={{1}}",
+                    "example": ["abc123"],
+                }
+            ],
+        )
+
+    def test_blank_url_suffix_stays_static_without_example(self):
+        template_data = {
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Visit Website",
+                    "url": {
+                        "base_url": "https://example.com",
+                        "url_suffix_example": "  ",
+                    },
+                }
+            ]
+        }
+        result = self.transformer.transform(template_data)
+        self.assertEqual(
+            result,
+            [{"type": "URL", "text": "Visit Website", "url": "https://example.com"}],
+        )
 
     def test_transform_button_with_unexpected_format(self):
         template_data = {

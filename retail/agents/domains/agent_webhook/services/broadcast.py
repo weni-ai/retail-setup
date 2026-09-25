@@ -25,6 +25,11 @@ from retail.agents.domains.agent_webhook.services.direct_send_payload_builder im
     is_valid_direct_send_template_name,
     substitute_template_variables,
 )
+from retail.agents.domains.agent_webhook.services.template_dispatch_components import (
+    align_payment_buttons,
+    declared_body_variable_indexes,
+    should_include_url_button,
+)
 from retail.broadcasts.usecases.record_broadcast_sent import (
     BroadcastDispatchContext,
     RecordBroadcastSentDTO,
@@ -127,8 +132,10 @@ class Broadcast:
         # Extract payment_buttons for PAYMENT_REQUEST template buttons
         payment_buttons = template_variables.pop("payment_buttons", None)
 
+        metadata = template.metadata or {}
+
         # Extract image s3 key if present
-        header = template.metadata.get("header", None)
+        header = metadata.get("header", None)
         s3_key = None
         if header and header["header_type"] == "IMAGE":
             s3_key = header["text"]
@@ -142,6 +149,18 @@ class Broadcast:
             except ValueError:
                 logger.warning(f"Ignoring non-numeric template variable key: {key}")
                 continue
+
+        declared_indexes = declared_body_variable_indexes(metadata.get("body"))
+        if declared_indexes is not None:
+            omitted_indexes = [
+                index for index, _key in sorted_keys if index not in declared_indexes
+            ]
+            sorted_keys = [pair for pair in sorted_keys if pair[0] in declared_indexes]
+            if omitted_indexes:
+                logger.info(
+                    f"Omitted template variables absent from the body: "
+                    f"indexes={omitted_indexes}"
+                )
 
         # Extract values in sorted order
         variables = [
@@ -176,8 +195,7 @@ class Broadcast:
         if variables:
             message["msg"]["template"]["variables"] = variables
 
-        # Optionally add button if provided
-        if button:
+        if button and should_include_url_button(metadata.get("buttons")):
             message["msg"]["buttons"] = [
                 {
                     "sub_type": "url",
@@ -186,6 +204,8 @@ class Broadcast:
                     ],
                 }
             ]
+        elif button:
+            logger.info("Omitted URL button parameter absent from the template")
 
         # Process image attachment - prioritize direct URL over S3 key
         attachment = None
@@ -203,6 +223,9 @@ class Broadcast:
         if order_details:
             self._apply_order_details(order_details, message)
 
+        payment_buttons = align_payment_buttons(
+            payment_buttons, metadata.get("buttons")
+        )
         if payment_buttons:
             self._apply_payment_buttons(payment_buttons, message)
 
