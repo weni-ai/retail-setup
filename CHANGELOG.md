@@ -1,3 +1,6 @@
+# 5.60.0
+- fix: Allow template edits that drop variables or buttons
+
 # 5.59.0
 - feat: Enhance GetContentBaseProgressUseCase with legacy crawl handling
 - feat: Add retail.metrics app with product metric event recording endpoint
