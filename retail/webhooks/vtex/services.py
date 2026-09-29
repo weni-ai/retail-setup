@@ -1,6 +1,8 @@
 from calendar import FRIDAY, MONDAY, SATURDAY
-from datetime import date, time
+from datetime import date, time, tzinfo
 import logging
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from django.utils import timezone
 from django.utils.timezone import timedelta
 from django.conf import settings
@@ -10,6 +12,7 @@ from dataclasses import dataclass
 
 from retail.features.models import IntegratedFeature
 from retail.agents.domains.agent_integration.models import IntegratedAgent
+from retail.projects.models import Project
 from retail.vtex.usecases.phone_number_normalizer import PhoneNumberNormalizer
 from sentry_sdk import capture_exception, capture_message
 
@@ -145,22 +148,28 @@ class CartTimeRestrictionService:
 
     @classmethod
     def combine_date_and_time_with_shift(
-        cls, dt: date, t: time, shift: int
+        cls,
+        dt: date,
+        t: time,
+        shift: int,
+        tz: Optional[tzinfo] = None,
     ) -> timezone.datetime:
-        """
-        Combines a date and time with a shift to calculate the next available time.
-        Always returns a timezone-aware datetime.
+        """Combine a date and time shifted by ``shift`` days.
+
+        Wall-clock times are interpreted in ``tz``. When omitted, the
+        process timezone is used so callers that do not pass a project
+        timezone keep the previous behavior.
         """
         naive_dt = timezone.datetime.combine(dt + timezone.timedelta(days=shift), t)
-        return cls.make_aware_if_naive(naive_dt)
+        return cls.make_aware_if_naive(naive_dt, tz)
 
     @staticmethod
-    def make_aware_if_naive(dt: timezone.datetime) -> timezone.datetime:
-        """
-        Makes a datetime object timezone-aware if naive
-        """
+    def make_aware_if_naive(
+        dt: timezone.datetime, tz: Optional[tzinfo] = None
+    ) -> timezone.datetime:
+        """Attach ``tz`` when ``dt`` is naive. Aware values are returned as-is."""
         if timezone.is_naive(dt):
-            dt = timezone.make_aware(dt, timezone.get_current_timezone())
+            dt = timezone.make_aware(dt, tz or timezone.get_current_timezone())
 
         return dt
 
@@ -183,6 +192,9 @@ class CartTimeRestrictionService:
                 uses the default from settings.
         """
         current_weekday = now.weekday()
+        local_tz = (
+            now.tzinfo if timezone.is_aware(now) else timezone.get_current_timezone()
+        )
 
         # Use provided countdown or fall back to default
         countdown_seconds = (
@@ -213,14 +225,14 @@ class CartTimeRestrictionService:
             # the weekdays period.
             # Example: 08:00 AM
             first_time_allowed_for_day = cls.combine_date_and_time_with_shift(
-                now.date(), from_time, 0
+                now.date(), from_time, 0, local_tz
             )
 
             # The last time allowed for the day is the "to" time configured for
             # the weekdays period.
             # Example: 18:00 PM
             last_time_allowed_for_day = cls.combine_date_and_time_with_shift(
-                now.date(), to_time, 0
+                now.date(), to_time, 0, local_tz
             )
 
             # If the current time is before the first time allowed for the day,
@@ -245,7 +257,7 @@ class CartTimeRestrictionService:
 
                 next_from_time = cls.convert_str_time_to_time(saturdays_from_time_str)
                 return cls.combine_date_and_time_with_shift(
-                    now.date(), next_from_time, 1
+                    now.date(), next_from_time, 1, local_tz
                 )
 
             # If the next day is not Saturday, we need to check the weekdays period
@@ -256,7 +268,7 @@ class CartTimeRestrictionService:
             else:
                 next_from_time = cls.convert_str_time_to_time(from_time_str)
                 return cls.combine_date_and_time_with_shift(
-                    now.date(), next_from_time, 1
+                    now.date(), next_from_time, 1, local_tz
                 )
 
         # If the current day is a Saturday, we need to check the saturdays period
@@ -272,13 +284,13 @@ class CartTimeRestrictionService:
             # The first time allowed for the day is the "from" time configured for
             # the saturdays period.
             first_time_allowed_for_day = cls.combine_date_and_time_with_shift(
-                now.date(), from_time, 0
+                now.date(), from_time, 0, local_tz
             )
 
             # The last time allowed for the day is the "to" time configured for
             # the saturdays period.
             last_time_allowed_for_day = cls.combine_date_and_time_with_shift(
-                now.date(), to_time, 0
+                now.date(), to_time, 0, local_tz
             )
 
             # If the current time is before the first time allowed for the day,
@@ -299,14 +311,18 @@ class CartTimeRestrictionService:
             next_from_time_str = weekdays_period.get("from")
             next_from_time = cls.convert_str_time_to_time(next_from_time_str)
 
-            return cls.combine_date_and_time_with_shift(now.date(), next_from_time, 2)
+            return cls.combine_date_and_time_with_shift(
+                now.date(), next_from_time, 2, local_tz
+            )
 
         # If the current day is a sunday, we need to return the first time allowed for the monday.
         else:
             next_from_time_str = weekdays_period.get("from")
             next_from_time = cls.convert_str_time_to_time(next_from_time_str)
 
-            return cls.combine_date_and_time_with_shift(now.date(), next_from_time, 1)
+            return cls.combine_date_and_time_with_shift(
+                now.date(), next_from_time, 1, local_tz
+            )
 
     def get_countdown(self) -> int:
         """
@@ -350,7 +366,8 @@ class CartTimeRestrictionService:
             capture_message(error_message)
             return abandonment_countdown
 
-        now = timezone.now()
+        local_tz = self._resolve_project_timezone()
+        now = timezone.now().astimezone(local_tz)
 
         try:
             next_available_time = self.get_next_available_time(
@@ -369,16 +386,39 @@ class CartTimeRestrictionService:
             capture_exception(e)
             return abandonment_countdown
 
-        final_countdown = (next_available_time - now).seconds
+        final_countdown = int((next_available_time - now).total_seconds())
         logger.info(
-            "Message time restriction applied - countdown: %d seconds, "
-            "next_available_time: %s (project=%s, entity=%s)",
-            final_countdown,
-            next_available_time.isoformat(),
-            self.context.project_uuid,
-            self.context.entity_type,
+            f"Message time restriction applied - countdown: {final_countdown} seconds, "
+            f"next_available_time: {next_available_time.isoformat()} "
+            f"timezone={local_tz} (project={self.context.project_uuid}, "
+            f"entity={self.context.entity_type})"
         )
         return final_countdown
+
+    def _resolve_project_timezone(self) -> tzinfo:
+        """Return the IANA timezone configured for the cart's project.
+
+        Operating-hour windows are wall-clock times in the store timezone.
+        A missing or unknown value falls back to the process timezone so
+        stores that have not synced a timezone keep the previous behavior.
+        """
+        tz_name = (
+            Project.all_objects.filter(uuid=self.context.project_uuid)
+            .values_list("timezone", flat=True)
+            .first()
+        )
+        if not tz_name:
+            return timezone.get_current_timezone()
+
+        try:
+            return ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            logger.warning(
+                f"Invalid project timezone {tz_name!r} for project "
+                f"{self.context.project_uuid}; falling back to "
+                f"{timezone.get_current_timezone()}"
+            )
+            return timezone.get_current_timezone()
 
 
 class CartPhoneRestrictionService:

@@ -120,6 +120,35 @@ class TestProjectUpdateConsumer(TestCase):
         self.assertEqual(self.project.language, "pt-br")
         self.consumer.ack.assert_called_once()
 
+    def test_updates_timezone_and_keeps_it_when_omitted(self):
+        """Timezone from Connect is stored; a later event without it must not clear it."""
+        self.consumer.consume(
+            self._make_message(
+                {
+                    "project_uuid": str(self.project.uuid),
+                    "action": "updated",
+                    "timezone": "Europe/Bucharest",
+                }
+            )
+        )
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.timezone, "Europe/Bucharest")
+
+        self.consumer.consume(
+            self._make_message(
+                {
+                    "project_uuid": str(self.project.uuid),
+                    "action": "updated",
+                    "name": "Renamed",
+                }
+            )
+        )
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.name, "Renamed")
+        self.assertEqual(self.project.timezone, "Europe/Bucharest")
+
     def test_skips_empty_config(self):
         """An empty config dict should not trigger a save for config."""
         original_config = {"store_type": "vtex-io"}
@@ -271,7 +300,7 @@ class TestProjectUpdateConsumer(TestCase):
         self.consumer.ack.assert_called_once()
 
     def test_full_update_event_syncs_all_fields(self):
-        """A realistic update event from Connect should sync name, language, and config."""
+        """A realistic update event from Connect should sync name, language, timezone, and config."""
         message = self._make_message(
             {
                 "project_uuid": str(self.project.uuid),
@@ -292,6 +321,7 @@ class TestProjectUpdateConsumer(TestCase):
         self.project.refresh_from_db()
         self.assertEqual(self.project.name, "STORE - New Name V2")
         self.assertEqual(self.project.language, "pt-br")
+        self.assertEqual(self.project.timezone, "America/Sao_Paulo")
         self.assertEqual(
             self.project.config["vtex_host_store"], "https://mystore.com.br/"
         )

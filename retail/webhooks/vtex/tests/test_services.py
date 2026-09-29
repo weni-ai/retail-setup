@@ -1,11 +1,13 @@
 from calendar import FRIDAY, MONDAY, SATURDAY, SUNDAY, THURSDAY
 from datetime import time as datetime_time
 import datetime
+import json
 from unittest import mock
 import uuid
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from django.utils.timezone import timedelta
 
@@ -501,6 +503,156 @@ class TestCartTimeRestrictionService(TestCase):
         # Subtraction should work
         countdown_seconds = (next_available_time - thursday_night).seconds
         self.assertIsInstance(countdown_seconds, int)
+
+
+BRAZIL_TZ = ZoneInfo("America/Maceio")
+ROMANIA_TZ = ZoneInfo("Europe/Bucharest")
+OPERATING_HOURS = {
+    "message_time_restriction": {
+        "is_active": True,
+        "periods": {
+            "weekdays": {"from": "09:00", "to": "20:00"},
+            "saturdays": {"from": "10:00", "to": "12:00"},
+        },
+    }
+}
+
+
+@override_settings(TIME_ZONE="America/Maceio")
+class TestCartOperatingHoursUseProjectTimezone(TestCase):
+    """Operating hours are wall-clock times in the project timezone.
+
+    The process timezone stays on Brazil so a Romania store proves the
+    window is not evaluated in America/Maceio.
+    """
+
+    def setUp(self):
+        self.feature = Feature.objects.create()
+        self.user = User.objects.create()
+
+    def _countdown(self, project_timezone, now_utc):
+        project = Project.objects.create(
+            uuid=uuid.uuid4(),
+            name="Store",
+            timezone=project_timezone,
+        )
+        integrated_feature = IntegratedFeature.objects.create(
+            feature=self.feature,
+            project=project,
+            user=self.user,
+            config={"integration_settings": OPERATING_HOURS},
+        )
+        context = _feature_service_context(integrated_feature)
+        with mock.patch(
+            "retail.webhooks.vtex.services.timezone.now", return_value=now_utc
+        ), mock.patch.object(
+            CartTimeRestrictionService, "default_abandoned_countdown", 600
+        ):
+            return CartTimeRestrictionService(context).get_countdown()
+
+    def test_inside_romania_window_does_not_wait_for_brazil_morning(self):
+        # Thursday 07:30 UTC is 09:30 in Bucharest and 04:30 in Maceio.
+        now_utc = datetime.datetime(2026, 1, 15, 7, 30, tzinfo=datetime.timezone.utc)
+
+        countdown = self._countdown("Europe/Bucharest", now_utc)
+
+        self.assertEqual(countdown, 600)
+        self.assertEqual(now_utc.astimezone(ROMANIA_TZ).hour, 9)
+        self.assertEqual(now_utc.astimezone(BRAZIL_TZ).hour, 4)
+
+    def test_before_romania_opening_waits_until_local_start(self):
+        # Thursday 06:00 UTC is 08:00 in Bucharest, before the 09:00 opening.
+        now_utc = datetime.datetime(2026, 1, 15, 6, 0, tzinfo=datetime.timezone.utc)
+
+        countdown = self._countdown("Europe/Bucharest", now_utc)
+
+        opening = datetime.datetime(2026, 1, 15, 9, 0, tzinfo=ROMANIA_TZ)
+        self.assertEqual(countdown, int((opening - now_utc).total_seconds()))
+        self.assertEqual(countdown, 3600)
+
+    def test_missing_timezone_falls_back_to_brazil(self):
+        # Thursday 06:00 UTC is 03:00 in Maceio, so the Brazil window opens at 09:00.
+        now_utc = datetime.datetime(2026, 1, 15, 6, 0, tzinfo=datetime.timezone.utc)
+
+        countdown = self._countdown(None, now_utc)
+
+        opening = datetime.datetime(2026, 1, 15, 9, 0, tzinfo=BRAZIL_TZ)
+        self.assertEqual(countdown, int((opening - now_utc).total_seconds()))
+
+    def test_invalid_timezone_falls_back_to_brazil(self):
+        now_utc = datetime.datetime(2026, 1, 15, 6, 0, tzinfo=datetime.timezone.utc)
+
+        countdown = self._countdown("Not/AZone", now_utc)
+
+        opening = datetime.datetime(2026, 1, 15, 9, 0, tzinfo=BRAZIL_TZ)
+        self.assertEqual(countdown, int((opening - now_utc).total_seconds()))
+
+    def test_saturday_after_close_counts_full_wait_until_monday(self):
+        # Saturday 11:00 UTC is 13:00 in Bucharest, after the 12:00 close.
+        now_utc = datetime.datetime(2026, 1, 17, 11, 0, tzinfo=datetime.timezone.utc)
+
+        countdown = self._countdown("Europe/Bucharest", now_utc)
+
+        monday_opening = datetime.datetime(2026, 1, 19, 9, 0, tzinfo=ROMANIA_TZ)
+        self.assertEqual(countdown, int((monday_opening - now_utc).total_seconds()))
+        self.assertGreater(countdown, 24 * 60 * 60)
+
+    def test_countdown_follows_timezone_saved_on_create_and_changed_on_update(self):
+        from retail.projects.consumers.project_update_consumer import (
+            ProjectUpdateConsumer,
+        )
+        from retail.projects.usecases.project_creation import ProjectCreationUseCase
+        from retail.projects.usecases.project_dto import ProjectCreationDTO
+
+        project_uuid = str(uuid.uuid4())
+        ProjectCreationUseCase.create_project(
+            ProjectCreationDTO(
+                name="Store",
+                uuid=project_uuid,
+                organization_uuid=str(uuid.uuid4()),
+                vtex_account="tzstore",
+                timezone="Europe/Bucharest",
+            )
+        )
+        project = Project.objects.get(uuid=project_uuid)
+        integrated_feature = IntegratedFeature.objects.create(
+            feature=self.feature,
+            project=project,
+            user=self.user,
+            config={"integration_settings": OPERATING_HOURS},
+        )
+        now_utc = datetime.datetime(2026, 1, 15, 6, 0, tzinfo=datetime.timezone.utc)
+
+        def countdown():
+            context = _feature_service_context(integrated_feature)
+            with mock.patch(
+                "retail.webhooks.vtex.services.timezone.now", return_value=now_utc
+            ), mock.patch.object(
+                CartTimeRestrictionService, "default_abandoned_countdown", 600
+            ):
+                return CartTimeRestrictionService(context).get_countdown()
+
+        self.assertEqual(countdown(), 3600)
+
+        consumer = ProjectUpdateConsumer()
+        consumer.ack = mock.MagicMock()
+        message = mock.MagicMock()
+        message.body = json.dumps(
+            {
+                "project_uuid": project_uuid,
+                "action": "updated",
+                "timezone": "America/Argentina/Buenos_Aires",
+            }
+        ).encode("utf-8")
+        consumer.consume(message)
+
+        buenos_aires_opening = datetime.datetime(
+            2026, 1, 15, 9, 0, tzinfo=ZoneInfo("America/Argentina/Buenos_Aires")
+        )
+        self.assertEqual(
+            countdown(),
+            int((buenos_aires_opening - now_utc).total_seconds()),
+        )
 
 
 class TestCartPhoneRestrictionService(TestCase):

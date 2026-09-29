@@ -26,6 +26,7 @@ class ProjectConsumer(EDAConsumer):  # pragma: no cover
                 authorizations=body.get("authorizations", []),
                 vtex_account=body.get("vtex_account", ""),
                 language=body.get("language"),
+                timezone=body.get("timezone"),
                 is_live_desk_copilot=bool(body.get("is_live_desk_copilot", False)),
                 parent_project_uuid=body.get("parent_project_uuid") or None,
             )
