@@ -14,7 +14,9 @@ from retail.agents.domains.agent_integration.usecases.fetch_country_phone_code i
     VtexLocaleInfo,
 )
 from retail.agents.domains.agent_management.models import Agent
+from retail.clients.exceptions import CustomAPIException
 from retail.projects.models import Project
+from retail.services.vtex_io.service import VtexIOService
 
 BACK_IN_STOCK_AGENT_UUID = str(uuid.uuid4())
 
@@ -166,10 +168,12 @@ class AssignBackInStockTemplateTest(TestCase):
         )
         mock_integrations = MagicMock()
         mock_integrations.fetch_templates_from_user.return_value = {}
+        mock_vtex_io = MagicMock()
         use_case = AssignAgentUseCase(
             integrations_service=mock_integrations,
             fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
             sync_vtex_sub_accounts_usecase=MagicMock(),
+            vtex_io_service=mock_vtex_io,
         )
 
         use_case.execute(
@@ -183,3 +187,88 @@ class AssignBackInStockTemplateTest(TestCase):
 
         mock_create_template.assert_called_once()
         mock_group_cls.return_value.execute.assert_called_once_with(self.project.uuid)
+        mock_vtex_io.install_back_in_stock_app.assert_called_once_with("teststore")
+
+    def test_skips_app_install_when_vtex_account_is_missing(self):
+        self.project.vtex_account = ""
+        mock_vtex_io = MagicMock()
+        self.use_case.vtex_io_service = mock_vtex_io
+
+        self.use_case._install_back_in_stock_app(self.project)
+
+        mock_vtex_io.install_back_in_stock_app.assert_not_called()
+
+    def _execute_assign(self, vtex_io_service):
+        agent = Agent.objects.create(
+            uuid=BACK_IN_STOCK_AGENT_UUID,
+            name="Back in stock",
+            lambda_arn="arn:aws:lambda:fake",
+            project=self.project,
+            credentials={},
+        )
+        mock_integrations = MagicMock()
+        mock_integrations.fetch_templates_from_user.return_value = {}
+        use_case = AssignAgentUseCase(
+            integrations_service=mock_integrations,
+            fetch_country_phone_code_usecase=self.mock_fetch_phone_code,
+            sync_vtex_sub_accounts_usecase=MagicMock(),
+            vtex_io_service=vtex_io_service,
+        )
+        return use_case.execute(
+            agent,
+            self.project.uuid,
+            uuid.uuid4(),
+            uuid.uuid4(),
+            {},
+            [],
+        )
+
+    @patch("retail.services.vtex_io.service.time.sleep")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign."
+        "EnsureBackInStockContactGroupUseCase"
+    )
+    @patch.object(AssignAgentUseCase, "_create_default_back_in_stock_template")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign."
+        "CreateLibraryTemplateUseCase"
+    )
+    def test_execute_retries_install_and_keeps_agent_assigned(
+        self, mock_library_cls, _template, _group, _sleep
+    ):
+        mock_library_cls.return_value.execute.return_value = (MagicMock(), MagicMock())
+        client = MagicMock()
+        client.install_back_in_stock_app.side_effect = [
+            CustomAPIException(detail="unavailable", status_code=503),
+            {"installed": True},
+        ]
+
+        integrated_agent = self._execute_assign(VtexIOService(client=client))
+
+        self.assertEqual(client.install_back_in_stock_app.call_count, 2)
+        client.install_back_in_stock_app.assert_called_with("teststore")
+        self.assertTrue(integrated_agent.is_active)
+        _sleep.assert_called_once()
+
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign."
+        "EnsureBackInStockContactGroupUseCase"
+    )
+    @patch.object(AssignAgentUseCase, "_create_default_back_in_stock_template")
+    @patch(
+        "retail.agents.domains.agent_integration.usecases.assign."
+        "CreateLibraryTemplateUseCase"
+    )
+    def test_execute_does_not_retry_install_on_client_error(
+        self, mock_library_cls, _template, _group
+    ):
+        mock_library_cls.return_value.execute.return_value = (MagicMock(), MagicMock())
+        client = MagicMock()
+        client.install_back_in_stock_app.side_effect = CustomAPIException(
+            detail="unauthorized", status_code=401
+        )
+
+        integrated_agent = self._execute_assign(VtexIOService(client=client))
+
+        client.install_back_in_stock_app.assert_called_once_with("teststore")
+        self.assertTrue(integrated_agent.is_active)

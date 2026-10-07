@@ -1,10 +1,10 @@
 import base64
-
+import re
 import string
 
 import binascii
 
-from typing import Dict, Optional, List, Protocol, Union
+from typing import Any, Dict, Optional, List, Protocol, Union
 
 from retail.templates.adapters.url_normalization import (
     append_placeholder_if_needed,
@@ -74,6 +74,32 @@ class HeaderTransformer(ComponentTransformer):
         return {"header_type": "TEXT", "text": header}
 
 
+_COMPONENT_VARIABLE = re.compile(r"\{\{.+?\}\}")
+_POSITIONAL_VARIABLE = re.compile(r"\{\{\s*(\d+)\s*\}\}")
+
+
+def _text_has_variable(text: str) -> bool:
+    """Meta rejects a component example (error 2388043) when the text has no placeholder."""
+    return bool(_COMPONENT_VARIABLE.search(text or ""))
+
+
+def _example_values_for_text(text: str, params: Any) -> Any:
+    """Drop example values that no longer match placeholders left in the text.
+
+    An edit can remove ``{{n}}`` and still submit the previous ``body_params``.
+    Meta requires the example length to equal the positional placeholders.
+    """
+    if not isinstance(params, list):
+        return params
+
+    placeholder_count = len(
+        {int(match) for match in _POSITIONAL_VARIABLE.findall(text)}
+    )
+    if not placeholder_count:
+        return params
+    return list(params)[:placeholder_count]
+
+
 class BodyTransformer(ComponentTransformer):
     """Transforms body component from library to translation format."""
 
@@ -81,10 +107,14 @@ class BodyTransformer(ComponentTransformer):
         if not template_data.get("body"):
             return None
 
-        body_data = {"type": "BODY", "text": template_data["body"]}
+        body_text = template_data["body"]
+        body_data = {"type": "BODY", "text": body_text}
+        body_params = template_data.get("body_params")
 
-        if template_data.get("body_params"):
-            body_data["example"] = {"body_text": [template_data["body_params"]]}
+        if body_params and _text_has_variable(body_text):
+            body_data["example"] = {
+                "body_text": [_example_values_for_text(body_text, body_params)]
+            }
 
         return body_data
 
@@ -104,6 +134,36 @@ class ButtonTransformer(ComponentTransformer):
     def _is_button_format_already_translated(self, button: Dict) -> bool:
         return button.get("type") == "URL" and isinstance(button.get("url"), str)
 
+    def _passthrough_translated_url_button(self, button: Dict) -> Dict:
+        """Keep a URL that is already flat, without a stale example.
+
+        Edits round-trip the stored button. An example on a URL that no
+        longer contains ``{{n}}`` is Meta error 2388043.
+        """
+        translated = {
+            "type": button["type"],
+            "text": button.get("text"),
+            "url": button["url"],
+        }
+        if _text_has_variable(button["url"]) and button.get("example"):
+            translated["example"] = button["example"]
+        return translated
+
+    def _assign_url(self, button: Dict, url_data: Dict) -> None:
+        """Attach the URL and, only when it has a placeholder, its example.
+
+        A suffix example injects ``{{1}}``. A blank suffix is a static URL:
+        sending ``example`` without a placeholder is Meta error 2388043.
+        """
+        base_url = ensure_protocol(url_data["base_url"])
+        suffix_example = url_data.get("url_suffix_example")
+        if not isinstance(suffix_example, str) or not suffix_example.strip():
+            button["url"] = base_url
+            return
+
+        button["url"] = append_placeholder_if_needed(base_url)
+        button["example"] = [normalize_url_if_needed(suffix_example)]
+
     def transform(self, template_data: Dict) -> Optional[List[Dict]]:
         buttons = template_data.get("buttons")
 
@@ -114,19 +174,13 @@ class ButtonTransformer(ComponentTransformer):
 
         for btn in buttons:
             if self._is_button_format_already_translated(btn):
+                buttons_data.append(self._passthrough_translated_url_button(btn))
                 continue
 
             button = {"type": btn["type"], "text": btn["text"]}
 
             if btn["type"] == "URL":
-                base_url = ensure_protocol(btn["url"]["base_url"])
-                if "url_suffix_example" in btn["url"]:
-                    button["example"] = [
-                        normalize_url_if_needed(btn["url"]["url_suffix_example"])
-                    ]
-                    button["url"] = append_placeholder_if_needed(base_url)
-                else:
-                    button["url"] = base_url
+                self._assign_url(button, btn["url"])
 
             elif btn["type"] == "PHONE_NUMBER":
                 button["phone_number"] = btn["phone_number"]

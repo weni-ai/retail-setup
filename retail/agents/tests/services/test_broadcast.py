@@ -188,19 +188,13 @@ class BroadcastHandlerTest(TestCase):
 
         self._stub_template_lookup(paused_template)
 
-        logger_name = (
-            "retail.agents.domains.agent_webhook.services.broadcast"
-        )
+        logger_name = "retail.agents.domains.agent_webhook.services.broadcast"
         with self.assertLogs(logger_name, level="WARNING") as captured:
             result = self.handler.get_current_template(self.mock_agent, data)
 
         self.assertIsNone(result)
 
-        audit_lines = [
-            msg
-            for msg in captured.output
-            if "skipped_due_to_status" in msg
-        ]
+        audit_lines = [msg for msg in captured.output if "skipped_due_to_status" in msg]
         self.assertEqual(
             len(audit_lines),
             1,
@@ -225,19 +219,13 @@ class BroadcastHandlerTest(TestCase):
 
         self._stub_template_lookup(flagged_template)
 
-        logger_name = (
-            "retail.agents.domains.agent_webhook.services.broadcast"
-        )
+        logger_name = "retail.agents.domains.agent_webhook.services.broadcast"
         with self.assertLogs(logger_name, level="WARNING") as captured:
             result = self.handler.get_current_template(self.mock_agent, data)
 
         self.assertIsNone(result)
 
-        audit_lines = [
-            msg
-            for msg in captured.output
-            if "skipped_due_to_status" in msg
-        ]
+        audit_lines = [msg for msg in captured.output if "skipped_due_to_status" in msg]
         self.assertEqual(len(audit_lines), 1)
         self._assert_dispatch_skip_audit(
             audit_lines[0], expected_version_status="FLAGGED"
@@ -254,19 +242,13 @@ class BroadcastHandlerTest(TestCase):
         }
         self._stub_template_lookup(None)
 
-        logger_name = (
-            "retail.agents.domains.agent_webhook.services.broadcast"
-        )
+        logger_name = "retail.agents.domains.agent_webhook.services.broadcast"
         with self.assertLogs(logger_name, level="WARNING") as captured:
             result = self.handler.get_current_template(self.mock_agent, data)
 
         self.assertIsNone(result)
 
-        audit_lines = [
-            msg
-            for msg in captured.output
-            if "skipped_due_to_status" in msg
-        ]
+        audit_lines = [msg for msg in captured.output if "skipped_due_to_status" in msg]
         self.assertEqual(len(audit_lines), 1)
         self._assert_dispatch_skip_audit(
             audit_lines[0], expected_version_status="NOT_FOUND"
@@ -291,9 +273,7 @@ class BroadcastHandlerTest(TestCase):
 
         self._stub_template_lookup(approved_template)
 
-        logger_name = (
-            "retail.agents.domains.agent_webhook.services.broadcast"
-        )
+        logger_name = "retail.agents.domains.agent_webhook.services.broadcast"
         with self.assertLogs(logger_name, level="WARNING") as captured:
             # assertLogs requires at least one record at the requested level
             # — emit a sentinel so the context can exit cleanly when the
@@ -320,9 +300,7 @@ class BroadcastHandlerTest(TestCase):
             "DELETED",
             "PENDING_DELETION",
         ]
-        logger_name = (
-            "retail.agents.domains.agent_webhook.services.broadcast"
-        )
+        logger_name = "retail.agents.domains.agent_webhook.services.broadcast"
 
         for state in legacy_states:
             with self.subTest(version_status=state):
@@ -337,15 +315,11 @@ class BroadcastHandlerTest(TestCase):
                 self._stub_template_lookup(non_approved_template)
 
                 with self.assertLogs(logger_name, level="WARNING") as captured:
-                    result = self.handler.get_current_template(
-                        self.mock_agent, data
-                    )
+                    result = self.handler.get_current_template(self.mock_agent, data)
 
                 self.assertIsNone(result)
                 audit_lines = [
-                    msg
-                    for msg in captured.output
-                    if "skipped_due_to_status" in msg
+                    msg for msg in captured.output if "skipped_due_to_status" in msg
                 ]
                 self.assertEqual(
                     len(audit_lines),
@@ -376,25 +350,17 @@ class BroadcastHandlerTest(TestCase):
 
         self._stub_template_lookup(paused_template)
 
-        logger_name = (
-            "retail.agents.domains.agent_webhook.services.broadcast"
-        )
+        logger_name = "retail.agents.domains.agent_webhook.services.broadcast"
         with self.assertLogs(logger_name, level="WARNING") as captured:
             first = self.handler.get_current_template(self.mock_agent, data)
             second = self.handler.get_current_template(self.mock_agent, data)
 
         self.assertIsNone(first)
         self.assertIsNone(second)
-        audit_lines = [
-            msg
-            for msg in captured.output
-            if "skipped_due_to_status" in msg
-        ]
+        audit_lines = [msg for msg in captured.output if "skipped_due_to_status" in msg]
         self.assertEqual(len(audit_lines), 2)
         for line in audit_lines:
-            self._assert_dispatch_skip_audit(
-                line, expected_version_status="PAUSED"
-            )
+            self._assert_dispatch_skip_audit(line, expected_version_status="PAUSED")
 
     def test_get_current_template_issues_single_filter_call(self):
         """Single-query strategy pin: exactly one ``templates.filter()`` per call."""
@@ -475,6 +441,141 @@ class BroadcastHandlerTest(TestCase):
         self.assertIsInstance(result, BroadcastDispatchResult)
         self.assertEqual(result.response, flows_response)
         self.assertIsNone(result.broadcast_message_uuid)
+
+    def test_build_message_from_lambda_omits_removed_components(self):
+        template = MagicMock()
+        template.current_version.template_name = "payment_recovery_v1"
+        template.current_version.status = "APPROVED"
+        template.metadata = {
+            "body": "Seu pagamento ainda está pendente.",
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Ver pedido",
+                    "url": "https://loja.com/pedido",
+                },
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Copiar código Pix",
+                    "payment_setting": {"type": "pix_dynamic_code"},
+                },
+            ],
+        }
+        mock_filter = MagicMock()
+        mock_filter.select_related.return_value.first.return_value = template
+        self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
+        self.mock_agent.config = {}
+
+        lambda_data = {
+            "template": "payment_recovery",
+            "contact_urn": "whatsapp:5584999999999",
+            "language": "pt-BR",
+            "template_variables": {
+                "1": "Roberta",
+                "button": "order-123",
+                "payment_buttons": [
+                    {"type": "pix_dynamic_code", "text": "PIX"},
+                    {"type": "payment_link", "text": "https://pay.example.com"},
+                ],
+            },
+        }
+
+        result = self.handler.build_message(self.mock_agent, lambda_data)
+
+        self.assertEqual(
+            result,
+            {
+                "project": str(self.mock_agent.project.uuid),
+                "urns": ["whatsapp:5584999999999"],
+                "channel": str(self.mock_agent.channel_uuid),
+                "msg": {
+                    "template": {
+                        "name": "payment_recovery_v1",
+                        "locale": "pt-BR",
+                    },
+                    "buttons": [
+                        {
+                            "sub_type": "payment_request",
+                            "parameters": [{"type": "pix_dynamic_code", "text": "PIX"}],
+                        }
+                    ],
+                },
+            },
+        )
+
+    def test_build_message_from_lambda_keeps_components_the_template_still_declares(
+        self,
+    ):
+        template = MagicMock()
+        template.current_version.template_name = "payment_recovery_v1"
+        template.current_version.status = "APPROVED"
+        template.metadata = {
+            "body": "Olá {{1}}",
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Ver pedido",
+                    "url": "https://loja.com/pedido/{{1}}",
+                },
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Copiar código Pix",
+                    "payment_setting": {"type": "pix_dynamic_code"},
+                },
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Outros meios de pagamento",
+                    "payment_setting": {"type": "payment_link"},
+                },
+            ],
+        }
+        mock_filter = MagicMock()
+        mock_filter.select_related.return_value.first.return_value = template
+        self.mock_agent.templates.filter = MagicMock(return_value=mock_filter)
+        self.mock_agent.config = {}
+
+        lambda_data = {
+            "template": "payment_recovery",
+            "contact_urn": "whatsapp:5584999999999",
+            "language": "pt-BR",
+            "template_variables": {
+                "1": "Roberta",
+                "button": "/pedido-9",
+                "payment_buttons": [
+                    {"type": "pix_dynamic_code", "text": "PIX"},
+                    {"type": "payment_link", "text": "https://pay.example.com"},
+                ],
+            },
+        }
+
+        result = self.handler.build_message(self.mock_agent, lambda_data)
+
+        self.assertEqual(
+            result["msg"],
+            {
+                "template": {
+                    "name": "payment_recovery_v1",
+                    "locale": "pt-BR",
+                    "variables": ["Roberta"],
+                },
+                "buttons": [
+                    {
+                        "sub_type": "url",
+                        "parameters": [{"type": "text", "text": "pedido-9"}],
+                    },
+                    {
+                        "sub_type": "payment_request",
+                        "parameters": [{"type": "pix_dynamic_code", "text": "PIX"}],
+                    },
+                    {
+                        "sub_type": "payment_request",
+                        "parameters": [
+                            {"type": "payment_link", "text": "https://pay.example.com"}
+                        ],
+                    },
+                ],
+            },
+        )
 
     def test_build_message_success(self):
         data = {"template": "order_update", "contact_urn": "whatsapp:123"}
@@ -772,6 +873,228 @@ class BroadcastHandlerTest(TestCase):
         self.assertEqual(buttons[1]["parameters"][0]["type"], "payment_link")
         self.assertEqual(buttons[1]["parameters"][0]["text"], "https://example.com/pay")
         self.assertEqual(result["msg"]["template"]["variables"], ["Roberta"])
+
+    def test_build_message_drops_variables_removed_from_template_body(self):
+        mock_template = MagicMock()
+        mock_template.current_version.template_name = "payment_recovery"
+        mock_template.metadata = {
+            "body": "Seu pagamento ainda está pendente.",
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Ver pedido",
+                    "url": "https://loja.com/pedido",
+                },
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Copiar código Pix",
+                    "payment_setting": {"type": "pix_dynamic_code"},
+                },
+            ],
+        }
+        data = {
+            "template_variables": {
+                "1": "Roberta",
+                "button": "order-123",
+                "payment_buttons": [
+                    {"type": "pix_dynamic_code", "text": "00020126PIX"},
+                    {"type": "payment_link", "text": "https://example.com/pay"},
+                ],
+            },
+            "contact_urn": "whatsapp:5584999999999",
+            "language": "pt-BR",
+        }
+
+        result = self.handler.build_broadcast_template_message(
+            data=data,
+            channel_uuid="channel-uuid",
+            project_uuid="project-uuid",
+            template=mock_template,
+        )
+
+        self.assertEqual(
+            result["msg"],
+            {
+                "template": {
+                    "name": "payment_recovery",
+                    "locale": "pt-BR",
+                },
+                "buttons": [
+                    {
+                        "sub_type": "payment_request",
+                        "parameters": [
+                            {"type": "pix_dynamic_code", "text": "00020126PIX"}
+                        ],
+                    }
+                ],
+            },
+        )
+
+    def test_build_message_keeps_url_button_when_template_url_has_placeholder(self):
+        mock_template = MagicMock()
+        mock_template.current_version.template_name = "abandoned_cart"
+        mock_template.metadata = {
+            "body": "Olá {{1}}",
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Ver carrinho",
+                    "url": "https://loja.com/checkout?id={{1}}",
+                }
+            ],
+        }
+        data = {
+            "template_variables": {"1": "Ana", "2": "extra", "button": "/pedido-9"},
+            "contact_urn": "whatsapp:5584999999999",
+        }
+
+        result = self.handler.build_broadcast_template_message(
+            data=data,
+            channel_uuid="channel-uuid",
+            project_uuid="project-uuid",
+            template=mock_template,
+        )
+
+        self.assertEqual(result["msg"]["template"]["variables"], ["Ana"])
+        self.assertEqual(
+            result["msg"]["buttons"],
+            [
+                {
+                    "sub_type": "url",
+                    "parameters": [{"type": "text", "text": "pedido-9"}],
+                }
+            ],
+        )
+
+    def test_build_message_orders_payment_buttons_as_declared_on_template(self):
+        mock_template = MagicMock()
+        mock_template.current_version.template_name = "payment_recovery"
+        mock_template.metadata = {
+            "body": "Olá {{1}}",
+            "buttons": [
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Outros meios",
+                    "payment_setting": {"type": "payment_link"},
+                },
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Copiar código Pix",
+                    "payment_setting": {"type": "pix_dynamic_code"},
+                },
+            ],
+        }
+        data = {
+            "template_variables": {
+                "1": "Ana",
+                "payment_buttons": [
+                    {"type": "pix_dynamic_code", "text": "PIX"},
+                    {"type": "payment_link", "text": "https://pay.example.com"},
+                ],
+            },
+            "contact_urn": "whatsapp:5584999999999",
+        }
+
+        result = self.handler.build_broadcast_template_message(
+            data=data,
+            channel_uuid="channel-uuid",
+            project_uuid="project-uuid",
+            template=mock_template,
+        )
+
+        types = [button["parameters"][0]["type"] for button in result["msg"]["buttons"]]
+        self.assertEqual(types, ["payment_link", "pix_dynamic_code"])
+
+    def test_build_message_omits_lambda_buttons_when_template_has_no_buttons(self):
+        mock_template = MagicMock()
+        mock_template.current_version.template_name = "payment_recovery"
+        mock_template.metadata = {"body": "Olá {{1}}", "buttons": []}
+        data = {
+            "template_variables": {
+                "1": "Ana",
+                "button": "order-1",
+                "payment_buttons": [
+                    {"type": "pix_dynamic_code", "text": "PIX"},
+                ],
+            },
+            "contact_urn": "whatsapp:5584999999999",
+        }
+
+        result = self.handler.build_broadcast_template_message(
+            data=data,
+            channel_uuid="channel-uuid",
+            project_uuid="project-uuid",
+            template=mock_template,
+        )
+
+        self.assertEqual(result["msg"]["template"]["variables"], ["Ana"])
+        self.assertNotIn("buttons", result["msg"])
+
+    def test_build_message_ignores_untyped_payment_button_when_another_is_typed(self):
+        mock_template = MagicMock()
+        mock_template.current_version.template_name = "payment_recovery"
+        mock_template.metadata = {
+            "buttons": [
+                {"type": "PAYMENT_REQUEST", "text": "Pagar"},
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Copiar código Pix",
+                    "payment_setting": {"type": "pix_dynamic_code"},
+                },
+            ],
+        }
+        data = {
+            "template_variables": {
+                "payment_buttons": [
+                    {"type": "pix_dynamic_code", "text": "PIX"},
+                    {"type": "payment_link", "text": "https://pay.example.com"},
+                ],
+            },
+            "contact_urn": "whatsapp:5584999999999",
+        }
+
+        result = self.handler.build_broadcast_template_message(
+            data=data,
+            channel_uuid="channel-uuid",
+            project_uuid="project-uuid",
+            template=mock_template,
+        )
+
+        self.assertEqual(
+            result["msg"]["buttons"],
+            [
+                {
+                    "sub_type": "payment_request",
+                    "parameters": [{"type": "pix_dynamic_code", "text": "PIX"}],
+                }
+            ],
+        )
+
+    def test_build_message_keeps_payment_buttons_when_template_type_is_unknown(self):
+        mock_template = MagicMock()
+        mock_template.current_version.template_name = "payment_recovery"
+        mock_template.metadata = {
+            "buttons": [{"type": "PAYMENT_REQUEST", "text": "Pagar"}],
+        }
+        data = {
+            "template_variables": {
+                "payment_buttons": [
+                    {"type": "pix_dynamic_code", "text": "PIX"},
+                    {"type": "payment_link", "text": "https://pay.example.com"},
+                ],
+            },
+            "contact_urn": "whatsapp:5584999999999",
+        }
+
+        result = self.handler.build_broadcast_template_message(
+            data=data,
+            channel_uuid="channel-uuid",
+            project_uuid="project-uuid",
+            template=mock_template,
+        )
+
+        types = [button["parameters"][0]["type"] for button in result["msg"]["buttons"]]
+        self.assertEqual(types, ["pix_dynamic_code", "payment_link"])
 
     def test_build_broadcast_template_message_without_payment_buttons(self):
         """Does not include payment buttons when not provided."""

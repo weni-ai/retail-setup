@@ -1,3 +1,13 @@
+# 5.61.0
+- feat: Install back-in-stock IO app on agent assign
+
+# 5.60.0
+- fix: Allow template edits that drop variables or buttons
+
+# 5.59.0
+- feat: Enhance GetContentBaseProgressUseCase with legacy crawl handling
+- feat: Add retail.metrics app with product metric event recording endpoint
+
 # 5.58.0
 - refactor: Replace pre-built email subject/body with raw metadata params in contract acceptance email
 

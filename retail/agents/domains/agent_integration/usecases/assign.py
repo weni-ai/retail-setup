@@ -116,8 +116,10 @@ class AssignAgentUseCase:
         fetch_country_phone_code_usecase: Optional[FetchCountryPhoneCodeUseCase] = None,
         meta_service: Optional[MetaServiceInterface] = None,
         sync_vtex_sub_accounts_usecase: Optional[SyncVtexSubAccountsUseCase] = None,
+        vtex_io_service: Optional[VtexIOService] = None,
     ):
         self.integrations_service = integrations_service or IntegrationsService()
+        self.vtex_io_service = vtex_io_service or VtexIOService()
         self.fetch_country_phone_code_usecase = (
             fetch_country_phone_code_usecase or FetchCountryPhoneCodeUseCase()
         )
@@ -828,6 +830,7 @@ class AssignAgentUseCase:
                 app_uuid=app_uuid,
             )
             self._ensure_back_in_stock_subscribers_group(project_uuid)
+            self._install_back_in_stock_app(project)
 
         return integrated_agent
 
@@ -1082,6 +1085,18 @@ class AssignAgentUseCase:
     def _ensure_back_in_stock_subscribers_group(self, project_uuid: UUID) -> None:
         """Create the Flows subscribers group when it is missing."""
         EnsureBackInStockContactGroupUseCase().execute(project_uuid)
+
+    def _install_back_in_stock_app(self, project: Project) -> None:
+        """Install the IO app on the production store. Failure does not roll back assign."""
+        vtex_account = project.vtex_account
+        if not vtex_account:
+            logger.warning(
+                f"[BACK_IN_STOCK] Skipping app install: project={project.uuid} "
+                f"reason=missing_vtex_account"
+            )
+            return
+        logger.info(f"[BACK_IN_STOCK] Installing IO app: vtex_account={vtex_account}")
+        self.vtex_io_service.install_back_in_stock_app(vtex_account)
 
     def _build_payment_recovery_webhook_url(
         self, integrated_agent: IntegratedAgent

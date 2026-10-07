@@ -656,6 +656,145 @@ class UpdateNormalTemplateFooterRemovalIntegrationTest(TestCase):
         self._assert_footer_removed(translation_payload)
 
 
+class UpdateTemplateRemovedComponentsDispatchTest(TestCase):
+    """Edit request → adapter → task_create_template payload."""
+
+    def setUp(self):
+        self.project = Project.objects.create(
+            uuid=uuid4(),
+            name="Test Project",
+            organization_uuid=uuid4(),
+        )
+        self.template = Template.objects.create(
+            name="payment_recovery_template",
+            metadata={"category": "UTILITY", "body": "Olá {{1}}", "language": "pt_BR"},
+        )
+        self.strategy = UpdateNormalTemplateStrategy(
+            template_metadata_handler=TemplateMetadataHandler(),
+            template_adapter=TemplateTranslationAdapter(),
+        )
+        self.app_uuid = str(uuid4())
+        self.project_uuid = str(self.project.uuid)
+
+    def _request(self, data: dict) -> dict:
+        serializer = UpdateTemplateContentSerializer(
+            data={**data, "app_uuid": self.app_uuid, "project_uuid": self.project_uuid}
+        )
+        serializer.is_valid(raise_exception=True)
+        return {
+            **serializer.validated_data,
+            "app_uuid": self.app_uuid,
+            "project_uuid": self.project_uuid,
+        }
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.task_create_template"
+    )
+    def test_update_dispatches_template_without_removed_variables_or_buttons(
+        self, mock_task
+    ):
+        payload = self._request(
+            {
+                "template_body": "Seu pagamento ainda está pendente.",
+                "template_body_params": ["João", "pedido-removido"],
+                "template_header": "Pedido",
+                "template_button": [
+                    {
+                        "type": "URL",
+                        "text": "Ver pedido",
+                        "url": "https://loja.com/pedido",
+                        "example": ["https://loja.com/pedido/1"],
+                    },
+                    {
+                        "type": "PAYMENT_REQUEST",
+                        "text": "Copiar código Pix",
+                        "payment_setting": {"type": "pix_dynamic_code"},
+                    },
+                ],
+            }
+        )
+
+        self.strategy.update_template(self.template, payload)
+
+        translation = mock_task.delay.call_args.kwargs["template_translation"]
+        self.assertEqual(
+            translation,
+            {
+                "language": "pt_BR",
+                "header": {"header_type": "TEXT", "text": "Pedido"},
+                "body": {
+                    "type": "BODY",
+                    "text": "Seu pagamento ainda está pendente.",
+                },
+                "buttons": [
+                    {
+                        "button_type": "URL",
+                        "text": "Ver pedido",
+                        "url": "https://loja.com/pedido",
+                    },
+                    {
+                        "button_type": "PAYMENT_REQUEST",
+                        "text": "Copiar código Pix",
+                        "payment_setting": {"type": "pix_dynamic_code"},
+                    },
+                ],
+            },
+        )
+        self.template.refresh_from_db()
+        self.assertEqual(
+            self.template.metadata["buttons"][0],
+            {
+                "type": "URL",
+                "text": "Ver pedido",
+                "url": "https://loja.com/pedido",
+            },
+        )
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.task_create_template"
+    )
+    def test_update_dispatches_example_when_placeholder_remains(self, mock_task):
+        payload = self._request(
+            {
+                "template_body": "Olá {{1}}",
+                "template_body_params": ["Ana", "sobra"],
+                "template_button": [
+                    {
+                        "type": "URL",
+                        "text": "Pagar",
+                        "url": {
+                            "base_url": "https://loja.com/checkout?id=",
+                            "url_suffix_example": "abc",
+                        },
+                    }
+                ],
+            }
+        )
+
+        self.strategy.update_template(self.template, payload)
+
+        translation = mock_task.delay.call_args.kwargs["template_translation"]
+        self.assertEqual(
+            translation["body"],
+            {
+                "type": "BODY",
+                "text": "Olá {{1}}",
+                "example": {"body_text": [["Ana"]]},
+            },
+        )
+        self.assertEqual(
+            translation["buttons"],
+            [
+                {
+                    "button_type": "URL",
+                    "text": "Pagar",
+                    "url": "https://loja.com/checkout?id={{1}}",
+                    "example": ["abc"],
+                }
+            ],
+        )
+
+
 class UpdateCustomTemplateStrategyTest(TestCase):
     def setUp(self):
         self.project = Project.objects.create(

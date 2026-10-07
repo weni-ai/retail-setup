@@ -1,5 +1,6 @@
 import logging
-from typing import Optional, Union
+import time
+from typing import Callable, Optional, Union
 
 from retail.clients.exceptions import CustomAPIException
 from retail.interfaces.clients.vtex_io.interface import VtexIOClientInterface
@@ -7,6 +8,9 @@ from retail.clients.vtex_io.client import VtexIOClient
 
 
 logger = logging.getLogger(__name__)
+
+BACK_IN_STOCK_APP_MAX_ATTEMPTS = 2
+BACK_IN_STOCK_APP_RETRY_SECONDS = 1
 
 
 class VtexIOService:
@@ -129,6 +133,59 @@ class VtexIOService:
             account_domain=account_domain,
             vtex_account=vtex_account,
         )
+
+    def install_back_in_stock_app(self, vtex_account: str) -> Optional[dict]:
+        """Install the back-in-stock IO app. Infra failures return ``None``."""
+        return self._call_back_in_stock_app(
+            self.client.install_back_in_stock_app, vtex_account
+        )
+
+    def uninstall_back_in_stock_app(self, vtex_account: str) -> Optional[dict]:
+        """Uninstall the back-in-stock IO app. Infra failures return ``None``."""
+        return self._call_back_in_stock_app(
+            self.client.uninstall_back_in_stock_app, vtex_account
+        )
+
+    def _call_back_in_stock_app(
+        self, operation: Callable[[str], dict], vtex_account: str
+    ) -> Optional[dict]:
+        """Call install or uninstall, retrying once on a transient failure.
+
+        A 4xx is not retried: the same token or account will fail again.
+        Timeout, network errors, and 5xx get a second attempt.
+        """
+        for attempt in range(1, BACK_IN_STOCK_APP_MAX_ATTEMPTS + 1):
+            try:
+                return operation(vtex_account)
+            except CustomAPIException as exc:
+                if not self._is_retryable_back_in_stock_failure(exc):
+                    logger.error(
+                        f"Back-in-stock app call failed for "
+                        f"vtex_account={vtex_account}: status={exc.status_code}"
+                    )
+                    return None
+                error = f"status={exc.status_code}"
+            except Exception as exc:
+                error = str(exc)
+
+            if attempt == BACK_IN_STOCK_APP_MAX_ATTEMPTS:
+                logger.error(
+                    f"Back-in-stock app call failed for "
+                    f"vtex_account={vtex_account}: {error}"
+                )
+                return None
+
+            logger.warning(
+                f"Back-in-stock app call failed for "
+                f"vtex_account={vtex_account}: {error} "
+                f"attempt={attempt} retrying"
+            )
+            time.sleep(BACK_IN_STOCK_APP_RETRY_SECONDS)
+
+    @staticmethod
+    def _is_retryable_back_in_stock_failure(exc: CustomAPIException) -> bool:
+        status_code = exc.status_code
+        return status_code is None or status_code >= 500
 
     def cleanup_availability_notify(
         self, account_domain: str, vtex_account: str
