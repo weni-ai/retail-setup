@@ -12,6 +12,11 @@ class CustomTemplateAlreadyExists(APIException):
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
+class DefaultHeaderImageUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "The default header image could not be loaded."
+
+
 class NotDirectSendEligibleError(Exception):
     """Template's IntegratedAgent has no ``direct_send``. Anchor: FR-002a."""
 

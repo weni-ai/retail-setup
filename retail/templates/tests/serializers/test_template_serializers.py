@@ -483,6 +483,196 @@ class TestUpdateTemplateContentSerializer(TestCase):
         serializer = UpdateTemplateContentSerializer(data=data)
         self.assertTrue(serializer.is_valid())
 
+    def test_use_default_header_image_is_accepted(self):
+        data = {
+            "template_body": "Updated body",
+            "use_default_header_image": True,
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertTrue(serializer.validated_data["use_default_header_image"])
+
+    def test_use_default_header_image_alone_is_valid(self):
+        data = {
+            "use_default_header_image": True,
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_use_default_header_image_false_alone_is_invalid(self):
+        data = {
+            "use_default_header_image": False,
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("non_field_errors", serializer.errors)
+
+    def test_use_default_header_image_with_template_header_is_rejected(self):
+        data = {
+            "template_body": "Updated body",
+            "template_header": "Updated header",
+            "use_default_header_image": True,
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(
+            "use_default_header_image and template_header cannot be sent together.",
+            str(serializer.errors["non_field_errors"]),
+        )
+
+    def test_use_default_header_image_false_with_template_header_is_rejected(self):
+        data = {
+            "template_header": "Updated header",
+            "use_default_header_image": False,
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("non_field_errors", serializer.errors)
+
+    def test_payment_request_without_payment_setting_is_rejected(self):
+        data = {
+            "template_body": "Updated body",
+            "template_button": [
+                {"type": "PAYMENT_REQUEST", "text": "Copiar código Pix"},
+            ],
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("template_button", serializer.errors)
+        self.assertIn("index 0", str(serializer.errors["template_button"]))
+        self.assertIn("Copiar código Pix", str(serializer.errors["template_button"]))
+
+    def test_payment_request_without_payment_setting_type_is_rejected(self):
+        data = {
+            "template_body": "Updated body",
+            "template_button": [
+                {
+                    "type": "QUICK_REPLY",
+                    "text": "Ok",
+                },
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Outros meios de pagamento",
+                    "payment_setting": {"pix_dynamic_code": {"code": "000201"}},
+                },
+            ],
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("index 1", str(serializer.errors["template_button"]))
+        self.assertIn(
+            "Outros meios de pagamento", str(serializer.errors["template_button"])
+        )
+
+    def test_payment_request_with_blank_payment_setting_type_is_rejected(self):
+        data = {
+            "template_body": "Updated body",
+            "template_button": [
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Copiar código Pix",
+                    "payment_setting": {"type": "  "},
+                }
+            ],
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("template_button", serializer.errors)
+
+    def test_payment_request_with_non_string_payment_setting_type_is_rejected(self):
+        data = {
+            "template_body": "Updated body",
+            "template_button": [
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Copiar código Pix",
+                    "payment_setting": {"type": 1},
+                }
+            ],
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("template_button", serializer.errors)
+
+    def test_payment_request_with_non_dict_payment_setting_is_rejected(self):
+        data = {
+            "template_body": "Updated body",
+            "template_button": [
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Copiar código Pix",
+                    "payment_setting": "pix_dynamic_code",
+                }
+            ],
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("template_button", serializer.errors)
+
+    def test_non_object_button_is_rejected(self):
+        data = {
+            "template_body": "Updated body",
+            "template_button": ["Copiar código Pix"],
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("index 0", str(serializer.errors["template_button"]))
+
+    def test_typed_payment_request_url_and_quick_reply_buttons_are_accepted(self):
+        data = {
+            "template_body": "Updated body",
+            "template_button": [
+                {
+                    "type": "PAYMENT_REQUEST",
+                    "text": "Copiar código Pix",
+                    "payment_setting": {"type": "pix_dynamic_code"},
+                },
+                {
+                    "type": "URL",
+                    "text": "Abrir",
+                    "url": {"base_url": "https://example.com"},
+                },
+                {"type": "QUICK_REPLY", "text": "Ok"},
+            ],
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_empty_button_list_is_accepted(self):
+        data = {
+            "template_body": "Updated body",
+            "template_button": [],
+            "app_uuid": str(uuid4()),
+        }
+
+        serializer = UpdateTemplateContentSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["template_button"], [])
+
 
 class TestParameterSerializer(TestCase):
     def test_valid_parameter(self):
@@ -751,3 +941,20 @@ class TestValidateTemplateSampleSerializer(TestCase):
         serializer = self._serializer(data)
         self.assertFalse(serializer.is_valid())
         self.assertIn("non_field_errors", serializer.errors)
+
+    def test_use_default_header_image_is_ignored(self):
+        data = {**self.base_data, "use_default_header_image": True}
+        serializer = self._serializer(data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertNotIn("use_default_header_image", serializer.validated_data)
+        self.assertNotIn("use_default_header_image", serializer.fields)
+
+    def test_payment_request_without_payment_setting_stays_valid(self):
+        data = {
+            **self.base_data,
+            "template_button": [
+                {"type": "PAYMENT_REQUEST", "text": "Copiar código Pix"}
+            ],
+        }
+        serializer = self._serializer(data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)

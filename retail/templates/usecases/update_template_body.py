@@ -1,12 +1,19 @@
-from typing import Optional, TypedDict, List, Dict, Any
+import copy
+import logging
+from typing import Any, Dict, List, Optional, TypedDict
 
+from django.conf import settings
 from rest_framework.exceptions import NotFound
 
-from retail.templates.models import Template
+from retail.services.aws_s3.converters import ImageUrlToBase64Converter
+from retail.services.rule_generator import RuleGenerator
 from retail.templates.adapters.template_library_to_custom_adapter import (
     TemplateTranslationAdapter,
 )
-from retail.services.rule_generator import RuleGenerator
+from retail.templates.exceptions import DefaultHeaderImageUnavailable
+from retail.templates.models import Template
+
+logger = logging.getLogger(__name__)
 
 
 class UpdateTemplateContentData(TypedDict, total=False):
@@ -20,6 +27,7 @@ class UpdateTemplateContentData(TypedDict, total=False):
     project_uuid: str
     parameters: Optional[List[Dict[str, Any]]]
     language: Optional[str]
+    use_default_header_image: bool
 
 
 class UpdateTemplateContentUseCase:
@@ -59,9 +67,11 @@ class UpdateTemplateContentUseCase:
         self,
         rule_generator: Optional[RuleGenerator] = None,
         template_adapter: Optional[TemplateTranslationAdapter] = None,
+        image_converter: Optional[ImageUrlToBase64Converter] = None,
     ):
         self.rule_generator = rule_generator
         self.template_adapter = template_adapter
+        self.image_converter = image_converter or ImageUrlToBase64Converter()
 
     def _get_template(self, uuid: str) -> Template:
         """Retrieve template by UUID"""
@@ -86,6 +96,10 @@ class UpdateTemplateContentUseCase:
         )
 
         template = self._get_template(payload["template_uuid"])
+        resolved_payload = self._resolve_default_header_image(dict(payload))
+        resolved_payload = self._preserve_buttons_when_omitted(
+            template, resolved_payload
+        )
 
         strategy = UpdateTemplateStrategyFactory.create_strategy(
             template=template,
@@ -93,4 +107,51 @@ class UpdateTemplateContentUseCase:
             rule_generator=self.rule_generator,
         )
 
-        return strategy.update_template(template, payload)
+        return strategy.update_template(template, resolved_payload)
+
+    def _resolve_default_header_image(
+        self, payload: UpdateTemplateContentData
+    ) -> UpdateTemplateContentData:
+        """Replace the flag with the agent default image.
+
+        The update strategy only understands ``template_header``. ``True``
+        reuses the image agent creation already converts for Integrations.
+        ``False`` omits the header so the stored image is removed.
+        """
+        use_default_header_image = payload.pop("use_default_header_image", None)
+        if use_default_header_image is None:
+            return payload
+
+        if not use_default_header_image:
+            payload.pop("template_header", None)
+            return payload
+
+        image_url = settings.ABANDONED_CART_DEFAULT_IMAGE_URL
+        header_image = self.image_converter.convert(image_url)
+        if not header_image:
+            logger.error(f"Default header image could not be loaded from {image_url}")
+            raise DefaultHeaderImageUnavailable()
+
+        payload["template_header"] = header_image
+        logger.info("Resolved the default header image for the template update")
+        return payload
+
+    def _preserve_buttons_when_omitted(
+        self, template: Template, payload: UpdateTemplateContentData
+    ) -> UpdateTemplateContentData:
+        """Keep stored buttons when the edit does not mention them.
+
+        A missing ``template_button`` used to become ``buttons: null``, which
+        drops the buttons on Meta and is treated as a legacy template on
+        dispatch. The copy is required because the Integrations payload
+        mutates each button in place.
+        """
+        if "template_button" in payload:
+            return payload
+
+        stored_buttons = (template.metadata or {}).get("buttons")
+        payload["template_button"] = copy.deepcopy(stored_buttons)
+        logger.info(
+            "template_button omitted; keeping the buttons stored on the template"
+        )
+        return payload
