@@ -588,6 +588,65 @@ class TemplateViewSetTest(BaseTestMixin, APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertNotIn("project_uuid", response.data)
 
+    def test_partial_update_passes_default_header_image_flag_to_use_case(self):
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
+        )
+
+        template = Template.objects.create(
+            uuid=uuid4(),
+            name="test_template",
+            parent=self.parent,
+        )
+        captured_data = {}
+
+        def capture_execute(data):
+            captured_data.update(data)
+            return template
+
+        self.update_content_usecase.execute = capture_execute
+
+        payload = {
+            "template_body": "Updated template body",
+            "use_default_header_image": True,
+            "app_uuid": str(uuid4()),
+        }
+
+        response = self.client.patch(
+            reverse("template-detail", args=[str(template.uuid)]),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(captured_data["use_default_header_image"])
+
+    def test_partial_update_rejects_payment_request_without_payment_setting(self):
+        self.setup_internal_user_permissions(self.user)
+        self.setup_connect_service_mock(
+            status_code=200,
+            permissions=ConnectServicePermissionScenarios.CONTRIBUTOR_PERMISSIONS,
+        )
+
+        payload = {
+            "template_body": "Updated template body",
+            "template_button": [
+                {"type": "PAYMENT_REQUEST", "text": "Copiar código Pix"},
+            ],
+            "app_uuid": str(uuid4()),
+        }
+
+        response = self.client.patch(
+            reverse("template-detail", args=[str(uuid4())]),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("template_button", response.data)
+
     def test_partial_update_template_content_not_found(self):
         """Test template content update with non-existent template"""
         self.setup_internal_user_permissions(self.user)

@@ -1,8 +1,11 @@
 from unittest.mock import patch, MagicMock
 from uuid import uuid4
-from django.test import TestCase
+
+from django.test import TestCase, override_settings
 from rest_framework.exceptions import NotFound
 
+from retail.services.aws_s3.converters import ImageUrlToBase64Converter
+from retail.templates.exceptions import DefaultHeaderImageUnavailable
 from retail.templates.usecases.update_template_body import (
     UpdateTemplateContentUseCase,
     UpdateTemplateContentData,
@@ -11,6 +14,8 @@ from retail.templates.strategies.update_template_strategies import (
     UpdateNormalTemplateStrategy,
     UpdateCustomTemplateStrategy,
 )
+
+DEFAULT_HEADER_IMAGE_URL = "https://cdn.example.com/min_abandoned_cart.png"
 
 
 class TestUpdateTemplateContentUseCase(TestCase):
@@ -185,17 +190,246 @@ class TestUpdateTemplateContentUseCase(TestCase):
     def test_init_with_custom_dependencies(self):
         mock_rule_generator = MagicMock()
         mock_template_adapter = MagicMock()
+        mock_image_converter = MagicMock()
 
         use_case = UpdateTemplateContentUseCase(
             rule_generator=mock_rule_generator,
             template_adapter=mock_template_adapter,
+            image_converter=mock_image_converter,
         )
 
         self.assertEqual(use_case.rule_generator, mock_rule_generator)
         self.assertEqual(use_case.template_adapter, mock_template_adapter)
+        self.assertEqual(use_case.image_converter, mock_image_converter)
 
     def test_init_with_default_dependencies(self):
         use_case = UpdateTemplateContentUseCase()
 
         self.assertIsNone(use_case.rule_generator)
         self.assertIsNone(use_case.template_adapter)
+        self.assertIsInstance(use_case.image_converter, ImageUrlToBase64Converter)
+
+    def _use_case_with_converter(self, converted_image):
+        image_converter = MagicMock()
+        image_converter.convert.return_value = converted_image
+        return (
+            UpdateTemplateContentUseCase(image_converter=image_converter),
+            image_converter,
+        )
+
+    @override_settings(ABANDONED_CART_DEFAULT_IMAGE_URL=DEFAULT_HEADER_IMAGE_URL)
+    @patch(
+        "retail.templates.strategies.update_template_strategies.UpdateTemplateStrategyFactory.create_strategy"
+    )
+    @patch.object(UpdateTemplateContentUseCase, "_get_template")
+    def test_execute_with_default_header_image_sets_base64_header(
+        self, mock_get_template, mock_factory
+    ):
+        mock_template = MagicMock()
+        mock_template.metadata = {"buttons": []}
+        mock_get_template.return_value = mock_template
+
+        mock_strategy = MagicMock()
+        mock_strategy.update_template.return_value = mock_template
+        mock_factory.return_value = mock_strategy
+
+        use_case, image_converter = self._use_case_with_converter(
+            "data:image/png;base64,abc"
+        )
+        payload = UpdateTemplateContentData(
+            template_uuid=self.template_uuid,
+            template_body="Updated body",
+            use_default_header_image=True,
+            template_button=[{"type": "QUICK_REPLY", "text": "Button 1"}],
+            app_uuid=self.app_uuid,
+            project_uuid=self.project_uuid,
+        )
+
+        result = use_case.execute(payload)
+
+        image_converter.convert.assert_called_once_with(DEFAULT_HEADER_IMAGE_URL)
+        called_payload = mock_strategy.update_template.call_args.args[1]
+        self.assertEqual(called_payload["template_header"], "data:image/png;base64,abc")
+        self.assertNotIn("use_default_header_image", called_payload)
+        self.assertEqual(result, mock_template)
+
+    @override_settings(ABANDONED_CART_DEFAULT_IMAGE_URL=DEFAULT_HEADER_IMAGE_URL)
+    @patch(
+        "retail.templates.strategies.update_template_strategies.UpdateTemplateStrategyFactory.create_strategy"
+    )
+    @patch.object(UpdateTemplateContentUseCase, "_get_template")
+    def test_execute_with_default_header_image_raises_when_conversion_fails(
+        self, mock_get_template, mock_factory
+    ):
+        mock_get_template.return_value = MagicMock()
+        use_case, image_converter = self._use_case_with_converter(None)
+        payload = UpdateTemplateContentData(
+            template_uuid=self.template_uuid,
+            use_default_header_image=True,
+            app_uuid=self.app_uuid,
+            project_uuid=self.project_uuid,
+        )
+
+        with self.assertRaises(DefaultHeaderImageUnavailable):
+            use_case.execute(payload)
+
+        image_converter.convert.assert_called_once_with(DEFAULT_HEADER_IMAGE_URL)
+        mock_factory.assert_not_called()
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.UpdateTemplateStrategyFactory.create_strategy"
+    )
+    @patch.object(UpdateTemplateContentUseCase, "_get_template")
+    def test_execute_with_default_header_image_false_removes_header(
+        self, mock_get_template, mock_factory
+    ):
+        mock_template = MagicMock()
+        mock_template.metadata = {}
+        mock_get_template.return_value = mock_template
+
+        mock_strategy = MagicMock()
+        mock_strategy.update_template.return_value = mock_template
+        mock_factory.return_value = mock_strategy
+
+        use_case, image_converter = self._use_case_with_converter(
+            "data:image/png;base64,abc"
+        )
+        payload = UpdateTemplateContentData(
+            template_uuid=self.template_uuid,
+            template_body="Updated body",
+            template_header="https://cdn.example.com/expired.png",
+            use_default_header_image=False,
+            template_button=[],
+            app_uuid=self.app_uuid,
+            project_uuid=self.project_uuid,
+        )
+
+        use_case.execute(payload)
+
+        image_converter.convert.assert_not_called()
+        called_payload = mock_strategy.update_template.call_args.args[1]
+        self.assertNotIn("template_header", called_payload)
+        self.assertNotIn("use_default_header_image", called_payload)
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.UpdateTemplateStrategyFactory.create_strategy"
+    )
+    @patch.object(UpdateTemplateContentUseCase, "_get_template")
+    def test_execute_without_template_button_keeps_stored_buttons_copy(
+        self, mock_get_template, mock_factory
+    ):
+        stored_buttons = [
+            {
+                "type": "PAYMENT_REQUEST",
+                "text": "Copiar código Pix",
+                "payment_setting": {"type": "pix_dynamic_code"},
+            }
+        ]
+        mock_template = MagicMock()
+        mock_template.metadata = {"buttons": stored_buttons}
+        mock_get_template.return_value = mock_template
+
+        mock_strategy = MagicMock()
+        mock_strategy.update_template.return_value = mock_template
+        mock_factory.return_value = mock_strategy
+
+        payload = UpdateTemplateContentData(
+            template_uuid=self.template_uuid,
+            template_body="Updated body",
+            app_uuid=self.app_uuid,
+            project_uuid=self.project_uuid,
+        )
+
+        self.use_case.execute(payload)
+
+        called_payload = mock_strategy.update_template.call_args.args[1]
+        self.assertEqual(called_payload["template_button"], stored_buttons)
+        self.assertIsNot(called_payload["template_button"], stored_buttons)
+        self.assertIsNot(called_payload["template_button"][0], stored_buttons[0])
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.UpdateTemplateStrategyFactory.create_strategy"
+    )
+    @patch.object(UpdateTemplateContentUseCase, "_get_template")
+    def test_execute_without_template_button_keeps_stored_none(
+        self, mock_get_template, mock_factory
+    ):
+        mock_template = MagicMock()
+        mock_template.metadata = None
+        mock_get_template.return_value = mock_template
+
+        mock_strategy = MagicMock()
+        mock_strategy.update_template.return_value = mock_template
+        mock_factory.return_value = mock_strategy
+
+        payload = UpdateTemplateContentData(
+            template_uuid=self.template_uuid,
+            template_body="Updated body",
+            app_uuid=self.app_uuid,
+            project_uuid=self.project_uuid,
+        )
+
+        self.use_case.execute(payload)
+
+        called_payload = mock_strategy.update_template.call_args.args[1]
+        self.assertIn("template_button", called_payload)
+        self.assertIsNone(called_payload["template_button"])
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.UpdateTemplateStrategyFactory.create_strategy"
+    )
+    @patch.object(UpdateTemplateContentUseCase, "_get_template")
+    def test_execute_with_empty_button_list_passes_it_through(
+        self, mock_get_template, mock_factory
+    ):
+        mock_template = MagicMock()
+        mock_template.metadata = {
+            "buttons": [{"type": "QUICK_REPLY", "text": "Keep me"}]
+        }
+        mock_get_template.return_value = mock_template
+
+        mock_strategy = MagicMock()
+        mock_strategy.update_template.return_value = mock_template
+        mock_factory.return_value = mock_strategy
+
+        payload = UpdateTemplateContentData(
+            template_uuid=self.template_uuid,
+            template_body="Updated body",
+            template_button=[],
+            app_uuid=self.app_uuid,
+            project_uuid=self.project_uuid,
+        )
+
+        self.use_case.execute(payload)
+
+        called_payload = mock_strategy.update_template.call_args.args[1]
+        self.assertIs(called_payload["template_button"], payload["template_button"])
+
+    @patch(
+        "retail.templates.strategies.update_template_strategies.UpdateTemplateStrategyFactory.create_strategy"
+    )
+    @patch.object(UpdateTemplateContentUseCase, "_get_template")
+    def test_execute_with_button_list_passes_it_through(
+        self, mock_get_template, mock_factory
+    ):
+        sent_buttons = [{"type": "QUICK_REPLY", "text": "Only this"}]
+        mock_template = MagicMock()
+        mock_template.metadata = {"buttons": [{"type": "QUICK_REPLY", "text": "Old"}]}
+        mock_get_template.return_value = mock_template
+
+        mock_strategy = MagicMock()
+        mock_strategy.update_template.return_value = mock_template
+        mock_factory.return_value = mock_strategy
+
+        payload = UpdateTemplateContentData(
+            template_uuid=self.template_uuid,
+            template_body="Updated body",
+            template_button=sent_buttons,
+            app_uuid=self.app_uuid,
+            project_uuid=self.project_uuid,
+        )
+
+        self.use_case.execute(payload)
+
+        called_payload = mock_strategy.update_template.call_args.args[1]
+        self.assertIs(called_payload["template_button"], sent_buttons)

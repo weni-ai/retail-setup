@@ -168,6 +168,8 @@ def _normalize_blank_footer(value: str | None) -> str | None:
 class UpdateTemplateContentSerializer(serializers.Serializer):
     """Validate template content edits; ``project_uuid`` comes from ``self.auth``."""
 
+    _PAYMENT_REQUEST_BUTTON_TYPE = "PAYMENT_REQUEST"
+
     template_body = serializers.CharField(required=False)
     template_header = serializers.CharField(required=False)
     template_footer = serializers.CharField(required=False, allow_blank=True)
@@ -176,19 +178,56 @@ class UpdateTemplateContentSerializer(serializers.Serializer):
     app_uuid = serializers.CharField(required=True)
     parameters = ParameterSerializer(many=True, required=False, allow_null=True)
     language = serializers.CharField(required=False, allow_null=True)
+    use_default_header_image = serializers.BooleanField(required=False)
 
     def validate_template_footer(self, value: str | None) -> str | None:
         return _normalize_blank_footer(value)
 
+    def validate_template_button(self, value: list) -> list:
+        if not value:
+            return value
+
+        for index, button in enumerate(value):
+            if not isinstance(button, dict):
+                raise serializers.ValidationError(
+                    f"Button at index {index} must be an object."
+                )
+            if button.get("type") != self._PAYMENT_REQUEST_BUTTON_TYPE:
+                continue
+            if self._payment_setting_type(button):
+                continue
+            raise serializers.ValidationError(
+                f"PAYMENT_REQUEST button at index {index} "
+                f"('{button.get('text', '')}') requires payment_setting.type."
+            )
+        return value
+
     def validate(self, attrs):
-        if not any(
+        if "use_default_header_image" in attrs and "template_header" in attrs:
+            raise serializers.ValidationError(
+                "use_default_header_image and template_header cannot be sent together."
+            )
+
+        has_content = any(
             attrs.get(field)
             for field in ("template_body", "template_header", "template_footer")
-        ):
+        )
+        if attrs.get("use_default_header_image") is True:
+            has_content = True
+        if not has_content:
             raise serializers.ValidationError(
                 "At least one of 'template_body', 'template_header', or 'template_footer' must be provided."
             )
         return attrs
+
+    def _payment_setting_type(self, button: dict) -> str:
+        payment_setting = button.get("payment_setting")
+        if not isinstance(payment_setting, dict):
+            return ""
+        payment_type = payment_setting.get("type")
+        if not isinstance(payment_type, str):
+            return ""
+        return payment_type.strip()
 
 
 class UpdateLibraryTemplateButtonUrlSerializer(serializers.Serializer):
@@ -231,6 +270,8 @@ class ValidateTemplateSampleSerializer(UpdateTemplateContentSerializer):
     from ``self.auth`` in the view. Anchor: FR-003 / FR-003a /
     FR-014 (see ``specs/004-template-sample-validation/spec.md``).
     """
+
+    use_default_header_image = None
 
     _BODY_MAX_LENGTH = 1024
     _HEADER_TEXT_MAX_LENGTH = 60

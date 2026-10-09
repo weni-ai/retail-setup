@@ -48,10 +48,15 @@ class ValidateTemplateSampleRequestSchemaParityTest(TestCase):
     """Request field set parity with the legacy PATCH serializer."""
 
     def test_field_set_matches_update_template_content_serializer(self):
+        """Sample stays aligned with PATCH, except the default-image flag.
+
+        ``use_default_header_image`` is PATCH-only. The sample flow writes
+        metadata through the strategy and must not resolve that image.
+        """
         legacy_fields = set(UpdateTemplateContentSerializer().fields.keys())
         sample_fields = set(ValidateTemplateSampleSerializer().fields.keys())
 
-        self.assertEqual(sample_fields, legacy_fields)
+        self.assertEqual(sample_fields, legacy_fields - {"use_default_header_image"})
 
     def test_sample_serializer_inherits_from_update_template_content_serializer(self):
         """Inheritance link is the source of parity."""
