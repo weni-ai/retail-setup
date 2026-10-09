@@ -133,7 +133,7 @@ class CheckAgentActiveUseCaseTest(TestCase):
         """``parent_agent_uuid`` fallback is exclusive to ``order_status``.
 
         Payment recovery has no inheritance model, so the use case must
-        not query ``parent_agent_uuid__isnull=False`` for it.
+        not query ``parent_agent_uuid`` for it.
         """
         mock_settings.PAYMENT_RECOVERY_AGENT_UUID = "ghi-789"
         mock_project_qs.get.return_value = self.project
@@ -163,6 +163,11 @@ class CheckAgentActiveUseCaseTest(TestCase):
         result = self.use_case.execute(self.vtex_account, "order_status")
 
         self.assertTrue(result)
+        mock_ia_qs.filter.assert_called_with(
+            parent_agent_uuid="def-456",
+            project=self.project,
+            is_active=True,
+        )
 
     @patch("retail.api.vtex_projects.usecases.check_agent_active.Project.objects")
     def test_returns_false_when_project_not_found(self, mock_project_qs):

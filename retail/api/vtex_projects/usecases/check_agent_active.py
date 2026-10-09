@@ -103,7 +103,7 @@ class CheckAgentActiveUseCase:
     def _has_custom_order_status_agent(self, project: Project) -> bool:
         """Checks for custom agents that inherit from the official order status agent."""
         return IntegratedAgent.objects.filter(
-            parent_agent_uuid__isnull=False,
+            parent_agent_uuid=settings.ORDER_STATUS_AGENT_UUID,
             project=project,
             is_active=True,
         ).exists()
