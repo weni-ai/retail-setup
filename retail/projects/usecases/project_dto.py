@@ -10,6 +10,7 @@ class ProjectCreationDTO:
     authorizations: list = None
     vtex_account: str = None
     language: str = None
+    timezone: str = None
     is_live_desk_copilot: bool = False
     parent_project_uuid: Optional[str] = None
 

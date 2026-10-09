@@ -117,8 +117,13 @@ class ProjectCreationUseCase:
             existing_project.vtex_account = project_dto.vtex_account
         elif project_dto.is_live_desk_copilot:
             existing_project.vtex_account = None
+
         if project_dto.language:
             existing_project.language = project_dto.language
+
+        if project_dto.timezone:
+            existing_project.timezone = project_dto.timezone
+
         existing_project.is_live_desk_copilot = project_dto.is_live_desk_copilot
         existing_project.parent_project = parent_project
         existing_project.save()
@@ -189,6 +194,9 @@ class ProjectCreationUseCase:
 
         if project_dto.language:
             project_data["language"] = project_dto.language
+
+        if project_dto.timezone:
+            project_data["timezone"] = project_dto.timezone
 
         try:
             project, created = Project.objects.get_or_create(

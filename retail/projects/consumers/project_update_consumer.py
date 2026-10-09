@@ -16,7 +16,7 @@ class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
     """Consumes project events from update-projects.topic.
 
     Handles:
-      - updated: syncs name, language, and config to the local Project.
+      - updated: syncs name, language, timezone, and config to the local Project.
       - deleted: soft-deletes the local Project (sets is_active=False).
     """
 
@@ -65,6 +65,11 @@ class ProjectUpdateConsumer(EDAConsumer):  # pragma: no cover
         if language:
             project.language = language
             updated_fields.append("language")
+
+        project_timezone = body.get("timezone")
+        if project_timezone:
+            project.timezone = project_timezone
+            updated_fields.append("timezone")
 
         config = body.get("config")
         if config:

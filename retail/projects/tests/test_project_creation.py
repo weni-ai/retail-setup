@@ -1,7 +1,10 @@
+import json
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 from django.test import TestCase
 
+from retail.projects.consumers.project_consumer import ProjectConsumer
 from retail.projects.models import Project
 from retail.projects.usecases.project_creation import (
     ParentProjectNotFoundError,
@@ -241,6 +244,89 @@ class TestProjectCreationUseCase(TestCase):
         project = Project.objects.get(uuid=project_uuid)
         self.assertEqual(project.name, "New Name")
         self.assertEqual(project.language, "en-us")
+
+    def test_create_project_with_timezone(self):
+        dto = ProjectCreationDTO(
+            name="Timezone Project",
+            uuid=str(uuid4()),
+            organization_uuid=str(uuid4()),
+            vtex_account="tzstore",
+            timezone="Europe/Bucharest",
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.objects.get(uuid=dto.uuid)
+        self.assertEqual(project.timezone, "Europe/Bucharest")
+
+    def test_update_existing_project_timezone(self):
+        project_uuid = str(uuid4())
+        Project.objects.create(
+            name="Store",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            timezone="America/Sao_Paulo",
+        )
+
+        dto = ProjectCreationDTO(
+            name="Store",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            timezone="Europe/Bucharest",
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.objects.get(uuid=project_uuid)
+        self.assertEqual(project.timezone, "Europe/Bucharest")
+
+    def test_update_existing_project_without_timezone_keeps_stored_value(self):
+        project_uuid = str(uuid4())
+        Project.objects.create(
+            name="Store",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            timezone="Europe/Bucharest",
+        )
+
+        dto = ProjectCreationDTO(
+            name="Store",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.objects.get(uuid=project_uuid)
+        self.assertEqual(project.timezone, "Europe/Bucharest")
+
+    def test_copilot_update_persists_timezone_and_clears_vtex_account(self):
+        parent = Project.objects.create(
+            name="Parent Project",
+            uuid=uuid4(),
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+        )
+        project_uuid = str(uuid4())
+        Project.objects.create(
+            name="Store",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account="store",
+        )
+
+        dto = ProjectCreationDTO(
+            name="Copilot",
+            uuid=project_uuid,
+            organization_uuid=str(uuid4()),
+            vtex_account="store",
+            timezone="America/Argentina/Buenos_Aires",
+            is_live_desk_copilot=True,
+            parent_project_uuid=str(parent.uuid),
+        )
+        ProjectCreationUseCase.create_project(dto)
+
+        project = Project.objects.get(uuid=project_uuid)
+        self.assertEqual(project.timezone, "America/Argentina/Buenos_Aires")
+        self.assertIsNone(project.vtex_account)
+        self.assertTrue(project.is_live_desk_copilot)
 
     def test_create_project_with_language(self):
         dto = ProjectCreationDTO(
@@ -567,3 +653,39 @@ class TestProjectCreationUseCase(TestCase):
         self.assertEqual(project.name, "Regular Again")
         self.assertFalse(project.is_live_desk_copilot)
         self.assertIsNone(project.parent_project_id)
+
+
+class TestProjectConsumerTimezone(TestCase):
+    def test_consume_persists_timezone_from_creation_event(self):
+        parent = Project.objects.create(
+            name="Parent Store",
+            uuid=uuid4(),
+            organization_uuid=str(uuid4()),
+            vtex_account="parentstore",
+            timezone="Europe/Bucharest",
+        )
+        project_uuid = str(uuid4())
+        body = {
+            "uuid": project_uuid,
+            "name": "copilot teste",
+            "timezone": "America/Argentina/Buenos_Aires",
+            "organization_uuid": str(uuid4()),
+            "vtex_account": None,
+            "is_live_desk_copilot": True,
+            "parent_project_uuid": str(parent.uuid),
+            "authorizations": [],
+        }
+        message = MagicMock()
+        message.body = json.dumps(body).encode("utf-8")
+        consumer = ProjectConsumer()
+        consumer.ack = MagicMock()
+
+        consumer.consume(message)
+
+        project = Project.objects.get(uuid=project_uuid)
+        self.assertEqual(project.timezone, "America/Argentina/Buenos_Aires")
+        self.assertTrue(project.is_live_desk_copilot)
+        self.assertIsNone(project.vtex_account)
+        parent.refresh_from_db()
+        self.assertEqual(parent.timezone, "Europe/Bucharest")
+        consumer.ack.assert_called_once()
