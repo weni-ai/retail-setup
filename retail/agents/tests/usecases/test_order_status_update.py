@@ -98,7 +98,7 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         self.assertEqual(first_call_args[1]["is_active"], True)
 
         second_call_args = mock_integrated_agent_cls.objects.get.call_args_list[1]
-        self.assertEqual(second_call_args[1]["parent_agent_uuid__isnull"], False)
+        self.assertEqual(second_call_args[1]["parent_agent_uuid"], "test-agent-uuid")
         self.assertEqual(second_call_args[1]["project"], self.mock_project)
         self.assertEqual(second_call_args[1]["is_active"], True)
 
@@ -129,13 +129,13 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         )
 
         second_call_args = mock_integrated_agent_cls.objects.get.call_args_list[1]
-        self.assertEqual(second_call_args[1]["parent_agent_uuid__isnull"], False)
+        self.assertEqual(second_call_args[1]["parent_agent_uuid"], "test-agent-uuid")
         self.assertEqual(second_call_args[1]["project"], self.mock_project)
         self.assertEqual(second_call_args[1]["is_active"], True)
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.IntegratedAgent")
-    def test_get_integrated_agent_if_exists_raises_error_on_multiple_parent_agents(
+    def test_get_integrated_agent_if_exists_rejects_two_children_of_the_same_parent(
         self, mock_integrated_agent_cls, mock_settings
     ):
         mock_settings.ORDER_STATUS_AGENT_UUID = "test-agent-uuid"
@@ -153,12 +153,18 @@ class AgentOrderStatusUpdateUsecaseTest(TestCase):
         with self.assertRaises(ValidationError) as context:
             self.usecase.get_integrated_agent_if_exists(self.mock_project)
 
+        second_call_args = mock_integrated_agent_cls.objects.get.call_args_list[1]
+        self.assertEqual(second_call_args[1]["parent_agent_uuid"], "test-agent-uuid")
+        self.assertEqual(second_call_args[1]["project"], self.mock_project)
+        self.assertEqual(second_call_args[1]["is_active"], True)
+
         self.assertEqual(
             context.exception.detail["error"],
-            "Multiple agents with parent_agent_uuid found for this project",
+            "Only one custom child of the order-status agent "
+            "is allowed for this project",
         )
         self.assertEqual(
-            context.exception.detail["error"].code, "multiple_parent_agents"
+            context.exception.detail["error"].code, "single_child_required"
         )
 
     @patch("retail.agents.domains.agent_webhook.usecases.order_status.settings")

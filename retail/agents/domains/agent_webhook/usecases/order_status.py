@@ -111,10 +111,10 @@ class AgentOrderStatusUpdateUsecase:
         """Resolve the order-status agent for ``project`` from the database.
 
         Tries the official agent first; only when ``DoesNotExist`` is
-        raised, falls back to any custom agent flagged with
-        ``parent_agent_uuid`` (inherited order-status logic). The
-        nested structure mirrors that "fallback only on missing
-        official" intent visually.
+        raised, falls back to the custom agent whose ``parent_agent_uuid``
+        is the official order-status agent. Children of other official
+        agents are never resolved here. Two active children of the
+        order-status parent are rejected: a project may have only one.
         """
         try:
             integrated_agent = IntegratedAgent.objects.get(
@@ -137,7 +137,7 @@ class AgentOrderStatusUpdateUsecase:
 
             try:
                 integrated_agent = IntegratedAgent.objects.get(
-                    parent_agent_uuid__isnull=False,
+                    parent_agent_uuid=settings.ORDER_STATUS_AGENT_UUID,
                     project=project,
                     is_active=True,
                 )
@@ -158,15 +158,18 @@ class AgentOrderStatusUpdateUsecase:
                 return None
             except IntegratedAgent.MultipleObjectsReturned:
                 logger.error(
-                    f"[ORDER_STATUS] multiple_parent_agents: "
+                    f"[ORDER_STATUS] single_child_required: "
                     f"vtex_account={project.vtex_account} "
                     f"project_uuid={project.uuid}"
                 )
                 raise ValidationError(
                     {
-                        "error": "Multiple agents with parent_agent_uuid found for this project"
+                        "error": (
+                            "Only one custom child of the order-status agent "
+                            "is allowed for this project"
+                        )
                     },
-                    code="multiple_parent_agents",
+                    code="single_child_required",
                 )
 
     def get_project_by_vtex_account(self, vtex_account: str) -> Project:
