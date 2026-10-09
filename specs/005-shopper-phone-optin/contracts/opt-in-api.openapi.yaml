@@ -1,0 +1,471 @@
+openapi: 3.1.0
+info:
+  title: retail-setup — Shopping Assistant Opt-in API
+  version: 1.0.0
+  description: |
+    New endpoints owned by retail-setup for the Opt-in feature
+    (spec `specs/005-shopper-phone-optin`, product spec `001-new-client-phone-optin-v1.5`).
+
+    Versioning (constitution VIII): the URL generation is `/api/v3/`; this document
+    carries its own SemVer. Changes within 1.x MUST be backward compatible
+    (additive fields only, no renamed/removed fields, no narrowed values,
+    no changed status codes).
+
+    Callers:
+    - **Merchant** endpoints: the agentic-cx backend proxy, forwarding the merchant
+      session (Keycloak) with the `Project-Uuid` header.
+    - **Service** endpoint: the agentic-cx backend with an internal token and `Project-Uuid`.
+    - **Storefront** endpoints: agentic-cx, after `validateStorefrontSession`, with the
+      retail JWT it mints server-side. Required claims: `vtex_account`. Optional claim:
+      `user_email` = the validated VTEX session email (absent for anonymous shoppers).
+      Any email in a request body is ignored (FR-035).
+
+    Correlation: callers SHOULD send `X-Request-Id`; retail generates one otherwise and
+    echoes it back in the `X-Request-Id` response header.
+servers:
+  - url: https://{host}
+    variables:
+      host:
+        default: retail.weni.ai
+
+tags:
+  - name: merchant
+  - name: service
+  - name: storefront
+
+paths:
+  /api/v3/opt-in/settings/:
+    get:
+      tags: [merchant]
+      operationId: getMerchantOptInSettings
+      summary: Read Opt-in settings for the admin screen (FR-010a)
+      security: [{ merchantSession: [] }]
+      parameters:
+        - $ref: "#/components/parameters/ProjectUuidHeader"
+        - $ref: "#/components/parameters/RequestIdHeader"
+      responses:
+        "200":
+          description: Settings (defaults when never saved, FR-001)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MerchantSettings" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [merchant]
+      operationId: saveMerchantOptInSettings
+      summary: Save Opt-in settings (full state, idempotent)
+      description: |
+        Server-side gates (FR-002, FR-004, FR-004a/b). Turning Opt-in on ensures the
+        Flows group **Opt-in** (FR-003). Coupon-send activation runs asynchronously
+        after commit and never makes this request fail (FR-005b).
+      security: [{ merchantSession: [] }]
+      parameters:
+        - $ref: "#/components/parameters/ProjectUuidHeader"
+        - $ref: "#/components/parameters/RequestIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MerchantSettingsWrite" }
+      responses:
+        "200":
+          description: Saved; returns the same shape as GET
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MerchantSettings" }
+        "400":
+          description: |
+            Field errors. `fields` codes: `discount_percent`: `required`, `out_of_range`;
+            `code`: `required`, `too_long`; `sender_channel_uuid`: `sender_required`,
+            `sender_not_connected`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: |
+            Gate rejected, nothing stored. `error_code`: `shopping_assistant_not_enabled`
+            (FR-002, also when never recorded) or `whatsapp_not_connected` (FR-004).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: |
+            Dependency needed to validate or apply the save is unavailable; nothing stored.
+            `error_code`: `opt_in_group_unavailable` (FR-003) or
+            `whatsapp_numbers_unavailable` (coupon-on save cannot list connected numbers).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v3/opt-in/shopping-assistant/:
+    put:
+      tags: [service]
+      operationId: recordShoppingAssistantState
+      summary: Record whether Shopping Assistant is enabled for the project (FR-002a, FR-008)
+      description: |
+        Written by agentic-cx on every merchant change and during the pre-release backfill (A8).
+        Writing the same value twice has no side effect.
+      security: [{ internalService: [] }]
+      parameters:
+        - $ref: "#/components/parameters/ProjectUuidHeader"
+        - $ref: "#/components/parameters/RequestIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              additionalProperties: false
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled, changed]
+                properties:
+                  enabled: { type: boolean }
+                  changed:
+                    type: boolean
+                    description: false when the stored value was already equal
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/ProjectNotFound" }
+
+  /api/v3/opt-in/storefront/settings/:
+    get:
+      tags: [storefront]
+      operationId: getStorefrontOptInSettings
+      summary: Whether the form is available and whether the coupon is live (FR-011)
+      description: |
+        Hottest path (one call per visit). May be served from a short-lived shared cache.
+        A coupon that is on but not live is reported exactly like a coupon that is off.
+        Never returns the coupon code, the sender or the template status.
+      security: [{ storefrontRetailJwt: [] }]
+      parameters:
+        - $ref: "#/components/parameters/RequestIdHeader"
+      responses:
+        "200":
+          description: Settings for the widget
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StorefrontSettings" }
+              examples:
+                live:
+                  value: { form_available: true, coupon: { live: true, discount_percent: "10" } }
+                notLive:
+                  value: { form_available: true, coupon: { live: false } }
+                unavailable:
+                  value: { form_available: false, coupon: { live: false } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/ProjectNotFound" }
+
+  /api/v3/opt-in/storefront/eligibility/:
+    get:
+      tags: [storefront]
+      operationId: getOptInEligibility
+      summary: Eligibility for the logged-in shopper (FR-013, FR-014)
+      description: Served from the system of record; never cached.
+      security: [{ storefrontRetailJwt: [] }]
+      parameters:
+        - $ref: "#/components/parameters/RequestIdHeader"
+      responses:
+        "200":
+          description: Eligibility answer
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Eligibility" }
+        "400": { $ref: "#/components/responses/SessionEmailRequired" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/ProjectNotFound" }
+
+  /api/v3/opt-in/storefront/skip/:
+    post:
+      tags: [storefront]
+      operationId: recordOptInSkip
+      summary: Record a logged-in skip; skip_until = server now + 90 × 24 h (FR-015)
+      description: No body. A completed row stays completed.
+      security: [{ storefrontRetailJwt: [] }]
+      parameters:
+        - $ref: "#/components/parameters/RequestIdHeader"
+      responses:
+        "200":
+          description: Resulting eligibility
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Eligibility" }
+        "400": { $ref: "#/components/responses/SessionEmailRequired" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/ProjectNotFound" }
+
+  /api/v3/opt-in/storefront/promote/:
+    post:
+      tags: [storefront]
+      operationId: promoteBrowserOptInState
+      summary: Promote the browser record on login when the server row is empty (FR-016, FR-034)
+      description: |
+        Creates the row only when none exists; an existing row is never weakened.
+        `skip_until` must be in the future and is clamped to now + 90 × 24 h.
+        Name and phone are stored only when `phone` matches a first-membership submit of
+        this project, using the server-recorded values (browser name is not accepted).
+      security: [{ storefrontRetailJwt: [] }]
+      parameters:
+        - $ref: "#/components/parameters/RequestIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromoteRequest" }
+      responses:
+        "200":
+          description: Resulting eligibility (unchanged when a row already existed)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Eligibility" }
+        "400":
+          description: Validation error or `session_email_required`
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/ProjectNotFound" }
+
+  /api/v3/opt-in/storefront/submit/:
+    post:
+      tags: [storefront]
+      operationId: submitOptIn
+      summary: Accept an Opt-in submit and orchestrate it against Flows (FR-018 – FR-027)
+      description: |
+        Valid submits never fail because of Flows (FR-027): the outcome is returned when
+        known within the request budget (200), otherwise the submit is pending (202) and
+        resolved in the background. For a logged-in shopper `completed_at` is recorded on
+        acceptance (FR-020).
+      security: [{ storefrontRetailJwt: [] }]
+      parameters:
+        - $ref: "#/components/parameters/RequestIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubmitRequest" }
+      responses:
+        "200":
+          description: Outcome known within the request budget
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubmitResolved" }
+        "202":
+          description: Accepted; outcome resolved in the background
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubmitPending" }
+        "400":
+          description: |
+            Field errors, nothing written, no Flows call (FR-018). `fields` codes:
+            `name`: `name_required`, `too_long`; `country_calling_code`:
+            `unknown_country_calling_code`; `national_number`: `invalid_national_number`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/ProjectNotFound" }
+        "409":
+          description: "`error_code=opt_in_not_available`: Opt-in off or Shopping Assistant not enabled; nothing written."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+components:
+  securitySchemes:
+    merchantSession:
+      type: http
+      scheme: bearer
+      description: Merchant Keycloak token forwarded by the agentic-cx proxy; permission `[IsWeniAuthenticated, HasWeniProjectPermission]` (contributor or moderator).
+    internalService:
+      type: http
+      scheme: bearer
+      description: Internal service token; permission `[IsWeniAuthenticated, CanCommunicateInternally]`.
+    storefrontRetailJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Weni JWT minted by agentic-cx; permission `[IsWeniAuthenticated, IsStorefrontRetailToken]` (JWT with `vtex_account`; Keycloak rejected).
+
+  parameters:
+    ProjectUuidHeader:
+      name: Project-Uuid
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+    RequestIdHeader:
+      name: X-Request-Id
+      in: header
+      required: false
+      schema: { type: string, maxLength: 128 }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+    Forbidden:
+      description: Token valid but not allowed for this endpoint or project
+    ProjectNotFound:
+      description: "`error_code=project_not_found`"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    SessionEmailRequired:
+      description: "`error_code=session_email_required`: the token carries no session email (anonymous shoppers have no eligibility row, FR-017)."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationError:
+      description: Field errors
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error_code, detail]
+      properties:
+        error_code: { type: string, description: Stable machine-readable code }
+        detail: { type: string, description: Human-readable message; never contains upstream bodies or PII }
+        fields:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+
+    DiscountPercent:
+      type: string
+      pattern: '^\d{1,3}(\.\d{1,2})?$'
+      description: Decimal string, 0 < value <= 100 (A2a). Shopper-facing copy only.
+
+    WhatsAppNumber:
+      type: object
+      required: [channel_uuid, phone_number]
+      properties:
+        channel_uuid: { type: string, format: uuid, description: Flows channel UUID }
+        phone_number: { type: string }
+        name: { type: [string, "null"] }
+
+    MerchantSettings:
+      type: object
+      required: [opt_in_enabled, shopping_assistant_enabled, coupon, whatsapp_numbers_available]
+      properties:
+        opt_in_enabled: { type: boolean }
+        shopping_assistant_enabled: { type: boolean }
+        coupon:
+          type: object
+          required: [enabled, awaiting_approval]
+          properties:
+            enabled: { type: boolean }
+            discount_percent: { oneOf: [{ $ref: "#/components/schemas/DiscountPercent" }, { type: "null" }] }
+            code: { type: string }
+            sender:
+              oneOf:
+                - $ref: "#/components/schemas/WhatsAppNumber"
+                - type: "null"
+            awaiting_approval:
+              type: boolean
+              description: True while the coupon is on but not live; one indication for every not-approved status (FR-010a).
+        whatsapp_numbers:
+          description: Connected WhatsApp numbers at read time; null when they could not be listed.
+          oneOf:
+            - type: array
+              items: { $ref: "#/components/schemas/WhatsAppNumber" }
+            - type: "null"
+        whatsapp_numbers_available: { type: boolean }
+
+    MerchantSettingsWrite:
+      type: object
+      required: [opt_in_enabled, coupon]
+      additionalProperties: false
+      properties:
+        opt_in_enabled: { type: boolean }
+        coupon:
+          type: object
+          required: [enabled]
+          additionalProperties: false
+          properties:
+            enabled: { type: boolean }
+            discount_percent: { $ref: "#/components/schemas/DiscountPercent" }
+            code: { type: string, maxLength: 100 }
+            sender_channel_uuid:
+              type: [string, "null"]
+              format: uuid
+              description: |
+                Required when coupon is on and 2+ numbers are connected (unless the coupon is
+                already on, in which case the stored sender is kept). Ignored and auto-filled
+                with exactly one connected number.
+
+    StorefrontSettings:
+      type: object
+      required: [form_available, coupon]
+      properties:
+        form_available: { type: boolean, description: Opt-in on and Shopping Assistant enabled }
+        coupon:
+          type: object
+          required: [live]
+          properties:
+            live: { type: boolean }
+            discount_percent:
+              $ref: "#/components/schemas/DiscountPercent"
+              description: Present only while live
+
+    Eligibility:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [eligible, completed, skipped] }
+        skip_until: { type: string, format: date-time, description: Present when status=skipped }
+        name: { type: string, description: Present when completed and stored }
+        phone: { type: string, description: E.164 digits without '+'; present when completed and stored }
+
+    PromoteRequest:
+      type: object
+      required: [state]
+      additionalProperties: false
+      properties:
+        state: { type: string, enum: [complete, skip] }
+        skip_until: { type: string, format: date-time, description: Required when state=skip }
+        phone: { type: string, pattern: '^\d{8,15}$', description: Optional when state=complete; E.164 digits of the confirmed pair held by the browser }
+
+    SubmitRequest:
+      type: object
+      required: [name, country_calling_code, national_number]
+      properties:
+        name: { type: string, maxLength: 128 }
+        country_calling_code: { type: string, pattern: '^\d{1,3}$' }
+        national_number: { type: string, pattern: '^\d{4,14}$' }
+        order_form_id: { type: string, maxLength: 64 }
+
+    SubmitResolved:
+      type: object
+      required: [submit_id, outcome]
+      properties:
+        submit_id: { type: string, format: uuid }
+        outcome: { type: string, enum: [first_membership, already_in_opt_in] }
+        name: { type: string, description: Present for first_membership }
+        phone: { type: string, description: E.164 digits; present for first_membership }
+
+    SubmitPending:
+      type: object
+      required: [submit_id, outcome]
+      properties:
+        submit_id: { type: string, format: uuid }
+        outcome: { type: string, enum: [pending] }
